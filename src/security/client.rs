@@ -65,13 +65,21 @@ impl std::fmt::Debug for SecurityClient {
 }
 
 impl SecurityClient {
-    pub fn from_proxy(config: &VlessOutboundConfig) -> io::Result<Self> {
-        Self::from_proxy_with_context(
+    /// Builds one TLS or REALITY transport leg from its normalized security
+    /// configuration. A VLESS XHTTP download leg may use security settings
+    /// distinct from the enclosing proxy's primary leg.
+    pub fn from_security(config: &SecurityConfig) -> io::Result<Self> {
+        Self::from_security_with_context(
             config,
             &SecurityContext::new(),
             TLS_RESUMPTION_SESSION_BUDGET,
             DEFAULT_TLS_BUFFER_LIMIT,
         )
+    }
+
+    /// Backwards-compatible primary-leg constructor.
+    pub fn from_proxy(config: &VlessOutboundConfig) -> io::Result<Self> {
+        Self::from_security(&config.security)
     }
 
     /// Builds one node from instance-shared cryptographic material. The
@@ -85,7 +93,26 @@ impl SecurityClient {
         resumption_sessions: usize,
         buffer_limit: usize,
     ) -> io::Result<Self> {
-        Self::from_proxy_with_security_context(config, context, resumption_sessions, buffer_limit)
+        Self::from_security_with_context(
+            &config.security,
+            context,
+            resumption_sessions,
+            buffer_limit,
+        )
+    }
+
+    pub(crate) fn from_security_with_context(
+        config: &SecurityConfig,
+        context: &SecurityContext,
+        resumption_sessions: usize,
+        buffer_limit: usize,
+    ) -> io::Result<Self> {
+        Self::from_security_with_security_context(
+            config,
+            context,
+            resumption_sessions,
+            buffer_limit,
+        )
     }
 
     /// Builds a standard-TLS client with explicit local-test trust anchors.
@@ -97,7 +124,15 @@ impl SecurityClient {
         config: &VlessOutboundConfig,
         roots_der: impl IntoIterator<Item = Vec<u8>>,
     ) -> io::Result<Self> {
-        if !matches!(&config.security, SecurityConfig::Tls(_)) {
+        Self::from_security_with_test_tls_roots(&config.security, roots_der)
+    }
+
+    #[cfg(feature = "interop-test")]
+    pub(crate) fn from_security_with_test_tls_roots(
+        config: &SecurityConfig,
+        roots_der: impl IntoIterator<Item = Vec<u8>>,
+    ) -> io::Result<Self> {
+        if !matches!(config, SecurityConfig::Tls(_)) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "test TLS roots can only be used with standard TLS",
@@ -115,7 +150,7 @@ impl SecurityClient {
                 "at least one test TLS root is required",
             ));
         }
-        Self::from_proxy_with_security_context(
+        Self::from_security_with_security_context(
             config,
             &SecurityContext::with_tls_roots(roots),
             TLS_RESUMPTION_SESSION_BUDGET,
@@ -123,8 +158,8 @@ impl SecurityClient {
         )
     }
 
-    fn from_proxy_with_security_context(
-        config: &VlessOutboundConfig,
+    fn from_security_with_security_context(
+        config: &SecurityConfig,
         context: &SecurityContext,
         resumption_sessions: usize,
         buffer_limit: usize,
@@ -135,7 +170,7 @@ impl SecurityClient {
                 "TLS buffer limit must be greater than zero",
             ));
         }
-        let backend = match &config.security {
+        let backend = match config {
             SecurityConfig::Tls(tls) => SecurityBackend::Standard(StandardTlsClient::new(
                 context,
                 &tls.server_name,
@@ -163,7 +198,7 @@ impl SecurityClient {
                 tls_config.alpn_protocols = vec![b"h2".to_vec()];
                 SecurityBackend::Reality {
                     connector: TlsConnector::from(Arc::new(tls_config)),
-                    server_name: config.security.server_name().to_owned(),
+                    server_name: config.server_name().to_owned(),
                     buffer_limit,
                 }
             }
@@ -225,6 +260,7 @@ mod tests {
                 path: "/xhttp".to_owned(),
                 host: "example.com".to_owned(),
                 mode: XHttpMode::StreamOne,
+                download: None,
             },
         }
     }
@@ -243,5 +279,45 @@ mod tests {
             SecurityClient::from_proxy_with_context(&config, &context, 0, 16 * 1024).unwrap();
         assert_eq!(without_resumption.buffer_limit(), 16 * 1024);
         assert!(SecurityClient::from_proxy_with_context(&config, &context, 4, 0).is_err());
+    }
+
+    #[test]
+    fn security_level_constructor_matches_the_proxy_wrapper() {
+        let config = tls_proxy();
+        let direct = SecurityClient::from_security(&config.security).unwrap();
+        let wrapped = SecurityClient::from_proxy(&config).unwrap();
+        assert_eq!(direct.buffer_limit(), wrapped.buffer_limit());
+
+        let context = SecurityContext::new();
+        let direct =
+            SecurityClient::from_security_with_context(&config.security, &context, 1, 8 * 1024)
+                .unwrap();
+        assert_eq!(direct.buffer_limit(), 8 * 1024);
+    }
+
+    #[test]
+    fn security_level_constructor_keeps_an_independent_reality_identity() {
+        let security = SecurityConfig::Reality(crate::config::RealityConfig {
+            server_name: "download.example.com".to_owned(),
+            public_key: [7; 32],
+            short_id: vec![1, 2, 3, 4],
+        });
+        let client = SecurityClient::from_security_with_context(
+            &security,
+            &SecurityContext::new(),
+            4,
+            12 * 1024,
+        )
+        .unwrap();
+        let SecurityBackend::Reality {
+            server_name,
+            buffer_limit,
+            ..
+        } = &client.backend
+        else {
+            panic!("REALITY security must build the REALITY backend")
+        };
+        assert_eq!(server_name, "download.example.com");
+        assert_eq!(*buffer_limit, 12 * 1024);
     }
 }

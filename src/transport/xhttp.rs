@@ -25,10 +25,13 @@ const MAX_X_PADDING: usize = 1_000;
 const DEFAULT_UPLOAD_CHUNK_SIZE: usize = 64 * 1024;
 const MAX_H2_HEADER_LIST_SIZE: u32 = 16 * 1024;
 const DEFAULT_H2_SEND_BUFFER_SIZE: usize = 64 * 1024;
+const MAX_UPLOAD_RESPONSE_FRAMES_PER_POLL: usize = 16;
+const MAX_UPLOAD_RESPONSE_BYTES_PER_POLL: usize = 32 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum XHttpMode {
     StreamOne,
+    StreamUp,
     PacketUp,
 }
 
@@ -110,6 +113,81 @@ impl XHttpClient {
     }
 
     pub async fn connect(&self, stream: BoxStream) -> io::Result<BoxStream> {
+        let (sender, connection) = self.handshake(stream).await?;
+        match self.mode {
+            XHttpMode::StreamOne => self.connect_stream_one(sender, connection).await,
+            XHttpMode::StreamUp => {
+                let download_sender = sender.clone();
+                self.connect_stream_up_with_download(
+                    sender,
+                    self,
+                    download_sender,
+                    ConnectionGuards::single(connection),
+                )
+                .await
+            }
+            XHttpMode::PacketUp => {
+                let download_sender = sender.clone();
+                self.connect_packet_up_with_download(
+                    sender,
+                    self,
+                    download_sender,
+                    ConnectionGuards::single(connection),
+                )
+                .await
+            }
+        }
+    }
+
+    /// Connects XHTTP upload and download over independent secured HTTP/2 streams.
+    ///
+    /// `self` and `upload_stream` always carry upload requests. The download client and
+    /// stream are used only for the stream-down GET. Both legs use the same session ID.
+    pub async fn connect_with_download(
+        &self,
+        upload_stream: BoxStream,
+        download_client: &XHttpClient,
+        download_stream: BoxStream,
+    ) -> io::Result<BoxStream> {
+        if self.mode == XHttpMode::StreamOne {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "XHTTP stream-one cannot use independent download settings",
+            ));
+        }
+
+        let (upload_sender, upload_connection) = self.handshake(upload_stream).await?;
+        let (download_sender, download_connection) =
+            download_client.handshake(download_stream).await?;
+        let connections = ConnectionGuards::split(upload_connection, download_connection);
+
+        match self.mode {
+            XHttpMode::StreamUp => {
+                self.connect_stream_up_with_download(
+                    upload_sender,
+                    download_client,
+                    download_sender,
+                    connections,
+                )
+                .await
+            }
+            XHttpMode::PacketUp => {
+                self.connect_packet_up_with_download(
+                    upload_sender,
+                    download_client,
+                    download_sender,
+                    connections,
+                )
+                .await
+            }
+            XHttpMode::StreamOne => unreachable!("stream-one was rejected before handshaking"),
+        }
+    }
+
+    async fn handshake(
+        &self,
+        stream: BoxStream,
+    ) -> io::Result<(SendRequest<Bytes>, ConnectionGuard)> {
         let mut builder = h2::client::Builder::new();
         builder
             .max_header_list_size(MAX_H2_HEADER_LIST_SIZE)
@@ -117,10 +195,7 @@ impl XHttpClient {
             .enable_push(false);
         let (sender, connection) = builder.handshake(stream).await.map_err(io_other)?;
         let connection = ConnectionGuard::spawn(connection);
-        match self.mode {
-            XHttpMode::StreamOne => self.connect_stream_one(sender, connection).await,
-            XHttpMode::PacketUp => self.connect_packet_up(sender, connection).await,
-        }
+        Ok((sender, connection))
     }
 
     async fn connect_stream_one(
@@ -140,28 +215,62 @@ impl XHttpClient {
         }))
     }
 
-    async fn connect_packet_up(
+    async fn connect_packet_up_with_download(
         &self,
-        sender: SendRequest<Bytes>,
-        connection: ConnectionGuard,
+        upload_sender: SendRequest<Bytes>,
+        download_client: &XHttpClient,
+        download_sender: SendRequest<Bytes>,
+        connections: ConnectionGuards,
     ) -> io::Result<BoxStream> {
         let session_id: Arc<str> = Arc::from(random_session_id());
-        let mut sender = sender;
-        let request = self.stream_request(Method::GET, Some(session_id.as_ref()), None, false)?;
-        let (response, _) = sender.send_request(request, true).map_err(io_other)?;
-        let response = response.await.map_err(io_other)?;
-        ensure_success(response.status(), "packet-up download")?;
+        let mut download_sender = download_sender;
+        let request =
+            download_client.stream_request(Method::GET, Some(session_id.as_ref()), None, false)?;
+        let (response, _) = download_sender
+            .send_request(request, true)
+            .map_err(io_other)?;
 
         Ok(Box::new(PacketUp {
-            sender,
+            sender: upload_sender,
             request: self.request.clone(),
             session_id,
             sequence: 0,
             upload_chunk_size: self.upload_chunk_size,
             pending_write: None,
-            download: Downlink::active(response.into_body()),
+            download: Downlink::pending(response, "packet-up download"),
             closed: false,
-            _connection: connection,
+            _connections: connections,
+        }))
+    }
+
+    async fn connect_stream_up_with_download(
+        &self,
+        upload_sender: SendRequest<Bytes>,
+        download_client: &XHttpClient,
+        download_sender: SendRequest<Bytes>,
+        connections: ConnectionGuards,
+    ) -> io::Result<BoxStream> {
+        let session_id: Arc<str> = Arc::from(random_session_id());
+        let mut download_sender = download_sender;
+        let request =
+            download_client.stream_request(Method::GET, Some(session_id.as_ref()), None, false)?;
+        let (download_response, _) = download_sender
+            .send_request(request, true)
+            .map_err(io_other)?;
+
+        let mut upload_sender = upload_sender;
+        let request = self.stream_request(Method::POST, Some(session_id.as_ref()), None, true)?;
+        let (upload_response, upload) = upload_sender
+            .send_request(request, false)
+            .map_err(io_other)?;
+
+        Ok(Box::new(StreamUp {
+            upload,
+            upload_response: UploadResponse::pending(upload_response),
+            download: Downlink::pending(download_response, "stream-up download"),
+            upload_chunk_size: self.upload_chunk_size,
+            send_closed: false,
+            _connections: connections,
         }))
     }
 
@@ -250,6 +359,28 @@ impl Drop for ConnectionGuard {
     }
 }
 
+#[derive(Debug)]
+struct ConnectionGuards {
+    _upload: ConnectionGuard,
+    _download: Option<ConnectionGuard>,
+}
+
+impl ConnectionGuards {
+    fn single(connection: ConnectionGuard) -> Self {
+        Self {
+            _upload: connection,
+            _download: None,
+        }
+    }
+
+    fn split(upload: ConnectionGuard, download: ConnectionGuard) -> Self {
+        Self {
+            _upload: upload,
+            _download: Some(download),
+        }
+    }
+}
+
 enum DownlinkState {
     Pending {
         response: Pin<Box<ResponseFuture>>,
@@ -271,13 +402,6 @@ impl Downlink {
                 response: Box::pin(response),
                 operation,
             },
-            current: Bytes::new(),
-        }
-    }
-
-    fn active(response: RecvStream) -> Self {
-        Self {
-            state: DownlinkState::Active(response),
             current: Bytes::new(),
         }
     }
@@ -413,6 +537,169 @@ impl AsyncWrite for StreamOne {
     }
 }
 
+enum UploadResponseState {
+    Pending(Pin<Box<ResponseFuture>>),
+    Draining(RecvStream),
+    Done,
+}
+
+struct UploadResponse {
+    state: UploadResponseState,
+}
+
+impl UploadResponse {
+    fn pending(response: ResponseFuture) -> Self {
+        Self {
+            state: UploadResponseState::Pending(Box::pin(response)),
+        }
+    }
+
+    fn poll_drain(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        let mut drained_frames = 0_usize;
+        let mut drained_bytes = 0_usize;
+        loop {
+            match &mut self.state {
+                UploadResponseState::Pending(response) => match response.as_mut().poll(cx) {
+                    Poll::Ready(Ok(response)) => {
+                        if let Err(error) = ensure_success(response.status(), "stream-up upload") {
+                            self.state = UploadResponseState::Done;
+                            return Poll::Ready(Err(error));
+                        }
+                        self.state = UploadResponseState::Draining(response.into_body());
+                    }
+                    Poll::Ready(Err(error)) => {
+                        self.state = UploadResponseState::Done;
+                        return Poll::Ready(Err(io_other(error)));
+                    }
+                    Poll::Pending => return Poll::Pending,
+                },
+                UploadResponseState::Draining(stream) => match stream.poll_data(cx) {
+                    Poll::Ready(Some(Ok(data))) => {
+                        drained_frames = drained_frames.saturating_add(1);
+                        drained_bytes = drained_bytes.saturating_add(data.len());
+                        stream
+                            .flow_control()
+                            .release_capacity(data.len())
+                            .map_err(io_other)?;
+                        if upload_response_drain_budget_exhausted(drained_frames, drained_bytes) {
+                            cx.waker().wake_by_ref();
+                            return Poll::Pending;
+                        }
+                    }
+                    Poll::Ready(Some(Err(error))) => {
+                        self.state = UploadResponseState::Done;
+                        return Poll::Ready(Err(io_other(error)));
+                    }
+                    Poll::Ready(None) => {
+                        self.state = UploadResponseState::Done;
+                        return Poll::Ready(Ok(()));
+                    }
+                    Poll::Pending => return Poll::Pending,
+                },
+                UploadResponseState::Done => return Poll::Ready(Ok(())),
+            }
+        }
+    }
+
+    fn poll_error(&mut self, cx: &mut Context<'_>) -> io::Result<()> {
+        match self.poll_drain(cx) {
+            Poll::Ready(result) => result,
+            Poll::Pending => Ok(()),
+        }
+    }
+}
+
+fn upload_response_drain_budget_exhausted(frames: usize, bytes: usize) -> bool {
+    frames >= MAX_UPLOAD_RESPONSE_FRAMES_PER_POLL || bytes >= MAX_UPLOAD_RESPONSE_BYTES_PER_POLL
+}
+
+struct StreamUp {
+    upload: SendStream<Bytes>,
+    upload_response: UploadResponse,
+    download: Downlink,
+    upload_chunk_size: usize,
+    send_closed: bool,
+    _connections: ConnectionGuards,
+}
+
+impl AsyncRead for StreamUp {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        output: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        if let Err(error) = self.upload_response.poll_error(cx) {
+            return Poll::Ready(Err(error));
+        }
+        self.download.poll_read(cx, output)
+    }
+}
+
+impl AsyncWrite for StreamUp {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        input: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        if let Err(error) = self.upload_response.poll_error(cx) {
+            return Poll::Ready(Err(error));
+        }
+        if self.send_closed {
+            return Poll::Ready(Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "XHTTP stream-up upload is closed",
+            )));
+        }
+        if input.is_empty() {
+            return Poll::Ready(Ok(0));
+        }
+
+        let requested = input.len().min(self.upload_chunk_size);
+        self.upload.reserve_capacity(requested);
+        let capacity = self.upload.capacity();
+        let capacity = if capacity == 0 {
+            match self.upload.poll_capacity(cx) {
+                Poll::Ready(Some(Ok(capacity))) => capacity,
+                Poll::Ready(Some(Err(error))) => return Poll::Ready(Err(io_other(error))),
+                Poll::Ready(None) => {
+                    return Poll::Ready(Err(io::Error::new(
+                        io::ErrorKind::BrokenPipe,
+                        "XHTTP stream-up upload was reset",
+                    )));
+                }
+                Poll::Pending => return Poll::Pending,
+            }
+        } else {
+            capacity
+        };
+        let count = requested.min(capacity);
+        self.upload
+            .send_data(Bytes::copy_from_slice(&input[..count]), false)
+            .map_err(io_other)?;
+        Poll::Ready(Ok(count))
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        if let Err(error) = self.upload_response.poll_error(cx) {
+            return Poll::Ready(Err(error));
+        }
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        if let Err(error) = self.upload_response.poll_error(cx) {
+            return Poll::Ready(Err(error));
+        }
+        if !self.send_closed {
+            self.upload
+                .send_data(Bytes::new(), true)
+                .map_err(io_other)?;
+            self.send_closed = true;
+        }
+        Poll::Ready(Ok(()))
+    }
+}
+
 type PendingWrite = Pin<Box<dyn Future<Output = io::Result<usize>> + Send + 'static>>;
 
 struct PacketUp {
@@ -424,7 +711,7 @@ struct PacketUp {
     pending_write: Option<PendingWrite>,
     download: Downlink,
     closed: bool,
-    _connection: ConnectionGuard,
+    _connections: ConnectionGuards,
 }
 
 impl AsyncRead for PacketUp {
@@ -596,9 +883,29 @@ fn io_other(error: impl std::error::Error + Send + Sync + 'static) -> io::Error 
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        sync::atomic::{AtomicUsize, Ordering},
+        task::{Wake, Waker},
+    };
+
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
     use super::*;
+
+    #[derive(Default)]
+    struct WakeCounter {
+        wakes: AtomicUsize,
+    }
+
+    impl Wake for WakeCounter {
+        fn wake(self: Arc<Self>) {
+            self.wakes.fetch_add(1, Ordering::Relaxed);
+        }
+
+        fn wake_by_ref(self: &Arc<Self>) {
+            self.wakes.fetch_add(1, Ordering::Relaxed);
+        }
+    }
 
     #[test]
     fn builds_canonical_default_paths() {
@@ -634,6 +941,22 @@ mod tests {
 
         assert!(Arc::ptr_eq(&client.request.host, &cloned.host));
         assert!(Arc::ptr_eq(&client.request.path, &cloned.path));
+    }
+
+    #[test]
+    fn upload_response_drain_budget_bounds_frames_and_bytes_independently() {
+        assert!(!upload_response_drain_budget_exhausted(
+            MAX_UPLOAD_RESPONSE_FRAMES_PER_POLL - 1,
+            MAX_UPLOAD_RESPONSE_BYTES_PER_POLL - 1,
+        ));
+        assert!(upload_response_drain_budget_exhausted(
+            MAX_UPLOAD_RESPONSE_FRAMES_PER_POLL,
+            0,
+        ));
+        assert!(upload_response_drain_budget_exhausted(
+            0,
+            MAX_UPLOAD_RESPONSE_BYTES_PER_POLL,
+        ));
     }
 
     #[tokio::test]
@@ -774,5 +1097,440 @@ mod tests {
         assert_eq!(response, b"packet");
         let _ = close_server.send(());
         server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn stream_up_uses_get_and_continuous_post_on_one_connection() {
+        let (client_io, server_io) = tokio::io::duplex(128 * 1024);
+        let (close_server, keep_server_alive) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            let mut connection = h2::server::handshake(server_io).await.unwrap();
+            let (download, mut download_respond) = connection.accept().await.unwrap().unwrap();
+            assert_eq!(download.method(), Method::GET);
+            let session_path = download.uri().path().to_owned();
+            let mut download_stream = download_respond
+                .send_response(http::Response::new(()), false)
+                .unwrap();
+
+            let (upload, mut upload_respond) = connection.accept().await.unwrap().unwrap();
+            assert_eq!(upload.method(), Method::POST);
+            assert_eq!(upload.uri().path(), session_path);
+            assert_eq!(upload.headers()["content-type"], "application/grpc");
+            upload_respond
+                .send_response(http::Response::new(()), true)
+                .unwrap();
+
+            let handler = async move {
+                let mut payload = Vec::new();
+                let mut body = upload.into_body();
+                while let Some(data) = body.data().await {
+                    payload.extend_from_slice(&data.unwrap());
+                }
+                download_stream
+                    .send_data(Bytes::from(payload), true)
+                    .unwrap();
+            };
+            tokio::pin!(handler);
+            tokio::select! {
+                () = &mut handler => {}
+                incoming = connection.accept() => {
+                    panic!("stream-up connection ended before upload completed: {incoming:?}")
+                }
+            }
+            let mut keep_server_alive = keep_server_alive;
+            tokio::select! {
+                _ = &mut keep_server_alive => {}
+                incoming = connection.accept() => {
+                    assert!(incoming.is_none(), "unexpected third stream-up request");
+                }
+            }
+        });
+
+        let client =
+            XHttpClient::new(XHttpConfig::new("example.com", "/x", XHttpMode::StreamUp).unwrap());
+        let mut stream = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            client.connect(Box::new(client_io)),
+        )
+        .await
+        .expect("stream-up connect timed out")
+        .unwrap();
+        tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            stream.write_all(b"continuous"),
+        )
+        .await
+        .expect("stream-up write timed out")
+        .unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(2), stream.shutdown())
+            .await
+            .expect("stream-up shutdown timed out")
+            .unwrap();
+        let mut response = Vec::new();
+        tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            stream.read_to_end(&mut response),
+        )
+        .await
+        .expect("stream-up read timed out")
+        .unwrap();
+        assert_eq!(response, b"continuous");
+        let _ = close_server.send(());
+        server.await.unwrap();
+    }
+
+    async fn assert_independent_download(mode: XHttpMode) {
+        let (upload_client_io, upload_server_io) = tokio::io::duplex(128 * 1024);
+        let (download_client_io, download_server_io) = tokio::io::duplex(128 * 1024);
+        let (payload_sender, payload_receiver) =
+            tokio::sync::oneshot::channel::<(String, Vec<u8>)>();
+
+        let upload_server = tokio::spawn(async move {
+            let mut connection = h2::server::handshake(upload_server_io).await.unwrap();
+            let (request, mut respond) = connection.accept().await.unwrap().unwrap();
+            assert_eq!(request.method(), Method::POST);
+            assert_eq!(request.uri().authority().unwrap(), "upload.example");
+
+            let path = request.uri().path();
+            let suffix = path.strip_prefix("/upload/").unwrap();
+            let session_id = match mode {
+                XHttpMode::PacketUp => {
+                    let (session_id, sequence) = suffix.rsplit_once('/').unwrap();
+                    assert_eq!(sequence, "0");
+                    assert!(!request.headers().contains_key("content-type"));
+                    session_id.to_owned()
+                }
+                XHttpMode::StreamUp => {
+                    assert!(!suffix.contains('/'));
+                    assert_eq!(request.headers()["content-type"], "application/grpc");
+                    suffix.to_owned()
+                }
+                XHttpMode::StreamOne => unreachable!("split stream-one is rejected"),
+            };
+
+            respond
+                .send_response(http::Response::new(()), true)
+                .unwrap();
+            let handler = async move {
+                let mut payload = Vec::new();
+                let mut body = request.into_body();
+                while let Some(data) = body.data().await {
+                    payload.extend_from_slice(&data.unwrap());
+                }
+                payload_sender.send((session_id, payload)).unwrap();
+            };
+            tokio::pin!(handler);
+            tokio::select! {
+                () = &mut handler => {}
+                incoming = connection.accept() => {
+                    panic!("upload connection ended before its request body: {incoming:?}")
+                }
+            }
+            match connection.accept().await {
+                None | Some(Err(_)) => {}
+                Some(Ok(_)) => panic!("unexpected request on upload connection"),
+            }
+        });
+
+        let download_server = tokio::spawn(async move {
+            let mut connection = h2::server::handshake(download_server_io).await.unwrap();
+            let (request, mut respond) = connection.accept().await.unwrap().unwrap();
+            assert_eq!(request.method(), Method::GET);
+            assert_eq!(request.uri().authority().unwrap(), "download.example");
+            let session_id = request
+                .uri()
+                .path()
+                .strip_prefix("/download/")
+                .unwrap()
+                .to_owned();
+            assert!(!session_id.contains('/'));
+
+            let handler = async move {
+                let (upload_session_id, payload) = payload_receiver.await.unwrap();
+                assert_eq!(upload_session_id, session_id);
+                assert_eq!(payload, b"uplink");
+                let mut response = respond
+                    .send_response(http::Response::new(()), false)
+                    .unwrap();
+                response
+                    .send_data(Bytes::from_static(b"downlink"), true)
+                    .unwrap();
+            };
+            tokio::pin!(handler);
+            tokio::select! {
+                () = &mut handler => {}
+                incoming = connection.accept() => {
+                    panic!("download connection ended before the response: {incoming:?}")
+                }
+            }
+            match connection.accept().await {
+                None | Some(Err(_)) => {}
+                Some(Ok(_)) => panic!("unexpected request on download connection"),
+            }
+        });
+
+        let upload_client =
+            XHttpClient::new(XHttpConfig::new("upload.example", "/upload", mode).unwrap());
+        let download_client = XHttpClient::new(
+            XHttpConfig::new("download.example", "/download", XHttpMode::PacketUp).unwrap(),
+        );
+        let mut stream = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            upload_client.connect_with_download(
+                Box::new(upload_client_io),
+                &download_client,
+                Box::new(download_client_io),
+            ),
+        )
+        .await
+        .expect("split XHTTP connect timed out")
+        .unwrap();
+
+        tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            stream.write_all(b"uplink"),
+        )
+        .await
+        .expect("split XHTTP write timed out")
+        .unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(2), stream.shutdown())
+            .await
+            .expect("split XHTTP shutdown timed out")
+            .unwrap();
+
+        let mut response = Vec::new();
+        tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            stream.read_to_end(&mut response),
+        )
+        .await
+        .expect("split XHTTP read timed out")
+        .unwrap();
+        assert_eq!(response, b"downlink");
+
+        drop(stream);
+        tokio::time::timeout(std::time::Duration::from_secs(2), upload_server)
+            .await
+            .expect("upload connection task survived the returned stream")
+            .unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(2), download_server)
+            .await
+            .expect("download connection task survived the returned stream")
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn packet_up_can_split_upload_and_download_connections() {
+        assert_independent_download(XHttpMode::PacketUp).await;
+    }
+
+    #[tokio::test]
+    async fn stream_up_can_split_upload_and_download_connections() {
+        assert_independent_download(XHttpMode::StreamUp).await;
+    }
+
+    #[tokio::test]
+    async fn stream_up_upload_response_flood_yields_to_split_downlink_and_write() {
+        const LARGE_FRAME_BYTES: usize = MAX_UPLOAD_RESPONSE_BYTES_PER_POLL / 2;
+
+        let (upload_client_io, upload_server_io) = tokio::io::duplex(256 * 1024);
+        let (download_client_io, download_server_io) = tokio::io::duplex(64 * 1024);
+        let (upload_flood_sender, upload_flood_receiver) = tokio::sync::oneshot::channel();
+        let (upload_body_sender, upload_body_receiver) = tokio::sync::oneshot::channel();
+        let (download_sender, download_receiver) = tokio::sync::oneshot::channel();
+
+        let upload_server = tokio::spawn(async move {
+            let mut connection = h2::server::handshake(upload_server_io).await.unwrap();
+            let (request, mut respond) = connection.accept().await.unwrap().unwrap();
+            assert_eq!(request.method(), Method::POST);
+
+            let handler = async move {
+                let mut response = respond
+                    .send_response(http::Response::new(()), false)
+                    .unwrap();
+                // The first client poll reaches the frame limit on tiny DATA.
+                for _ in 0..MAX_UPLOAD_RESPONSE_FRAMES_PER_POLL {
+                    response.send_data(Bytes::from_static(b"x"), false).unwrap();
+                }
+                // The second reaches the independent byte limit on large DATA.
+                // All queued bytes remain below the default HTTP/2 receive
+                // window, so both budgets can be exercised without a peer
+                // scheduling turn between the two manual client polls.
+                for _ in 0..3 {
+                    response
+                        .send_data(Bytes::from(vec![b'x'; LARGE_FRAME_BYTES]), false)
+                        .unwrap();
+                }
+                // Let the concurrently polled connection flush the queued
+                // response frames before the client performs one manual poll.
+                tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+                upload_flood_sender.send(()).unwrap();
+
+                let mut body = request.into_body();
+                let data = body.data().await.unwrap().unwrap();
+                body.flow_control().release_capacity(data.len()).unwrap();
+                upload_body_sender.send(data.to_vec()).unwrap();
+                response.send_data(Bytes::new(), true).unwrap();
+            };
+            tokio::pin!(handler);
+            tokio::select! {
+                () = &mut handler => {}
+                incoming = connection.accept() => {
+                    panic!("upload connection ended during response flood: {incoming:?}")
+                }
+            }
+            match connection.accept().await {
+                None | Some(Err(_)) => {}
+                Some(Ok(_)) => panic!("unexpected request on upload connection"),
+            }
+        });
+
+        let download_server = tokio::spawn(async move {
+            let mut connection = h2::server::handshake(download_server_io).await.unwrap();
+            let (request, mut respond) = connection.accept().await.unwrap().unwrap();
+            assert_eq!(request.method(), Method::GET);
+            let mut response = respond
+                .send_response(http::Response::new(()), false)
+                .unwrap();
+            response
+                .send_data(Bytes::from_static(b"downlink"), true)
+                .unwrap();
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            download_sender.send(()).unwrap();
+            match connection.accept().await {
+                None | Some(Err(_)) => {}
+                Some(Ok(_)) => panic!("unexpected request on download connection"),
+            }
+        });
+
+        let upload_client = XHttpClient::new(
+            XHttpConfig::new("upload.example", "/upload", XHttpMode::StreamUp).unwrap(),
+        );
+        let download_client = XHttpClient::new(
+            XHttpConfig::new("download.example", "/download", XHttpMode::PacketUp).unwrap(),
+        );
+        let mut stream = upload_client
+            .connect_with_download(
+                Box::new(upload_client_io),
+                &download_client,
+                Box::new(download_client_io),
+            )
+            .await
+            .unwrap();
+
+        tokio::time::timeout(std::time::Duration::from_secs(2), upload_flood_receiver)
+            .await
+            .expect("upload response flood was not flushed")
+            .unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(2), download_receiver)
+            .await
+            .expect("split downlink was not flushed")
+            .unwrap();
+
+        let counter = Arc::new(WakeCounter::default());
+        let waker = Waker::from(counter.clone());
+        let mut context = Context::from_waker(&waker);
+        let mut bytes = [0_u8; 8];
+        let mut output = ReadBuf::new(&mut bytes);
+        match Pin::new(stream.as_mut()).poll_read(&mut context, &mut output) {
+            Poll::Ready(Ok(())) => {}
+            result => panic!("split downlink did not progress in the budgeted poll: {result:?}"),
+        }
+        assert_eq!(output.filled(), b"downlink");
+        assert!(
+            counter.wakes.swap(0, Ordering::Relaxed) > 0,
+            "frame budget did not self-wake after yielding to the downlink"
+        );
+
+        match Pin::new(stream.as_mut()).poll_write(&mut context, b"u") {
+            Poll::Ready(Ok(1)) => {}
+            result => panic!("split upload did not progress in the budgeted poll: {result:?}"),
+        }
+        assert!(
+            counter.wakes.load(Ordering::Relaxed) > 0,
+            "byte budget did not self-wake after yielding to the upload"
+        );
+        assert_eq!(
+            tokio::time::timeout(std::time::Duration::from_secs(2), upload_body_receiver)
+                .await
+                .expect("split upload did not reach the server")
+                .unwrap(),
+            b"u"
+        );
+
+        drop(stream);
+        tokio::time::timeout(std::time::Duration::from_secs(2), upload_server)
+            .await
+            .expect("upload connection task survived the returned stream")
+            .unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(2), download_server)
+            .await
+            .expect("download connection task survived the returned stream")
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn stream_one_rejects_independent_download_before_handshake() {
+        let (upload_client_io, _upload_server_io) = tokio::io::duplex(1024);
+        let (download_client_io, _download_server_io) = tokio::io::duplex(1024);
+        let upload_client = XHttpClient::new(
+            XHttpConfig::new("upload.example", "/upload", XHttpMode::StreamOne).unwrap(),
+        );
+        let download_client = XHttpClient::new(
+            XHttpConfig::new("download.example", "/download", XHttpMode::PacketUp).unwrap(),
+        );
+
+        let result = tokio::time::timeout(
+            std::time::Duration::from_millis(100),
+            upload_client.connect_with_download(
+                Box::new(upload_client_io),
+                &download_client,
+                Box::new(download_client_io),
+            ),
+        )
+        .await
+        .expect("stream-one validation attempted an HTTP/2 handshake");
+        let error = match result {
+            Ok(_) => panic!("stream-one unexpectedly accepted download settings"),
+            Err(error) => error,
+        };
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[tokio::test]
+    async fn failed_download_handshake_releases_the_upload_connection() {
+        let (upload_client_io, upload_server_io) = tokio::io::duplex(16 * 1024);
+        let (download_client_io, download_server_io) = tokio::io::duplex(1024);
+        drop(download_server_io);
+
+        let upload_server = tokio::spawn(async move {
+            let mut connection = h2::server::handshake(upload_server_io).await.unwrap();
+            match connection.accept().await {
+                None | Some(Err(_)) => {}
+                Some(Ok(_)) => panic!("request leaked after the download handshake failed"),
+            }
+        });
+        let upload_client = XHttpClient::new(
+            XHttpConfig::new("upload.example", "/upload", XHttpMode::PacketUp).unwrap(),
+        );
+        let download_client = XHttpClient::new(
+            XHttpConfig::new("download.example", "/download", XHttpMode::PacketUp).unwrap(),
+        );
+
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            upload_client.connect_with_download(
+                Box::new(upload_client_io),
+                &download_client,
+                Box::new(download_client_io),
+            ),
+        )
+        .await
+        .expect("failed download handshake timed out");
+        assert!(result.is_err());
+        tokio::time::timeout(std::time::Duration::from_secs(2), upload_server)
+            .await
+            .expect("upload connection leaked after download handshake failure")
+            .unwrap();
     }
 }

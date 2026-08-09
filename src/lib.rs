@@ -59,7 +59,7 @@ pub const INVOKE_API_VERSION: u32 = 4;
 /// Internal configuration schema revision reported through Invoke.
 ///
 /// The strict Mihomo YAML subset deliberately carries no version field.
-pub const CONFIG_VERSION: u8 = 10;
+pub const CONFIG_VERSION: u8 = 11;
 
 /// Stable implementation identifier returned by the version Invoke method.
 pub const ENGINE: &str = "rust";
@@ -71,5 +71,5 @@ pub const ENGINE: &str = "rust";
 pub const BUILD_IDENTITY: &str = concat!(
     "OneVCore/VCore;engine=rust;coreVersion=",
     env!("CARGO_PKG_VERSION"),
-    ";invokeApiVersion=4;configVersion=10"
+    ";invokeApiVersion=4;configVersion=11"
 );

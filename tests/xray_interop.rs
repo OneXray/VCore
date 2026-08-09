@@ -46,7 +46,18 @@ fn sole_vless(config: &Config) -> &VlessOutboundConfig {
     }
 }
 
-fn reality_config(server: SocketAddr, mode: &str, public_key: &str, short_id: &str) -> Config {
+fn reality_config(
+    server: SocketAddr,
+    mode: &str,
+    split_download: bool,
+    public_key: &str,
+    short_id: &str,
+) -> Config {
+    let download_settings = if split_download {
+        "      download-settings: {}\n"
+    } else {
+        ""
+    };
     let yaml = format!(
         r#"port: 18080
 authentication:
@@ -70,6 +81,7 @@ proxies:
       path: /onev
       host: www.cloudflare.com
       mode: {mode}
+{download_settings}
 rules:
   - MATCH,xray-interop
 "#,
@@ -81,10 +93,11 @@ rules:
 fn reality_outbound(
     server: SocketAddr,
     mode: &str,
+    split_download: bool,
     public_key: &str,
     short_id: &str,
 ) -> VlessOutbound {
-    let config = reality_config(server, mode, public_key, short_id);
+    let config = reality_config(server, mode, split_download, public_key, short_id);
     let endpoint = ResolvedEndpoint {
         logical_host: "127.0.0.1".to_owned(),
         port: server.port(),
@@ -212,7 +225,17 @@ async fn check_cancelled_reality_handshake_can_reconnect(
 }
 
 #[cfg(feature = "interop-test")]
-fn tls_outbound(server: SocketAddr, mode: &str, test_root_der: Option<Vec<u8>>) -> VlessOutbound {
+fn tls_outbound(
+    server: SocketAddr,
+    mode: &str,
+    split_download: bool,
+    test_root_der: Option<Vec<u8>>,
+) -> VlessOutbound {
+    let download_settings = if split_download {
+        "      download-settings: {}\n"
+    } else {
+        ""
+    };
     let yaml = format!(
         r#"port: 18080
 authentication:
@@ -233,6 +256,7 @@ proxies:
       path: /onev
       host: vcore.test
       mode: {mode}
+{download_settings}
 rules:
   - MATCH,xray-tls-interop
 "#,
@@ -616,6 +640,7 @@ async fn serve_measure_delay_target(
 async fn check_ffi_batch_measure_and_single_lifecycle(
     xray_address: SocketAddr,
     mode: &str,
+    split_download: bool,
 ) -> io::Result<()> {
     const MEASURE_COUNT: usize = 5;
     const MEASURE_TIMEOUT_SECONDS: u64 = 10;
@@ -628,6 +653,11 @@ async fn check_ffi_batch_measure_and_single_lifecycle(
         serde_json::json!({"dataDir": directory.path().to_string_lossy().into_owned()}),
     )?;
     let config_directory = directory.path().join("configs");
+    let download_settings = if split_download {
+        "      download-settings: {}\n"
+    } else {
+        ""
+    };
     let mut measure_config_paths = Vec::with_capacity(MEASURE_COUNT);
     for index in 0..MEASURE_COUNT {
         let path = config_directory.join(format!("measure-{index}.yaml"));
@@ -653,6 +683,7 @@ async fn check_ffi_batch_measure_and_single_lifecycle(
       path: /onev
       host: www.cloudflare.com
       mode: {mode}
+{download_settings}
 "#,
                 xray_address.ip(),
                 xray_address.port(),
@@ -738,6 +769,7 @@ proxies:
       path: /onev
       host: www.cloudflare.com
       mode: {mode}
+{download_settings}
 rules:
   - MATCH,proxy
 "#,
@@ -778,10 +810,26 @@ async fn run_interop() -> io::Result<()> {
             "XRAY_INTEROP_MODE is missing; run tests/run_xray_interop.sh",
         )
     })?;
-    if !matches!(mode.as_str(), "packet-up" | "stream-one") {
+    if !matches!(mode.as_str(), "auto" | "packet-up" | "stream-one") {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "XRAY_INTEROP_MODE must be packet-up or stream-one",
+            "XRAY_INTEROP_MODE must be auto, packet-up, or stream-one",
+        ));
+    }
+    let split_download = match env::var("XRAY_INTEROP_SPLIT").as_deref() {
+        Ok("1") => true,
+        Ok("0") | Err(env::VarError::NotPresent) => false,
+        Ok(_) | Err(env::VarError::NotUnicode(_)) => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "XRAY_INTEROP_SPLIT must be 0 or 1",
+            ));
+        }
+    };
+    if split_download != (mode == "auto") {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "the interop harness reserves mode auto for split download-settings",
         ));
     }
     let security = env::var("XRAY_INTEROP_SECURITY").map_err(|_| {
@@ -793,18 +841,39 @@ async fn run_interop() -> io::Result<()> {
 
     match security.as_str() {
         "reality" => {
-            let first = reality_outbound(xray_address, &mode, REALITY_PUBLIC_KEY, REALITY_SHORT_ID);
-            let second =
-                reality_outbound(xray_address, &mode, REALITY_PUBLIC_KEY, REALITY_SHORT_ID);
-            let first_label = format!("REALITY {mode} instance 1");
-            let second_label = format!("REALITY {mode} instance 2");
+            let first = reality_outbound(
+                xray_address,
+                &mode,
+                split_download,
+                REALITY_PUBLIC_KEY,
+                REALITY_SHORT_ID,
+            );
+            let second = reality_outbound(
+                xray_address,
+                &mode,
+                split_download,
+                REALITY_PUBLIC_KEY,
+                REALITY_SHORT_ID,
+            );
+            let suffix = if split_download {
+                " + split download"
+            } else {
+                ""
+            };
+            let first_label = format!("REALITY {mode}{suffix} instance 1");
+            let second_label = format!("REALITY {mode}{suffix} instance 2");
             tokio::try_join!(
                 check_echoes(&first, &first_label),
                 check_echoes(&second, &second_label),
             )?;
 
-            let shared_config =
-                reality_config(xray_address, &mode, REALITY_PUBLIC_KEY, REALITY_SHORT_ID);
+            let shared_config = reality_config(
+                xray_address,
+                &mode,
+                split_download,
+                REALITY_PUBLIC_KEY,
+                REALITY_SHORT_ID,
+            );
             check_shared_reality_connector_concurrency(sole_vless(&shared_config), xray_address)
                 .await?;
             check_cancelled_reality_handshake_can_reconnect(
@@ -814,19 +883,26 @@ async fn run_interop() -> io::Result<()> {
             .await?;
 
             #[cfg(feature = "ffi")]
-            check_ffi_batch_measure_and_single_lifecycle(xray_address, &mode).await?;
+            check_ffi_batch_measure_and_single_lifecycle(xray_address, &mode, split_download)
+                .await?;
 
             // Run these last: Xray deliberately keeps camouflage fallbacks
             // alive, which can occupy XHTTP accept workers.
             let invalid_key = reality_outbound(
                 xray_address,
                 &mode,
+                split_download,
                 "MFcIAGWIFW5SAUDTxj4W2UpuaH70MS71vq4DlxhRzTM",
                 REALITY_SHORT_ID,
             );
             expect_connect_rejected(&invalid_key, "invalid REALITY public key").await?;
-            let invalid_short_id =
-                reality_outbound(xray_address, &mode, REALITY_PUBLIC_KEY, "0123456789abcdee");
+            let invalid_short_id = reality_outbound(
+                xray_address,
+                &mode,
+                split_download,
+                REALITY_PUBLIC_KEY,
+                "0123456789abcdee",
+            );
             expect_connect_rejected(&invalid_short_id, "invalid REALITY short ID").await
         }
         "tls" => {
@@ -839,17 +915,22 @@ async fn run_interop() -> io::Result<()> {
                     )
                 })?;
                 let root = std::fs::read(root_path)?;
-                let first = tls_outbound(xray_address, &mode, Some(root.clone()));
-                let second = tls_outbound(xray_address, &mode, Some(root));
-                let first_label = format!("TLS {mode} instance 1");
-                let second_label = format!("TLS {mode} instance 2");
+                let first = tls_outbound(xray_address, &mode, split_download, Some(root.clone()));
+                let second = tls_outbound(xray_address, &mode, split_download, Some(root));
+                let suffix = if split_download {
+                    " + split download"
+                } else {
+                    ""
+                };
+                let first_label = format!("TLS {mode}{suffix} instance 1");
+                let second_label = format!("TLS {mode}{suffix} instance 2");
                 tokio::try_join!(
                     check_echoes(&first, &first_label),
                     check_echoes(&second, &second_label),
                 )?;
 
                 // The normal constructor must continue to reject the local CA.
-                let production = tls_outbound(xray_address, &mode, None);
+                let production = tls_outbound(xray_address, &mode, split_download, None);
                 expect_connect_rejected(&production, "untrusted standard TLS certificate").await
             }
             #[cfg(not(feature = "interop-test"))]

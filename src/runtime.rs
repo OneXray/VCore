@@ -41,10 +41,10 @@ use crate::{
 
 #[cfg(feature = "outbound-socks5")]
 use crate::outbound::Socks5Outbound;
-#[cfg(feature = "outbound-vless")]
-use crate::outbound::VlessOutbound;
 #[cfg(feature = "outbound-anytls")]
 use crate::outbound::{AnyTlsOutbound, server_destination};
+#[cfg(feature = "outbound-vless")]
+use crate::outbound::{VlessOutbound, VlessResourceLimits};
 #[cfg(any(feature = "outbound-anytls", feature = "outbound-vless"))]
 use crate::security::{SecurityContext, TLS_RESUMPTION_SESSION_BUDGET};
 #[cfg(feature = "outbound-anytls")]
@@ -54,7 +54,7 @@ use crate::security::{StandardTlsClient, StandardTlsProfile};
 #[derive(Debug)]
 pub(crate) struct PreparedCore {
     config: Config,
-    endpoints: Vec<Option<ResolvedEndpoint>>,
+    endpoints: Vec<PreparedProxyEndpoints>,
     limits: ResourceLimits,
     rules: RuleSet,
     geodata_manager: Arc<GeoDataManager>,
@@ -70,8 +70,20 @@ pub(crate) struct PreparedCore {
 #[cfg(feature = "ffi")]
 pub(crate) struct PreparedMeasurement {
     config: MeasureConfig,
-    endpoints: Vec<Option<ResolvedEndpoint>>,
+    endpoints: Vec<PreparedProxyEndpoints>,
     limits: ResourceLimits,
+}
+
+/// Bootstrap-resolved physical destinations for one proxy graph node.
+///
+/// Nodes with a `dialer-proxy` keep both entries empty because their logical
+/// server names are resolved by the parent connector. Physical roots retain a
+/// primary endpoint and, when XHTTP download settings are present, a second
+/// endpoint for the independent download leg.
+#[derive(Debug, Clone, Default)]
+struct PreparedProxyEndpoints {
+    upload: Option<ResolvedEndpoint>,
+    download: Option<ResolvedEndpoint>,
 }
 
 #[cfg(feature = "ffi")]
@@ -209,7 +221,17 @@ impl PreparedCore {
     #[must_use]
     #[cfg(test)]
     fn endpoint(&self, id: ProxyId) -> Option<&ResolvedEndpoint> {
-        self.endpoints.get(id.index()).and_then(Option::as_ref)
+        self.endpoints
+            .get(id.index())
+            .and_then(|endpoints| endpoints.upload.as_ref())
+    }
+
+    #[must_use]
+    #[cfg(test)]
+    fn download_endpoint(&self, id: ProxyId) -> Option<&ResolvedEndpoint> {
+        self.endpoints
+            .get(id.index())
+            .and_then(|endpoints| endpoints.download.as_ref())
     }
 
     #[must_use]
@@ -439,7 +461,7 @@ impl PreparedMeasurement {
 
 fn build_proxy_graph(
     proxies: &[ProxyConfig],
-    endpoints: &[Option<ResolvedEndpoint>],
+    endpoints: &[PreparedProxyEndpoints],
     limits: ResourceLimits,
     dialer: Dialer,
 ) -> io::Result<BuiltProxyGraph> {
@@ -519,7 +541,7 @@ fn build_proxy_graph(
                 None => UpstreamPath::direct(
                     endpoints
                         .get(index)
-                        .and_then(Option::as_ref)
+                        .and_then(|endpoints| endpoints.upload.as_ref())
                         .cloned()
                         .ok_or_else(|| {
                             io::Error::new(
@@ -537,16 +559,40 @@ fn build_proxy_graph(
                 ProxyProtocol::Vless(config) => {
                     #[cfg(feature = "outbound-vless")]
                     {
+                        let download_upstream = config.xhttp.download.as_ref().map(|_| {
+                            match proxy.dialer_proxy {
+                                Some(_) => Ok(upstream.clone()),
+                                None => endpoints
+                                    .get(index)
+                                    .and_then(|endpoints| endpoints.download.as_ref())
+                                    .cloned()
+                                    .map(|endpoint| {
+                                        UpstreamPath::direct(endpoint, dialer.clone())
+                                    })
+                                    .ok_or_else(|| {
+                                        io::Error::new(
+                                            io::ErrorKind::InvalidInput,
+                                            format!(
+                                                "physical VLESS root `{}` has no prepared download endpoint",
+                                                proxy.tag
+                                            ),
+                                        )
+                                    }),
+                            }
+                        }).transpose()?;
                         Arc::new(VlessOutbound::new_with_shared_security(
                             config,
                             upstream,
+                            download_upstream,
                             security_context
                                 .as_ref()
                                 .expect("VLESS graph has shared security material"),
                             resumption_sessions,
-                            limits.tls_buffer_limit,
-                            limits.xhttp_send_buffer_size,
-                            limits.xhttp_upload_chunk_size,
+                            VlessResourceLimits::new(
+                                limits.tls_buffer_limit,
+                                limits.xhttp_send_buffer_size,
+                                limits.xhttp_upload_chunk_size,
+                            ),
                         )?)
                     }
                     #[cfg(not(feature = "outbound-vless"))]
@@ -619,22 +665,50 @@ fn build_proxy_graph(
 async fn prepare_proxy_endpoints(
     proxies: &[ProxyConfig],
     resolver: &dyn Resolver,
-) -> io::Result<Vec<Option<ResolvedEndpoint>>> {
+) -> io::Result<Vec<PreparedProxyEndpoints>> {
     let lookups = proxies
         .iter()
         .enumerate()
         .filter(|(_, proxy)| proxy.dialer_proxy.is_none())
         .map(|(index, proxy)| async move {
-            (index, resolver.resolve(proxy.address(), proxy.port()).await)
+            let upload_address = proxy.address();
+            let upload_port = proxy.port();
+            let download = match &proxy.protocol {
+                ProxyProtocol::Vless(config) => config.xhttp.download.as_deref(),
+                ProxyProtocol::Socks5(_) | ProxyProtocol::AnyTls(_) => None,
+            };
+
+            let (upload, download) = match download {
+                Some(download)
+                    if download.address != upload_address || download.port != upload_port =>
+                {
+                    let (upload, download) = tokio::join!(
+                        resolver.resolve(upload_address, upload_port),
+                        resolver.resolve(&download.address, download.port),
+                    );
+                    (upload?, Some(download?))
+                }
+                Some(_) => {
+                    let upload = resolver.resolve(upload_address, upload_port).await?;
+                    (upload.clone(), Some(upload))
+                }
+                None => (resolver.resolve(upload_address, upload_port).await?, None),
+            };
+            Ok::<_, io::Error>((
+                index,
+                PreparedProxyEndpoints {
+                    upload: Some(upload),
+                    download,
+                },
+            ))
         });
     let resolved = tokio::time::timeout(Duration::from_secs(10), join_all(lookups))
         .await
         .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "bootstrap DNS timed out"))?;
-    let mut endpoints = std::iter::repeat_with(|| None)
-        .take(proxies.len())
-        .collect::<Vec<_>>();
-    for (index, endpoint) in resolved {
-        endpoints[index] = Some(endpoint?);
+    let mut endpoints = vec![PreparedProxyEndpoints::default(); proxies.len()];
+    for endpoint in resolved {
+        let (index, endpoint) = endpoint?;
+        endpoints[index] = endpoint;
     }
     Ok(endpoints)
 }
@@ -644,14 +718,23 @@ fn security_counts(proxies: &[ProxyConfig]) -> (usize, usize) {
     proxies.iter().fold(
         (0, 0),
         |(client_count, standard_count), proxy| match &proxy.protocol {
-            ProxyProtocol::Vless(config) => (
-                client_count + 1,
-                standard_count
-                    + usize::from(matches!(
-                        &config.security,
-                        crate::config::SecurityConfig::Tls(_)
-                    )),
-            ),
+            ProxyProtocol::Vless(config) => {
+                let download = config.xhttp.download.as_deref();
+                (
+                    client_count + 1 + usize::from(download.is_some()),
+                    standard_count
+                        + usize::from(matches!(
+                            &config.security,
+                            crate::config::SecurityConfig::Tls(_)
+                        ))
+                        + download.map_or(0, |download| {
+                            usize::from(matches!(
+                                &download.security,
+                                crate::config::SecurityConfig::Tls(_)
+                            ))
+                        }),
+                )
+            }
             ProxyProtocol::AnyTls(_) => (client_count + 1, standard_count + 1),
             ProxyProtocol::Socks5(_) => (client_count, standard_count),
         },
@@ -881,7 +964,10 @@ async fn abort_and_join(tasks: &mut Vec<JoinHandle<io::Result<()>>>) {
 #[cfg(test)]
 mod tests {
     use std::net::{IpAddr, SocketAddr};
-    use std::sync::Mutex;
+    use std::sync::{
+        Mutex,
+        atomic::{AtomicUsize, Ordering},
+    };
 
     #[cfg(all(unix, feature = "tun"))]
     use std::net::Ipv4Addr;
@@ -929,6 +1015,27 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct ConcurrentResolver {
+        active: AtomicUsize,
+        peak: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl Resolver for ConcurrentResolver {
+        async fn resolve(&self, host: &str, port: u16) -> io::Result<ResolvedEndpoint> {
+            let active = self.active.fetch_add(1, Ordering::AcqRel) + 1;
+            self.peak.fetch_max(active, Ordering::AcqRel);
+            tokio::time::sleep(Duration::from_millis(25)).await;
+            self.active.fetch_sub(1, Ordering::AcqRel);
+            Ok(ResolvedEndpoint {
+                logical_host: host.to_owned(),
+                port,
+                addresses: vec![SocketAddr::new(IpAddr::from([127, 0, 0, 1]), port)],
+            })
+        }
+    }
+
     const CONFIG: &str = r#"port: 18080
 authentication:
   - measure:secret
@@ -955,6 +1062,13 @@ rules:
         CONFIG.replacen("rules:\n  - MATCH,proxy\n", rules, 1)
     }
 
+    fn config_with_download(fields: &str) -> String {
+        CONFIG.replace(
+            "      mode: packet-up\n",
+            &format!("      mode: packet-up\n      download-settings:\n{fields}\n"),
+        )
+    }
+
     #[tokio::test]
     async fn prepare_resolves_the_sole_outbound() {
         let prepared =
@@ -979,6 +1093,56 @@ rules:
             Some(crate::config::RuleAction::Proxy(id)),
             "moving the normalized rules must preserve the compiled default route"
         );
+    }
+
+    #[tokio::test]
+    async fn prepare_reuses_one_resolution_for_an_identical_download_server() {
+        let resolver = RecordingResolver::default();
+        let yaml = CONFIG.replace(
+            "      mode: packet-up\n",
+            "      mode: packet-up\n      download-settings: {}\n",
+        );
+        let prepared = PreparedCore::prepare(yaml.as_bytes(), &resolver, ResourceLimits::default())
+            .await
+            .unwrap();
+        assert_eq!(*resolver.hosts.lock().unwrap(), ["server.test".to_owned()]);
+
+        let id = ProxyId::new(0).unwrap();
+        let upload = prepared.endpoint(id).unwrap();
+        let download = prepared.download_endpoint(id).unwrap();
+        assert_eq!(upload, download);
+        assert_eq!(
+            prepared.build_proxy_graph(Dialer::default()).unwrap().len(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn prepare_resolves_distinct_download_server_concurrently() {
+        let resolver = ConcurrentResolver::default();
+        let yaml = config_with_download("        server: download.test\n        port: 8443");
+        let prepared = PreparedCore::prepare(yaml.as_bytes(), &resolver, ResourceLimits::default())
+            .await
+            .unwrap();
+        assert_eq!(resolver.peak.load(Ordering::Acquire), 2);
+
+        let id = ProxyId::new(0).unwrap();
+        assert_eq!(prepared.endpoint(id).unwrap().logical_host, "server.test");
+        let download = prepared.download_endpoint(id).unwrap();
+        assert_eq!(download.logical_host, "download.test");
+        assert_eq!(download.port, 8443);
+        assert_eq!(
+            prepared.build_proxy_graph(Dialer::default()).unwrap().len(),
+            1
+        );
+    }
+
+    #[test]
+    fn security_budget_counts_every_vless_transport_leg() {
+        let yaml = config_with_download("        server: download.test\n        port: 8443");
+        let config = Config::parse_yaml(yaml.as_bytes()).unwrap();
+        assert_eq!(security_counts(&config.proxies), (2, 2));
+        assert_eq!(standard_tls_resumption_sessions(2), 2);
     }
 
     #[tokio::test]
@@ -1274,6 +1438,56 @@ rules:
         assert_eq!(*resolver.hosts.lock().unwrap(), ["b.test".to_owned()]);
         assert!(prepared.endpoint(ProxyId::new(0).unwrap()).is_none());
         assert!(prepared.endpoint(ProxyId::new(1).unwrap()).is_some());
+        assert_eq!(
+            prepared.build_proxy_graph(Dialer::default()).unwrap().len(),
+            2
+        );
+    }
+
+    #[cfg(all(feature = "outbound-socks5", feature = "outbound-vless"))]
+    #[tokio::test]
+    async fn split_vless_behind_dialer_proxy_does_not_resolve_either_child_leg() {
+        let yaml = r#"port: 18080
+authentication:
+  - measure:secret
+proxies:
+  - name: vless-child
+    type: vless
+    server: upload-child.test
+    port: 443
+    uuid: 00000000-0000-4000-8000-000000000001
+    udp: true
+    tls: true
+    network: xhttp
+    encryption: none
+    servername: upload-child.test
+    alpn: [h2]
+    dialer-proxy: socks-root
+    xhttp-opts:
+      host: upload-child.test
+      path: /upload
+      mode: packet-up
+      download-settings:
+        server: download-child.test
+        port: 8443
+  - name: socks-root
+    type: socks5
+    server: socks-root.test
+    port: 1080
+rules:
+  - MATCH,vless-child
+"#;
+        let resolver = RecordingResolver::default();
+        let prepared = PreparedCore::prepare(yaml.as_bytes(), &resolver, ResourceLimits::default())
+            .await
+            .unwrap();
+        assert_eq!(
+            *resolver.hosts.lock().unwrap(),
+            ["socks-root.test".to_owned()]
+        );
+        let child = ProxyId::new(0).unwrap();
+        assert!(prepared.endpoint(child).is_none());
+        assert!(prepared.download_endpoint(child).is_none());
         assert_eq!(
             prepared.build_proxy_graph(Dialer::default()).unwrap().len(),
             2

@@ -119,34 +119,48 @@ fi
 printf 'ECDSA camouflage preflight: ED25519-only ClientHello rejected before ServerHello\n'
 
 for SECURITY in reality tls; do
-  for MODE in packet-up stream-one; do
-    printf 'Xray interop: %s + %s\n' "$SECURITY" "$MODE"
+  for CASE in packet-up stream-one split; do
+    CLIENT_MODE=$CASE
+    SERVER_MODE=$CASE
+    SPLIT=0
+    if [ "$CASE" = split ]; then
+      CLIENT_MODE=auto
+      SPLIT=1
+      if [ "$SECURITY" = reality ]; then
+        SERVER_MODE=stream-up
+      else
+        SERVER_MODE=packet-up
+      fi
+    fi
+    printf 'Xray interop: %s + %s (server %s, split %s)\n' \
+      "$SECURITY" "$CLIENT_MODE" "$SERVER_MODE" "$SPLIT"
     sed \
       -e "s|{{PORT}}|$PORT|g" \
       -e "s|{{CERT_FILE}}|$TMP_DIR/server.pem|g" \
       -e "s|{{KEY_FILE}}|$TMP_DIR/server.key|g" \
       -e "s|www.cloudflare.com:443|127.0.0.1:$CAMOUFLAGE_PORT|g" \
-      -e "s/\"mode\": \"packet-up\"/\"mode\": \"$MODE\"/g" \
+      -e "s/\"mode\": \"packet-up\"/\"mode\": \"$SERVER_MODE\"/g" \
       "$SCRIPT_DIR/fixtures/xray-$SECURITY-xhttp.json" >"$TMP_DIR/xray.json"
 
     "$XRAY_BIN" run -c "$TMP_DIR/xray.json" \
-      >"$TMP_DIR/xray-$SECURITY-$MODE.log" 2>&1 &
+      >"$TMP_DIR/xray-$SECURITY-$CASE.log" 2>&1 &
     XRAY_PID=$!
     sleep 6
     if ! kill -0 "$XRAY_PID" 2>/dev/null; then
-      cat "$TMP_DIR/xray-$SECURITY-$MODE.log"
+      cat "$TMP_DIR/xray-$SECURITY-$CASE.log"
       exit 1
     fi
 
     if ! (
       cd "$CRATE_DIR"
       XRAY_INTEROP_ADDRESS="127.0.0.1:$PORT" \
-        XRAY_INTEROP_MODE="$MODE" \
+        XRAY_INTEROP_MODE="$CLIENT_MODE" \
+        XRAY_INTEROP_SPLIT="$SPLIT" \
         XRAY_INTEROP_SECURITY="$SECURITY" \
         XRAY_INTEROP_CA_DER="$TMP_DIR/ca.der" \
         cargo test --features interop-test,ffi --test xray_interop -- --ignored --nocapture
     ); then
-      cat "$TMP_DIR/xray-$SECURITY-$MODE.log"
+      cat "$TMP_DIR/xray-$SECURITY-$CASE.log"
       exit 1
     fi
 

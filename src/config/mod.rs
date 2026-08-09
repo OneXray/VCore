@@ -332,12 +332,23 @@ pub struct XHttpConfig {
     pub path: String,
     pub host: String,
     pub mode: XHttpMode,
+    pub download: Option<Box<XHttpDownloadConfig>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct XHttpDownloadConfig {
+    pub address: String,
+    pub port: u16,
+    pub security: SecurityConfig,
+    pub path: String,
+    pub host: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum XHttpMode {
     PacketUp,
     StreamOne,
+    StreamUp,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -634,6 +645,12 @@ struct RawXHttpSettings {
     path: String,
     #[serde(default = "default_xhttp_mode")]
     mode: String,
+    #[serde(
+        rename = "download-settings",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    download_settings: Option<RawXHttpDownloadSettings>,
 }
 
 impl Default for RawXHttpSettings {
@@ -642,8 +659,34 @@ impl Default for RawXHttpSettings {
             host: None,
             path: default_path(),
             mode: default_xhttp_mode(),
+            download_settings: None,
         }
     }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawXHttpDownloadSettings {
+    #[serde(default, deserialize_with = "deserialize_present_option")]
+    server: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_present_option")]
+    port: Option<u16>,
+    #[serde(default, deserialize_with = "deserialize_present_option")]
+    tls: Option<bool>,
+    #[serde(default, deserialize_with = "deserialize_present_option")]
+    servername: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_present_option")]
+    alpn: Option<Vec<String>>,
+    #[serde(
+        rename = "reality-opts",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    reality_opts: Option<RawRealitySettings>,
+    #[serde(default, deserialize_with = "deserialize_present_option")]
+    path: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_present_option")]
+    host: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1276,15 +1319,20 @@ fn normalize_vless(
     {
         return invalid("VLESS alpn must be [h2] when configured");
     }
+    let server_name_is_explicit = servername.is_some();
     let server_name = servername.unwrap_or_else(|| server.clone());
     validate_host(&server_name, "VLESS servername")?;
     let security = match reality_opts {
         Some(reality) => SecurityConfig::Reality(reality.normalize(server_name)?),
         None => SecurityConfig::Tls(TlsConfig { server_name }),
     };
-    let xhttp = xhttp_opts
-        .unwrap_or_default()
-        .normalize(security.server_name(), &security)?;
+    let xhttp = xhttp_opts.unwrap_or_default().normalize(
+        &server,
+        port,
+        server_name_is_explicit.then_some(security.server_name()),
+        security.server_name(),
+        &security,
+    )?;
     Ok(VlessOutboundConfig {
         address: server,
         port,
@@ -1386,17 +1434,43 @@ fn normalize_anytls(
 }
 
 impl RawXHttpSettings {
-    fn normalize(self, default_host: &str, security: &SecurityConfig) -> Result<XHttpConfig> {
-        if self.path.is_empty()
-            || self.path.len() > 2_048
-            || !self.path.starts_with('/')
-            || self.path.parse::<http::uri::PathAndQuery>().is_err()
+    fn normalize(
+        self,
+        default_address: &str,
+        default_port: u16,
+        default_explicit_server_name: Option<&str>,
+        default_host: &str,
+        security: &SecurityConfig,
+    ) -> Result<XHttpConfig> {
+        let Self {
+            host,
+            path,
+            mode,
+            download_settings,
+        } = self;
+        if path.is_empty()
+            || path.len() > 2_048
+            || !path.starts_with('/')
+            || path.parse::<http::uri::PathAndQuery>().is_err()
         {
             return invalid(
                 "xhttp-opts.path must be a valid path/query starting with `/` and at most 2048 bytes",
             );
         }
-        let host = self.host.unwrap_or_else(|| {
+        let download = download_settings
+            .map(|settings| {
+                settings.normalize(
+                    default_address,
+                    default_port,
+                    default_explicit_server_name,
+                    security,
+                    &path,
+                    host.as_deref(),
+                )
+            })
+            .transpose()?
+            .map(Box::new);
+        let host = host.unwrap_or_else(|| {
             default_host.parse::<std::net::Ipv6Addr>().map_or_else(
                 |_| default_host.to_owned(),
                 |address| format!("[{address}]"),
@@ -1406,16 +1480,105 @@ impl RawXHttpSettings {
             return invalid("xhttp-opts.host must be a valid HTTP authority");
         }
 
-        let mode = match self.mode.as_str() {
+        let mode = match mode.as_str() {
+            "auto" if matches!(security, SecurityConfig::Reality(_)) && download.is_some() => {
+                XHttpMode::StreamUp
+            }
             "auto" if matches!(security, SecurityConfig::Reality(_)) => XHttpMode::StreamOne,
             "auto" | "packet-up" => XHttpMode::PacketUp,
-            "stream-one" => XHttpMode::StreamOne,
-            _ => return invalid("XHTTP mode must be auto, packet-up, or stream-one"),
+            "stream-one" if download.is_none() => XHttpMode::StreamOne,
+            "stream-one" => {
+                return invalid("xhttp mode `stream-one` cannot be used with download-settings");
+            }
+            "stream-up" => XHttpMode::StreamUp,
+            _ => return invalid("XHTTP mode must be auto, packet-up, stream-up, or stream-one"),
         };
         Ok(XHttpConfig {
-            path: self.path,
+            path,
             host,
             mode,
+            download,
+        })
+    }
+}
+
+impl RawXHttpDownloadSettings {
+    fn normalize(
+        self,
+        default_address: &str,
+        default_port: u16,
+        default_explicit_server_name: Option<&str>,
+        default_security: &SecurityConfig,
+        default_path: &str,
+        default_explicit_host: Option<&str>,
+    ) -> Result<XHttpDownloadConfig> {
+        let Self {
+            server,
+            port,
+            tls,
+            servername,
+            alpn,
+            reality_opts,
+            path,
+            host,
+        } = self;
+
+        if tls == Some(false) {
+            return invalid("xhttp-opts.download-settings.tls must be true when configured");
+        }
+        if let Some(alpn) = &alpn
+            && alpn.as_slice() != ["h2"]
+        {
+            return invalid("xhttp-opts.download-settings.alpn must be [h2] when configured");
+        }
+
+        let address = server.unwrap_or_else(|| default_address.to_owned());
+        validate_host(&address, "XHTTP download server")?;
+        let port = port.unwrap_or(default_port);
+        validate_port(port, "XHTTP download")?;
+
+        let server_name = servername
+            .or_else(|| default_explicit_server_name.map(str::to_owned))
+            .unwrap_or_else(|| address.clone());
+        validate_host(&server_name, "XHTTP download servername")?;
+        let host = host
+            .or_else(|| default_explicit_host.map(str::to_owned))
+            .unwrap_or_else(|| {
+                server_name
+                    .parse::<std::net::Ipv6Addr>()
+                    .map_or_else(|_| server_name.clone(), |address| format!("[{address}]"))
+            });
+        if host.is_empty() || host.len() > 253 || host.parse::<http::uri::Authority>().is_err() {
+            return invalid("xhttp-opts.download-settings.host must be a valid HTTP authority");
+        }
+        let security = match reality_opts {
+            Some(reality) => SecurityConfig::Reality(reality.normalize(server_name)?),
+            None => {
+                let mut security = default_security.clone();
+                match &mut security {
+                    SecurityConfig::Tls(config) => config.server_name = server_name,
+                    SecurityConfig::Reality(config) => config.server_name = server_name,
+                }
+                security
+            }
+        };
+
+        let path = path.unwrap_or_else(|| default_path.to_owned());
+        if path.is_empty()
+            || path.len() > 2_048
+            || !path.starts_with('/')
+            || path.parse::<http::uri::PathAndQuery>().is_err()
+        {
+            return invalid(
+                "xhttp-opts.download-settings.path must be a valid path/query starting with `/` and at most 2048 bytes",
+            );
+        }
+        Ok(XHttpDownloadConfig {
+            address,
+            port,
+            security,
+            path,
+            host,
         })
     }
 }
@@ -2218,6 +2381,14 @@ proxies:
         vless
     }
 
+    fn first_xhttp_download(config: &Config) -> &XHttpDownloadConfig {
+        first_vless(config)
+            .xhttp
+            .download
+            .as_deref()
+            .expect("expected XHTTP download settings")
+    }
+
     fn reality_yaml() -> String {
         let key = URL_SAFE_NO_PAD.encode([7_u8; 32]);
         CURRENT_TLS.replace(
@@ -2225,6 +2396,23 @@ proxies:
             &format!(
                 "    servername: example.com\n    reality-opts:\n      public-key: {key}\n      short-id: 01a2\n"
             ),
+        )
+    }
+
+    fn with_xhttp_download(yaml: &str, fields: &str) -> String {
+        let download = if fields.is_empty() {
+            "      download-settings: {}\n".to_owned()
+        } else {
+            let fields = fields
+                .lines()
+                .map(|line| format!("        {line}\n"))
+                .collect::<String>();
+            format!("      download-settings:\n{fields}")
+        };
+        yaml.replacen(
+            "      mode: auto\n",
+            &format!("      mode: auto\n{download}"),
+            1,
         )
     }
 
@@ -2247,6 +2435,7 @@ proxies:
             SecurityConfig::Tls(TlsConfig { server_name }) if server_name == "example.com"
         ));
         assert_eq!(first_vless(&config).xhttp.mode, XHttpMode::PacketUp);
+        assert!(first_vless(&config).xhttp.download.is_none());
     }
 
     #[test]
@@ -2611,6 +2800,12 @@ geo-update-interval: 24"#,
         assert_eq!(first_vless(&tls).xhttp.mode, XHttpMode::PacketUp);
         let reality = Config::parse_yaml(reality_yaml().as_bytes()).unwrap();
         assert_eq!(first_vless(&reality).xhttp.mode, XHttpMode::StreamOne);
+        let reality_with_download = with_xhttp_download(&reality_yaml(), "");
+        let reality_with_download = Config::parse_yaml(reality_with_download.as_bytes()).unwrap();
+        assert_eq!(
+            first_vless(&reality_with_download).xhttp.mode,
+            XHttpMode::StreamUp
+        );
     }
 
     #[test]
@@ -2621,6 +2816,223 @@ geo-update-interval: 24"#,
         let stream_one = CURRENT_TLS.replace("mode: auto", "mode: stream-one");
         let stream_one = Config::parse_yaml(stream_one.as_bytes()).unwrap();
         assert_eq!(first_vless(&stream_one).xhttp.mode, XHttpMode::StreamOne);
+        let stream_up = CURRENT_TLS.replace("mode: auto", "mode: stream-up");
+        let stream_up = Config::parse_yaml(stream_up.as_bytes()).unwrap();
+        assert_eq!(first_vless(&stream_up).xhttp.mode, XHttpMode::StreamUp);
+
+        for (mode, expected) in [
+            ("packet-up", XHttpMode::PacketUp),
+            ("stream-up", XHttpMode::StreamUp),
+        ] {
+            let yaml = with_xhttp_download(CURRENT_TLS, "")
+                .replace("mode: auto", &format!("mode: {mode}"));
+            let config = Config::parse_yaml(yaml.as_bytes()).unwrap();
+            assert_eq!(first_vless(&config).xhttp.mode, expected);
+        }
+    }
+
+    #[test]
+    fn normalizes_xhttp_download_security_inheritance_and_reality_override() {
+        let tls_inherited = with_xhttp_download(CURRENT_TLS, "");
+        let tls_inherited = Config::parse_yaml(tls_inherited.as_bytes()).unwrap();
+        let download = first_xhttp_download(&tls_inherited);
+        assert_eq!(download.address, "203.0.113.1");
+        assert_eq!(download.port, 443);
+        assert_eq!(download.path, "/x");
+        assert_eq!(download.host, "example.com");
+        assert!(matches!(
+            &download.security,
+            SecurityConfig::Tls(TlsConfig { server_name }) if server_name == "example.com"
+        ));
+        assert_eq!(first_vless(&tls_inherited).xhttp.mode, XHttpMode::PacketUp);
+
+        let download_reality_key = URL_SAFE_NO_PAD.encode([9_u8; 32]);
+        let tls_to_reality = with_xhttp_download(
+            CURRENT_TLS,
+            &format!(
+                "server: download.example.com\nport: 8443\ntls: true\nservername: reality-download.example.com\nalpn: [h2]\npath: /down\nhost: cdn.example.com\nreality-opts:\n  public-key: {download_reality_key}\n  short-id: 02a3"
+            ),
+        );
+        let tls_to_reality_without_explicit_tls = tls_to_reality.replace("        tls: true\n", "");
+        let inherited_tls =
+            Config::parse_yaml(tls_to_reality_without_explicit_tls.as_bytes()).unwrap();
+        assert!(matches!(
+            &first_xhttp_download(&inherited_tls).security,
+            SecurityConfig::Reality(_)
+        ));
+        let tls_to_reality = Config::parse_yaml(tls_to_reality.as_bytes()).unwrap();
+        let download = first_xhttp_download(&tls_to_reality);
+        assert_eq!(download.address, "download.example.com");
+        assert_eq!(download.port, 8_443);
+        assert_eq!(download.path, "/down");
+        assert_eq!(download.host, "cdn.example.com");
+        let SecurityConfig::Reality(download_reality) = &download.security else {
+            panic!("expected download REALITY");
+        };
+        assert_eq!(download_reality.server_name, "reality-download.example.com");
+        assert_eq!(download_reality.public_key, [9_u8; 32]);
+        assert_eq!(download_reality.short_id, [2, 0xa3]);
+        assert_eq!(first_vless(&tls_to_reality).xhttp.mode, XHttpMode::PacketUp);
+
+        let reality_inherited = with_xhttp_download(&reality_yaml(), "");
+        let reality_inherited = Config::parse_yaml(reality_inherited.as_bytes()).unwrap();
+        assert_eq!(
+            &first_xhttp_download(&reality_inherited).security,
+            &first_vless(&reality_inherited).security
+        );
+        assert_eq!(
+            first_vless(&reality_inherited).xhttp.mode,
+            XHttpMode::StreamUp
+        );
+
+        let reality_with_explicit_tls = with_xhttp_download(
+            &reality_yaml(),
+            "tls: true\nservername: tls-download.example.com",
+        );
+        let reality_with_explicit_tls =
+            Config::parse_yaml(reality_with_explicit_tls.as_bytes()).unwrap();
+        let SecurityConfig::Reality(download_reality) =
+            &first_xhttp_download(&reality_with_explicit_tls).security
+        else {
+            panic!("explicit download tls must not clear inherited REALITY");
+        };
+        assert_eq!(download_reality.server_name, "tls-download.example.com");
+        assert_eq!(
+            first_vless(&reality_with_explicit_tls).xhttp.mode,
+            XHttpMode::StreamUp
+        );
+    }
+
+    #[test]
+    fn xhttp_download_defaults_follow_raw_mihomo_fallback_order() {
+        let implicit_outer = CURRENT_TLS
+            .replace("    servername: example.com\n", "")
+            .replace("      host: example.com\n", "");
+        let implicit_outer =
+            with_xhttp_download(&implicit_outer, "server: download.example.com\nport: 8443");
+        let implicit_outer = Config::parse_yaml(implicit_outer.as_bytes()).unwrap();
+        let download = first_xhttp_download(&implicit_outer);
+        assert_eq!(download.address, "download.example.com");
+        assert_eq!(download.port, 8_443);
+        assert_eq!(download.security.server_name(), "download.example.com");
+        assert_eq!(download.host, "download.example.com");
+
+        let inherited_sni = CURRENT_TLS.replace("      host: example.com\n", "");
+        let inherited_sni =
+            with_xhttp_download(&inherited_sni, "server: download.example.com\nport: 8443");
+        let inherited_sni = Config::parse_yaml(inherited_sni.as_bytes()).unwrap();
+        let download = first_xhttp_download(&inherited_sni);
+        assert_eq!(download.security.server_name(), "example.com");
+        assert_eq!(download.host, "example.com");
+
+        let inherited_host = CURRENT_TLS.replace("    servername: example.com\n", "");
+        let inherited_host =
+            with_xhttp_download(&inherited_host, "server: download.example.com\nport: 8443");
+        let inherited_host = Config::parse_yaml(inherited_host.as_bytes()).unwrap();
+        let download = first_xhttp_download(&inherited_host);
+        assert_eq!(download.security.server_name(), "download.example.com");
+        assert_eq!(download.host, "example.com");
+
+        let ipv6_download = CURRENT_TLS
+            .replace("    servername: example.com\n", "")
+            .replace("      host: example.com\n", "");
+        let ipv6_download =
+            with_xhttp_download(&ipv6_download, "server: '2001:db8::10'\nport: 8443");
+        let ipv6_download = Config::parse_yaml(ipv6_download.as_bytes()).unwrap();
+        let download = first_xhttp_download(&ipv6_download);
+        assert_eq!(download.security.server_name(), "2001:db8::10");
+        assert_eq!(download.host, "[2001:db8::10]");
+    }
+
+    #[test]
+    fn rejects_stream_one_with_xhttp_download_settings() {
+        let yaml = with_xhttp_download(CURRENT_TLS, "").replace("mode: auto", "mode: stream-one");
+        let error = Config::parse_yaml(yaml.as_bytes()).unwrap_err();
+        assert!(
+            error.to_string().contains("stream-one")
+                && error.to_string().contains("download-settings"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_or_null_xhttp_download_fields() {
+        let download_null = CURRENT_TLS.replace(
+            "      mode: auto\n",
+            "      mode: auto\n      download-settings: null\n",
+        );
+        assert!(Config::parse_yaml(download_null.as_bytes()).is_err());
+
+        for field in [
+            "server",
+            "port",
+            "tls",
+            "servername",
+            "alpn",
+            "reality-opts",
+            "path",
+            "host",
+        ] {
+            let yaml = with_xhttp_download(CURRENT_TLS, &format!("{field}: null"));
+            assert!(Config::parse_yaml(yaml.as_bytes()).is_err(), "{field}");
+        }
+
+        for fields in [
+            "tls: false",
+            "alpn: []",
+            "alpn: [h3]",
+            "server: 'bad host'",
+            "port: 0",
+            "servername: 'bad host'",
+            "path: 'bad-path'",
+            "host: '[broken'",
+        ] {
+            let yaml = with_xhttp_download(CURRENT_TLS, fields);
+            assert!(Config::parse_yaml(yaml.as_bytes()).is_err(), "{fields}");
+        }
+    }
+
+    #[test]
+    fn rejects_unsupported_xhttp_download_fields_fail_closed() {
+        for fields in [
+            "shadow-tls-opts: {}",
+            "restls-opts: {}",
+            "jls-opts: {}",
+            "ech-opts: {}",
+            "headers: {}",
+            "reuse-settings: {}",
+            "skip-cert-verify: false",
+            "name-cert-verify: example.com",
+            "fingerprint: pinned",
+            "certificate: cert.pem",
+            "private-key: key.pem",
+            "client-fingerprint: chrome",
+            "mode: stream-up",
+            "typo: true",
+        ] {
+            let yaml = with_xhttp_download(CURRENT_TLS, fields);
+            let error = Config::parse_yaml(yaml.as_bytes()).unwrap_err();
+            assert!(
+                error.to_string().contains("unknown field"),
+                "{fields}: {error}"
+            );
+        }
+
+        for unsupported in [
+            "    shadow-tls-opts: {}\n",
+            "    restls-opts: {}\n",
+            "    jls-opts: null\n",
+        ] {
+            let yaml = CURRENT_TLS.replace(
+                "    xhttp-opts:\n",
+                &format!("{unsupported}    xhttp-opts:\n"),
+            );
+            let error = Config::parse_yaml(yaml.as_bytes()).unwrap_err();
+            assert!(
+                error.to_string().contains("unknown field"),
+                "{unsupported}: {error}"
+            );
+        }
     }
 
     #[test]
@@ -3055,7 +3467,6 @@ authentication:
                 "    alpn: [h2]\n    skip-cert-verify: false",
             ),
             CURRENT_TLS.replace("    alpn: [h2]", "    alpn: [h2]\n    allowInsecure: true"),
-            CURRENT_TLS.replace("mode: auto", "mode: stream-up"),
             CURRENT_TLS.replace("path: /x", "path: '/bad path'"),
             CURRENT_TLS.replace("host: example.com", "host: '[broken'"),
             CURRENT_TLS.replace("host: example.com", "host: null"),
