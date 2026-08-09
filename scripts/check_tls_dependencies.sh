@@ -53,7 +53,7 @@ def require_single_package(name, version):
     return matches[0]
 
 
-rustls = require_single_package("rustls", "0.23.42")
+rustls = require_single_package("rustls", "0.23.43")
 tokio_rustls = require_single_package("tokio-rustls", "0.26.4")
 ring = packages_named("ring")
 
@@ -115,7 +115,7 @@ if errors:
     raise SystemExit(1)
 
 print("TLS dependency check passed:")
-print("- one OneXray rustls 0.23.42")
+print("- one OneXray rustls 0.23.43")
 print("- one official tokio-rustls 0.26.4")
 print(f'- one registry ring {ring[0]["version"]} provider')
 print("- no Watfaq, AWS-LC, or second rustls version")

@@ -29,7 +29,7 @@ use.
 ## Existing dependencies and derived components
 
 - `crates/vcore-netstack` keeps its own Apache-2.0 `LICENSE` and `NOTICE`; those files remain authoritative for that crate.
-- `rustls` `0.23.42` is provided by the project-owned [OneXray/rustls](https://github.com/OneXray/rustls) fork, based on the corresponding official rustls release and retaining its `Apache-2.0 OR ISC OR MIT` licensing. Local development may use the adjacent fork checkout; release builds must pin an immutable OneXray revision in `Cargo.toml`/`Cargo.lock`.
+- `rustls` `0.23.43` is provided by the project-owned [OneXray/rustls](https://github.com/OneXray/rustls) fork, based on the corresponding official rustls release and retaining its `Apache-2.0 OR ISC OR MIT` licensing. Local development may use the adjacent fork checkout; release builds must pin an immutable OneXray revision in `Cargo.toml`/`Cargo.lock`.
 - `tokio-rustls` `0.26.4` is the unmodified, checksummed crates.io release (`MIT OR Apache-2.0`). VCore does not maintain or link a Watfaq `tokio-rustls` fork.
 - `x25519-dalek` `2.0.1` is a runtime dependency of the OneXray rustls REALITY feature and is licensed under `BSD-3-Clause`.
 - `ring` `0.17.14` is the sole cryptographic provider in the current resolved VCore graph and declares `Apache-2.0 AND ISC`. AWS-LC is not part of the current dependency graph.

@@ -48,7 +48,7 @@ md-5 = { version = "0.10", optional = true }
 pin-project-lite = "0.2"
 rand = "0.9"
 regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "dfa-search", "syntax", "unicode"] }
-rustls = { version = "=0.23.42", default-features = false, features = ["ring", "std", "tls12"] }
+rustls = { version = "=0.23.43", default-features = false, features = ["ring", "std", "tls12"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml_ng = "0.10"
