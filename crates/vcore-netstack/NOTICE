@@ -1,0 +1,25 @@
+vcore-netstack
+Copyright 2026 VCore contributors
+
+This crate was independently adapted for VCore after studying the
+`clash-netstack` crate in clash-rs:
+
+    https://github.com/Watfaq/clash-rs/tree/master/clash-netstack
+
+The studied crate declares `MIT OR Apache-2.0`. This derivative crate is
+distributed under Apache-2.0.
+
+Material VCore changes include:
+
+* replaced every unbounded channel with bounded channels or a coalescing
+  `Notify` wake-up;
+* replaced the unsafe lock-free application ring with a safe, capacity-limited
+  byte queue;
+* changed the default per-socket buffers from 256 KiB at each layer to a total
+  configurable 32 KiB budget per direction;
+* combined packet and socket polling in one cancellable driver task;
+* added explicit packet, accept and UDP queue limits while allowing active and
+  half-open TCP flow counts to follow workload;
+* added a stop completion barrier and resource counters;
+* kept UDP datagram boundaries and implemented IPv4 and IPv6 packet creation;
+* added synthetic dual-stack, backpressure, stop and boundary tests.

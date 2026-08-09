@@ -1,0 +1,94 @@
+[package]
+name = "vcore"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[lib]
+name = "vcore"
+crate-type = ["rlib", "staticlib", "cdylib"]
+
+[features]
+default = [
+    "inbound-http",
+    "outbound-anytls",
+    "outbound-socks5",
+    "outbound-vless",
+]
+inbound-http = []
+outbound-anytls = ["dep:md-5"]
+outbound-socks5 = []
+outbound-vless = ["rustls/reality"]
+# Enables local interoperability-only trust-root injection. Release build
+# scripts must not enable this feature.
+interop-test = ["outbound-anytls", "outbound-vless"]
+ffi = ["tun"]
+tun = [
+    "dep:rust-tun",
+    "dep:vcore-netstack",
+    "inbound-http",
+    "outbound-anytls",
+    "outbound-socks5",
+    "outbound-vless",
+]
+
+[dependencies]
+arc-swap = "1"
+async-trait = "0.1"
+base64 = "0.22"
+bytes = "1"
+fs2 = "0.4"
+futures-util = "0.3"
+h2 = "0.4"
+http = "1"
+idna = "1.1"
+libc = "0.2"
+md-5 = { version = "0.10", optional = true }
+pin-project-lite = "0.2"
+rand = "0.9"
+regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "dfa-search", "syntax", "unicode"] }
+rustls = { version = "=0.23.42", default-features = false, features = ["ring", "std", "tls12"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml_ng = "0.10"
+sha2 = "0.10"
+socket2 = { version = "0.6", features = ["all"] }
+thiserror = "2"
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt", "sync", "time"] }
+tokio-rustls = { version = "=0.26.4", default-features = false, features = ["ring", "tls12"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+tracing = "0.1"
+url = "2"
+uuid = { version = "1", features = ["serde"] }
+vcore-netstack = { path = "crates/vcore-netstack", optional = true }
+webpki-roots = "1"
+
+[target.'cfg(any(target_os = "ios", target_os = "macos"))'.dependencies]
+oslog = { version = "0.2", default-features = false }
+
+[target.'cfg(unix)'.dependencies]
+rust-tun = { package = "tun", version = "=0.8.14", default-features = false, optional = true }
+
+[dev-dependencies]
+tempfile = "3"
+
+[patch.crates-io]
+# Development-only workspace override. Replace this with the immutable
+# OneXray/rustls revision before publishing the migration.
+rustls = { path = "../rustls/rustls" }
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+opt-level = "z"
+panic = "unwind"
+strip = "symbols"
+
+[lints.rust]
+unsafe_code = "allow"
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+all = "warn"
+pedantic = "allow"

@@ -1,0 +1,4 @@
+module LibVCore {
+  header "vcore.h"
+  export *
+}
