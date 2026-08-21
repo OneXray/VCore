@@ -10,7 +10,7 @@ PROFILE=${VCORE_BUILD_PROFILE:-release}
 FEATURES=${VCORE_FEATURES:-ffi,tun,inbound-http,outbound-vless}
 IOS_MIN=${VCORE_IOS_DEPLOYMENT_TARGET:-13.0}
 MACOS_MIN=${VCORE_MACOS_DEPLOYMENT_TARGET:-10.15}
-EXPECTED_IDENTITY='OneVCore/VCore;engine=rust;coreVersion=0.1.0;invokeApiVersion=4;configVersion=11'
+EXPECTED_IDENTITY='OneVCore/VCore;engine=rust;coreVersion=0.1.0;invokeApiVersion=5;configVersion=11'
 
 case "$PROFILE" in
   release)

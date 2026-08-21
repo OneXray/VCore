@@ -11,7 +11,7 @@ trap 'rm -f "$TMP_FILE" "$TMP_CPP_FILE"' EXIT HUP INT TERM
 printf '%s\n' \
   '#include "vcore.h"' \
   'int main(void) {' \
-  '  char *response = VCoreInvoke("{\"apiVersion\":4,\"method\":\"version\",\"payload\":{}}");' \
+  '  char *response = VCoreInvoke("{\"apiVersion\":5,\"method\":\"version\",\"payload\":{}}");' \
   '  VCoreFree(response);' \
   '  VCoreFree((char *)0);' \
   '  return 0;' \
@@ -19,7 +19,7 @@ printf '%s\n' \
 printf '%s\n' \
   '#include "vcore.h"' \
   'int main() {' \
-  '  char *response = VCoreInvoke("{\"apiVersion\":4,\"method\":\"version\",\"payload\":{}}");' \
+  '  char *response = VCoreInvoke("{\"apiVersion\":5,\"method\":\"version\",\"payload\":{}}");' \
   '  VCoreFree(response);' \
   '  VCoreFree(nullptr);' \
   '  return 0;' \

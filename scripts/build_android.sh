@@ -12,7 +12,7 @@ PROFILE=${VCORE_BUILD_PROFILE:-release}
 FEATURES=${VCORE_FEATURES:-ffi,tun,inbound-http,outbound-vless}
 TARGETS=${VCORE_ANDROID_TARGETS:-"aarch64-linux-android x86_64-linux-android"}
 OUTPUT_DIR=${VCORE_ANDROID_OUTPUT_DIR:-"$CORE_DIR/dist/android"}
-EXPECTED_IDENTITY='OneVCore/VCore;engine=rust;coreVersion=0.1.0;invokeApiVersion=4;configVersion=11'
+EXPECTED_IDENTITY='OneVCore/VCore;engine=rust;coreVersion=0.1.0;invokeApiVersion=5;configVersion=11'
 
 case "$PROFILE" in
   release)

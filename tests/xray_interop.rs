@@ -17,7 +17,6 @@ use std::{
 use std::{
     ffi::{CStr, CString},
     net::TcpListener as StdTcpListener,
-    path::{Path, PathBuf},
 };
 
 use bytes::Bytes;
@@ -432,7 +431,7 @@ fn ffi_method(
 
 #[cfg(feature = "ffi")]
 fn ffi_measure_delay_batch(
-    config_paths: &[PathBuf],
+    config_yamls: &[String],
     timeout_seconds: u64,
     target_url: String,
 ) -> io::Result<Vec<u64>> {
@@ -440,10 +439,7 @@ fn ffi_measure_delay_batch(
         "measureDelay",
         None,
         serde_json::json!({
-            "configPaths": config_paths
-                .iter()
-                .map(|path| path.to_string_lossy().into_owned())
-                .collect::<Vec<_>>(),
+            "configYamls": config_yamls,
             "timeout": timeout_seconds,
             "url": target_url,
         }),
@@ -454,13 +450,13 @@ fn ffi_measure_delay_batch(
             format!("measureDelay returned no results array: {data}"),
         )
     })?;
-    if results.len() != config_paths.len() {
+    if results.len() != config_yamls.len() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             format!(
                 "measureDelay returned {} results, expected {}",
                 results.len(),
-                config_paths.len()
+                config_yamls.len()
             ),
         ));
     }
@@ -494,7 +490,7 @@ fn ffi_stop_instance(instance_id: &str) -> io::Result<()> {
 }
 
 #[cfg(feature = "ffi")]
-fn ffi_start_single_instance(config_path: &Path) -> io::Result<String> {
+fn ffi_start_single_instance(config_yaml: &str) -> io::Result<String> {
     let data = ffi_method("createInstance", None, serde_json::json!({}))?;
     let instance_id = data["instanceId"]
         .as_str()
@@ -523,7 +519,7 @@ fn ffi_start_single_instance(config_path: &Path) -> io::Result<String> {
     if let Err(error) = ffi_method(
         "prepare",
         Some(&instance_id),
-        serde_json::json!({"configPath": config_path.to_string_lossy().into_owned()}),
+        serde_json::json!({"configYaml": config_yaml}),
     ) {
         let _ = ffi_stop_instance(&instance_id);
         return Err(error);
@@ -652,19 +648,15 @@ async fn check_ffi_batch_measure_and_single_lifecycle(
         None,
         serde_json::json!({"dataDir": directory.path().to_string_lossy().into_owned()}),
     )?;
-    let config_directory = directory.path().join("configs");
     let download_settings = if split_download {
         "      download-settings: {}\n"
     } else {
         ""
     };
-    let mut measure_config_paths = Vec::with_capacity(MEASURE_COUNT);
-    for index in 0..MEASURE_COUNT {
-        let path = config_directory.join(format!("measure-{index}.yaml"));
-        std::fs::write(
-            &path,
-            format!(
-                r#"proxies:
+    let mut measure_config_yamls = Vec::with_capacity(MEASURE_COUNT);
+    for _ in 0..MEASURE_COUNT {
+        measure_config_yamls.push(format!(
+            r#"proxies:
   - name: proxy
     type: vless
     server: {}
@@ -685,11 +677,9 @@ async fn check_ffi_batch_measure_and_single_lifecycle(
       mode: {mode}
 {download_settings}
 "#,
-                xray_address.ip(),
-                xray_address.port(),
-            ),
-        )?;
-        measure_config_paths.push(path);
+            xray_address.ip(),
+            xray_address.port(),
+        ));
     }
 
     let target_task = tokio::spawn(async move {
@@ -706,10 +696,10 @@ async fn check_ffi_batch_measure_and_single_lifecycle(
             )),
         }
     });
-    let measurement_paths = measure_config_paths.clone();
+    let measurement_yamls = measure_config_yamls.clone();
     let measurement = tokio::task::spawn_blocking(move || {
         ffi_measure_delay_batch(
-            &measurement_paths,
+            &measurement_yamls,
             MEASURE_TIMEOUT_SECONDS,
             format!("http://{target_address}/measure"),
         )
@@ -743,11 +733,8 @@ async fn check_ffi_batch_measure_and_single_lifecycle(
     let reservation = StdTcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
     let http_port = reservation.local_addr()?.port();
     drop(reservation);
-    let runtime_config_path = config_directory.join("runtime.yaml");
-    std::fs::write(
-        &runtime_config_path,
-        format!(
-            r#"port: {http_port}
+    let runtime_config_yaml = format!(
+        r#"port: {http_port}
 authentication:
   - measure:secret
 proxies:
@@ -773,15 +760,14 @@ proxies:
 rules:
   - MATCH,proxy
 "#,
-            xray_address.ip(),
-            xray_address.port(),
-        ),
-    )?;
+        xray_address.ip(),
+        xray_address.port(),
+    );
 
     // A successful batch must leave the one public lifecycle slot untouched.
     // While that lifecycle is live, a second create must still fail closed.
     let instance_id =
-        tokio::task::spawn_blocking(move || ffi_start_single_instance(&runtime_config_path))
+        tokio::task::spawn_blocking(move || ffi_start_single_instance(&runtime_config_yaml))
             .await
             .map_err(|error| io::Error::other(format!("VCore setup task failed: {error}")))??;
 

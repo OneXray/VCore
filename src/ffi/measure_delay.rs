@@ -30,11 +30,11 @@ use crate::{
     session::{Destination, InboundKind, StreamSession},
 };
 
-use super::{InvokeFailure, load_config_file, registry};
+use super::{InvokeFailure, registry};
 
 const MIN_TIMEOUT_SECONDS: u32 = 1;
 const MAX_TIMEOUT_SECONDS: u32 = 30;
-const MAX_MEASURE_CONFIGS: usize = 5;
+pub(super) const MAX_MEASURE_CONFIGS: usize = 5;
 const MAX_MEASURE_WORKERS: usize = 5;
 const MAX_ITEM_ERROR_BYTES: usize = 1_024;
 
@@ -43,7 +43,7 @@ static MEASURE_DELAY_ACTIVE: AtomicBool = AtomicBool::new(false);
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub(super) struct MeasureDelayPayload {
-    config_paths: Vec<String>,
+    config_yamls: Vec<String>,
     timeout: u32,
     url: String,
 }
@@ -79,7 +79,7 @@ struct Target {
 }
 
 struct MeasureRequest {
-    config_paths: Vec<String>,
+    config_yamls: Vec<String>,
     timeout: Duration,
     target: Target,
 }
@@ -108,27 +108,27 @@ pub(super) fn measure_delay(
 ) -> Result<Vec<MeasureDelayResult>, InvokeFailure> {
     let request = MeasureRequest::parse(payload)?;
     let _admission = MeasureDelayAdmission::try_acquire(&MEASURE_DELAY_ACTIVE)?;
-    let data_directory = registry().data_directory()?;
+    let _data_directory = registry().data_directory()?;
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_io()
         .enable_time()
         .build()
         .map_err(InvokeFailure::from)?;
-    let results = runtime.block_on(run_batch(request, data_directory));
+    let results = runtime.block_on(run_batch(request));
     runtime.shutdown_timeout(Duration::from_millis(100));
     Ok(results)
 }
 
 impl MeasureRequest {
     fn parse(payload: MeasureDelayPayload) -> Result<Self, InvokeFailure> {
-        if payload.config_paths.is_empty() || payload.config_paths.len() > MAX_MEASURE_CONFIGS {
+        if payload.config_yamls.is_empty() || payload.config_yamls.len() > MAX_MEASURE_CONFIGS {
             return Err(InvokeFailure::invalid_request(format!(
-                "configPaths must contain between 1 and {MAX_MEASURE_CONFIGS} entries"
+                "configYamls must contain between 1 and {MAX_MEASURE_CONFIGS} entries"
             )));
         }
-        if payload.config_paths.iter().any(String::is_empty) {
+        if payload.config_yamls.iter().any(String::is_empty) {
             return Err(InvokeFailure::invalid_request(
-                "configPaths must not contain an empty path",
+                "configYamls must not contain an empty YAML document",
             ));
         }
         if !(MIN_TIMEOUT_SECONDS..=MAX_TIMEOUT_SECONDS).contains(&payload.timeout) {
@@ -137,7 +137,7 @@ impl MeasureRequest {
             )));
         }
         Ok(Self {
-            config_paths: payload.config_paths,
+            config_yamls: payload.config_yamls,
             timeout: Duration::from_secs(u64::from(payload.timeout)),
             target: Target::parse(&payload.url)?,
         })
@@ -235,20 +235,16 @@ fn authority(host: &TargetHost, port: u16) -> String {
     }
 }
 
-async fn run_batch(
-    request: MeasureRequest,
-    data_directory: Arc<crate::data_dir::DataDirectory>,
-) -> Vec<MeasureDelayResult> {
+async fn run_batch(request: MeasureRequest) -> Vec<MeasureDelayResult> {
     let MeasureRequest {
-        config_paths,
+        config_yamls,
         timeout,
         target,
     } = request;
-    let jobs = config_paths.into_iter().map(|config_path| {
-        let data_directory = data_directory.clone();
+    let jobs = config_yamls.into_iter().map(|config_yaml| {
         let target = target.clone();
         async move {
-            match AssertUnwindSafe(measure_one(&config_path, &data_directory, &target, timeout))
+            match AssertUnwindSafe(measure_one(config_yaml, &target, timeout))
                 .catch_unwind()
                 .await
             {
@@ -273,14 +269,12 @@ where
 }
 
 async fn measure_one(
-    config_path: &str,
-    data_directory: &crate::data_dir::DataDirectory,
+    config_yaml: String,
     target: &Target,
     timeout: Duration,
 ) -> Result<u64, InvokeFailure> {
-    let config_bytes = load_config_file(config_path, data_directory)?;
-    let config = MeasureConfig::parse_yaml(&config_bytes).map_err(InvokeFailure::from)?;
-    drop(config_bytes);
+    let config = MeasureConfig::parse_yaml(config_yaml.as_bytes()).map_err(InvokeFailure::from)?;
+    drop(config_yaml);
     let prepared = PreparedMeasurement::prepare_config(
         config,
         &SystemResolver,
@@ -524,15 +518,31 @@ mod tests {
 
     #[test]
     fn validates_batch_request_and_target_url() {
+        let payload: MeasureDelayPayload = serde_json::from_value(serde_json::json!({
+            "configYamls": ["proxies: []"],
+            "timeout": 5,
+            "url": "https://example.com/"
+        }))
+        .unwrap();
+        assert_eq!(payload.config_yamls, vec!["proxies: []"]);
+        assert!(
+            serde_json::from_value::<MeasureDelayPayload>(serde_json::json!({
+                "configPaths": ["config.yaml"],
+                "timeout": 5,
+                "url": "https://example.com/"
+            }))
+            .is_err()
+        );
+
         let request = MeasureRequest::parse(MeasureDelayPayload {
-            config_paths: (0..MAX_MEASURE_CONFIGS)
-                .map(|index| format!("{index}.yaml"))
+            config_yamls: (0..MAX_MEASURE_CONFIGS)
+                .map(|index| format!("proxies:\n  - name: proxy-{index}"))
                 .collect(),
             timeout: 5,
             url: "https://example.com/path?q=1".to_owned(),
         })
         .unwrap();
-        assert_eq!(request.config_paths.len(), MAX_MEASURE_CONFIGS);
+        assert_eq!(request.config_yamls.len(), MAX_MEASURE_CONFIGS);
         assert_eq!(request.target.authority, "example.com:443");
         assert_eq!(request.target.origin_form, "/path?q=1");
         assert_eq!(
@@ -542,22 +552,22 @@ mod tests {
 
         for payload in [
             MeasureDelayPayload {
-                config_paths: vec![],
+                config_yamls: vec![],
                 timeout: 5,
                 url: "https://example.com/".to_owned(),
             },
             MeasureDelayPayload {
-                config_paths: vec!["".to_owned()],
+                config_yamls: vec!["".to_owned()],
                 timeout: 5,
                 url: "https://example.com/".to_owned(),
             },
             MeasureDelayPayload {
-                config_paths: vec!["a".to_owned()],
+                config_yamls: vec!["proxies: []".to_owned()],
                 timeout: 0,
                 url: "https://example.com/".to_owned(),
             },
             MeasureDelayPayload {
-                config_paths: vec!["a".to_owned()],
+                config_yamls: vec!["proxies: []".to_owned()],
                 timeout: 5,
                 url: "ftp://example.com/".to_owned(),
             },
@@ -569,8 +579,8 @@ mod tests {
 
         assert!(
             MeasureRequest::parse(MeasureDelayPayload {
-                config_paths: (0..=MAX_MEASURE_CONFIGS)
-                    .map(|index| format!("{index}.yaml"))
+                config_yamls: (0..=MAX_MEASURE_CONFIGS)
+                    .map(|index| format!("proxies:\n  - name: proxy-{index}"))
                     .collect(),
                 timeout: 5,
                 url: "https://example.com/".to_owned(),
@@ -579,7 +589,7 @@ mod tests {
         );
         assert!(
             MeasureRequest::parse(MeasureDelayPayload {
-                config_paths: vec!["a".to_owned()],
+                config_yamls: vec!["proxies: []".to_owned()],
                 timeout: 31,
                 url: "https://example.com/".to_owned(),
             })
@@ -618,6 +628,24 @@ mod tests {
         assert_eq!(results, vec![0, 1, 2, 3, 4, 5]);
         assert_eq!(peak.load(AtomicOrdering::Acquire), MAX_MEASURE_WORKERS);
         assert_eq!(active.load(AtomicOrdering::Acquire), 0);
+    }
+
+    #[tokio::test]
+    async fn invalid_in_memory_yamls_fail_closed_per_item() {
+        let results = run_batch(MeasureRequest {
+            config_yamls: vec![
+                "/tmp/config-that-must-not-be-read.yaml".to_owned(),
+                "proxies: [".to_owned(),
+            ],
+            timeout: Duration::from_secs(5),
+            target: Target::parse("https://example.com/").unwrap(),
+        })
+        .await;
+
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().all(|result| !result.success));
+        assert!(results.iter().all(|result| result.delay.is_none()));
+        assert!(results.iter().all(|result| !result.error.is_empty()));
     }
 
     #[tokio::test]

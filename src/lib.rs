@@ -54,7 +54,7 @@ pub use limits::ResourceLimits;
 pub use packet::{IpVersion, TunFraming};
 
 /// Strict version carried by every current Invoke request and version response.
-pub const INVOKE_API_VERSION: u32 = 4;
+pub const INVOKE_API_VERSION: u32 = 5;
 
 /// Internal configuration schema revision reported through Invoke.
 ///
@@ -71,5 +71,5 @@ pub const ENGINE: &str = "rust";
 pub const BUILD_IDENTITY: &str = concat!(
     "OneVCore/VCore;engine=rust;coreVersion=",
     env!("CARGO_PKG_VERSION"),
-    ";invokeApiVersion=4;configVersion=11"
+    ";invokeApiVersion=5;configVersion=11"
 );

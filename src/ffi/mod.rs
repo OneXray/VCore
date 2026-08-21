@@ -11,8 +11,7 @@
 use std::{
     cell::Cell,
     ffi::{CString, c_char},
-    fs::File,
-    io::{self, Read},
+    io,
     panic::{AssertUnwindSafe, catch_unwind},
     path::Path,
     slice, str,
@@ -32,7 +31,7 @@ use tokio::sync::oneshot;
 use crate::{
     BUILD_IDENTITY, CONFIG_VERSION, ENGINE, INVOKE_API_VERSION, Lifecycle, LifecycleState,
     ResourceLimits, TunFraming, VCoreError,
-    config::{Config, MAX_CONFIG_BYTES},
+    config::Config,
     data_dir::DataDirectory,
     dialer::{Dialer, SocketProtector, SystemResolver},
     geodata::{GeoDataManager, GeoDataStatus, GeoResourceState},
@@ -44,7 +43,10 @@ use crate::{
 mod android;
 mod measure_delay;
 
-const MAX_INVOKE_BYTES: usize = 1024 * 1024;
+// A measureDelay request may inline five independently valid 256 KiB YAML
+// documents. JSON escaping can double common YAML bytes such as backslashes,
+// quotes, and newlines, so the wire envelope needs a larger aggregate bound.
+const MAX_INVOKE_BYTES: usize = 3 * 1024 * 1024;
 const MAX_ERROR_BYTES: usize = 4096;
 static REGISTRY: OnceLock<RuntimeRegistry> = OnceLock::new();
 
@@ -303,8 +305,8 @@ where
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-struct ConfigPathPayload {
-    config_path: String,
+struct ConfigYamlPayload {
+    config_yaml: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -690,8 +692,8 @@ fn dispatch_bytes(request: &[u8]) -> Result<InvokeResponse, InvokeFailure> {
         }
         "validateConfig" => {
             require_instance_omitted(&envelope)?;
-            let payload: ConfigPathPayload = decode_payload(envelope.payload)?;
-            validate_config(&payload.config_path)?;
+            let payload: ConfigYamlPayload = decode_payload(envelope.payload)?;
+            validate_config(payload.config_yaml)?;
             json!({})
         }
         "measureDelay" => {
@@ -702,9 +704,9 @@ fn dispatch_bytes(request: &[u8]) -> Result<InvokeResponse, InvokeFailure> {
         }
         "prepare" => {
             let controller = require_instance(&envelope)?;
-            let payload: ConfigPathPayload = decode_payload(envelope.payload)?;
+            let payload: ConfigYamlPayload = decode_payload(envelope.payload)?;
             invoke_instance_guarded(&controller, || {
-                controller.prepare(&payload.config_path)?;
+                controller.prepare(payload.config_yaml)?;
                 Ok(json!({}))
             })?
         }
@@ -821,7 +823,7 @@ impl CoreController {
         Ok(())
     }
 
-    fn prepare(&self, config_path: &str) -> Result<(), InvokeFailure> {
+    fn prepare(&self, config_yaml: String) -> Result<(), InvokeFailure> {
         let _command = self.try_command()?;
         {
             let mut inner = lock(&self.inner);
@@ -836,10 +838,9 @@ impl CoreController {
         // Parse before claiming runtime-local resources. Android only needs a
         // protect controller for a configuration that actually contains TUN;
         // non-TUN configurations do not depend on controller registration.
-        let data_directory = registry().data_directory()?;
-        let config_bytes = load_config_file(config_path, &data_directory)?;
-        let config = Config::parse_yaml(&config_bytes).map_err(InvokeFailure::from)?;
-        drop(config_bytes);
+        let _data_directory = registry().data_directory()?;
+        let config = parse_config_yaml(&config_yaml)?;
+        drop(config_yaml);
         let has_tun = config
             .inbounds
             .iter()
@@ -1182,12 +1183,18 @@ pub(super) fn replace_android_socket_protector(
     registry().replace_android_socket_protector(protector)
 }
 
-fn validate_config(config_path: &str) -> Result<(), InvokeFailure> {
-    let data_directory = registry().data_directory()?;
-    let config_bytes = load_config_file(config_path, &data_directory)?;
-    let config = Config::parse_yaml(&config_bytes).map_err(InvokeFailure::from)?;
-    drop(config_bytes);
+fn validate_config(config_yaml: String) -> Result<(), InvokeFailure> {
+    let _data_directory = registry().data_directory()?;
+    let config = parse_config_yaml(&config_yaml)?;
+    drop(config_yaml);
     PreparedCore::validate_config(config).map_err(InvokeFailure::from)
+}
+
+fn parse_config_yaml(config_yaml: &str) -> Result<Config, InvokeFailure> {
+    if config_yaml.is_empty() {
+        return Err(InvokeFailure::invalid_request("configYaml is empty"));
+    }
+    Config::parse_yaml(config_yaml.as_bytes()).map_err(InvokeFailure::from)
 }
 
 fn geodata_status_data(status: GeoDataStatus) -> Value {
@@ -1208,44 +1215,6 @@ fn geodata_resource_data(state: GeoResourceState) -> Value {
         "etag": state.etag,
         "hash": state.hash,
     })
-}
-
-fn load_config_file(
-    config_path: &str,
-    data_directory: &DataDirectory,
-) -> Result<Vec<u8>, InvokeFailure> {
-    if config_path.is_empty() {
-        return Err(InvokeFailure::invalid_request("configPath is empty"));
-    }
-    // Resolve the caller-controlled path once, then read that target. GeoData
-    // is independently owned by dataDir/geodata and never inferred from the
-    // configuration generation.
-    let canonical = data_directory
-        .canonical_config(Path::new(config_path))
-        .map_err(|error| {
-            InvokeFailure::new(format!("failed to normalize configuration path: {error}"))
-        })?;
-    let file = File::open(&canonical)
-        .map_err(|error| InvokeFailure::new(format!("failed to open configuration: {error}")))?;
-    if file
-        .metadata()
-        .ok()
-        .is_some_and(|metadata| metadata.len() > MAX_CONFIG_BYTES as u64)
-    {
-        return Err(InvokeFailure::new(format!(
-            "invalid configuration: configuration exceeds the {MAX_CONFIG_BYTES}-byte limit"
-        )));
-    }
-    let mut config = Vec::new();
-    file.take((MAX_CONFIG_BYTES + 1) as u64)
-        .read_to_end(&mut config)
-        .map_err(|error| InvokeFailure::new(format!("failed to read configuration: {error}")))?;
-    if config.len() > MAX_CONFIG_BYTES {
-        return Err(InvokeFailure::new(format!(
-            "invalid configuration: configuration exceeds the {MAX_CONFIG_BYTES}-byte limit"
-        )));
-    }
-    Ok(config)
 }
 
 fn validate_start_tun(
@@ -1541,7 +1510,6 @@ mod tests {
         io::{Read, Write},
         net::{TcpListener, TcpStream},
         os::{fd::AsRawFd, unix::net::UnixDatagram},
-        path::{Path, PathBuf},
         ptr,
         sync::{Arc, Barrier, Mutex},
     };
@@ -1552,7 +1520,6 @@ mod tests {
 
     struct TestDataDirectory {
         _temporary: tempfile::TempDir,
-        configs: PathBuf,
     }
 
     struct AcceptingProtector;
@@ -1641,17 +1608,11 @@ mod tests {
         );
         assert_eq!(response["success"], true, "{response}");
         TestDataDirectory {
-            configs: root.join(crate::data_dir::CONFIGS_DIR_NAME),
             _temporary: temporary,
         }
     }
 
-    fn write_config_with_outbound(
-        path: &Path,
-        http_port: Option<u16>,
-        tun: bool,
-        outbound_port: u16,
-    ) {
+    fn config_with_outbound(http_port: Option<u16>, tun: bool, outbound_port: u16) -> String {
         let listener = match (http_port, tun) {
             (Some(port), false) => format!(
                 "port: {port}
@@ -1661,10 +1622,8 @@ authentication:
             (None, true) => "tun:\n  enable: true\n  mtu: 1500\n".to_owned(),
             _ => panic!("test configuration must select exactly one listener"),
         };
-        std::fs::write(
-            path,
-            format!(
-                r#"{listener}proxies:
+        format!(
+            r#"{listener}proxies:
   - name: proxy
     type: vless
     server: 127.0.0.1
@@ -1683,24 +1642,20 @@ authentication:
 rules:
   - MATCH,proxy
 "#
-            ),
         )
-        .unwrap();
     }
 
-    fn write_tun_config(path: &Path) {
-        write_config_with_outbound(path, None, true, 443);
+    fn tun_config() -> String {
+        config_with_outbound(None, true, 443)
     }
 
-    fn write_http_config(path: &Path, port: u16) {
-        write_config_with_outbound(path, Some(port), false, 443);
+    fn http_config(port: u16) -> String {
+        config_with_outbound(Some(port), false, 443)
     }
 
-    fn write_current_config(path: &Path, http_port: u16, rules: &str) {
-        std::fs::write(
-            path,
-            format!(
-                r#"port: {http_port}
+    fn current_config(http_port: u16, rules: &str) -> String {
+        format!(
+            r#"port: {http_port}
 authentication:
   - measure:secret
 proxies:
@@ -1722,9 +1677,7 @@ proxies:
 rules:
 {rules}
 "#
-            ),
         )
-        .unwrap();
     }
 
     fn free_ports(count: usize) -> Vec<u16> {
@@ -1842,33 +1795,35 @@ rules:
             r#"{"apiVersion":0,"method":"version","payload":{}}"#,
             r#"{"apiVersion":2,"method":"version","payload":{}}"#,
             r#"{"apiVersion":3,"method":"version","payload":{}}"#,
-            r#"{"apiVersion":4,"method":"version","payload":{},"extra":true}"#,
-            r#"{"apiVersion":4,"method":"version","payload":{"extra":true}}"#,
-            r#"{"apiVersion":4,"method":"version","payload":null}"#,
-            r#"{"apiVersion":4,"method":"version","payload":{},"instanceId":"1"}"#,
-            r#"{"apiVersion":4,"method":"createInstance","payload":{},"instanceId":"1"}"#,
-            r#"{"apiVersion":4,"method":"getGeoDataState","payload":{},"instanceId":"1"}"#,
-            r#"{"apiVersion":4,"method":"validateConfig","payload":{"configPath":"x"},"instanceId":"1"}"#,
-            r#"{"apiVersion":4,"method":"measureDelay","payload":{"configPaths":["x"],"timeout":5,"url":"https://example.com/"},"instanceId":"1"}"#,
-            r#"{"apiVersion":4,"method":"measureDelay","payload":{"configPaths":["x"],"timeout":5,"url":"https://example.com/","extra":true}}"#,
-            r#"{"apiVersion":4,"method":"measureDelay","payload":{"configPaths":[],"timeout":5,"url":"https://example.com/"}}"#,
-            r#"{"apiVersion":4,"method":"measureDelay","payload":{"configPaths":[""],"timeout":5,"url":"https://example.com/"}}"#,
-            r#"{"apiVersion":4,"method":"measureDelay","payload":{"configPaths":["x"],"timeout":0,"url":"https://example.com/"}}"#,
-            r#"{"apiVersion":4,"method":"measureDelay","payload":{"configPaths":["x"],"timeout":31,"url":"https://example.com/"}}"#,
-            r#"{"apiVersion":4,"method":"measureDelay","payload":{"configPaths":["x"],"timeout":5,"url":"ftp://example.com/"}}"#,
-            r#"{"apiVersion":4,"method":"measureDelay","payload":{"configPath":"x","timeout":5,"url":"https://example.com/","proxy":"http://127.0.0.1:18080"}}"#,
-            r#"{"apiVersion":4,"method":"getState","payload":{}}"#,
-            r#"{"apiVersion":4,"method":"getState","payload":{},"instanceId":null}"#,
-            r#"{"apiVersion":4,"method":"getState","payload":{},"instanceId":1}"#,
-            r#"{"apiVersion":4,"method":"getState","payload":{},"instanceId":"0"}"#,
-            r#"{"apiVersion":4,"method":"getState","payload":{},"instanceId":"01"}"#,
-            r#"{"apiVersion":4,"method":"getState","payload":{},"instanceId":"999999"}"#,
-            r#"{"apiVersion":4,"method":"missing","payload":{}}"#,
+            r#"{"apiVersion":4,"method":"version","payload":{}}"#,
+            r#"{"apiVersion":5,"method":"version","payload":{},"extra":true}"#,
+            r#"{"apiVersion":5,"method":"version","payload":{"extra":true}}"#,
+            r#"{"apiVersion":5,"method":"version","payload":null}"#,
+            r#"{"apiVersion":5,"method":"version","payload":{},"instanceId":"1"}"#,
+            r#"{"apiVersion":5,"method":"createInstance","payload":{},"instanceId":"1"}"#,
+            r#"{"apiVersion":5,"method":"getGeoDataState","payload":{},"instanceId":"1"}"#,
+            r#"{"apiVersion":5,"method":"validateConfig","payload":{"configYaml":"x"},"instanceId":"1"}"#,
+            r#"{"apiVersion":5,"method":"validateConfig","payload":{"configPath":"x"}}"#,
+            r#"{"apiVersion":5,"method":"measureDelay","payload":{"configYamls":["x"],"timeout":5,"url":"https://example.com/"},"instanceId":"1"}"#,
+            r#"{"apiVersion":5,"method":"measureDelay","payload":{"configYamls":["x"],"timeout":5,"url":"https://example.com/","extra":true}}"#,
+            r#"{"apiVersion":5,"method":"measureDelay","payload":{"configYamls":[],"timeout":5,"url":"https://example.com/"}}"#,
+            r#"{"apiVersion":5,"method":"measureDelay","payload":{"configYamls":[""],"timeout":5,"url":"https://example.com/"}}"#,
+            r#"{"apiVersion":5,"method":"measureDelay","payload":{"configYamls":["x"],"timeout":0,"url":"https://example.com/"}}"#,
+            r#"{"apiVersion":5,"method":"measureDelay","payload":{"configYamls":["x"],"timeout":31,"url":"https://example.com/"}}"#,
+            r#"{"apiVersion":5,"method":"measureDelay","payload":{"configYamls":["x"],"timeout":5,"url":"ftp://example.com/"}}"#,
+            r#"{"apiVersion":5,"method":"measureDelay","payload":{"configYaml":"x","timeout":5,"url":"https://example.com/","proxy":"http://127.0.0.1:18080"}}"#,
+            r#"{"apiVersion":5,"method":"getState","payload":{}}"#,
+            r#"{"apiVersion":5,"method":"getState","payload":{},"instanceId":null}"#,
+            r#"{"apiVersion":5,"method":"getState","payload":{},"instanceId":1}"#,
+            r#"{"apiVersion":5,"method":"getState","payload":{},"instanceId":"0"}"#,
+            r#"{"apiVersion":5,"method":"getState","payload":{},"instanceId":"01"}"#,
+            r#"{"apiVersion":5,"method":"getState","payload":{},"instanceId":"999999"}"#,
+            r#"{"apiVersion":5,"method":"missing","payload":{}}"#,
         ] {
             assert_failure(&invoke(request));
         }
         let legacy_concurrency = invoke(
-            r#"{"apiVersion":4,"method":"measureDelay","payload":{"configPaths":["x"],"timeout":5,"url":"https://example.com/","concurrency":1}}"#,
+            r#"{"apiVersion":5,"method":"measureDelay","payload":{"configYamls":["x"],"timeout":5,"url":"https://example.com/","concurrency":1}}"#,
         );
         assert_failure(&legacy_concurrency);
         assert!(
@@ -1881,7 +1836,7 @@ rules:
             "measureDelay",
             None,
             json!({
-                "configPaths": vec!["x"; 6],
+                "configYamls": vec!["x"; 6],
                 "timeout": 5,
                 "url": "https://example.com/",
             }),
@@ -1891,7 +1846,7 @@ rules:
             oversized_measure["error"]
                 .as_str()
                 .unwrap()
-                .contains("configPaths")
+                .contains("configYamls")
         );
         for method in ["prepare", "start", "stop", "getState", "destroyInstance"] {
             let response = request(method, None, json!({}));
@@ -1910,7 +1865,7 @@ rules:
         let _guard = TEST_LOCK.lock().unwrap();
         reset_registry();
         let response = invoke_bytes(
-            r#"{"apiVersion":4,"method":"version","payload":{"备注":"你好😀"}}"#.as_bytes(),
+            r#"{"apiVersion":5,"method":"version","payload":{"备注":"你好😀"}}"#.as_bytes(),
         );
         let text = str::from_utf8(&response).unwrap();
         let json: Value = serde_json::from_str(text).unwrap();
@@ -1925,7 +1880,7 @@ rules:
             .name("arbitrary-runtime-name".to_owned())
             .spawn(|| {
                 let _runtime_thread = RuntimeThreadGuard::enter();
-                invoke_bytes(r#"{"apiVersion":4,"method":"version","payload":{}}"#.as_bytes())
+                invoke_bytes(r#"{"apiVersion":5,"method":"version","payload":{}}"#.as_bytes())
             })
             .unwrap()
             .join()
@@ -2018,17 +1973,117 @@ rules:
     }
 
     #[test]
+    fn config_yaml_input_is_strict_bounded_and_never_loaded_as_a_path() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        reset_registry();
+
+        let uninitialized = request(
+            "validateConfig",
+            None,
+            json!({"configYaml": http_config(free_ports(1)[0])}),
+        );
+        assert_failure(&uninitialized);
+        assert!(
+            uninitialized["error"]
+                .as_str()
+                .unwrap()
+                .contains("not initialized")
+        );
+        let uninitialized_measure = request(
+            "measureDelay",
+            None,
+            json!({
+                "configYamls": ["proxies: []"],
+                "timeout": 5,
+                "url": "https://example.com/",
+            }),
+        );
+        assert_failure(&uninitialized_measure);
+        assert!(
+            uninitialized_measure["error"]
+                .as_str()
+                .unwrap()
+                .contains("not initialized")
+        );
+
+        let _directory = initialize_test_data_directory();
+        let legacy_path = request(
+            "validateConfig",
+            None,
+            json!({"configPath": "/tmp/config-that-must-not-be-read.yaml"}),
+        );
+        assert_failure(&legacy_path);
+        assert!(
+            legacy_path["error"]
+                .as_str()
+                .unwrap()
+                .contains("configPath")
+        );
+
+        let empty = request("validateConfig", None, json!({"configYaml": ""}));
+        assert_failure(&empty);
+        assert!(
+            empty["error"]
+                .as_str()
+                .unwrap()
+                .contains("configYaml is empty")
+        );
+
+        let path_like_yaml = request(
+            "validateConfig",
+            None,
+            json!({"configYaml": "/tmp/config-that-must-not-be-read.yaml"}),
+        );
+        assert_failure(&path_like_yaml);
+        assert!(!path_like_yaml["error"].as_str().unwrap().contains("open"));
+
+        let oversized = request(
+            "validateConfig",
+            None,
+            json!({"configYaml": "x".repeat(crate::config::MAX_CONFIG_BYTES + 1)}),
+        );
+        assert_failure(&oversized);
+        assert!(oversized["error"].as_str().unwrap().contains("byte limit"));
+        reset_registry();
+    }
+
+    #[test]
+    fn invoke_accepts_five_max_sized_inline_yaml_documents() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        reset_registry();
+        let _directory = initialize_test_data_directory();
+        let config_yaml = "\\".repeat(crate::config::MAX_CONFIG_BYTES);
+        let request = serde_json::to_vec(&json!({
+            "apiVersion": INVOKE_API_VERSION,
+            "method": "measureDelay",
+            "payload": {
+                "configYamls": vec![config_yaml; measure_delay::MAX_MEASURE_CONFIGS],
+                "timeout": 5,
+                "url": "https://example.com/",
+            },
+        }))
+        .unwrap();
+        assert!(request.len() > 1024 * 1024);
+        assert!(request.len() <= MAX_INVOKE_BYTES);
+
+        let response: Value = serde_json::from_slice(&invoke_bytes(&request)).unwrap();
+        assert_eq!(response["success"], true, "{response}");
+        let results = response["data"]["results"].as_array().unwrap();
+        assert_eq!(results.len(), measure_delay::MAX_MEASURE_CONFIGS);
+        assert!(results.iter().all(|result| result["success"] == false));
+        reset_registry();
+    }
+
+    #[test]
     fn validate_config_does_not_change_instance_state() {
         let _guard = TEST_LOCK.lock().unwrap();
         reset_registry();
         let instance_id = create_instance();
-        let directory = initialize_test_data_directory();
-        let path = directory.configs.join("invalid.yaml");
-        std::fs::write(&path, b"not: [valid").unwrap();
+        let _directory = initialize_test_data_directory();
         let request = json!({
             "apiVersion": INVOKE_API_VERSION,
             "method": "validateConfig",
-            "payload": {"configPath": path.to_str().unwrap()},
+            "payload": {"configYaml": "not: [valid"},
         });
         assert_failure(&invoke(&request.to_string()));
         assert_eq!(state(&instance_id)["data"]["state"], "stopped");
@@ -2039,19 +2094,11 @@ rules:
     fn validate_config_allows_referenced_geodata_assets_to_be_missing() {
         let _guard = TEST_LOCK.lock().unwrap();
         reset_registry();
-        let directory = initialize_test_data_directory();
-        let path = directory.configs.join("current.yaml");
-        write_current_config(
-            &path,
-            free_ports(1)[0],
-            "  - GEOSITE,cn,DIRECT\n  - MATCH,proxy",
-        );
+        let _directory = initialize_test_data_directory();
+        let config_yaml =
+            current_config(free_ports(1)[0], "  - GEOSITE,cn,DIRECT\n  - MATCH,proxy");
 
-        let response = request(
-            "validateConfig",
-            None,
-            json!({"configPath": path.to_str().unwrap()}),
-        );
+        let response = request("validateConfig", None, json!({"configYaml": config_yaml}));
         assert_eq!(response["success"], true, "{response}");
         assert_registry_is_idle();
     }
@@ -2062,14 +2109,13 @@ rules:
 
         let _guard = TEST_LOCK.lock().unwrap();
         reset_registry();
-        let directory = initialize_test_data_directory();
-        let path = directory.configs.join("current.yaml");
-        write_http_config(&path, free_ports(1)[0]);
+        let _directory = initialize_test_data_directory();
+        let config_yaml = http_config(free_ports(1)[0]);
         let request = Arc::new(
             json!({
                 "apiVersion": INVOKE_API_VERSION,
                 "method": "validateConfig",
-                "payload": {"configPath": path.to_str().unwrap()},
+                "payload": {"configYaml": config_yaml},
             })
             .to_string(),
         );
@@ -2096,10 +2142,8 @@ rules:
     fn prepare_keeps_missing_geodata_rules_dormant_and_reports_state() {
         let _guard = TEST_LOCK.lock().unwrap();
         reset_registry();
-        let directory = initialize_test_data_directory();
-        let path = directory.configs.join("current.yaml");
-        write_current_config(
-            &path,
+        let _directory = initialize_test_data_directory();
+        let config_yaml = current_config(
             free_ports(1)[0],
             "  - GEOSITE,cn,DIRECT\n  - GEOIP,private,DIRECT,no-resolve\n  - MATCH,proxy",
         );
@@ -2108,7 +2152,7 @@ rules:
         let prepared = request(
             "prepare",
             Some(&instance_id),
-            json!({"configPath": path.to_str().unwrap()}),
+            json!({"configYaml": config_yaml}),
         );
         assert_eq!(prepared["success"], true, "{prepared}");
         let geodata = request("getGeoDataState", None, json!({}));
@@ -2143,13 +2187,12 @@ rules:
         let _guard = TEST_LOCK.lock().unwrap();
         reset_registry();
         let instance_id = create_instance();
-        let directory = initialize_test_data_directory();
-        let path = directory.configs.join("tun.yaml");
-        write_tun_config(&path);
+        let _directory = initialize_test_data_directory();
+        let config_yaml = tun_config();
         let validate = json!({
             "apiVersion": INVOKE_API_VERSION,
             "method": "validateConfig",
-            "payload": {"configPath": path.to_str().unwrap()},
+            "payload": {"configYaml": &config_yaml},
         });
         let response = invoke(&validate.to_string());
         assert_eq!(response["success"], true, "{response}");
@@ -2158,7 +2201,7 @@ rules:
             "apiVersion": INVOKE_API_VERSION,
             "method": "prepare",
             "instanceId": instance_id,
-            "payload": {"configPath": path.to_str().unwrap()},
+            "payload": {"configYaml": &config_yaml},
         });
         let response = invoke(&prepare.to_string());
         assert_eq!(response["success"], true, "{response}");
@@ -2215,16 +2258,15 @@ rules:
     fn repeated_create_run_stop_destroy_leaves_registry_idle() {
         let _guard = TEST_LOCK.lock().unwrap();
         reset_registry();
-        let directory = initialize_test_data_directory();
-        let path = directory.configs.join("http.yaml");
-        write_http_config(&path, free_ports(1)[0]);
+        let _directory = initialize_test_data_directory();
+        let config_yaml = http_config(free_ports(1)[0]);
 
         for cycle in 0..20 {
             let instance_id = create_instance();
             let prepared = request(
                 "prepare",
                 Some(&instance_id),
-                json!({"configPath": path.to_str().unwrap()}),
+                json!({"configYaml": &config_yaml}),
             );
             assert_eq!(prepared["success"], true, "cycle {cycle}: {prepared}");
             let started = request("start", Some(&instance_id), json!({}));
@@ -2243,10 +2285,9 @@ rules:
     fn public_lifecycle_is_singleton_until_destroyed() {
         let _guard = TEST_LOCK.lock().unwrap();
         reset_registry();
-        let directory = initialize_test_data_directory();
+        let _directory = initialize_test_data_directory();
         let port = free_ports(1)[0];
-        let path = directory.configs.join("instance.yaml");
-        write_http_config(&path, port);
+        let config_yaml = http_config(port);
         let first = create_instance();
 
         let rejected = request("createInstance", None, json!({}));
@@ -2258,11 +2299,7 @@ rules:
                 .contains("public lifecycle instance already exists")
         );
 
-        let prepared = request(
-            "prepare",
-            Some(&first),
-            json!({"configPath": path.to_str().unwrap()}),
-        );
+        let prepared = request("prepare", Some(&first), json!({"configYaml": config_yaml}));
         assert_eq!(prepared["success"], true, "{prepared}");
         let started = request("start", Some(&first), json!({}));
         assert_eq!(started["success"], true, "{started}");
@@ -2313,11 +2350,9 @@ rules:
     fn tun_lease_is_held_from_prepare_until_stop_or_destroy() {
         let _guard = TEST_LOCK.lock().unwrap();
         reset_registry();
-        let directory = initialize_test_data_directory();
-        let path = directory.configs.join("tun.yaml");
-        write_tun_config(&path);
+        let _directory = initialize_test_data_directory();
         let instance_id = create_instance();
-        let payload = json!({"configPath": path.to_str().unwrap()});
+        let payload = json!({"configYaml": tun_config()});
 
         assert_eq!(
             request("prepare", Some(&instance_id), payload.clone())["success"],
@@ -2345,11 +2380,9 @@ rules:
     fn panic_recovery_releases_the_public_tun_lease() {
         let _guard = TEST_LOCK.lock().unwrap();
         reset_registry();
-        let directory = initialize_test_data_directory();
-        let path = directory.configs.join("tun.yaml");
-        write_tun_config(&path);
+        let _directory = initialize_test_data_directory();
         let instance_id = create_instance();
-        let payload = json!({"configPath": path.to_str().unwrap()});
+        let payload = json!({"configYaml": tun_config()});
 
         assert_eq!(
             request("prepare", Some(&instance_id), payload.clone())["success"],
@@ -2377,16 +2410,11 @@ rules:
     fn panic_recovery_preserves_the_public_generation_until_destroy() {
         let _guard = TEST_LOCK.lock().unwrap();
         reset_registry();
-        let directory = initialize_test_data_directory();
-        let path = directory.configs.join("instance.yaml");
-        write_http_config(&path, free_ports(1)[0]);
+        let _directory = initialize_test_data_directory();
+        let config_yaml = http_config(free_ports(1)[0]);
         let first = create_instance();
         assert_eq!(
-            request(
-                "prepare",
-                Some(&first),
-                json!({"configPath": path.to_str().unwrap()}),
-            )["success"],
+            request("prepare", Some(&first), json!({"configYaml": config_yaml}),)["success"],
             true
         );
         assert_eq!(request("start", Some(&first), json!({}))["success"], true);
