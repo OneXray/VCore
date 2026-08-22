@@ -1,0 +1,178 @@
+# VCore 当前配置协议的完整示例。
+#
+# 这是字段名和嵌套与 Mihomo 一致的严格子集，不是完整 Mihomo 配置。YAML 中没有
+# configVersion 或 default-proxy；Invoke `version.configVersion` 返回的 11 是
+# 二进制兼容性修订号，不是配置字段。旧 inbounds/outbounds、嵌套
+# settings/streamSettings、未知字段、anchor、alias 和自定义 tag 均直接失败。
+#
+# 宿主必须先通过 Invoke API v4 调用 initialize({dataDir})。configPath 规范化后
+# 必须位于 dataDir/configs；GeoData 由 VCore 在 dataDir/geodata 中管理。
+
+# GeoData 下载配置是可选的，但三项必须同时出现或同时省略。URL 只接受以 domain
+# 为 host、不含 userinfo/fragment 的绝对 HTTPS URL；更新周期当前固定为 24 小时。
+# validateConfig 和 measureDelay 不下载。唯一公共实例 start 后，仅当 auto-update
+# 为 true 且 rules/DNS policy 实际需要对应资产时才后台检查。下载固定使用最终
+# MATCH 所选 proxy 的完整 dialer-proxy 链，不回退 DIRECT。
+geox-url:
+  geoip: https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.dat
+  geosite: https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat
+geo-auto-update: true
+geo-update-interval: 24
+
+# 可选的 loopback HTTP CONNECT/forward listener。port 与 authentication 必须同时
+# 出现；authentication 必须恰好包含一个 user:password。该 listener 仅供宿主在
+# 公共实例启动后执行连通性探测，不提供 SOCKS5 inbound 或 UDP。
+port: 1080
+authentication:
+  - "probe-user:probe-password"
+
+# 可选的 TUN 流量 Controller。只允许配合 tun.enable: true 使用，地址必须是
+# loopback。secret 省略时采用 Mihomo 无鉴权语义；出现时必须非空。当前仅支持
+# `GET /traffic` 的单次 up/down/upTotal/downTotal snapshot，不属于 Invoke API。
+external-controller: 127.0.0.1:9090
+secret: "onevcore-runtime-secret"
+
+# TUN fd、framing 与 Android protect 由 Invoke 提供，不进入 YAML。配置必须包含
+# port 或启用的 TUN；MTU 省略时为 1500，当前也只接受 1500。
+tun:
+  enable: true
+  mtu: 1500
+
+# 可选的 TUN TCP/UDP sniffer 严格子集。省略或 enable: false 表示关闭。
+# enable: true 时至少配置 HTTP、TLS、QUIC 之一；协议空值或省略 ports 时分别使用
+# 80/443/443。每协议最多 64 个单端口或升序闭区间；HTTP/TLS 的 TCP 端口不得
+# 重叠，QUIC 是 UDP，可与二者使用同一数字端口。sniffer 只参与选路，不改写目标。
+sniffer:
+  enable: true
+  sniff:
+    HTTP:
+      ports: [80, 8080-8380]
+    TLS:
+      ports: [443, 8443]
+    QUIC:
+      ports: [443, 8443]
+
+# 至少一个平铺 Mihomo proxy。name 大小写敏感、必须唯一；dialer-proxy 必须引用
+# 另一个实际 name，未知引用、自引用和环失败。数量与链深没有独立上限，只受整份
+# YAML 256 KiB、name 唯一、引用存在和全图无环约束。
+#
+# VLESS 子集：
+# - type 固定 vless，network 固定 xhttp，tls 必须为 true；
+# - encryption 省略或 none，flow 省略或空字符串；
+# - servername 可省略（缺省为 server），alpn 省略或严格 [h2]；
+# - TLS 省略 reality-opts；REALITY 必须提供 reality-opts.public-key，可选 short-id；
+# - xhttp-opts 可包含 host/path/mode/download-settings，mode 只接受
+#   auto/packet-up/stream-up/stream-one；stream-one 不能与 download-settings 同用；
+# - download-settings 一旦出现（包括 {}）就为下行 GET 创建独立的
+#   server -> TLS/REALITY -> HTTP/2 连接，上行 POST 仍走主连接，两者共用
+#   XHTTP session ID；它不是第二次 VLESS 握手。两条 HTTP 请求最终必须经 CDN/
+#   反向代理汇聚到同一个服务端 XHTTP handler/session store。只支持
+#   server/port/tls/servername/alpn/reality-opts/host/path；
+# - download-settings 中缺省的字段继承主连接。reality-opts 缺省时继承
+#   主连接的 TLS/REALITY，即外层 REALITY 下单独写 tls: true 也不会清除
+#   REALITY；reality-opts 存在时选择/覆盖 REALITY，tls: false 始终失败。
+#   该 Mihomo 形状没有“清除已继承 REALITY”标记，因而外层 REALITY -> 下行
+#   标准 TLS 不能用此 YAML 子集表达；不会对同一份 Mihomo 配置做异义解释。
+#   auto 为 TLS -> packet-up、REALITY +
+#   download-settings -> stream-up、REALITY 无 download-settings -> stream-one；
+# - 不接受 packet-encoding、headers/reuse-settings、fingerprint、client-fingerprint、
+#   skip-cert-verify、ECH、mTLS、shadow-tls-opts、restls-opts 或 jls-opts。
+#
+# 下方 vless-edge 通过 socks-hop 建链：
+# client -> socks-hop -> vless-edge -> target。
+proxies:
+  - name: vless-edge
+    type: vless
+    server: edge.example.com
+    port: 443
+    uuid: 00000000-0000-4000-8000-000000000001
+    udp: true
+    network: xhttp
+    tls: true
+    servername: edge.example.com
+    encryption: none
+    alpn: [h2]
+    xhttp-opts:
+      host: edge.example.com
+      path: /onev
+      mode: auto
+      # 完整覆盖示例；改成 download-settings: {} 则所有字段继承主连接。
+      download-settings:
+        server: download.edge.example.com
+        port: 443
+        tls: true
+        servername: download.edge.example.com
+        alpn: [h2]
+        host: download.edge.example.com
+        path: /onev-download
+    dialer-proxy: socks-hop
+
+  # REALITY 写法示意：在 VLESS 节点中保留 tls: true，并增加以下 mapping；不要与
+  # 任何证书跳过或 fingerprint 字段组合。示例值是合法格式，不代表真实节点。
+  # reality-opts:
+  #   public-key: BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc
+  #   short-id: "0123"
+
+  # SOCKS5 outbound 支持 CONNECT 与 UDP ASSOCIATE。username/password 必须同时
+  # 省略或同时出现；tls 省略或 false。udp 是 Mihomo capability 字段。
+  - name: socks-hop
+    type: socks5
+    server: socks.example.com
+    port: 1080
+    username: user
+    password: password
+    udp: true
+
+  # AnyTLS 是 client outbound only，配置只接受以下字段及可选 dialer-proxy。
+  # sni 省略时使用 server。固定使用 WebPKI 校验的标准 TLS 1.3/1.2，不发送 ALPN，
+  # 不支持 REALITY、fp、跳过证书验证、ECH、mTLS 或 session/padding 调参字段。
+  # TCP 使用 AnyTLS session；udp: true 使用 sing UoT v2 datagram mode。
+  - name: anytls-edge
+    type: anytls
+    server: anytls.example.com
+    port: 443
+    password: "private-anytls-password"
+    sni: anytls.example.com
+    udp: true
+
+# Runtime DNS 是可选的；enable: true 时主 nameserver 必须有 1–4 项。
+# nameserver 只接受裸 IP、udp://IP[:port] 或 tcp://IP[:port]。无 fragment 固定
+# DIRECT。fragment 只接受 DIRECT、RULES 或实际 proxy name；`PROXY`/`#PROXY`
+# 没有默认出口魔法，只有配置确实存在同名节点时才表示该节点。
+# nameserver-policy 是有序 `geosite:<code>[,<code>...]` 子集，首个命中组内顺序
+# failover，整组失败不回退主 nameserver。
+dns:
+  enable: true
+  ipv6: true
+  nameserver:
+    - "tcp://1.1.1.1:53#vless-edge"
+  nameserver-policy:
+    "geosite:private,cn,apple":
+      - "tcp://223.5.5.5:53#DIRECT"
+      - "tcp://1.1.1.1:53#vless-edge"
+
+# rules 是运行配置必填项，按顺序首条命中。DIRECT 与 REJECT 是内置 action；
+# proxy action 必须精确使用实际 name。`PROXY` 没有魔法别名。rules 不允许为空，
+# 必须恰好包含一个位于末尾的 MATCH，而且最终 MATCH 必须指向实际 proxy name，
+# 由此得到运行配置的默认 proxy graph。不存在隐式 MATCH 或 DIRECT fallback。
+rules:
+  - GEOSITE,category-ads-all,REJECT
+  - GEOSITE,cn,DIRECT
+  - GEOIP,CN,DIRECT,no-resolve
+  - DOMAIN-SUFFIX,anytls.example,anytls-edge
+  - NETWORK,UDP,anytls-edge
+  - MATCH,vless-edge
+
+# measureDelay 使用独立 node-only schema：顶层只能包含 proxies。节点字段和 graph
+# 校验与上文一致，但不得出现 port/authentication、tun、sniffer、Controller、
+# DNS、rules 或 GeoData 字段。VCore 从“未被任何 dialer-proxy 引用”的节点推导
+# 唯一链头；该链必须覆盖全部节点，否则拒绝。测速不创建 listener、公共实例、
+# TUN/protect lease、DNS、rule engine 或 GeoData registration。
+#
+# 最小测速示例：
+# proxies:
+#   - name: exit
+#     type: anytls
+#     server: anytls.example.com
+#     port: 443
+#     password: secret
