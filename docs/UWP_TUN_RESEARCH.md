@@ -1,6 +1,10 @@
 # VCore Windows UWP TUN 调研
 
-> 状态：首版架构基线已确认，尚未实现。记录于 2026-08-22。
+> 状态：首版架构基线已确认；Phase 0 最小数据面 spike 已通过，正式实现尚未开始。记录于 2026-08-22，Phase 0 结果记录于 2026-08-23。
+
+## 开发原则
+
+以最快速度验证功能为最终目标。每次只实现并验证当前最短功能路径；不得过度进行安全设计，不得设计冗余风险验证，也不得仅因潜在风险增加步骤、抽象或产品化代码。Phase 0 不提前处理后续 packaging、UX、长期运行或完整平台矩阵。使当前验证本身成立的 WinRT buffer 归还、bounded callback 和 source bind 防递归属于功能正确性，不是额外 hardening。
 
 ## 结论
 
@@ -229,15 +233,25 @@ OneVCore 已有 `TunSettingsState.autoOutboundsInterface` 与网卡选择 UI，�
 
 ### Phase 0：先做 Windows 数据面 spike
 
-在 `references` 中做可丢弃的最小 `windows-rs 0.62.2` AppX：
+在 `references` 中复用官方样例外壳，做可丢弃的最小 `windows-rs 0.62.2` AppX。当前完成线严格限定为：
 
-- 实现 Rust background activation 与空 `IVpnPlugIn`。
-- 建立 loopback transport pair。
-- `Encapsulate -> bounded queue -> dummy wake -> Decapsulate` 做 raw IPv4/IPv6 echo。
-- 先在本机 Windows 11 ARM64 跑通，再在 Windows 10 22H2 ARM64 验证最低版本；发布前补 Windows 10/11 x64。
-- 再验证一个普通 Tokio TCP/UDP socket 会递归、绑定物理本地 IP 后会从实体网卡出去。
+1. 在本机 Windows 11 ARM64 安装 dev-signed package，以普通 `aarch64-pc-windows-msvc` target 激活 Rust `IVpnPlugIn` 并成功 Connect。
+2. IPv4 packet 完成 `Encapsulate -> bounded queue -> dummy wake -> Decapsulate` 往返。
+3. 一个普通 Tokio TCP socket 复现 VPN 递归；绑定当前物理 IPv4 并使用两个 `/1` routes 后成功出站。
+4. 成功 Disconnect 一次，立即停止并报告结果。
 
-Phase 0 不接 VCore 协议，失败时不会污染正式 core 结构。
+到达这条完成线后停止，不顺带产品化。IPv6、UDP、VCore 协议、Flutter、DNS、Windows 10、x64、WACK、压力测试、网络切换、Store 与正式 package/runtime 结构全部延期到下一次明确决策。
+
+#### Phase 0 结果：PASS
+
+2026-08-23 在 Windows 11 ARM64 build 26200.9168、Rust 1.98.0、crates.io `windows = 0.62.2` 与普通 `aarch64-pc-windows-msvc` target 上实际执行：
+
+- dev-signed ARM64 AppX 安装成功，系统报告 `SignatureKind=Developer`；Rust `IBackgroundTask` / `IVpnPlugIn` activation、Connect 与 Disconnect 均通过。
+- IPv4 packet 经 `Encapsulate -> bounded queue -> dummy wake -> Decapsulate` 返回；对文档地址 `203.0.113.1` 的本地 fake ICMP reply 为 1 ms。
+- 两个 `/1` routes 生效后，未绑定 Tokio TCP 到中国大陆可达的 `223.5.5.5:53` timeout；同一 socket 绑定物理 `172.16.29.128` 后连接成功，实际 local address 属于该物理网卡。
+- 最终一次运行计数为 39 encapsulated / 1 decapsulated，随后正常 Disconnect。
+
+`1.1.1.1:443` 曾因 GFW 环境导致 VPN 断开时也 timeout，已作为无效 fixture 排除，不能计作 source-bind 失败。本轮按约定未执行 IPv6、UDP、VCore 协议、Flutter、DNS integration、Windows 10、x64、WACK、压力测试、网络切换、Store 或 production architecture。可丢弃源码与完整命令保存在本地 ignored `references/uwp-tun-spike/`。
 
 ### Phase 1：VCore 平台 seam
 
