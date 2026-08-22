@@ -11,11 +11,12 @@
 5. [GeoData rules](geodata.md)
 6. [TUN ICMP 与 DNS 当前契约](tun-icmp-dns.md)
 7. [TUN 平台层与 Windows UWP 边界](tun-platform.md)
-8. [REALITY V1 客户端协议基线](reality-wire-protocol.md)
-9. [自有 rustls REALITY 实现计划](rustls-reality-plan.md)
-10. [iOS TUN 业务优先优化计划](ios-business-first-optimization-plan.md)
-11. [验收矩阵](acceptance.md)
-12. [第三方参考与许可证](../THIRD_PARTY_NOTICES.md)
+8. [Windows UWP TUN 接入调研与已确认基线](UWP_TUN_RESEARCH.md)
+9. [REALITY V1 客户端协议基线](reality-wire-protocol.md)
+10. [自有 rustls REALITY 实现计划](rustls-reality-plan.md)
+11. [iOS TUN 业务优先优化计划](ios-business-first-optimization-plan.md)
+12. [验收矩阵](acceptance.md)
+13. [第三方参考与许可证](../THIRD_PARTY_NOTICES.md)
 
 实现目标对应关系：
 

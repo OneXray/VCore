@@ -720,7 +720,7 @@ Rust/Cargo 1.97.1、Xcode 26.6、Android NDK 30.0.15729638，开发态使用
 - 当前配置只接受 MTU 1500；传给 `rust-tun` 的 raw-IP receive buffer 必须固定为 1500 字节，不能恢复为 65,535 字节。Apple PI 路径因此使用上游固定 1504-byte 栈缓冲，不产生约 64 KiB 的逐包临时分配。
 - `recv == 0` 必须收敛为 `UnexpectedEof`；非法 IP version 只丢当前包；partial packet write 必须失败，不能把余下字节作为第二个 TUN packet 重试。
 - 迁移后仍需重新执行 Apple/Android 平台构建、TUN TCP/UDP/DNS/ICMP 数据面，以及 Release iOS 真机内存验收；host 单测和交叉编译不能替代真机证据。
-- `rust-tun` 的 Windows backend 是 Wintun，不属于 VCore 的 Windows 方案。UWP 验收必须另行覆盖 `IVpnPlugIn` activation、`VpnPacketBuffer` ownership、有界 callback bridge、outbound WinRT transport association、suspend/resume、AppX/MSIX 注册和 Windows 实机数据面。
+- `rust-tun` 的 Windows backend 是 Wintun，不属于 VCore 的 Windows 方案。UWP 验收必须另行覆盖 `IVpnPlugIn` activation、`VpnPacketBuffer` ownership、有界 callback bridge、loopback managed transport wake、普通 outbound socket 的物理 source bind、网络切换 fail-closed、AppX/MSIX 注册和 Windows 实机数据面；完整基线见 [`UWP_TUN_RESEARCH.md`](UWP_TUN_RESEARCH.md)。
 
 ### 2.3 TUN 流量 Controller
 

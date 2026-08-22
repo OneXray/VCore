@@ -63,16 +63,16 @@ rust-tun 在 `target_os = "windows"` 下实现的是 Wintun：
 
 ## 5. UWP 后续实现边界
 
-Windows TUN 必须作为独立里程碑实现，至少包含以下部分：
+当前已批准的完整设计与产品基线见 [Windows UWP TUN 接入调研](UWP_TUN_RESEARCH.md)；它在与本节历史候选冲突时优先。Windows TUN 必须作为独立里程碑实现，至少包含以下部分：
 
-1. 独立 `vcore-windows-vpn` `cdylib`，实现 `IVpnPlugIn`、background activation factory 和系统 `Connect`/`Disconnect` 生命周期。
+1. OneVCore 的 UWP/AppContainer background component 用 `windows-rs` 实现 `IVpnPlugIn`、activation factory 和系统 `Connect`/`Disconnect` 生命周期；VCore 提供可复用的 raw-IP adapter 与物理出口绑定能力。
 2. `UwpTunIo` 立即复制 callback 中的 L3 bytes，通过有界 ingress/egress queue 接入现有 `TunRuntime`；不得把 `VpnPacketBuffer` 的裸 slice 保存到 callback 之外。
 3. 所有系统提供或从 `VpnChannel` 申请的 buffer 都按 WinRT 契约归还；callback 可并发到达，core 状态由单一 runtime owner 串行管理。
-4. 物理 outbound 不能继续假设 Tokio socket + Unix fd protect。VLESS/XHTTP、DIRECT、DNS 的 TCP/UDP transport 都需要 WinRT socket factory，并在连接前与 `VpnChannel` 关联，防止再次被虚拟接口捕获。
+4. `AssociateTransport` 只管理用于唤醒 `Decapsulate` 的 loopback `DatagramSocket` transport。VLESS/XHTTP、DIRECT 和 DNS 继续复用集中在 `Dialer` 的普通 Tokio TCP/UDP socket，并在 connect/send 前绑定选定物理网卡的本地 IPv4/IPv6，防止再次被虚拟接口捕获；不得为每个协议增加第二套 WinRT socket factory。
 5. Windows TUN 生命周期由 plugin callback 驱动，不把 `VpnChannel`、COM pointer 或伪 fd 放入统一 Invoke JSON。App 进程中的非 TUN `measureDelay` 仍可使用普通 transport。
-6. OneVCore Windows 包需要注册 VPN background component 和相应 capability；现有普通 Flutter Win32 zip/exe 不能仅靠复制 DLL 获得 UWP VPN 能力。
+6. OneVCore 使用同一个 Store MSIX/AppX family package 交付 Flutter medium-IL full-trust foreground 与 UWP VPN background component，并声明 `runFullTrust` 和 `networkingVpnProvider`。普通 zip/exe 不能仅靠复制 DLL 获得 VPN 能力。
 
-在具备 Windows 11、Windows SDK 和签名/安装条件之前，只保留上述编译期 adapter 边界，不声称 Windows TUN 可用。第一项平台原型应先验证 activation、ICMP/raw packet 往返和单个关联 transport，再接入 VLESS/XHTTP 多连接数据面。
+第一项 ARM64 原型先在 Windows 11 验证 activation、ICMP/raw packet 往返、loopback wake 和物理 source bind，再在 Windows 10 22H2 验证最低版本；发布前补齐 x64。网络切换首版 fail-closed 并要求用户手动重连。
 
 ## 6. 验收顺序
 
