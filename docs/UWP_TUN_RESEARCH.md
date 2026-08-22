@@ -1,10 +1,10 @@
 # VCore Windows UWP TUN 调研
 
-> 状态：首版架构基线已确认；Phase 0 最小数据面 spike 已通过，正式实现尚未开始。记录于 2026-08-22，Phase 0 结果记录于 2026-08-23。
+> 状态：首版架构基线已确认；Phase 0 最小数据面 spike 已通过；Phase 1 tracer bullet 的完成线已确认，尚未实现。记录于 2026-08-22，Phase 0 结果记录于 2026-08-23。
 
 ## 开发原则
 
-以最快速度验证功能为最终目标。每次只实现并验证当前最短功能路径；不得过度进行安全设计，不得设计冗余风险验证，也不得仅因潜在风险增加步骤、抽象或产品化代码。Phase 0 不提前处理后续 packaging、UX、长期运行或完整平台矩阵。使当前验证本身成立的 WinRT buffer 归还、bounded callback 和 source bind 防递归属于功能正确性，不是额外 hardening。
+以最快速度验证功能为最终目标。每次只实现并验证当前最短功能路径；不得过度进行安全设计，不得设计冗余风险验证，也不得仅因潜在风险增加步骤、抽象或产品化代码。每个阶段都不提前处理后续 packaging、UX、长期运行或完整平台矩阵；编译通过只是进入实测的门槛，不是阶段完成证据。使当前验证本身成立的 WinRT buffer 归还、bounded callback 和 source bind 防递归属于功能正确性，不是额外 hardening。
 
 ## 结论
 
@@ -253,20 +253,48 @@ OneVCore 已有 `TunSettingsState.autoOutboundsInterface` 与网卡选择 UI，�
 
 `1.1.1.1:443` 曾因 GFW 环境导致 VPN 断开时也 timeout，已作为无效 fixture 排除，不能计作 source-bind 失败。本轮按约定未执行 IPv6、UDP、VCore 协议、Flutter、DNS integration、Windows 10、x64、WACK、压力测试、网络切换、Store 或 production architecture。可丢弃源码与完整命令保存在本地 ignored `references/uwp-tun-spike/`。
 
-### Phase 1：VCore 平台 seam
+### Phase 1：VCore IPv4 端到端 tracer bullet
 
-- 给 `Dialer` 增加 runtime-local、可选 IPv4/IPv6 source bind。
-- 新增 Windows channel-backed `TunIo`，保留 Unix `RustTunIo`。
-- 把 `tun_runtime` / `PreparedCore::start_tun` 的 Unix cfg 提升为支持 Windows adapter。
-- 先让 Windows `cargo check --all-features` 通过，Apple/Android ABI 与行为不变。
+本阶段只消除一个未知：完整 VCore runtime 能否在 Windows VPN provider 中完成真实 IPv4 数据面。Phase 0 已分别证明 WinRT callback、loopback wake 和普通 Tokio source bind；host-only channel test 不能代替组合后的 AppContainer 实测。
 
-### Phase 2：Rust VPN plugin
+最小实现严格限定为：
 
-- `IVpnPlugIn` + background task + activation factory。
-- Connect/Disconnect 与 VCore 同步 stop barrier。
-- bounded ingress/egress、dummy wake coalescing、严格 buffer ownership。
-- route、IPv4/IPv6、DNS namespace、物理网卡选择。
-- panic/error 不跨 COM ABI。
+1. Windows VPN provider 作为 VCore crate 的 Windows-only module，由 `vcore.dll` 同时导出 COM activation 与现有 FFI；activation class 使用 `OneVCore.VpnBackgroundTask`，不建立独立 plugin crate 或临时公共 runtime interface。
+2. 新增具体 `WindowsTunIo` 与 provider 持有的 `WindowsPacketAdapter`。bounded Tokio ingress channel 接收 callback 内复制的 raw-IP bytes；bounded `Mutex<VecDeque>` egress 只在 empty -> non-empty 时发送 dummy wake，`Decapsulate` 一次 drain。两侧容量均为 256，满时丢当前 packet，不阻塞 callback。
+3. `platform::TunIo` 继续由 target cfg 在 Unix `RustTunIo` 和 Windows `WindowsTunIo` 间选择，不增加 trait、runtime factory 或 fake fd。提升 `tun_runtime` / `PreparedCore::start_tun` 的 cfg，使 Windows 可运行现有 netstack、routing 和 outbound graph。
+4. `Dialer` 保存一个 runtime-local、可选 `IpAddr`。TCP connect 与 UDP bind 都使用该地址；目标地址族不匹配时 fail-closed。本阶段只实际验证 IPv4 TCP，IPv6 与 UDP 仍为 `NOT RUN`。
+5. Provider 内嵌一份最小 current-schema YAML：启用 TUN，以 `IP-CIDR,223.5.5.5/32,DIRECT,no-resolve` 命中测试出口，并提供一个不会被本轮流量使用的 dummy proxy 满足最终 `MATCH` 约束。不读取 snapshot，不接 Flutter。
+6. VCore startup 失败即使 Connect 失败；显式 Disconnect 必须等待 runtime 完整停止。runtime 意外退出后自动跨线程调用 `VpnChannel.Stop` 延期到正式 lifecycle；本轮脚本必须在失败路径也执行 Disconnect。
+7. Invoke API v5 与 config schema revision 11 保持不变。Windows `tunFd` 继续明确 unsupported；provider 仅调用 crate-private runtime。使用现有 `ffi -> tun` feature，不增加 `windows-vpn` feature。
+8. Dev-signed AppX shell 继续保存在 ignored `references/uwp-tun-spike/`；TCP DNS probe 放在 workspace `python-tools/`，不整理正式 packaging harness。
+
+实际数据流为：
+
+```text
+VpnPacketBuffer
+  -> WindowsPacketAdapter bounded ingress
+  -> WindowsTunIo
+  -> TunRuntime / vcore-netstack
+  -> DIRECT / Dialer(source_ip)
+  -> 223.5.5.5:53
+```
+
+完成线：
+
+1. VPN 断开时，TCP DNS probe 先向中国大陆可达的 `223.5.5.5:53` 查询 `www.baidu.com` 并校验有效响应，证明 fixture 可用。
+2. Windows `cargo check --all-features`、相关 focused tests 与 dev-signed ARM64 AppX build 通过。
+3. AppX 激活真实 VCore provider 并成功 Connect；对文档地址 `203.0.113.1` 的 fake ICMP reply 由 VCore netstack 返回，不再由 Phase 0 plugin 生成。
+4. 同一 TCP DNS probe 在 VPN 内经完整 TUN -> VCore -> DIRECT -> source-bound `Dialer` 路径收到有效响应。
+5. 成功 Disconnect，确认 runtime stop barrier 完成，执行 `git diff --check` 后立即停止并报告。
+
+IPv6、UDP 实测、VCore DNS integration、VCore 代理协议、Flutter、snapshot、Windows 10、x64、WACK、正式 packaging 与 runtime 意外退出后的自动 Stop 全部延期，不能顺带实现。
+
+### Phase 2：Windows provider 完整化
+
+- runtime 意外退出后 fail-closed Stop、callback 重入、panic/error COM ABI 边界与完整 lifecycle。
+- IPv6、UDP、DNS namespace、物理网卡选择与网络变化 fail-closed。
+- queue/drop 统计、buffer ownership 审计与长时间 pool/压力验证。
+- Windows 10 22H2 与 x64 验证。
 
 ### Phase 3：Flutter/MSIX
 
