@@ -57,3 +57,17 @@ git diff --check
 ```
 
 Changes to FFI, shared runtime, TUN, socket creation, TLS, or packaging boundaries also require the affected target build and sibling OneVCore integration checks. External interop and physical-device results remain `NOT RUN` unless they were executed in the current validation run.
+
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked in `OneXray/VCore` GitHub Issues. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the five canonical triage labels. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This is a single-context repository using root `CONTEXT.md` and `docs/adr/`. See `docs/agents/domain.md`.
