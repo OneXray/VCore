@@ -1,8 +1,8 @@
 # GeoData rules
 
 状态：当前公共契约。YAML 不含 `configVersion` 或 `default-proxy`，使用字段名与
-嵌套均与 Mihomo 一致的平铺 proxy 子集；Invoke API v4 单独报告内部 schema
-revision 10。rule engine、runtime DNS 与 routing dispatcher 继续使用有界 Xray
+嵌套均与 Mihomo 一致的平铺 proxy 子集；Invoke API v5 单独报告内部 schema
+revision 11。rule engine、runtime DNS 与 routing dispatcher 继续使用有界 Xray
 GeoData loader/matcher，固定数据目录、单公共生命周期和 VCore 自管更新。业务
 规则与 DNS nameserver policy 引用的 GeoSite code 统一按需加载。GeoSite 与
 GeoIP 资产缺失时分别降级跳过，不能阻塞首次启动；可用资产仍执行完整校验和
@@ -56,9 +56,9 @@ GEOIP,<code>,<target>[,no-resolve]
 | `GEOSITE` | `geosite.dat` | `GeoSiteList` | `GeoSite.code` 与 `Domain` |
 | `GEOIP` | `geoip.dat` | `GeoIPList` | `GeoIP.code` 与 IPv4/IPv6 `CIDR` |
 
-- 宿主先通过 Invoke API v4 调用 `initialize({dataDir})`。VCore 固定使用
-  `dataDir/geodata/geosite.dat` 与 `dataDir/geodata/geoip.dat`；YAML 只能位于
-  `dataDir/configs`。不接受 YAML 内的资产路径或环境变量；下载 URL 只能通过
+- 宿主先通过 Invoke API v5 调用 `initialize({dataDir})`。VCore 固定使用
+  `dataDir/geodata/geosite.dat` 与 `dataDir/geodata/geoip.dat`；runtime YAML 通过
+  `configYaml` 内联传入，不从路径加载。不接受 YAML 内的资产路径或环境变量；下载 URL 只能通过
   下述严格 `geox-url` 配置提供。
 - App/宿主只负责原子写入 `dataDir/configs`，不得投放、更新或删除
   `dataDir/geodata`。GeoData 的下载、校验、状态和替换统一由 VCore 管理。
@@ -99,6 +99,7 @@ GEOIP,<code>,<target>[,no-resolve]
   demand 和 source，不聚合多个业务实例。跨进程 update lock、staging、原子
   rename、持久状态与崩溃恢复仍用于保护共享数据目录；这些是文件一致性措施，
   不是多实例调度协议。
+- Windows AppContainer 直接使用 `ApplicationData` 返回的绝对目录；Windows 会拒绝对该 package path 执行 `canonicalize`，因此仅其他平台 canonicalize。候选文件仍在 rename 前 `sync_all`，并使用同目录 staging 与原子 rename；Windows 没有可移植的 directory fsync，后续只有 crash test 证明不足时才改用 write-through Win32 rename。`fs2` 在 Windows 把 lock contention 报告为 lock violation/permission kind，manager 按其平台原始错误码统一映射为 `UpdateBusy`。
 - 不支持 MMDB、MetaDB、MRS、超出上述严格子集的 Mihomo `geox-url` 或 Leaf 的
   `site:FILE:CODE`/`mmdb:FILE:CODE` 外部路径语法。
 - 可用文件必须校验 outer protobuf framing、分类 code 语法和按 ASCII case-fold

@@ -1,6 +1,6 @@
 # VCore Windows UWP TUN 调研
 
-> 状态：首版架构基线已确认；Phase 0 最小数据面 spike 与 Phase 1 VCore IPv4 端到端 tracer bullet 均已通过，正式产品接入尚未开始。记录于 2026-08-22，Phase 0/1 结果记录于 2026-08-23。
+> 状态：首版架构基线已确认；Phase 0/1 已通过，Phase 2A lifecycle/双栈/DNS/网络变化与跨 session 资源回收已通过，但长时间 active pressure 和完整平台/代理矩阵未完成；正式产品接入尚未开始。记录于 2026-08-22，阶段结果更新于 2026-08-23。
 
 ## 开发原则
 
@@ -301,12 +301,22 @@ IPv6、UDP 实测、VCore DNS integration、VCore 代理协议、Flutter、snaps
 
 Focused tests、Windows `cargo check --all-features`、格式与 diff 检查通过。完整命令和 hash 记录在 `docs/acceptance.md`；所有已延期范围保持 `NOT RUN`，到此停止开发。
 
-### Phase 2：Windows provider 完整化
+### Phase 2：Windows provider 完整化（进行中）
 
 - runtime 意外退出后 fail-closed Stop、callback 重入、panic/error COM ABI 边界与完整 lifecycle。
 - IPv6、UDP、DNS namespace、物理网卡选择与网络变化 fail-closed。
 - queue/drop 统计、buffer ownership 审计与长时间 pool/压力验证。
 - Windows 10 22H2 与 x64 验证。
+
+#### Phase 2A 当前结果（2026-08-23）
+
+已在 Windows 11 ARM64 实现并实际验证：provider 自行选择当前物理 adapter；`Dialer` 对 IPv4/IPv6 分别 source-bind，缺失 family 时 fail-closed；虚拟 IPv4/IPv6 `/1` routes；`.` DNS namespace 指向 `192.168.3.2`/`fd00::1`；runtime DNS 先用 `udp://223.5.5.5:53#DIRECT`、再以同目标 TCP failover；ICMPv4/ICMPv6、本机 Windows resolver 与既有 TCP DNS probe 均通过。普通 UDP 使用 `NETWORK,UDP,DIRECT`，向中国大陆可达的 Aliyun NTP `203.107.6.88:123` 实测成功，VPN 内客户端 local address 为 `192.168.3.1`。物理网卡实际禁用 3 秒时，provider 自动 `VpnChannel.Stop`，重复 Connect callback 被拒绝且不清理活动 runtime，随后 Disconnect 保留非零 packet counters。
+
+COM callbacks 和 activation export 均有 panic boundary；runtime 意外退出会通知独立 fail-closed worker，显式 Disconnect 仍等待 runtime stop barrier。packet adapter 分开统计 ingress queue full、receiver closed 与 egress queue full；20 次连续完整 routine 均为非零收发且两侧 queue-full 为 0。Windows ARM64 全 feature lib tests 为 419 passed / 1 environment-dependent ignored；ARM64 与 x64 release DLL 均静态 CRT 并保留三个 export。x64 只完成编译/链接，尚未安装运行。
+
+最初同进程外壳与随后拆分但长驻的 provider host 都在每次 VPN association cycle 后保留约 6 个 `Thread`/`Event`/`WaitCompletionPacket` handles。差分实验确认单独 foreground activation、profile Get/Update、20 对 loopback `DatagramSocket`、移除 VCore runtime/两个自建 worker 均不增长；只有 `VpnChannel` association cycle 增长。`StartExistingTransports` 与 `ReplaceAndAssociateTransport` 在 stopped/updated profile 上均返回 `E_INVALIDARG`。最终 ignored shell 将 foreground/provider 拆为两个 executable，provider 以原子 active 状态在每次 background deferral 完成后退出空闲 AppContainer host。最终 20 次完整 routine 每轮结束后两个进程都消失，收发非零且 queue-full 为 0；跨 session handle/RSS 不再有可累积进程。所有诊断代码均已删除。长时间保持同一个 active VPN 的 pool/pressure plateau 仍未执行。
+
+仍未执行：真实物理 IPv6 出站、runtime 意外退出注入、VLESS/SOCKS5/AnyTLS/TLS/REALITY/XHTTP/链式 proxy 的 Windows 实机路径、Windows 10 22H2、x64 AppX、WACK 和长时间 active provider pressure。因此 Phase 2 仍为进行中。
 
 ### Phase 3：Flutter/MSIX
 

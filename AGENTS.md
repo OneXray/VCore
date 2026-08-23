@@ -2,7 +2,7 @@
 
 VCore is the standalone Rust proxy core used by the sibling OneVCore Flutter app. The current public contract is Invoke API v5 with internal schema revision 11. Runtime configuration is strict latest-only Mihomo-shaped YAML passed inline as `configYaml` / `configYamls`; the YAML contains neither `configVersion` nor `default-proxy`. Public lifecycle state is runtime-local and single-instance.
 
-Apple and Android currently use host-owned TUN fds through the Unix `rust-tun` adapter. Windows VPN support is an approved but unimplemented `windows-rs` / `Windows.Networking.Vpn` milestone. Linux remains unsupported.
+Apple and Android currently use host-owned TUN fds through the Unix `rust-tun` adapter. Windows VPN support uses `windows-rs` / `Windows.Networking.Vpn`; the ARM64 IPv4 tracer and the first Phase 2 lifecycle/dual-stack/DNS slice are implemented, while formal product packaging and the remaining Phase 2 matrix are incomplete. Linux remains unsupported.
 
 # Sources of Truth
 

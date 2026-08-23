@@ -205,6 +205,7 @@ impl DatagramTransport for DirectDatagramTransport {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
     use std::sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
@@ -213,10 +214,14 @@ mod tests {
     use tokio::net::{TcpListener, UdpSocket};
 
     use super::*;
-    use crate::{dialer::SocketProtector, session::InboundKind};
+    #[cfg(unix)]
+    use crate::dialer::SocketProtector;
+    use crate::session::InboundKind;
 
+    #[cfg(unix)]
     struct CountingProtector(AtomicUsize);
 
+    #[cfg(unix)]
     impl SocketProtector for CountingProtector {
         fn protect(&self, _socket: i32) -> io::Result<()> {
             self.0.fetch_add(1, Ordering::Relaxed);
@@ -239,6 +244,7 @@ mod tests {
         assert!(accepted.is_ok());
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn direct_udp_round_trips_and_protects_the_socket() {
         let echo = UdpSocket::bind("127.0.0.1:0").await.unwrap();

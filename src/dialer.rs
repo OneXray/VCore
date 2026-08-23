@@ -1,6 +1,6 @@
 use std::{
     io,
-    net::{IpAddr, SocketAddr, ToSocketAddrs as _},
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs as _},
     sync::{
         Arc, Mutex, OnceLock,
         atomic::{AtomicBool, Ordering},
@@ -223,10 +223,16 @@ pub trait SocketProtector: Send + Sync {
     fn protect(&self, socket: i32) -> io::Result<()>;
 }
 
+#[derive(Debug, Clone, Copy)]
+struct SourceBinding {
+    ipv4: Option<Ipv4Addr>,
+    ipv6: Option<Ipv6Addr>,
+}
+
 #[derive(Clone)]
 pub struct Dialer {
     protector: Option<Arc<dyn SocketProtector>>,
-    source_ip: Option<IpAddr>,
+    source_binding: Option<SourceBinding>,
     connect_timeout: Duration,
 }
 
@@ -235,7 +241,7 @@ impl std::fmt::Debug for Dialer {
         formatter
             .debug_struct("Dialer")
             .field("has_protector", &self.protector.is_some())
-            .field("source_ip", &self.source_ip)
+            .field("source_binding", &self.source_binding)
             .field("connect_timeout", &self.connect_timeout)
             .finish()
     }
@@ -245,7 +251,7 @@ impl Default for Dialer {
     fn default() -> Self {
         Self {
             protector: None,
-            source_ip: None,
+            source_binding: None,
             connect_timeout: Duration::from_secs(10),
         }
     }
@@ -260,7 +266,27 @@ impl Dialer {
 
     #[must_use]
     pub const fn with_source_ip(mut self, source_ip: IpAddr) -> Self {
-        self.source_ip = Some(source_ip);
+        self.source_binding = Some(match source_ip {
+            IpAddr::V4(ipv4) => SourceBinding {
+                ipv4: Some(ipv4),
+                ipv6: None,
+            },
+            IpAddr::V6(ipv6) => SourceBinding {
+                ipv4: None,
+                ipv6: Some(ipv6),
+            },
+        });
+        self
+    }
+
+    #[cfg(windows)]
+    #[must_use]
+    pub(crate) const fn with_source_ips(
+        mut self,
+        ipv4: Option<Ipv4Addr>,
+        ipv6: Option<Ipv6Addr>,
+    ) -> Self {
+        self.source_binding = Some(SourceBinding { ipv4, ipv6 });
         self
     }
 
@@ -315,13 +341,23 @@ impl Dialer {
     }
 
     fn source_address(&self, ipv6: bool) -> io::Result<Option<SocketAddr>> {
-        match self.source_ip {
-            Some(source_ip) if source_ip.is_ipv6() != ipv6 => Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "source IP and destination address families differ",
-            )),
-            source_ip => Ok(source_ip.map(|source_ip| SocketAddr::new(source_ip, 0))),
-        }
+        let Some(binding) = self.source_binding else {
+            return Ok(None);
+        };
+        let source_ip = if ipv6 {
+            binding.ipv6.map(IpAddr::V6)
+        } else {
+            binding.ipv4.map(IpAddr::V4)
+        };
+        source_ip.map(|ip| SocketAddr::new(ip, 0)).map_or_else(
+            || {
+                Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "no source IP is bound for the destination address family",
+                ))
+            },
+            |address| Ok(Some(address)),
+        )
     }
 
     async fn connect_one(&self, address: SocketAddr) -> io::Result<tokio::net::TcpStream> {
@@ -355,17 +391,21 @@ impl Dialer {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    use std::sync::atomic::AtomicUsize;
     use std::{
         net::{IpAddr, Ipv4Addr, Ipv6Addr},
-        sync::atomic::{AtomicUsize, Ordering},
+        sync::atomic::Ordering,
     };
 
     use tokio::net::TcpListener;
 
     use super::*;
 
+    #[cfg(unix)]
     struct CountingProtector(AtomicUsize);
 
+    #[cfg(unix)]
     impl SocketProtector for CountingProtector {
         fn protect(&self, _socket: i32) -> io::Result<()> {
             self.0.fetch_add(1, Ordering::Relaxed);
@@ -373,8 +413,10 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     struct RejectingProtector;
 
+    #[cfg(unix)]
     impl SocketProtector for RejectingProtector {
         fn protect(&self, _socket: i32) -> io::Result<()> {
             Err(io::Error::new(
@@ -416,6 +458,38 @@ mod tests {
         );
     }
 
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn source_ips_bind_both_address_families_and_reject_missing_family() {
+        let dual = Dialer::default()
+            .with_source_ips(Some(Ipv4Addr::new(127, 0, 0, 2)), Some(Ipv6Addr::LOCALHOST));
+        assert_eq!(
+            dual.bind_udp(false)
+                .await
+                .unwrap()
+                .local_addr()
+                .unwrap()
+                .ip(),
+            IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2))
+        );
+        assert_eq!(
+            dual.bind_udp(true)
+                .await
+                .unwrap()
+                .local_addr()
+                .unwrap()
+                .ip(),
+            IpAddr::V6(Ipv6Addr::LOCALHOST)
+        );
+
+        let ipv4_only = Dialer::default().with_source_ips(Some(Ipv4Addr::LOCALHOST), None);
+        assert_eq!(
+            ipv4_only.bind_udp(true).await.unwrap_err().kind(),
+            io::ErrorKind::InvalidInput
+        );
+    }
+
+    #[cfg(unix)]
     #[tokio::test]
     async fn protector_runs_before_connect() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -432,6 +506,7 @@ mod tests {
         assert_eq!(protector.0.load(Ordering::Relaxed), 1);
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn protect_failure_prevents_connect() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

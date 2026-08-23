@@ -1,7 +1,10 @@
 use std::{
     collections::VecDeque,
     fmt, io,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use tokio::sync::{Mutex as AsyncMutex, mpsc};
@@ -16,6 +19,9 @@ struct Shared {
     egress: Mutex<VecDeque<Vec<u8>>>,
     capacity: usize,
     wake: Wake,
+    ingress_dropped: AtomicU64,
+    ingress_closed: AtomicU64,
+    egress_dropped: AtomicU64,
 }
 
 pub(crate) struct WindowsTunIo {
@@ -41,6 +47,9 @@ impl WindowsTunIo {
             egress: Mutex::new(VecDeque::with_capacity(capacity)),
             capacity,
             wake: Arc::new(wake),
+            ingress_dropped: AtomicU64::new(0),
+            ingress_closed: AtomicU64::new(0),
+            egress_dropped: AtomicU64::new(0),
         });
         (
             Self {
@@ -81,6 +90,7 @@ impl WindowsTunIo {
                     VCoreError::Platform("Windows packet queue lock poisoned".into())
                 })?;
             if egress.len() == self.shared.capacity {
+                saturating_increment(&self.shared.egress_dropped);
                 return Ok(version);
             }
             let wake = egress.is_empty();
@@ -94,6 +104,13 @@ impl WindowsTunIo {
     }
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct WindowsPacketStats {
+    pub(crate) ingress_queue_dropped: u64,
+    pub(crate) ingress_closed: u64,
+    pub(crate) egress_queue_dropped: u64,
+}
+
 #[derive(Clone)]
 pub(crate) struct WindowsPacketAdapter {
     ingress: mpsc::Sender<Vec<u8>>,
@@ -102,12 +119,36 @@ pub(crate) struct WindowsPacketAdapter {
 
 impl WindowsPacketAdapter {
     pub(crate) fn try_send(&self, packet: Vec<u8>) -> bool {
-        self.ingress.try_send(packet).is_ok()
+        match self.ingress.try_send(packet) {
+            Ok(()) => true,
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                saturating_increment(&self.shared.ingress_dropped);
+                false
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                saturating_increment(&self.shared.ingress_closed);
+                false
+            }
+        }
     }
 
     pub(crate) fn pop_egress(&self) -> Option<Vec<u8>> {
         self.shared.egress.lock().ok()?.pop_front()
     }
+
+    pub(crate) fn stats(&self) -> WindowsPacketStats {
+        WindowsPacketStats {
+            ingress_queue_dropped: self.shared.ingress_dropped.load(Ordering::Relaxed),
+            ingress_closed: self.shared.ingress_closed.load(Ordering::Relaxed),
+            egress_queue_dropped: self.shared.egress_dropped.load(Ordering::Relaxed),
+        }
+    }
+}
+
+fn saturating_increment(counter: &AtomicU64) {
+    _ = counter.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+        Some(value.saturating_add(1))
+    });
 }
 
 #[cfg(test)]
@@ -137,21 +178,40 @@ mod tests {
         });
 
         assert!(adapter.try_send(IPV4.to_vec()));
+        assert!(adapter.try_send(IPV6.to_vec()));
+        assert!(!adapter.try_send(IPV4.to_vec()));
         let mut packet = Vec::new();
         assert_eq!(
             io.read_packet(&mut packet).await.unwrap(),
             crate::IpVersion::V4
         );
         assert_eq!(packet, IPV4);
+        assert_eq!(
+            io.read_packet(&mut packet).await.unwrap(),
+            crate::IpVersion::V6
+        );
+        assert_eq!(packet, IPV6);
 
         assert_eq!(io.write_packet(IPV4).await.unwrap(), crate::IpVersion::V4);
         assert_eq!(io.write_packet(IPV6).await.unwrap(), crate::IpVersion::V6);
+        assert_eq!(io.write_packet(IPV4).await.unwrap(), crate::IpVersion::V4);
         assert_eq!(wakes.load(Ordering::Relaxed), 1);
         assert_eq!(adapter.pop_egress().as_deref(), Some(IPV4));
         assert_eq!(adapter.pop_egress().as_deref(), Some(IPV6));
         assert!(adapter.pop_egress().is_none());
+        assert_eq!(
+            adapter.stats(),
+            WindowsPacketStats {
+                ingress_queue_dropped: 1,
+                ingress_closed: 0,
+                egress_queue_dropped: 1,
+            }
+        );
 
         io.write_packet(IPV4).await.unwrap();
         assert_eq!(wakes.load(Ordering::Relaxed), 2);
+        drop(io);
+        assert!(!adapter.try_send(IPV4.to_vec()));
+        assert_eq!(adapter.stats().ingress_closed, 1);
     }
 }

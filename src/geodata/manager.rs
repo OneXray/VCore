@@ -537,9 +537,7 @@ impl GeoDataManager {
         let lock_file = open_lock_file(&lock_path)?;
         match lock_file.try_lock_exclusive() {
             Ok(()) => Ok(lock_file),
-            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                Err(GeoDataManagerError::UpdateBusy)
-            }
+            Err(error) if lock_is_contended(&error) => Err(GeoDataManagerError::UpdateBusy),
             Err(source) => Err(io_at(&lock_path, source)),
         }
     }
@@ -1115,6 +1113,14 @@ fn asset_matches_hash(path: &Path, expected: &str) -> bool {
     hex_digest(&digest.finalize().into()) == expected
 }
 
+fn lock_is_contended(error: &io::Error) -> bool {
+    let expected = fs2::lock_contended_error();
+    match (error.raw_os_error(), expected.raw_os_error()) {
+        (Some(actual), Some(expected)) => actual == expected,
+        _ => error.kind() == expected.kind(),
+    }
+}
+
 fn open_lock_file(path: &Path) -> Result<File, GeoDataManagerError> {
     OpenOptions::new()
         .read(true)
@@ -1187,7 +1193,7 @@ fn read_initial_state(store_dir: &Path) -> Result<PersistentState, GeoDataManage
                 .map_err(|source| io_at(&lock_path, source))?;
             match lock_file.try_lock_exclusive() {
                 Ok(()) => {}
-                Err(source) if source.kind() == io::ErrorKind::WouldBlock => {
+                Err(source) if lock_is_contended(&source) => {
                     tracing::warn!(
                         error = %error,
                         "ignoring invalid GeoData state while another process owns the update lock"
@@ -1255,6 +1261,15 @@ fn persist_state(store_dir: &Path, state: &PersistentState) -> Result<(), GeoDat
     result
 }
 
+#[cfg(windows)]
+fn sync_directory(_path: &Path) -> Result<(), GeoDataManagerError> {
+    // ponytail: Windows has no portable directory fsync; staged files are
+    // flushed before atomic rename. Use a write-through Win32 rename only if
+    // crash testing proves this metadata durability insufficient.
+    Ok(())
+}
+
+#[cfg(not(windows))]
 fn sync_directory(path: &Path) -> Result<(), GeoDataManagerError> {
     let directory = File::open(path).map_err(|source| io_at(path, source))?;
     directory.sync_all().map_err(|source| io_at(path, source))

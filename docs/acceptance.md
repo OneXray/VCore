@@ -28,6 +28,22 @@ iOS 35/45 MiB 是 best-effort telemetry 与优化目标，不是生命周期 gua
 
 本轮没有执行 IPv6、UDP 数据面、VCore DNS、VCore 代理协议、Flutter、snapshot、Windows 10、x64、WACK、正式 packaging、压力测试、网络切换或 runtime 意外退出后的自动 Stop；这些项目保持 `NOT RUN`。
 
+## Windows UWP Phase 2A 当前本机验收（2026-08-23）
+
+环境仍为 Windows 11 ARM64 build 26200.9168、Rust 1.98.0、VS 18、Windows SDK 26100；基线 HEAD 为 `a1086f873a3b79ee01402a523737744d7717b19b`，本节来自其后的未提交工作树。
+
+- Windows ARM64 `cargo test --all-features --lib` 为 419 passed / 1 个真实 GeoData 资产测试 ignored。ARM64/x64 `cargo check --all-features`、release build 和针对本轮代码的 Clippy `-D warnings` 通过；Rust 1.98 新增的两项既有 config 风格 lint 在本轮 Clippy 命令中显式 allow，未顺带改动无关 parser。
+- `Dialer` 可同时保存物理 IPv4/IPv6 source；配置了 source binding 后，目标 family 没有对应 source 必须立即失败，不能无绑定回退。provider 从当前 internet profile 选择 adapter/address，并只在该 adapter 地址或 connectivity 改变时 fail-closed；VPN 自身及只读网络查询产生的全局通知不会误停。
+- VPN 分配 `192.168.3.1` 与 `fd00::2`，安装 IPv4/IPv6 两组 `/1` routes。`203.0.113.1` ICMPv4 与 `2001:db8::1` ICMPv6 fake reply 均小于 1 ms；本机没有可用物理 IPv6，因此真实 IPv6 outbound 仍为 `NOT RUN`。
+- 有效 NRPT `.` namespace 精确列出 `192.168.3.2`、`fd00::1`。清空 Windows DNS cache 后，系统 resolver 经 VCore runtime DNS 解析 `www.taobao.com` 成功；upstream 首选 UDP `223.5.5.5:53#DIRECT`，SERVFAIL 时顺序 failover 到同目标 TCP。既有 TCP DNS probe 在 VPN 内从 `192.168.3.1` 查询成功。普通非 DNS UDP 通过 `NETWORK,UDP,DIRECT`：Aliyun NTP `203.107.6.88:123` 在 VPN 前从 `172.16.29.130`、VPN 内从 `192.168.3.1` 均返回合法 48-byte response。
+- 实际禁用当前物理网卡 3 秒后，provider 记录 `physical network is no longer available` 并自动 `VpnChannel.Stop`。期间 Windows 重入 Connect；provider 拒绝重复 callback 而不清理活动 runtime，最终 Disconnect 保留 325 encapsulated / 57 decapsulated，网卡恢复后 VPN 保持断开、普通物理 TCP DNS 恢复。
+- COM activation/callback 均有 panic boundary；后台 task deferral 在 error/panic 边界内完成。runtime 意外退出会通知独立 fail-closed worker，显式 Disconnect 仍 join runtime；本轮没有人为注入 runtime 异常，因此自动 Stop 的该分支只完成实现与 host checks，物理结果为 `NOT RUN`。
+- packet adapter 分开统计 ingress queue-full、receiver-closed 与 egress queue-full。20 次连续 `PHASE2 ROUTINE PASS` 均完成 IPv4/IPv6 ICMP、Windows DNS、TCP DNS 与 stop barrier，收发计数非零且两侧 queue-full 全为 0。process-isolated 20-cycle 的第 20 次为 65 encapsulated / 15 decapsulated；随后最终 rebuild smoke 为 99 / 29。
+- 最初同进程外壳及拆分但长驻的 provider host 两组 20-cycle 后 process handles 分别约增加 123/124；类型为 `Thread`、`Event`、`WaitCompletionPacket`。差分排除了 foreground-only、profile Get/Update、独立 loopback sockets、network monitor、VCore runtime 和两个自建 worker；只有系统 `VpnChannel` association cycle 增长，且 stopped profile 不接受 `StartExistingTransports`/`ReplaceAndAssociateTransport`。最终 shell 使用独立 foreground/provider executable；每次 background task 完成 deferral 后，active 状态为 false 即退出空闲 provider AppContainer。最终 20 次完整 routine 每轮后两个进程均消失，因此跨 session handle/RSS 没有存活进程可累积。长时间 active-session plateau 仍为 `NOT RUN`。
+- ARM64 `vcore.dll`、x64 `vcore.dll`、ARM64 AppX SHA-256 分别为 `75b70d5523fcee4d766b8a0a2ffb6557ceef0c5face60817462db0aa19baaf97`、`03c935f82f466393e0e62b9a6d1bc65c716bc1ca50fea5e33a578fc3f5a35447`、`ab49e443c45136e4406d96adb252a41bbcf80e5644aa034708902fd943d3a7c5`。两份 DLL 均静态 CRT，并导出 `DllGetActivationFactory`、`VCoreInvoke`、`VCoreFree`；x64 仅交叉构建，未打包运行。
+
+仍为 `NOT RUN`：真实物理 IPv6、Windows 实机 VLESS/SOCKS5/AnyTLS/TLS/REALITY/XHTTP/任意链、runtime 异常注入、Windows 10 22H2、x64 AppX、WACK、长时间 active provider pressure 与正式 packaging。因此 Phase 2 不能标记完成。
+
 ## Revision 11 当前配置迁移门禁
 
 - `docs/config.yaml` 必须由当前 runtime parser 直接通过；YAML 顶层写入

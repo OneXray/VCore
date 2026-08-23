@@ -15,4 +15,4 @@ pub use rust_tun_io::RustTunIo as TunIo;
 #[cfg(all(unix, feature = "tun"))]
 pub use tun_fd::TunFd;
 #[cfg(all(windows, feature = "tun"))]
-pub(crate) use windows_tun_io::{WindowsPacketAdapter, WindowsTunIo as TunIo};
+pub(crate) use windows_tun_io::{WindowsPacketAdapter, WindowsPacketStats, WindowsTunIo as TunIo};
