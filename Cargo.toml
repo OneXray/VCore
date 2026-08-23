@@ -84,6 +84,9 @@ windows = { version = "=0.62.2", optional = true, features = [
     "Storage_Search",
     "Storage_Streams",
     "Win32_Foundation",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_NetworkManagement_Ndis",
+    "Win32_Networking_WinSock",
     "Win32_System_WinRT",
 ] }
 windows-collections = { version = "=0.3.2", optional = true }

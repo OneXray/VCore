@@ -13,7 +13,7 @@ VCore 可以复用现有 raw-IP netstack 与代理数据面；Windows 不应引�
 1. 用 `windows-rs` 实现 `IVpnPlugIn` 与后台激活。
 2. `Encapsulate` 把 Windows 提供的 L3 包复制进 VCore 的有界 raw-IP 入口。
 3. VCore 回包进入有界队列；通过一对同进程 loopback `DatagramSocket` 发送一个 dummy datagram 唤醒 `Decapsulate`，再把队列中的 raw-IP 包写入 `decapsulatedPackets`。
-4. VCore 创建的每个物理 TCP/UDP socket 在 connect/send 前绑定到选定物理网卡的本地 IP，避免流量重新绕入 VPN。
+4. VCore 创建的每个物理 TCP/UDP socket 在 connect/send 前成对绑定选定物理网卡的本地 IP 与 WinSock interface index，避免流量重新绕入 VPN；interface-only 已实测无效。
 5. Windows App 必须改为带包身份的 AppX/MSIX，并声明 `networkingVpnProvider`；当前 Inno/ZIP 外壳不能承载 VPN 插件。
 
 第 3、4 点已有同类 UWP 代理 Maple/Leaf 的实际实现证据，但仍必须在 Windows 10 与 Windows 11 真机/VM 上做最小数据面验证后再进入正式实现。
@@ -183,6 +183,42 @@ IPv6: ::/1 + 8000::/1
 
 OneVCore 已有 `TunSettingsState.autoOutboundsInterface` 与网卡选择 UI，可复用为 Windows 的“auto/manual physical interface”旋钮；plugin 在 VPN route 启动前解析为具体本地地址，再交给 VCore `Dialer`。
 
+### Windows interface-index bind 调研
+
+2026-08-23 最终结论：**Windows VPN provider 应同时绑定 source IP 与 interface index；interface index 不能替代 source IP，也不能消除 network-change 生命周期。** interface bind 能约束物理 adapter，但已经建立的 TCP、UDP association、DNS connection 或 proxy pool 不会随网络变化迁移。interface 消失或默认出口切到另一 adapter 时，旧 index 不会自动跟随新出口；同一 Wi-Fi adapter 切换网络时 index 甚至可能不变，因此仍必须保留 profile/network monitor。
+
+Windows 为每个 socket 提供 `IP_UNICAST_IF` 与 `IPV6_UNICAST_IF`：两者都设置发送 unicast 的 outgoing interface，不改变接收默认 interface。IPv4 输入是 **network-byte-order** interface index，IPv6 输入是 **host-byte-order** interface index。`setsockopt` 与 `GetAdaptersAddresses` 均可用于 UWP；后者提供 IPv4 `IfIndex`、IPv6 `Ipv6IfIndex` 和永久 adapter name。相反，`ConvertInterfaceGuidToLuid` / `ConvertInterfaceLuidToIndex` 文档限定 desktop apps，不应成为 AppContainer provider 的基础路径。
+
+三个参考实现的实际语义不同：
+
+- Leaf `1d203015` / UWP fork `e40217e0` 把 `OUTBOUND_INTERFACE` 解析为 IP 或 interface name，但 interface name 分支只实现 macOS `IP_BOUND_IF` 与 Linux `SO_BINDTODEVICE`；Windows 明确返回 unsupported。Leaf 不是 Windows interface bind 的实现证据。
+- Mihomo `ac017cdd` 在 Windows 使用 `IP_UNICAST_IF` / `IPV6_UNICAST_IF`。每次 dial/listen 前按显式 name、全局 default 或 `DefaultInterfaceFinder` 解析 interface；TUN 同时运行 `NetworkUpdateMonitor` / `DefaultInterfaceMonitor`，变化时 flush interface cache 并 reset resolver connection。也就是说，bind 只固定单个新 socket，monitor 才负责后续 socket 使用新 interface。
+- Xray-core `2323273e` 的普通 socket option 同样以 interface name 解析 index 并设置两个 WinSock option。其 TUN auto-outbound 路径另有 `InterfaceUpdater` 和 Windows interface-change callback，后续新 socket 读取更新后的 interface；既有 socket仍不迁移。该 auto 路径在 interface 缺失或 `setsockopt` 失败时只记日志并继续，属于 fail-open，不能复制到 VCore。
+
+本机 Windows 11 ARM64 的 full-trust host socket 首先显示 interface bind 可以选物理出口：物理 Ethernet index 10、IPv4 `172.16.29.130`；VPN 开启后普通 TCP 到 `223.5.5.5:53` 的 local address 是虚拟 `192.168.3.1`，设置 `IP_UNICAST_IF=10` 后是物理 `172.16.29.130`。但真实 AppContainer provider 推翻了“可替代 source bind”的假设：interface-only 的 2 秒空闲 Connect/Disconnect 分别产生 51,809 与 74,093 个 encapsulated packets；把 UDP option 提前到 wildcard bind 之前仍不变。source IP + interface index 配对后，同一回归为 81，最终重装后的完整 TCP DNS、普通 UDP NTP、DNS namespace 与双栈 ICMP routine 为 107 / 24，queue drop 为 0；额外 10 次 NTP probe 为 baseline 9/10、VPN 10/10。另一个独立 rapid-reconnect stress 在 1 秒 idle、Disconnect 后仅等待 0.5–2 秒的前三轮为 69/64/99 packets，第四轮起 Windows 返回 `VpnManagementErrorStatus(15)`，重装同一包后恢复；它没有递归计数，仍是未解决的 lifecycle 项。由此确认 VPN capture 在该路径上仍要求物理 source bind。
+
+首版实现保持现有产品契约：
+
+1. `Dialer` 仍是唯一 seam；Windows provider 在 `VpnChannel.Start*` 前通过 UWP-supported `GetAdaptersAddresses` 把 WinRT adapter GUID 映射为 IPv4/IPv6 index，并把 `(source IP, interface index)` 按地址族成对交给 runtime-local `Dialer`。
+2. TCP 在 bind/connect 前设置对应 WinSock option；UDP 用 `socket2` 在 bind 前设置。随后仍绑定物理 source address。任一地址族缺字段或任一操作失败都返回错误，绝不回退 unbound。
+3. `NetworkStatusChanged` 检查绑定地址、adapter、connection profile/network names 与 connectivity identity；任何变化都 `VpnChannel.Stop`，手动重连，不自动交换 IP 或 interface index。
+4. 若以后允许同一 adapter 地址变化不断 VPN，必须以共享 binding snapshot 更新新 socket，并清理 resolver connection、idle proxy pool 和 UDP association；既有 TCP session 仍可能失败。这是独立功能，interface option 本身不提供迁移。
+
+来源：
+
+- [Microsoft `IP_UNICAST_IF`](https://learn.microsoft.com/en-us/windows/win32/winsock/ipproto-ip-socket-options)
+- [Microsoft `IPV6_UNICAST_IF`](https://learn.microsoft.com/en-us/windows/win32/winsock/ipproto-ipv6-socket-options)
+- [Microsoft `setsockopt` UWP support](https://learn.microsoft.com/en-us/windows/win32/api/winsock/nf-winsock-setsockopt)
+- [Microsoft `GetAdaptersAddresses`](https://learn.microsoft.com/en-us/windows/win32/api/iphlpapi/nf-iphlpapi-getadaptersaddresses)
+- [Microsoft `IP_ADAPTER_ADDRESSES`](https://learn.microsoft.com/en-us/windows/win32/api/iptypes/ns-iptypes-ip_adapter_addresses_lh)
+- [Leaf socket binding @ `1d203015`](https://github.com/eycorsican/leaf/blob/1d20301570395cff1db5f3e316222b0ec3b4732e/leaf/src/proxy/mod.rs)
+- [Mihomo Windows bind @ `ac017cdd`](https://github.com/MetaCubeX/mihomo/blob/ac017cdd246ce8bd547653d927e7bf77d7ee73d5/component/dialer/bind_windows.go)
+- [Mihomo dial-time interface selection](https://github.com/MetaCubeX/mihomo/blob/ac017cdd246ce8bd547653d927e7bf77d7ee73d5/component/dialer/dialer.go)
+- [Mihomo TUN default-interface monitor](https://github.com/MetaCubeX/mihomo/blob/ac017cdd246ce8bd547653d927e7bf77d7ee73d5/listener/sing_tun/server.go)
+- [Xray-core Windows socket options @ `2323273e`](https://github.com/XTLS/Xray-core/blob/2323273e373f06b829b8c1cc0b4da149153e7358/transport/internet/sockopt_windows.go)
+- [Xray-core TUN interface updater](https://github.com/XTLS/Xray-core/blob/2323273e373f06b829b8c1cc0b4da149153e7358/proxy/tun/config.go)
+- [Xray-core TUN dialer controller](https://github.com/XTLS/Xray-core/blob/2323273e373f06b829b8c1cc0b4da149153e7358/proxy/tun/handler.go)
+
 ## wireguard-uwp-rs 可复用与不可复用部分
 
 可参考：
@@ -312,7 +348,7 @@ Focused tests、Windows `cargo check --all-features`、格式与 diff 检查通�
 
 已在 Windows 11 ARM64 实现并实际验证：provider 自行选择当前物理 adapter；`Dialer` 对 IPv4/IPv6 分别 source-bind，缺失 family 时 fail-closed；虚拟 IPv4/IPv6 `/1` routes；`.` DNS namespace 指向 `192.168.3.2`/`fd00::1`；runtime DNS 先用 `udp://223.5.5.5:53#DIRECT`、再以同目标 TCP failover；ICMPv4/ICMPv6、本机 Windows resolver 与既有 TCP DNS probe 均通过。普通 UDP 使用 `NETWORK,UDP,DIRECT`，向中国大陆可达的 Aliyun NTP `203.107.6.88:123` 实测成功，VPN 内客户端 local address 为 `192.168.3.1`。物理网卡实际禁用 3 秒时，provider 自动 `VpnChannel.Stop`，重复 Connect callback 被拒绝且不清理活动 runtime，随后 Disconnect 保留非零 packet counters。
 
-COM callbacks 和 activation export 均有 panic boundary；runtime 意外退出会通知独立 fail-closed worker，显式 Disconnect 仍等待 runtime stop barrier。packet adapter 分开统计 ingress queue full、receiver closed 与 egress queue full；20 次连续完整 routine 均为非零收发且两侧 queue-full 为 0。Windows ARM64 全 feature lib tests 为 419 passed / 1 environment-dependent ignored；ARM64 与 x64 release DLL 均静态 CRT 并保留三个 export。x64 只完成编译/链接，尚未安装运行。
+COM callbacks 和 activation export 均有 panic boundary；runtime 意外退出会通知独立 fail-closed worker，显式 Disconnect 仍等待 runtime stop barrier。packet adapter 分开统计 ingress queue full、receiver closed 与 egress queue full；20 次连续完整 routine 均为非零收发且两侧 queue-full 为 0。Windows ARM64 全 feature lib tests 为 422 passed / 1 environment-dependent ignored；ARM64 与 x64 release DLL 均静态 CRT 并保留三个 export。x64 只完成编译/链接，尚未安装运行。
 
 最初同进程外壳与随后拆分但长驻的 provider host 都在每次 VPN association cycle 后保留约 6 个 `Thread`/`Event`/`WaitCompletionPacket` handles。差分实验确认单独 foreground activation、profile Get/Update、20 对 loopback `DatagramSocket`、移除 VCore runtime/两个自建 worker 均不增长；只有 `VpnChannel` association cycle 增长。`StartExistingTransports` 与 `ReplaceAndAssociateTransport` 在 stopped/updated profile 上均返回 `E_INVALIDARG`。最终 ignored shell 将 foreground/provider 拆为两个 executable，provider 以原子 active 状态在每次 background deferral 完成后退出空闲 AppContainer host。最终 20 次完整 routine 每轮结束后两个进程都消失，收发非零且 queue-full 为 0；跨 session handle/RSS 不再有可累积进程。所有诊断代码均已删除。长时间保持同一个 active VPN 的 pool/pressure plateau 仍未执行。
 

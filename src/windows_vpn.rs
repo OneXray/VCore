@@ -3,7 +3,9 @@
 use std::{
     fs::OpenOptions,
     io::{self, Write as _},
+    mem::size_of,
     net::{Ipv4Addr, Ipv6Addr},
+    num::NonZeroU32,
     panic::{AssertUnwindSafe, catch_unwind},
     path::{Path, PathBuf},
     slice,
@@ -24,7 +26,8 @@ use windows::{
     },
     Networking::{
         Connectivity::{
-            NetworkConnectivityLevel, NetworkInformation, NetworkStatusChangedEventHandler,
+            ConnectionProfile, NetworkConnectivityLevel, NetworkInformation,
+            NetworkStatusChangedEventHandler,
         },
         HostName, HostNameType,
         Sockets::DatagramSocket,
@@ -39,7 +42,13 @@ use windows::{
         Streams::{Buffer, IOutputStream},
     },
     Win32::{
-        Foundation::{CLASS_E_CLASSNOTAVAILABLE, E_BOUNDS, E_FAIL},
+        Foundation::{
+            CLASS_E_CLASSNOTAVAILABLE, E_BOUNDS, E_FAIL, ERROR_BUFFER_OVERFLOW, NO_ERROR,
+        },
+        NetworkManagement::IpHelper::{
+            GET_ADAPTERS_ADDRESSES_FLAGS, GetAdaptersAddresses, IP_ADAPTER_ADDRESSES_LH,
+        },
+        Networking::WinSock::AF_UNSPEC,
         System::WinRT::{
             IActivationFactory, IActivationFactory_Impl, IBufferByteAccess, RO_INIT_MULTITHREADED,
             RoInitialize, RoUninitialize,
@@ -130,7 +139,7 @@ impl FailClosedHandle {
         self.signal.wake();
     }
 
-    fn network_changed(&self, physical: PhysicalNetwork) {
+    fn network_changed(&self, physical: &PhysicalNetwork) {
         match physical.is_available() {
             Ok(true) => {}
             Ok(false) => self.request("physical network is no longer available"),
@@ -253,11 +262,106 @@ impl Drop for FailClosedStop {
 }
 
 #[derive(Debug, Clone, Copy)]
+struct InterfaceIndices {
+    ipv4: Option<NonZeroU32>,
+    ipv6: Option<NonZeroU32>,
+}
+
+fn adapter_name_matches(name: &str, adapter_id: GUID) -> bool {
+    name.trim()
+        .trim_matches(|character| character == '{' || character == '}')
+        .eq_ignore_ascii_case(&format!("{adapter_id:?}"))
+}
+
+fn adapter_interface_indices(adapter_id: GUID) -> Result<InterfaceIndices> {
+    let mut storage = vec![0_usize; (15 * 1024_usize).div_ceil(size_of::<usize>())];
+    for _ in 0..3 {
+        let mut byte_count = u32::try_from(storage.len() * size_of::<usize>())
+            .map_err(|_| Error::new(E_FAIL, "network adapter buffer is too large"))?;
+        // SAFETY: `storage` is aligned for the returned structures and remains live while walked.
+        let status = unsafe {
+            GetAdaptersAddresses(
+                u32::from(AF_UNSPEC.0),
+                GET_ADAPTERS_ADDRESSES_FLAGS(0),
+                None,
+                Some(storage.as_mut_ptr().cast::<IP_ADAPTER_ADDRESSES_LH>()),
+                &mut byte_count,
+            )
+        };
+        if status == ERROR_BUFFER_OVERFLOW.0 {
+            storage.resize(
+                (byte_count as usize)
+                    .div_ceil(size_of::<usize>())
+                    .max(storage.len() + 1),
+                0,
+            );
+            continue;
+        }
+        if status != NO_ERROR.0 {
+            return Err(Error::new(
+                HRESULT::from_win32(status),
+                "GetAdaptersAddresses failed",
+            ));
+        }
+
+        let mut current = storage.as_ptr().cast::<IP_ADAPTER_ADDRESSES_LH>();
+        while !current.is_null() {
+            // SAFETY: successful `GetAdaptersAddresses` linked these entries inside `storage`.
+            let adapter = unsafe { &*current };
+            if !adapter.AdapterName.is_null() {
+                // SAFETY: `AdapterName` is a null-terminated string owned by `storage`.
+                let name = unsafe { adapter.AdapterName.to_string() }
+                    .map_err(|_| Error::new(E_FAIL, "network adapter name is not UTF-8"))?;
+                if adapter_name_matches(&name, adapter_id) {
+                    // SAFETY: `Anonymous` is the documented Length/IfIndex view of this union.
+                    let ipv4 = NonZeroU32::new(unsafe { adapter.Anonymous1.Anonymous.IfIndex });
+                    return Ok(InterfaceIndices {
+                        ipv4,
+                        ipv6: NonZeroU32::new(adapter.Ipv6IfIndex),
+                    });
+                }
+            }
+            current = adapter.Next;
+        }
+        return Err(Error::new(
+            E_FAIL,
+            "physical network adapter was not returned by GetAdaptersAddresses",
+        ));
+    }
+    Err(Error::new(
+        E_FAIL,
+        "network adapter list changed while it was being read",
+    ))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NetworkIdentity {
+    profile_name: String,
+    network_names: Vec<String>,
+}
+
+fn network_identity(profile: &ConnectionProfile) -> Result<NetworkIdentity> {
+    let names = profile.GetNetworkNames()?;
+    let mut network_names = Vec::with_capacity(names.Size()? as usize);
+    for index in 0..names.Size()? {
+        network_names.push(names.GetAt(index)?.to_string());
+    }
+    network_names.sort_unstable();
+    Ok(NetworkIdentity {
+        profile_name: profile.ProfileName()?.to_string(),
+        network_names,
+    })
+}
+
+#[derive(Debug, Clone)]
 struct PhysicalNetwork {
     adapter_id: GUID,
     connectivity: NetworkConnectivityLevel,
+    identity: NetworkIdentity,
     ipv4: Option<Ipv4Addr>,
     ipv6: Option<Ipv6Addr>,
+    ipv4_index: Option<NonZeroU32>,
+    ipv6_index: Option<NonZeroU32>,
 }
 
 impl PhysicalNetwork {
@@ -265,6 +369,7 @@ impl PhysicalNetwork {
         let profile = NetworkInformation::GetInternetConnectionProfile()?;
         let adapter_id = profile.NetworkAdapter()?.NetworkAdapterId()?;
         let connectivity = profile.GetNetworkConnectivityLevel()?;
+        let identity = network_identity(&profile)?;
         let host_names = NetworkInformation::GetHostNames()?;
         let mut ipv4 = Vec::new();
         let mut ipv6 = Vec::new();
@@ -312,18 +417,36 @@ impl PhysicalNetwork {
         if ipv4.is_empty() && ipv6.is_empty() {
             return Err(Error::new(
                 E_FAIL,
-                "physical network has no bindable IP address",
+                "physical network has no usable IP address",
             ));
         }
+        let ipv4 = ipv4.into_iter().next();
+        let ipv6 = ipv6.into_iter().next();
+        let indices = adapter_interface_indices(adapter_id)?;
+        let ipv4_index = match ipv4 {
+            Some(_) => Some(indices.ipv4.ok_or_else(|| {
+                Error::new(E_FAIL, "physical network has no IPv4 interface index")
+            })?),
+            None => None,
+        };
+        let ipv6_index = match ipv6 {
+            Some(_) => Some(indices.ipv6.ok_or_else(|| {
+                Error::new(E_FAIL, "physical network has no IPv6 interface index")
+            })?),
+            None => None,
+        };
         Ok(Self {
             adapter_id,
             connectivity,
-            ipv4: ipv4.into_iter().next(),
-            ipv6: ipv6.into_iter().next(),
+            identity,
+            ipv4,
+            ipv6,
+            ipv4_index,
+            ipv6_index,
         })
     }
 
-    fn is_available(self) -> Result<bool> {
+    fn is_available(&self) -> Result<bool> {
         let host_names = NetworkInformation::GetHostNames()?;
         let mut ipv4_found = self.ipv4.is_none();
         let mut ipv6_found = self.ipv6.is_none();
@@ -346,6 +469,7 @@ impl PhysicalNetwork {
         if !ipv4_found || !ipv6_found {
             return Ok(false);
         }
+
         let profiles = NetworkInformation::GetConnectionProfiles()?;
         for index in 0..profiles.Size()? {
             let profile = profiles.GetAt(index)?;
@@ -354,6 +478,7 @@ impl PhysicalNetwork {
             };
             if adapter.NetworkAdapterId()? == self.adapter_id
                 && profile.GetNetworkConnectivityLevel()? == self.connectivity
+                && network_identity(&profile)? == self.identity
             {
                 return Ok(true);
             }
@@ -493,7 +618,10 @@ fn run_vcore(
         prepared
             .start_tun(
                 tun,
-                Dialer::default().with_source_ips(physical.ipv4, physical.ipv6),
+                Dialer::default().with_windows_interface(
+                    physical.ipv4.zip(physical.ipv4_index),
+                    physical.ipv6.zip(physical.ipv6_index),
+                ),
             )
             .await
     });
@@ -598,8 +726,12 @@ impl VpnProvider {
             write_dummy(&wake_output.resolve().map_err(io::Error::other)?).map_err(io::Error::other)
         });
         let (fail_closed, fail_closed_handle) = FailClosedStop::start(channel)?;
-        let runtime =
-            ProviderRuntime::start(local_folder, physical, tun, fail_closed_handle.clone())?;
+        let runtime = ProviderRuntime::start(
+            local_folder,
+            physical.clone(),
+            tun,
+            fail_closed_handle.clone(),
+        )?;
 
         {
             let mut state = self.lock_state()?;
@@ -623,8 +755,9 @@ impl VpnProvider {
         )?;
 
         let network_stop = fail_closed_handle.clone();
+        let monitored_physical = physical.clone();
         let handler = NetworkStatusChangedEventHandler::new(move |_| {
-            network_stop.network_changed(physical);
+            network_stop.network_changed(&monitored_physical);
             Ok(())
         });
         let token = NetworkInformation::NetworkStatusChanged(&handler)?;
@@ -632,8 +765,12 @@ impl VpnProvider {
         fail_closed_handle.arm();
 
         log(&format!(
-            "connect ok: adapter={:?} physical_ipv4={:?} physical_ipv6={:?}",
-            physical.adapter_id, physical.ipv4, physical.ipv6
+            "connect ok: adapter={:?} ipv4={:?}@{:?} ipv6={:?}@{:?}",
+            physical.adapter_id,
+            physical.ipv4,
+            physical.ipv4_index,
+            physical.ipv6,
+            physical.ipv6_index
         ));
         Ok(())
     }
@@ -1003,6 +1140,39 @@ mod tests {
         assert!(CONFIG_YAML.len() < 1024);
         let config = Config::parse_yaml(CONFIG_YAML.as_bytes()).unwrap();
         assert!(config.dns.enable);
+    }
+
+    #[test]
+    fn adapter_name_matches_winrt_network_adapter_id() {
+        let id = GUID::from_u128(0xc2afe445_9ed9_423d_8c29_6b2cd49691d2);
+        assert!(adapter_name_matches(
+            "{C2AFE445-9ED9-423D-8C29-6B2CD49691D2}",
+            id
+        ));
+        assert!(!adapter_name_matches(
+            "{00000000-0000-0000-0000-000000000000}",
+            id
+        ));
+    }
+
+    #[test]
+    fn network_identity_is_exact_and_order_independent() {
+        let mut names = vec!["network-b".to_owned(), "network-a".to_owned()];
+        names.sort_unstable();
+        let first = NetworkIdentity {
+            profile_name: "Ethernet".to_owned(),
+            network_names: names,
+        };
+        let same = NetworkIdentity {
+            profile_name: "Ethernet".to_owned(),
+            network_names: vec!["network-a".to_owned(), "network-b".to_owned()],
+        };
+        let other = NetworkIdentity {
+            profile_name: "Wi-Fi".to_owned(),
+            network_names: same.network_names.clone(),
+        };
+        assert_eq!(first, same);
+        assert_ne!(first, other);
     }
 
     #[test]

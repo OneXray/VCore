@@ -68,11 +68,11 @@ rust-tun 在 `target_os = "windows"` 下实现的是 Wintun：
 1. VCore 的 Windows-only VPN provider 已用 `windows-rs` 实现最小 `IVpnPlugIn`、activation factory、Connect/Disconnect stop barrier；OneVCore 后续负责 profile、snapshot、状态和 App/MSIX 接入。
 2. `WindowsTunIo` 在 callback 内复制 L3 bytes，通过有界 ingress/egress queue 接入现有 `TunRuntime`；不得把 `VpnPacketBuffer` 的裸 slice 保存到 callback 之外。
 3. 所有系统提供或从 `VpnChannel` 申请的 buffer 都按 WinRT 契约归还；callback 可并发到达，core 状态由单一 runtime owner 串行管理。
-4. `AssociateTransport` 只管理用于唤醒 `Decapsulate` 的 loopback `DatagramSocket` transport。VLESS/XHTTP、DIRECT 和 DNS 继续复用集中在 `Dialer` 的普通 Tokio TCP/UDP socket，并在 connect/send 前绑定选定物理网卡的本地 IPv4/IPv6，防止再次被虚拟接口捕获；不得为每个协议增加第二套 WinRT socket factory。
+4. `AssociateTransport` 只管理用于唤醒 `Decapsulate` 的 loopback `DatagramSocket` transport。VLESS/XHTTP、DIRECT 和 DNS 继续复用集中在 `Dialer` 的普通 Tokio TCP/UDP socket，并在 connect/send 前同时绑定选定物理网卡的本地 IPv4/IPv6 与 WinSock interface index，防止再次被虚拟接口捕获；不得为每个协议增加第二套 WinRT socket factory。
 5. Windows TUN 生命周期由 plugin callback 驱动，不把 `VpnChannel`、COM pointer 或伪 fd 放入统一 Invoke JSON。App 进程中的非 TUN `measureDelay` 仍可使用普通 transport。
 6. OneVCore 使用同一个 Store MSIX/AppX family package 交付 Flutter medium-IL full-trust foreground 与 UWP VPN background component，并声明 `runFullTrust` 和 `networkingVpnProvider`。普通 zip/exe 不能仅靠复制 DLL 获得 VPN 能力。
 
-Windows 11 ARM64 已验证 activation、真实 VCore IPv4/IPv6 ICMP/raw packet 往返、loopback wake、DNS namespace、DIRECT TCP、runtime DNS 与普通 UDP、物理 source bind、网络切换 fail-closed，以及独立 provider host 的跨 session 回收。Windows 10 22H2、x64 AppX、真实物理 IPv6、代理协议、长时间 active pressure 与正式 App/MSIX 仍待后续阶段。
+Windows 11 ARM64 已验证 activation、真实 VCore IPv4/IPv6 ICMP/raw packet 往返、loopback wake、DNS namespace、DIRECT TCP、runtime DNS 与普通 UDP、物理 source/interface 配对绑定、网络切换 fail-closed，以及独立 provider host 的跨 session 回收。Windows 10 22H2、x64 AppX、真实物理 IPv6、代理协议、长时间 active pressure 与正式 App/MSIX 仍待后续阶段。
 
 ## 6. 验收顺序
 

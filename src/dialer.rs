@@ -12,12 +12,24 @@ use std::{
 
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
+#[cfg(all(windows, feature = "ffi"))]
+use std::{
+    num::NonZeroU32,
+    os::windows::io::{AsRawSocket, RawSocket},
+};
 
 use async_trait::async_trait;
+#[cfg(all(windows, feature = "ffi"))]
+use socket2::{Domain, Protocol, Socket, Type};
 use tokio::{
     net::{TcpSocket, UdpSocket},
     sync::Notify,
     time::timeout,
+};
+#[cfg(all(windows, feature = "ffi"))]
+use windows::Win32::Networking::WinSock::{
+    IP_UNICAST_IF, IPPROTO_IP, IPPROTO_IPV6, IPV6_UNICAST_IF, SOCKET, SOCKET_ERROR,
+    WSAGetLastError, setsockopt,
 };
 
 use crate::limits::{DNS_WORKER_STACK_BYTES, MAX_DNS_WORKERS};
@@ -229,19 +241,31 @@ struct SourceBinding {
     ipv6: Option<Ipv6Addr>,
 }
 
+#[cfg(all(windows, feature = "ffi"))]
+#[derive(Debug, Clone, Copy)]
+struct InterfaceBinding {
+    ipv4: Option<(Ipv4Addr, NonZeroU32)>,
+    ipv6: Option<(Ipv6Addr, NonZeroU32)>,
+}
+
 #[derive(Clone)]
 pub struct Dialer {
     protector: Option<Arc<dyn SocketProtector>>,
     source_binding: Option<SourceBinding>,
+    #[cfg(all(windows, feature = "ffi"))]
+    interface_binding: Option<InterfaceBinding>,
     connect_timeout: Duration,
 }
 
 impl std::fmt::Debug for Dialer {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("Dialer")
+        let mut debug = formatter.debug_struct("Dialer");
+        debug
             .field("has_protector", &self.protector.is_some())
-            .field("source_binding", &self.source_binding)
+            .field("source_binding", &self.source_binding);
+        #[cfg(all(windows, feature = "ffi"))]
+        debug.field("interface_binding", &self.interface_binding);
+        debug
             .field("connect_timeout", &self.connect_timeout)
             .finish()
     }
@@ -252,6 +276,8 @@ impl Default for Dialer {
         Self {
             protector: None,
             source_binding: None,
+            #[cfg(all(windows, feature = "ffi"))]
+            interface_binding: None,
             connect_timeout: Duration::from_secs(10),
         }
     }
@@ -276,17 +302,22 @@ impl Dialer {
                 ipv6: Some(ipv6),
             },
         });
+        #[cfg(all(windows, feature = "ffi"))]
+        {
+            self.interface_binding = None;
+        }
         self
     }
 
-    #[cfg(windows)]
+    #[cfg(all(windows, feature = "ffi"))]
     #[must_use]
-    pub(crate) const fn with_source_ips(
+    pub(crate) const fn with_windows_interface(
         mut self,
-        ipv4: Option<Ipv4Addr>,
-        ipv6: Option<Ipv6Addr>,
+        ipv4: Option<(Ipv4Addr, NonZeroU32)>,
+        ipv6: Option<(Ipv6Addr, NonZeroU32)>,
     ) -> Self {
-        self.source_binding = Some(SourceBinding { ipv4, ipv6 });
+        self.source_binding = None;
+        self.interface_binding = Some(InterfaceBinding { ipv4, ipv6 });
         self
     }
 
@@ -325,6 +356,19 @@ impl Dialer {
                 SocketAddr::from(([0_u8; 4], 0))
             }
         });
+        #[cfg(all(windows, feature = "ffi"))]
+        let socket = {
+            let socket = Socket::new(
+                if ipv6 { Domain::IPV6 } else { Domain::IPV4 },
+                Type::DGRAM,
+                Some(Protocol::UDP),
+            )?;
+            self.apply_interface_binding(socket.as_raw_socket(), ipv6)?;
+            socket.bind(&bind_address.into())?;
+            socket.set_nonblocking(true)?;
+            UdpSocket::from_std(socket.into())?
+        };
+        #[cfg(not(all(windows, feature = "ffi")))]
         let socket = UdpSocket::bind(bind_address).await?;
         #[cfg(unix)]
         if let Some(protector) = &self.protector {
@@ -341,6 +385,23 @@ impl Dialer {
     }
 
     fn source_address(&self, ipv6: bool) -> io::Result<Option<SocketAddr>> {
+        #[cfg(all(windows, feature = "ffi"))]
+        if let Some(binding) = self.interface_binding {
+            let source_ip = if ipv6 {
+                binding.ipv6.map(|(ip, _)| IpAddr::V6(ip))
+            } else {
+                binding.ipv4.map(|(ip, _)| IpAddr::V4(ip))
+            };
+            return source_ip.map(|ip| SocketAddr::new(ip, 0)).map_or_else(
+                || {
+                    Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "no physical interface is bound for the destination address family",
+                    ))
+                },
+                |address| Ok(Some(address)),
+            );
+        }
         let Some(binding) = self.source_binding else {
             return Ok(None);
         };
@@ -358,6 +419,38 @@ impl Dialer {
             },
             |address| Ok(Some(address)),
         )
+    }
+
+    #[cfg(all(windows, feature = "ffi"))]
+    fn apply_interface_binding(&self, socket: RawSocket, ipv6: bool) -> io::Result<()> {
+        let Some(binding) = self.interface_binding else {
+            return Ok(());
+        };
+        let index = if ipv6 {
+            binding.ipv6.map(|(_, index)| index)
+        } else {
+            binding.ipv4.map(|(_, index)| index)
+        }
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "no interface index is bound for the destination address family",
+            )
+        })?;
+        let value = interface_option_value(index, ipv6);
+        let (level, option) = if ipv6 {
+            (IPPROTO_IPV6.0, IPV6_UNICAST_IF)
+        } else {
+            (IPPROTO_IP.0, IP_UNICAST_IF)
+        };
+        let socket = usize::try_from(socket)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid Windows socket"))?;
+        // SAFETY: `socket` is live for the call and `value` is the required DWORD.
+        if unsafe { setsockopt(SOCKET(socket), level, option, Some(&value)) } == SOCKET_ERROR {
+            // SAFETY: this immediately reads the calling thread's WinSock error.
+            return Err(io::Error::from_raw_os_error(unsafe { WSAGetLastError() }.0));
+        }
+        Ok(())
     }
 
     async fn connect_one(&self, address: SocketAddr) -> io::Result<tokio::net::TcpStream> {
@@ -378,6 +471,8 @@ impl Dialer {
                 "socket protection is only supported on Unix platforms",
             ));
         }
+        #[cfg(all(windows, feature = "ffi"))]
+        self.apply_interface_binding(socket.as_raw_socket(), ipv6)?;
         if let Some(source_address) = self.source_address(ipv6)? {
             socket.bind(source_address)?;
         }
@@ -386,6 +481,15 @@ impl Dialer {
             .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "connect timed out"))??;
         stream.set_nodelay(true)?;
         Ok(stream)
+    }
+}
+
+#[cfg(all(windows, feature = "ffi"))]
+fn interface_option_value(index: NonZeroU32, ipv6: bool) -> [u8; 4] {
+    if ipv6 {
+        index.get().to_ne_bytes()
+    } else {
+        index.get().to_be_bytes()
     }
 }
 
@@ -458,34 +562,27 @@ mod tests {
         );
     }
 
-    #[cfg(windows)]
+    #[cfg(all(windows, feature = "ffi"))]
     #[tokio::test]
-    async fn source_ips_bind_both_address_families_and_reject_missing_family() {
-        let dual = Dialer::default()
-            .with_source_ips(Some(Ipv4Addr::new(127, 0, 0, 2)), Some(Ipv6Addr::LOCALHOST));
-        assert_eq!(
-            dual.bind_udp(false)
-                .await
-                .unwrap()
-                .local_addr()
-                .unwrap()
-                .ip(),
-            IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2))
+    async fn interface_binding_rejects_missing_address_family() {
+        let ipv4_only = Dialer::default().with_windows_interface(
+            Some((Ipv4Addr::LOCALHOST, NonZeroU32::new(10).unwrap())),
+            None,
         );
-        assert_eq!(
-            dual.bind_udp(true)
-                .await
-                .unwrap()
-                .local_addr()
-                .unwrap()
-                .ip(),
-            IpAddr::V6(Ipv6Addr::LOCALHOST)
-        );
-
-        let ipv4_only = Dialer::default().with_source_ips(Some(Ipv4Addr::LOCALHOST), None);
         assert_eq!(
             ipv4_only.bind_udp(true).await.unwrap_err().kind(),
             io::ErrorKind::InvalidInput
+        );
+    }
+
+    #[cfg(all(windows, feature = "ffi"))]
+    #[test]
+    fn windows_interface_index_uses_win_sock_byte_order() {
+        let index = NonZeroU32::new(0x0102_0304).unwrap();
+        assert_eq!(interface_option_value(index, false), [1, 2, 3, 4]);
+        assert_eq!(
+            interface_option_value(index, true),
+            0x0102_0304_u32.to_ne_bytes()
         );
     }
 

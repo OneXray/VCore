@@ -26,7 +26,7 @@ Read the relevant document completely before changing that area:
 - `src/runtime.rs` prepares and owns DNS, routing, outbound graphs, listeners, GeoData, and long-lived tasks.
 - `src/tun_runtime.rs` connects platform raw-IP I/O to `vcore-netstack` and dispatches TCP, UDP, DNS, ICMP, and sniffing.
 - `src/platform/` contains platform adapters. Keep Windows callback semantics here instead of simulating a Unix fd.
-- `src/dialer.rs` is the shared physical TCP/UDP socket seam. Fix socket protection or source binding once here rather than in each outbound.
+- `src/dialer.rs` is the shared physical TCP/UDP socket seam. Fix socket protection or Windows `(source IP, interface index)` binding once here rather than in each outbound.
 - `crates/vcore-netstack` is platform-independent raw-IP state and must not depend on WinRT, JNI, Swift, or Flutter.
 - VCore does not know App, extension, service, or daemon process roles and does not implement cross-process lifecycle state or IPC.
 
