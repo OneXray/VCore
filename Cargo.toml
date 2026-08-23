@@ -98,7 +98,10 @@ windows = { version = "=0.62.2", optional = true, features = [
     "Win32_NetworkManagement_IpHelper",
     "Win32_NetworkManagement_Ndis",
     "Win32_Networking_WinSock",
+    "Win32_Security",
+    "Win32_Security_Isolation",
     "Win32_System_RemoteDesktop",
+    "Win32_System_Threading",
     "Win32_System_WinRT",
 ] }
 windows-collections = { version = "=0.3.2", optional = true }

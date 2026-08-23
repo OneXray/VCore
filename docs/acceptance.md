@@ -87,6 +87,13 @@ iOS 35/45 MiB 是 best-effort telemetry 与优化目标，不是生命周期 gua
 - 新增独立 `windows-vpn-session.log` 1 MiB current + one previous轮换。ARM64 Session Host为 4,700,672 bytes，SHA-256 `800ae6d1d35ee1595991d66c806f764bc08ca6e5ef917814dd92d07a67c1b8b5`，PE machine ARM64、无 dynamic CRT。
 - Windows ARM64 all-feature lib tests为 436 passed / 1 ignored；Session Host参数/binding 2项、packet channel 5项、session log 1项通过。lib+bins Clippy在两项既有 Rust 1.98 config style lint allow后以 `-D warnings`通过；三个 Windows artifact release build成功。真实 packaged Session Host + Provider组合仍为 Phase 4 `NOT RUN`。
 
+## Windows Session Runtime Phase 3（2026-08-23）
+
+- `windows_vpn.rs` 已无 `Config`、`PreparedCore`、`RunningCore`、`GeoDataManager`、`SystemResolver`、`ProviderRuntime` 或 `run_vcore`。Provider只解析 canonical snapshot token、选择/监控 physical network、拥有 WinRT buffers/routes/wake与 fail-closed Stop。
+- Provider packet worker在 AppContainer namespace创建 first-instance/reject-remote control/data servers，原子发布 4 KiB strict rendezvous，完成 SessionHello/ProviderHello/RuntimeReady；callback ingress/egress继续使用各 256项的现有 bounded adapter，callback不等待 pipe I/O。Session Host/runtime/control/data任一意外退出都请求 `VpnChannel.Stop`。
+- 正常 Disconnect将 encapsulated/decapsulated与三项 queue counters放入 Stop，要求 Session Host原样 Stopped ack并执行 bounded 10秒 barrier；rendezvous在 handshake或任一失败路径删除。Provider log改为独立 `windows-vpn-provider.log`且只记录 family可用性，不记录 adapter、IP或 network name。
+- Windows ARM64 all-feature lib tests为 435 passed / 1 ignored；lib+bins Clippy在两项既有 config style lint allow后以 `-D warnings`通过；fmt和 diff check通过。release SHA-256：`vcore.dll` `913671ede0c1f415fa247147fd41be9739d94eee87834d1907ab5b626ccc2ddf`，Session Host `e8100c05fd07b2e841f630d99cf3e66a1e814859fd93a823fc0f726d7948578e`，Provider Host `8b1bf857a8a925a9ef733cc6080bde701af007652f91d1ed869b1debe2149428`。真实 MSIX组合仍为 Phase 4 `NOT RUN`。
+
 ## Revision 11 当前配置迁移门禁
 
 - `docs/config.yaml` 必须由当前 runtime parser 直接通过；YAML 顶层写入

@@ -1,17 +1,36 @@
 use std::{
-    fs, io,
+    fs::{self, OpenOptions},
+    io::{self, Write},
     net::{Ipv4Addr, Ipv6Addr},
     os::windows::fs::MetadataExt as _,
-    path::Path,
+    path::{Path, PathBuf},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    },
+    thread::{self, JoinHandle},
+    time::Duration,
 };
 
 #[cfg(test)]
-use std::io::{Read, Write};
+use std::io::Read;
 
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
+use tokio::{
+    io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _},
+    net::windows::named_pipe::ServerOptions,
+    sync::oneshot,
+    task::JoinSet,
+    time::timeout,
+};
+use windows::Win32::{
+    Foundation::{CloseHandle, HANDLE},
+    Security::{Isolation::GetAppContainerNamedObjectPath, TOKEN_QUERY},
+    System::Threading::{GetCurrentProcess, OpenProcessToken},
+};
 
-use crate::windows_snapshot::SnapshotReference;
+use crate::{platform::TunIo, windows_snapshot::SnapshotReference};
 
 pub(crate) const PROTOCOL_VERSION: u32 = 1;
 pub(crate) const CONTROL_LEAF: &str = "OneVCore.Vpn.Control.v1";
@@ -22,6 +41,8 @@ const MAX_RENDEZVOUS_BYTES: usize = 4 * 1024;
 const MAX_ERROR_BYTES: usize = 4 * 1024;
 const MAX_PACKET_BYTES: usize = 1_500;
 const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+const SESSION_START_TIMEOUT: Duration = Duration::from_secs(15);
+const SESSION_STOP_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -213,6 +234,291 @@ impl Rendezvous {
         SnapshotReference::parse(&self.snapshot_token).map_err(io::Error::other)?;
         Ok(())
     }
+}
+
+pub(crate) struct ProviderPacketSession {
+    stop: Option<oneshot::Sender<PacketCounters>>,
+    stop_requested: Arc<AtomicBool>,
+    thread: Option<JoinHandle<io::Result<()>>>,
+}
+
+impl ProviderPacketSession {
+    pub(crate) fn start(
+        local_folder: PathBuf,
+        token: String,
+        physical_binding: PhysicalBinding,
+        tun: TunIo,
+        unexpected_exit: impl Fn() + Send + Sync + 'static,
+    ) -> io::Result<Self> {
+        let (stop_tx, stop_rx) = oneshot::channel();
+        let (startup_tx, startup_rx) = mpsc::sync_channel(1);
+        let startup_fallback = startup_tx.clone();
+        let startup_complete = Arc::new(AtomicBool::new(false));
+        let thread_startup_complete = Arc::clone(&startup_complete);
+        let stop_requested = Arc::new(AtomicBool::new(false));
+        let thread_stop_requested = Arc::clone(&stop_requested);
+        let unexpected_exit = Arc::new(unexpected_exit);
+        let thread = thread::Builder::new()
+            .name("vcore-windows-packet-channel".to_owned())
+            .stack_size(512 * 1024)
+            .spawn(move || {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_io()
+                    .enable_time()
+                    .build()?;
+                let result = runtime.block_on(run_provider_session(
+                    &local_folder,
+                    &token,
+                    physical_binding,
+                    tun,
+                    stop_rx,
+                    startup_tx,
+                    &thread_startup_complete,
+                ));
+                if thread_startup_complete.load(Ordering::Acquire)
+                    && !thread_stop_requested.load(Ordering::Acquire)
+                {
+                    unexpected_exit();
+                }
+                if let Err(error) = &result {
+                    _ = startup_fallback.try_send(Err(error.to_string()));
+                }
+                result
+            })?;
+        let session = Self {
+            stop: Some(stop_tx),
+            stop_requested,
+            thread: Some(thread),
+        };
+        match startup_rx.recv_timeout(SESSION_START_TIMEOUT) {
+            Ok(Ok(())) => Ok(session),
+            Ok(Err(message)) => {
+                _ = session.stop(PacketCounters::default());
+                Err(io::Error::other(message))
+            }
+            Err(error) => {
+                _ = session.stop(PacketCounters::default());
+                Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    format!("Windows packet channel startup failed: {error}"),
+                ))
+            }
+        }
+    }
+
+    pub(crate) fn stop(mut self, counters: PacketCounters) -> io::Result<()> {
+        self.stop_requested.store(true, Ordering::Release);
+        if let Some(stop) = self.stop.take() {
+            _ = stop.send(counters);
+        }
+        self.thread
+            .take()
+            .ok_or_else(|| io::Error::other("Windows packet-channel thread is missing"))?
+            .join()
+            .map_err(|_| io::Error::other("Windows packet-channel thread panicked"))?
+    }
+}
+
+impl Drop for ProviderPacketSession {
+    fn drop(&mut self) {
+        self.stop_requested.store(true, Ordering::Release);
+        if let Some(stop) = self.stop.take() {
+            _ = stop.send(PacketCounters::default());
+        }
+    }
+}
+
+async fn run_provider_session(
+    local_folder: &Path,
+    token: &str,
+    physical_binding: PhysicalBinding,
+    tun: TunIo,
+    stop: oneshot::Receiver<PacketCounters>,
+    startup: mpsc::SyncSender<Result<(), String>>,
+    startup_complete: &AtomicBool,
+) -> io::Result<()> {
+    let control_name = format!(r"\\.\pipe\LOCAL\{CONTROL_LEAF}");
+    let data_name = format!(r"\\.\pipe\LOCAL\{DATA_LEAF}");
+    let control = ServerOptions::new()
+        .first_pipe_instance(true)
+        .reject_remote_clients(true)
+        .create(&control_name)?;
+    let data = ServerOptions::new()
+        .first_pipe_instance(true)
+        .reject_remote_clients(true)
+        .create(&data_name)?;
+    let rendezvous = Rendezvous::new(token.to_owned(), current_appcontainer_object_path()?)?;
+    publish_rendezvous(local_folder, &rendezvous)?;
+    let _cleanup = RendezvousCleanup(local_folder);
+
+    timeout(SESSION_START_TIMEOUT, async {
+        tokio::try_join!(control.connect(), data.connect())
+    })
+    .await
+    .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "Session Host did not connect"))??;
+    remove_rendezvous(local_folder)?;
+
+    let (mut control_read, mut control_write) = tokio::io::split(control);
+    match read_control_async(&mut control_read).await? {
+        ControlMessage::SessionHello { snapshot_token, .. } if snapshot_token == token => {}
+        _ => return Err(invalid_data("invalid Session Host handshake")),
+    }
+    write_control_async(
+        &mut control_write,
+        &ControlMessage::ProviderHello {
+            version: PROTOCOL_VERSION,
+            snapshot_token: token.to_owned(),
+            physical_binding,
+        },
+    )
+    .await?;
+    match read_control_async(&mut control_read).await? {
+        ControlMessage::RuntimeReady { .. } => {}
+        ControlMessage::RuntimeFailed { .. } => {
+            return Err(io::Error::other("Session Host runtime failed to start"));
+        }
+        _ => return Err(invalid_data("invalid Session Host startup response")),
+    }
+
+    let tun = Arc::new(tun);
+    let (mut data_read, mut data_write) = tokio::io::split(data);
+    let mut data_tasks = JoinSet::new();
+    let ingress = Arc::clone(&tun);
+    data_tasks.spawn(async move {
+        let mut packet = Vec::with_capacity(MAX_PACKET_BYTES);
+        loop {
+            ingress
+                .read_packet(&mut packet)
+                .await
+                .map_err(io::Error::other)?;
+            write_packet_frame_async(&mut data_write, &packet).await?;
+        }
+    });
+    let egress = Arc::clone(&tun);
+    data_tasks.spawn(async move {
+        loop {
+            let packet = read_packet_frame_async(&mut data_read).await?;
+            egress
+                .write_packet(&packet)
+                .await
+                .map_err(io::Error::other)?;
+        }
+    });
+
+    startup_complete.store(true, Ordering::Release);
+    if startup.send(Ok(())).is_err() {
+        return Ok(());
+    }
+
+    enum End {
+        Stop(PacketCounters),
+        Failed(io::Error),
+    }
+    let end = tokio::select! {
+        counters = stop => End::Stop(counters.unwrap_or_default()),
+        message = read_control_async(&mut control_read) => End::Failed(match message {
+            Ok(ControlMessage::RuntimeFailed { .. }) => io::Error::other("Session Host runtime failed"),
+            Ok(_) => invalid_data("unexpected Session Host control message"),
+            Err(error) => error,
+        }),
+        joined = data_tasks.join_next() => End::Failed(match joined {
+            Some(Ok(Ok(()))) | None => io::Error::new(io::ErrorKind::UnexpectedEof, "packet task exited"),
+            Some(Ok(Err(error))) => error,
+            Some(Err(error)) => io::Error::other(error),
+        }),
+    };
+
+    let result = match end {
+        End::Stop(packet_counters) => {
+            write_control_async(
+                &mut control_write,
+                &ControlMessage::Stop {
+                    version: PROTOCOL_VERSION,
+                    packet_counters,
+                },
+            )
+            .await?;
+            match timeout(SESSION_STOP_TIMEOUT, read_control_async(&mut control_read)).await {
+                Ok(Ok(ControlMessage::Stopped {
+                    packet_counters: returned,
+                    ..
+                })) if returned == packet_counters => Ok(()),
+                Ok(Ok(_)) => Err(invalid_data("invalid Session Host stop response")),
+                Ok(Err(error)) => Err(error),
+                Err(_) => Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "Session Host stop timed out",
+                )),
+            }
+        }
+        End::Failed(error) => Err(error),
+    };
+    data_tasks.abort_all();
+    while data_tasks.join_next().await.is_some() {}
+    result
+}
+
+struct RendezvousCleanup<'a>(&'a Path);
+
+impl Drop for RendezvousCleanup<'_> {
+    fn drop(&mut self) {
+        _ = remove_rendezvous(self.0);
+    }
+}
+
+fn publish_rendezvous(local_folder: &Path, rendezvous: &Rendezvous) -> io::Result<()> {
+    let target = local_folder.join(RENDEZVOUS_FILE);
+    let directory = target
+        .parent()
+        .ok_or_else(|| invalid_data("Windows rendezvous directory is missing"))?;
+    fs::create_dir_all(directory)?;
+    for path in [
+        local_folder.join("vcore"),
+        local_folder.join("vcore/windows"),
+    ] {
+        let metadata = fs::symlink_metadata(path)?;
+        if !metadata.is_dir() || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return Err(invalid_data("invalid Windows rendezvous directory"));
+        }
+    }
+    let staging = directory.join(format!("rendezvous-{}.staging", std::process::id()));
+    _ = fs::remove_file(&staging);
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&staging)?;
+    file.write_all(&rendezvous.to_json()?)?;
+    file.sync_all()?;
+    drop(file);
+    _ = fs::remove_file(&target);
+    let result = fs::rename(&staging, &target);
+    if result.is_err() {
+        _ = fs::remove_file(staging);
+    }
+    result
+}
+
+fn current_appcontainer_object_path() -> io::Result<String> {
+    let mut token = HANDLE::default();
+    unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) }
+        .map_err(io::Error::other)?;
+    let mut required = 0;
+    _ = unsafe { GetAppContainerNamedObjectPath(Some(token), None, None, &mut required) };
+    if required == 0 {
+        unsafe { _ = CloseHandle(token) };
+        return Err(io::Error::other("AppContainer object path length is zero"));
+    }
+    let mut buffer = vec![0_u16; required as usize];
+    let result = unsafe {
+        GetAppContainerNamedObjectPath(Some(token), None, Some(&mut buffer), &mut required)
+    };
+    unsafe { _ = CloseHandle(token) };
+    result.map_err(io::Error::other)?;
+    let length = buffer
+        .iter()
+        .position(|unit| *unit == 0)
+        .unwrap_or(buffer.len());
+    String::from_utf16(&buffer[..length]).map_err(io::Error::other)
 }
 
 #[cfg(test)]
@@ -428,9 +734,8 @@ mod tests {
     fn rendezvous_file_is_bounded_strict_and_removed_idempotently() {
         let root = tempfile::tempdir().unwrap();
         let path = root.path().join(RENDEZVOUS_FILE);
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
         let rendezvous = Rendezvous::new(TOKEN.to_owned(), OBJECT_PATH.to_owned()).unwrap();
-        fs::write(&path, rendezvous.to_json().unwrap()).unwrap();
+        publish_rendezvous(root.path(), &rendezvous).unwrap();
         assert_eq!(read_rendezvous(root.path(), TOKEN).unwrap(), rendezvous);
         remove_rendezvous(root.path()).unwrap();
         remove_rendezvous(root.path()).unwrap();

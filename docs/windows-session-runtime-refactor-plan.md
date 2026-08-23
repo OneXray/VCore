@@ -459,7 +459,11 @@ Phase 0因此通过，但通过的是“Provider server + qualified AppContainer
 9. 使用独立 session log。
 10. 在 provider 尚未切换时完成 host-only tests。
 
-### Phase 3：Provider 变为 packet gateway
+### Phase 3：Provider 变为 packet gateway — PASS
+
+2026-08-23 Provider已删除 `ProviderRuntime`/`run_vcore` 以及 `Config`、`PreparedCore`、`RunningCore`、GeoData/proxy graph依赖。它现在只创建 AppContainer-local control/data servers、发布 strict rendezvous、桥接 bounded `WindowsTunIo` callback queues，并在 Session Host/runtime/pipe意外退出时复用现有 fail-closed worker。Provider日志已独占 `windows-vpn-provider.log`且不再记录 adapter/IP。Windows ARM64 all-feature lib tests为 435 passed / 1 ignored，lib+bins Clippy通过；三个 release artifacts构建成功。正式 package尚未同步第三 artifact，真实组合验收属于 Phase 4。
+
+完成项：
 
 1. 保留现有 WinRT transport/wake/buffer code。
 2. 用 AppContainer-local packet-channel server替换 `WindowsTunIo`/`ProviderRuntime`，并原子发布 rendezvous。

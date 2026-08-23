@@ -1,24 +1,21 @@
 #![allow(non_snake_case)]
 
 use std::{
-    fs::OpenOptions,
-    io::{self, Write as _},
+    io,
     mem::size_of,
     net::{Ipv4Addr, Ipv6Addr},
     num::NonZeroU32,
     panic::{AssertUnwindSafe, catch_unwind},
-    path::{Path, PathBuf},
+    path::PathBuf,
     slice,
     sync::{
         Arc, Mutex, OnceLock,
         atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering},
-        mpsc::SyncSender,
     },
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
 
-use tokio::sync::oneshot;
 use windows::{
     ApplicationModel::{
         Background::{IBackgroundTask, IBackgroundTask_Impl, IBackgroundTaskInstance},
@@ -60,12 +57,11 @@ use windows_collections::IVectorView;
 use windows_core::{AgileReference, IUnknownImpl as _};
 
 use crate::{
-    ResourceLimits,
-    config::Config,
-    dialer::{Dialer, SystemResolver},
-    geodata::GeoDataManager,
     platform::{TunIo, WindowsPacketAdapter, WindowsPacketStats},
-    runtime::{PreparedCore, RunningCore},
+    windows_log,
+    windows_packet_channel::{
+        AddressBindingV4, AddressBindingV6, PacketCounters, PhysicalBinding, ProviderPacketSession,
+    },
     windows_snapshot::SnapshotReference,
 };
 
@@ -79,7 +75,6 @@ const FAIL_CLOSED_IDLE: u8 = 0;
 const FAIL_CLOSED_STOPPING: u8 = 1;
 const FAIL_CLOSED_CANCELLED: u8 = 2;
 const NETWORK_CHANGE_DEBOUNCE: Duration = Duration::from_secs(2);
-const MAX_LOG_BYTES: u64 = 1024 * 1024;
 static VPN_RUNNING: AtomicBool = AtomicBool::new(false);
 static EXIT_AFTER_RUN: AtomicBool = AtomicBool::new(false);
 
@@ -467,6 +462,28 @@ impl PhysicalNetwork {
         })
     }
 
+    fn packet_binding(&self) -> PhysicalBinding {
+        PhysicalBinding {
+            adapter_id: format!("{:?}", self.adapter_id),
+            profile_name: self.identity.profile_name.clone(),
+            network_names: self.identity.network_names.clone(),
+            ipv4: self
+                .ipv4
+                .zip(self.ipv4_index)
+                .map(|(source, index)| AddressBindingV4 {
+                    source,
+                    interface_index: index.get(),
+                }),
+            ipv6: self
+                .ipv6
+                .zip(self.ipv6_index)
+                .map(|(source, index)| AddressBindingV6 {
+                    source,
+                    interface_index: index.get(),
+                }),
+        }
+    }
+
     fn is_available(&self) -> Result<bool> {
         let host_names = NetworkInformation::GetHostNames()?;
         let mut ipv4_found = self.ipv4.is_none();
@@ -507,172 +524,11 @@ impl PhysicalNetwork {
     }
 }
 
-struct ProviderRuntime {
-    stop: Option<oneshot::Sender<()>>,
-    stop_requested: Arc<AtomicBool>,
-    thread: Option<JoinHandle<io::Result<()>>>,
-}
-
-impl ProviderRuntime {
-    fn start(
-        local_folder: PathBuf,
-        config_yaml: Vec<u8>,
-        physical: PhysicalNetwork,
-        tun: TunIo,
-        fail_closed: FailClosedHandle,
-    ) -> Result<Self> {
-        let (stop_tx, stop_rx) = oneshot::channel();
-        let (startup_tx, startup_rx) = std::sync::mpsc::sync_channel(1);
-        let startup_failure = startup_tx.clone();
-        let startup_complete = Arc::new(AtomicBool::new(false));
-        let thread_startup_complete = startup_complete.clone();
-        let stop_requested = Arc::new(AtomicBool::new(false));
-        let thread_stop_requested = stop_requested.clone();
-        let log_path = local_folder.join("logs/windows-vpn.log");
-        let thread = thread::Builder::new()
-            .name("vcore-windows-vpn".into())
-            .stack_size(1024 * 1024)
-            .spawn(move || {
-                let result = catch_unwind(AssertUnwindSafe(|| {
-                    let initialized = unsafe { RoInitialize(RO_INIT_MULTITHREADED) };
-                    if let Err(error) = initialized {
-                        let message = format!("WinRT initialization failed: {error}");
-                        _ = startup_tx.send(Err(message.clone()));
-                        return Err(io::Error::other(message));
-                    }
-                    let result = run_vcore(
-                        &local_folder,
-                        &config_yaml,
-                        physical,
-                        tun,
-                        stop_rx,
-                        startup_tx,
-                        &thread_startup_complete,
-                    );
-                    unsafe { RoUninitialize() };
-                    result
-                }))
-                .unwrap_or_else(|_| {
-                    let message = "VCore runtime thread panicked";
-                    _ = startup_failure.send(Err(message.into()));
-                    Err(io::Error::other(message))
-                });
-
-                if thread_startup_complete.load(Ordering::Acquire)
-                    && !thread_stop_requested.load(Ordering::Acquire)
-                {
-                    fail_closed.request("VCore runtime exited unexpectedly");
-                }
-                if let Err(error) = &result {
-                    log_to(&log_path, &format!("VCore runtime failed: {error}"));
-                }
-                result
-            })
-            .map_err(windows_error)?;
-
-        let runtime = Self {
-            stop: Some(stop_tx),
-            stop_requested,
-            thread: Some(thread),
-        };
-        match startup_rx.recv_timeout(Duration::from_secs(10)) {
-            Ok(Ok(())) => Ok(runtime),
-            Ok(Err(message)) => {
-                let _ = runtime.stop();
-                Err(Error::new(E_FAIL, message))
-            }
-            Err(error) => {
-                let _ = runtime.stop();
-                Err(Error::new(E_FAIL, format!("VCore startup failed: {error}")))
-            }
-        }
-    }
-
-    fn stop(mut self) -> io::Result<()> {
-        self.stop_requested.store(true, Ordering::Release);
-        if let Some(stop) = self.stop.take() {
-            _ = stop.send(());
-        }
-        self.thread
-            .take()
-            .ok_or_else(|| io::Error::other("VCore runtime thread is missing"))?
-            .join()
-            .map_err(|_| io::Error::other("VCore runtime thread panicked"))?
-    }
-}
-
-impl Drop for ProviderRuntime {
-    fn drop(&mut self) {
-        self.stop_requested.store(true, Ordering::Release);
-        if let Some(stop) = self.stop.take() {
-            _ = stop.send(());
-        }
-    }
-}
-
-fn run_vcore(
-    local_folder: &Path,
-    config_yaml: &[u8],
-    physical: PhysicalNetwork,
-    tun: TunIo,
-    stop: oneshot::Receiver<()>,
-    startup: SyncSender<std::result::Result<(), String>>,
-    startup_complete: &AtomicBool,
-) -> io::Result<()> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_io()
-        .enable_time()
-        .build()?;
-    let started = runtime.block_on(async {
-        let config = Config::parse_yaml(config_yaml)
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
-        let geodata = GeoDataManager::open(
-            local_folder.join("vcore/geodata"),
-            Duration::from_secs(24 * 60 * 60),
-        )
-        .map_err(io::Error::other)?;
-        let prepared = PreparedCore::prepare_config(
-            config,
-            geodata,
-            &SystemResolver,
-            ResourceLimits::for_runtime(true),
-        )
-        .await?;
-        prepared
-            .start_tun(
-                tun,
-                Dialer::default().with_windows_interface(
-                    physical.ipv4.zip(physical.ipv4_index),
-                    physical.ipv6.zip(physical.ipv6_index),
-                ),
-            )
-            .await
-    });
-    let running: RunningCore = match started {
-        Ok(running) => {
-            startup_complete.store(true, Ordering::Release);
-            if startup.send(Ok(())).is_err() {
-                return runtime.block_on(running.stop());
-            }
-            running
-        }
-        Err(error) => {
-            let message = error.to_string();
-            _ = startup.send(Err(message));
-            return Err(error);
-        }
-    };
-    runtime.block_on(running.run_until_shutdown(async move {
-        _ = stop.await;
-        Ok(())
-    }))
-}
-
 struct ProviderState {
     transport: Option<DatagramSocket>,
     back_transport: Option<DatagramSocket>,
     packets: Option<WindowsPacketAdapter>,
-    runtime: Option<ProviderRuntime>,
+    session: Option<ProviderPacketSession>,
     fail_closed: Option<FailClosedStop>,
     network_status_token: Option<i64>,
     encapsulated: u64,
@@ -685,7 +541,7 @@ impl ProviderState {
             transport: None,
             back_transport: None,
             packets: None,
-            runtime: None,
+            session: None,
             fail_closed: None,
             network_status_token: None,
             encapsulated: 0,
@@ -711,7 +567,7 @@ impl VpnProvider {
     fn connect_inner(&self, channel: &VpnChannel) -> Result<()> {
         let local_folder = local_folder()?;
         let token = channel.Configuration()?.CustomField()?.to_string();
-        let config_yaml = SnapshotReference::parse(&token)?.read_yaml(&local_folder)?;
+        _ = SnapshotReference::parse(&token)?;
         let physical = PhysicalNetwork::current()?;
 
         let localhost = HostName::CreateHostName(&"127.0.0.1".into())?;
@@ -744,20 +600,22 @@ impl VpnProvider {
             write_dummy(&wake_output.resolve().map_err(io::Error::other)?).map_err(io::Error::other)
         });
         let (fail_closed, fail_closed_handle) = FailClosedStop::start(channel, physical.clone())?;
-        let runtime = ProviderRuntime::start(
+        let unexpected_stop = fail_closed_handle.clone();
+        let session = ProviderPacketSession::start(
             local_folder,
-            config_yaml,
-            physical.clone(),
+            token,
+            physical.packet_binding(),
             tun,
-            fail_closed_handle.clone(),
-        )?;
+            move || unexpected_stop.request("Session Host exited unexpectedly"),
+        )
+        .map_err(windows_error)?;
 
         {
             let mut state = self.lock_state()?;
             state.transport = Some(transport.clone());
             state.back_transport = Some(back_transport);
             state.packets = Some(packets);
-            state.runtime = Some(runtime);
+            state.session = Some(session);
             state.fail_closed = Some(fail_closed);
         }
 
@@ -783,12 +641,9 @@ impl VpnProvider {
         fail_closed_handle.arm();
 
         log(&format!(
-            "connect ok: adapter={:?} ipv4={:?}@{:?} ipv6={:?}@{:?}",
-            physical.adapter_id,
-            physical.ipv4,
-            physical.ipv4_index,
-            physical.ipv6,
-            physical.ipv6_index
+            "connect ok: ipv4={} ipv6={}",
+            physical.ipv4.is_some(),
+            physical.ipv6.is_some()
         ));
         Ok(())
     }
@@ -805,13 +660,24 @@ impl VpnProvider {
             .map_err(|_| Error::new(E_FAIL, "Windows VPN provider state lock poisoned"))
     }
 
-    fn stop_runtime(&self) -> Result<()> {
-        let (token, mut fail_closed, runtime) = {
+    fn stop_session(&self) -> Result<()> {
+        let (token, mut fail_closed, session, counters) = {
             let mut state = self.lock_state()?;
+            let packet_stats = state
+                .packets
+                .as_ref()
+                .map_or_else(WindowsPacketStats::default, WindowsPacketAdapter::stats);
             (
                 state.network_status_token.take(),
                 state.fail_closed.take(),
-                state.runtime.take(),
+                state.session.take(),
+                PacketCounters {
+                    encapsulated: state.encapsulated,
+                    decapsulated: state.decapsulated,
+                    ingress_queue_dropped: packet_stats.ingress_queue_dropped,
+                    ingress_closed: packet_stats.ingress_closed,
+                    egress_queue_dropped: packet_stats.egress_queue_dropped,
+                },
             )
         };
         let mut first_error = None;
@@ -825,11 +691,11 @@ impl VpnProvider {
         {
             first_error.get_or_insert_with(|| windows_error(error));
         }
-        if let Some(runtime) = runtime {
-            if let Err(error) = runtime.stop() {
+        if let Some(session) = session {
+            if let Err(error) = session.stop(counters) {
                 first_error.get_or_insert_with(|| windows_error(error));
             } else {
-                log("VCore runtime stopped");
+                log("Session Host stopped");
             }
         }
         first_error.map_or(Ok(()), Err)
@@ -866,15 +732,15 @@ impl IVpnPlugIn_Impl for VpnProvider_Impl {
         com_boundary(|| {
             let channel = channel.ok()?;
             let _operation = self.lock_operation()?;
-            if self.lock_state()?.runtime.is_some() {
+            if self.lock_state()?.session.is_some() {
                 let error = Error::new(E_FAIL, "Windows VPN provider is already running");
-                log("duplicate Connect rejected without disturbing the active runtime");
+                log("duplicate Connect rejected without disturbing the active session");
                 _ = channel.SetErrorMessage(&error.to_string().into());
                 return Err(error);
             }
             VPN_RUNNING.store(true, Ordering::Release);
             if let Err(error) = com_boundary(|| self.connect_inner(channel)) {
-                _ = self.stop_runtime();
+                _ = self.stop_session();
                 _ = self.reset_state();
                 VPN_RUNNING.store(false, Ordering::Release);
                 EXIT_AFTER_RUN.store(true, Ordering::Release);
@@ -891,7 +757,7 @@ impl IVpnPlugIn_Impl for VpnProvider_Impl {
         let result = com_boundary(|| {
             let channel = channel.ok()?;
             let _operation = self.lock_operation()?;
-            let runtime_result = self.stop_runtime();
+            let session_result = self.stop_session();
             let channel_result = channel.Stop();
             let (encapsulated, decapsulated, packet_stats) = self.reset_state()?;
             log(&format!(
@@ -904,7 +770,7 @@ impl IVpnPlugIn_Impl for VpnProvider_Impl {
             VPN_RUNNING.store(false, Ordering::Release);
             EXIT_AFTER_RUN.store(true, Ordering::Release);
             channel_result?;
-            runtime_result
+            session_result
         });
         if result.is_err() {
             VPN_RUNNING.store(false, Ordering::Release);
@@ -1136,57 +1002,15 @@ fn windows_error(error: impl std::fmt::Display) -> Error {
     Error::new(E_FAIL, error.to_string())
 }
 
-static LOG_LOCK: Mutex<()> = Mutex::new(());
-
 fn log(message: &str) {
     if let Ok(path) = local_folder() {
-        log_to(&path.join("logs/windows-vpn.log"), message);
-    }
-}
-
-fn log_to(path: &Path, message: &str) {
-    let Ok(_guard) = LOG_LOCK.lock() else {
-        return;
-    };
-    let Some(parent) = path.parent() else {
-        return;
-    };
-    if std::fs::create_dir_all(parent).is_err() {
-        return;
-    }
-    if path
-        .metadata()
-        .is_ok_and(|metadata| metadata.len() >= MAX_LOG_BYTES)
-    {
-        let previous = path.with_file_name("windows-vpn.previous.log");
-        _ = std::fs::remove_file(&previous);
-        if std::fs::rename(path, previous).is_err() {
-            _ = OpenOptions::new().write(true).truncate(true).open(path);
-        }
-    }
-    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
-        _ = writeln!(file, "{message}");
+        windows_log::append(&path, "provider", message);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn provider_log_rotates_at_its_bound() {
-        let root = tempfile::tempdir().unwrap();
-        let current = root.path().join("windows-vpn.log");
-        std::fs::write(&current, vec![b'x'; MAX_LOG_BYTES as usize]).unwrap();
-        log_to(&current, "next session");
-        assert_eq!(std::fs::read_to_string(&current).unwrap(), "next session\n");
-        assert_eq!(
-            std::fs::metadata(root.path().join("windows-vpn.previous.log"))
-                .unwrap()
-                .len(),
-            MAX_LOG_BYTES
-        );
-    }
 
     #[test]
     fn adapter_name_matches_winrt_network_adapter_id() {
