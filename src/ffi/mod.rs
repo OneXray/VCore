@@ -586,10 +586,11 @@ pub unsafe extern "C" fn VCoreInvoke(request_json: *const c_char) -> *mut c_char
     allocate_response(response)
 }
 
-/// Releases a response returned by `VCoreInvoke`. A null pointer is ignored.
+/// Releases a response returned by `VCoreInvoke` or `VCoreWindowsVpnInvoke`.
+/// A null pointer is ignored.
 ///
 /// # Safety
-/// A non-null pointer must have been returned by `VCoreInvoke`, must not have
+/// A non-null pointer must have been returned by one of those functions, must not have
 /// been freed already, and must not be used after this call.
 #[unsafe(no_mangle)]
 #[allow(non_snake_case)]

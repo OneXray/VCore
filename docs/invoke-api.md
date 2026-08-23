@@ -2,26 +2,30 @@
 
 状态：当前公共契约；YAML 使用字段名与嵌套均与 Mihomo 一致的严格平铺
 VLESS/SOCKS5/AnyTLS 子集，不包含 `configVersion` 或 `default-proxy`。Invoke API
-v4 的 `version` 与 `buildIdentity` 单独报告内部 schema revision 10。公共生命周期
+v5 的 `version` 与 `buildIdentity` 单独报告内部 schema revision 11。公共生命周期
 保持单实例；内置批量 `measureDelay` 使用独立的 node-only 配置并由 Core 推导唯一
 完整链头。平台无关 TUN 资源档和 iOS best-effort 内存 telemetry 已实现。物理
 iOS/Android TUN 仍需实机验收。
 
 ## 1. C ABI
 
-C ABI 只包含一个业务入口和一个配套释放函数：
+跨平台业务使用一个入口；已打包的 Windows foreground 另有一个 revision-1 host 入口。两者共用释放函数：
 
 ```c
 char *VCoreInvoke(const char *request_json);
+#ifdef _WIN32
+char *VCoreWindowsVpnInvoke(const char *request_json);
+#endif
 void VCoreFree(char *response);
 ```
 
 - `request_json` 必须是 NUL 结尾的 UTF-8 JSON。
-- `VCoreInvoke` 为每个非空响应分配独立字符串。
+- 两个 Invoke 函数都为每个非空响应分配独立字符串。
 - 调用方必须使用 `VCoreFree` 释放响应，不能使用宿主 allocator。
 - 除灾难性分配失败外，非法输入、未知 method、状态错误和内部 panic 都必须返回合法 failure JSON，而不是 `NULL`。
-- Invoke request 和 response 不得完整写入日志，避免泄漏 UUID、REALITY key、short ID 或配置路径。
-- TUN 流量不增加 Invoke method。启用 TUN 的运行配置通过顶层
+- Invoke request 和 response 不得完整写入日志，避免泄漏 UUID、REALITY key、short ID 或配置内容。
+- `VCoreWindowsVpnInvoke` 不属于公共业务 Invoke API v5。它只接受 `bridgeVersion: 1` 与 `getEnvironment`、`getVpnStatus`、`startVpn`、`stopVpn`、`getStartupTaskStatus`、`setStartupTaskEnabled` 六个 method，请求上限 1 MiB。Rust 在 package LocalState 发布并校验 `onevcore-v1:<sha256>` snapshot；不公开 profile CRUD、文件路径或 snapshot maintenance method。
+- TUN 流量不增加业务 Invoke method。启用 TUN 的运行配置通过顶层
   `external-controller` 启动 Mihomo 外形 loopback HTTP Controller；可选非空
   `secret` 启用 Bearer 鉴权，省略时采用 Mihomo 无鉴权语义。App 的 Simple
   Profile 启用 TUN 流量统计时写入随机 secret，并查询单次 `GET /traffic`
@@ -34,7 +38,7 @@ void VCoreFree(char *response);
 
 ```json
 {
-  "apiVersion": 4,
+  "apiVersion": 5,
   "method": "getState",
   "instanceId": "1",
   "payload": {}
@@ -43,7 +47,7 @@ void VCoreFree(char *response);
 
 约束：
 
-- `apiVersion` 必填且只能为 `4`；旧 Invoke payload 不做兼容。
+- `apiVersion` 必填且只能为 `5`；旧 Invoke payload 不做兼容。
 - `method` 必填且必须来自本文白名单。
 - `instanceId` 是 VCore 生成的 runtime-local opaque identifier。实例 method 必须携带，registry 级 method 必须省略；不接受 `null`、空字符串、宿主自定义值或放在 `payload` 中的副本。
 - `payload` 必须是 object；没有参数时使用空 object。
@@ -73,11 +77,7 @@ void VCoreFree(char *response);
 - `dataDir` 必须是可写绝对路径。VCore 创建并规范化固定布局
   `dataDir/configs` 与 `dataDir/geodata`；同一 runtime 以同一路径重复初始化幂等，
   改用其他路径失败。VCore 不根据 App、Extension 或 Service 角色推断目录。
-- App/宿主只负责把完整 YAML 原子写入 `dataDir/configs`（允许其下的 generation
-  子目录）。所有 `configPath` 都必须是绝对路径，且规范化后仍位于该子树；符号链接
-  不能逃逸。节点校验与 `measureDelay` 的临时 YAML 也必须先完成 `initialize`，
-  再写入该子树内的隔离临时目录，不能使用 application cache。
-  `dataDir/geodata` 由 VCore 独占管理，宿主不得投放、更新或删除资产。
+- 配置通过 Invoke 的 inline `configYaml` / `configYamls` 交付；`dataDir/configs` 只属于宿主的可选持久化布局，不是业务 Invoke 输入。`dataDir/geodata` 由 VCore 独占管理，宿主不得投放、更新或删除资产。
 
 每份已加载的 VCore runtime 最多存在一个公共生命周期实例。这个约束覆盖从
 `createInstance` 到 `destroyInstance` 的完整周期，而不只是 `running` 状态；
@@ -151,7 +151,7 @@ stopped -> preparing -> prepared -> starting -> running
 
 ```json
 {
-  "apiVersion": 4,
+  "apiVersion": 5,
   "method": "initialize",
   "payload": {"dataDir": "/path/to/vcore"}
 }
@@ -229,7 +229,7 @@ stopped -> preparing -> prepared -> starting -> running
 
 ```json
 {
-  "apiVersion": 4,
+  "apiVersion": 5,
   "method": "destroyInstance",
   "instanceId": "1",
   "payload": {}
@@ -244,19 +244,19 @@ stopped -> preparing -> prepared -> starting -> running
 
 ```json
 {
-  "apiVersion": 4,
+  "apiVersion": 5,
   "method": "validateConfig",
-  "payload": {"configPath": "/path/to/vcore/configs/config.yaml"}
+  "payload": {"configYaml": "proxies:\n  - name: edge\n    ...\n"}
 }
 ```
 
-- 从已初始化的 `dataDir/configs` 读取、限长、解析并完成 schema/组合校验。
+- 对 inline UTF-8 `configYaml` 限长、解析并完成 schema/组合校验。
 - 这是 registry 级 method，必须省略 `instanceId`。
 - 不创建或修改实例，不解析远端域名，不建立网络连接，也不等待或触发 GeoData
   下载。App 的 `testXray` 使用这一 method，因此即使 Simple Config 固定写出
   GeoData 下载配置，测试配置也只校验、不下载。
 - 该方法是可重入的纯校验；并发调用或同时存在其他 Invoke 不得将合法结果改成
-  busy。调用期间宿主仍需保证目标文件内容不被原地改写。
+  busy。
 - GeoData 文件尚不存在时配置仍可通过；这里只校验 `geox-url`、
   `geo-auto-update`、`geo-update-interval` 三项全有全无及其值域，以及规则语法
   与引用资源上限。对应 matcher 会在可用资产上加载，缺失资产按 GeoSite/GeoIP
@@ -266,16 +266,15 @@ stopped -> preparing -> prepared -> starting -> running
 
 ```json
 {
-  "apiVersion": 4,
+  "apiVersion": 5,
   "method": "prepare",
   "instanceId": "1",
-  "payload": {"configPath": "/path/to/vcore/configs/config.yaml"}
+  "payload": {"configYaml": "proxies:\n  - name: edge\n    ...\n"}
 }
 ```
 
 - 只允许目标实例从 `stopped` 调用。
-- 配置文件最大 256 KiB。
-- `configPath` 必须是位于已初始化 `dataDir/configs` 内的绝对路径。
+- inline `configYaml` 最大 256 KiB。
 - `prepare` 只读取本地已有 GeoData，不启动、等待或执行下载。GeoData 缺失或
   后台更新失败不使 `prepare` 失败：缺少 `geosite.dat` 时跳过
   `GEOSITE` 与 GeoSite nameserver policy，缺少 `geoip.dat` 时跳过 `GEOIP`；
@@ -297,7 +296,7 @@ VCore 才启动后台更新；所有请求只使用运行配置最终 `MATCH` �
 
 ```json
 {
-  "apiVersion": 4,
+  "apiVersion": 5,
   "method": "start",
   "instanceId": "1",
   "payload": {
@@ -364,8 +363,8 @@ Android 使用 `rawIp`：
 
 ```json
 {
-  "apiVersion": 4,
-  "buildIdentity": "OneVCore/VCore;engine=rust;coreVersion=0.1.0;invokeApiVersion=4;configVersion=10",
+  "apiVersion": 5,
+  "buildIdentity": "OneVCore/VCore;engine=rust;coreVersion=0.1.0;invokeApiVersion=5;configVersion=11",
   "configVersion": 10,
   "engine": "rust",
   "version": "0.1.0"
@@ -375,18 +374,18 @@ Android 使用 `rawIp`：
 `version` 是 registry 级 method，必须省略 `instanceId`。`buildIdentity` 是稳定的
 宿主兼容性身份，用于阻止 App 混入旧 engine、旧 Invoke 或旧配置协议产物；源码
 revision 和产物 hash 由发布清单单独记录，不能从该字段推断。响应中的
-`configVersion: 10` 是内部 schema revision，不是允许写入 YAML 的字段。
+`configVersion: 11` 是内部 schema revision，不是允许写入 YAML 的字段。
 
 ### 4.11 `measureDelay`
 
 ```json
 {
-  "apiVersion": 4,
+  "apiVersion": 5,
   "method": "measureDelay",
   "payload": {
-    "configPaths": [
-      "/path/to/vcore/configs/measure/node-a.yaml",
-      "/path/to/vcore/configs/measure/node-b.yaml"
+    "configYamls": [
+      "proxies:\n  - name: node-a\n    ...\n",
+      "proxies:\n  - name: node-b\n    ...\n"
     ],
     "timeout": 5,
     "url": "https://cp.cloudflare.com/"
@@ -405,13 +404,12 @@ revision 和产物 hash 由发布清单单独记录，不能从该字段推断�
 }
 ```
 
-- `measureDelay` 必须省略 `instanceId`。`configPaths`、`timeout` 和 `url`
-  三个 payload 字段都必填且拒绝未知字段。`configPaths` 接受 1–5 个非空路径；
-  `timeout` 是 1–30 秒。
+- `measureDelay` 必须省略 `instanceId`。`configYamls`、`timeout` 和 `url`
+  三个 payload 字段都必填且拒绝未知字段。`configYamls` 接受 1–5 个非空 YAML 文本；`timeout` 是 1–30 秒。
 - 同一 runtime 同时只能有一个批次。重叠调用不排队，返回
   `invalid state: measureDelay is busy`。Core 固定最多并发执行五个私有 worker；
-  实际 worker 数不超过 `configPaths` 的项目数。
-- 每个路径必须位于已初始化的 `dataDir/configs` 内，文件最大 256 KiB，并只接受：
+  实际 worker 数不超过 `configYamls` 的项目数。
+- 每份 YAML 最大 256 KiB，并只接受：
 
   ```yaml
   proxies:
@@ -437,7 +435,7 @@ revision 和产物 hash 由发布清单单独记录，不能从该字段推断�
 - 计时从 outbound connect 前开始，到收到完整 HTTP/1.0 或 HTTP/1.1 response head；
   配置读取、bootstrap DNS、proxy graph 构建和最终资源释放不计入 `delay`。目标返回
   任意合法 HTTP status 都表示探测成功；不跟随 redirect、不读取 body。
-- `results` 与 `configPaths` 严格等长同序。成功项包含非负毫秒 `delay` 和空
+- `results` 与 `configYamls` 严格等长同序。成功项包含非负毫秒 `delay` 和空
   `error`；失败项省略 `delay` 并包含非空、有界 `error`。单项失败不取消其他项，
   也不使用 10000/11000 哨兵。
 - payload、初始化或 batch admission 错误使用普通顶层 failure envelope。方法返回
@@ -459,9 +457,7 @@ Android protect 是 Invoke 之外唯一允许的平台注册边界，因为 JSON
 
 ## 6. 大小与编码边界
 
-- Invoke envelope 上限为 1 MiB（1,048,576 个 request bytes，不计 C 结尾 NUL）；
-  C 入口执行有界 NUL 扫描，Android 在复制前检查 `byte[]` 长度。Invoke 不设置会让
-  第七个纯校验返回 busy 的全局业务 admission；配置文件另受每次 256 KiB 上限。
-- 配置通过位于 `dataDir/configs` 的 `configPath` 读取，不把 YAML 嵌入 Invoke JSON，以减少临时内存和敏感数据复制；iOS 35/45 MiB 观测目标不是 Invoke 大小或生命周期限制。
+- 业务 Invoke envelope 上限为 3 MiB（不计 C 结尾 NUL），以容纳最多五份各 256 KiB、经 JSON escaping 后的 `configYamls`；C 入口执行有界 NUL 扫描，Android 在复制前检查 `byte[]` 长度。Invoke 不设置会让第七个纯校验返回 busy 的全局业务 admission；单份配置仍受 256 KiB 上限。
+- 配置以内联 YAML 交付；iOS 35/45 MiB 观测目标不是 Invoke 大小或生命周期限制。
 - TUN 最终 proxy UDP response payload 在分配前限制为 1,452 字节；嵌套 SOCKS5/XUDP 只可为各层 wire header 增加有界余量，解封装后仍执行该最终上限。HTTP inbound 不提供 UDP。
 - Android binding 已使用 UTF-8 `byte[]` 收发 Invoke JSON，不依赖 Modified UTF-8，并由测试覆盖中文与 emoji 输入。

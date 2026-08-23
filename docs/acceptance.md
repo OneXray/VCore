@@ -49,6 +49,17 @@ iOS 35/45 MiB 是 best-effort telemetry 与优化目标，不是生命周期 gua
 
 仍为 `NOT RUN`：真实物理 IPv6、Windows 10 22H2、原生 x64 Windows、WACK 与正式 packaging。因此 Phase 2 不能标记完成。
 
+## Windows Phase 3A 首个产品包 tracer（2026-08-23）
+
+- `vcore.dll` 新增独立 revision-1 `VCoreWindowsVpnInvoke`，Dart worker isolate 仍用 `VCoreFree` 释放响应；真实 ARM64 DLL 的 `VCoreInvoke(version)` 返回 API 5 / schema 11。packaged full-trust Rust probe 的 `VpnManagementAgent` Add/Delete 均返回 status 0。
+- Rust host bridge 对最终 YAML 再做 strict parse，将内容原子发布到 package LocalState 的固定 snapshot 目录，只把 `onevcore-v1:<sha256>` 写入唯一 `OneVCore` profile。provider 从 `VpnChannel.Configuration().CustomField()` 读取 token，拒绝路径、非 canonical token、reparse point、超限文件与 digest mismatch；硬编码 Phase 2 YAML 已删除。
+- VCore 同时构建最小 `vcore-windows-vpn-host.exe`。真实 Flutter ARM64 release、host 与 DLL 已进入同一开发签名 MSIX；manifest 使用独立 full-trust foreground / hidden AppContainer provider application，注册 COM activation、`onevcore:` protocol、StartupTask、`runFullTrust` 和 `networkingVpnProvider`。`OneVCore.Dev_26.8.1.1_arm64` 安装并从 `WindowsApps` 启动成功。
+- alternate Flutter acceptance entrypoint 通过生产 Dart FFI adapter 发布 snapshot `da6301a4ccb4207a8088ab6411a706f5ae3ed7da18ad72dd50ccaaf06927fcfe` 并启动正式 provider。IPv4/IPv6 local ICMP、Windows DNS namespace、TCP DNS 与 Aliyun NTP 全部通过；TCP/UDP 客户端 local 均为 `192.168.3.1`。结束 Flutter foreground 后 provider 与 `/1` routes 继续存在，TCP DNS/UDP NTP 再次通过。显式 Stop 的最终统计为 100 encapsulated / 19 decapsulated，queue drop 0。
+- provider diagnostics 已移到 package-local `logs/windows-vpn.log`，1 MiB rotate 并只保留一个 previous。日志、profile 和 manifest 不包含 YAML、节点名或凭据。
+- VCore Windows lib tests 为 427 passed / 1 ignored；lib Clippy `-D warnings`、ARM64/x64 release DLL 与 provider-host build、Flutter ARM64 release build、MSIX make/sign/install、PowerShell parser、focused Dart/Python contract tests通过。最终 ARM64/x64 `vcore.dll` SHA-256 为 `03aa722f6317db9ee918f9fd4fa3bc7529c49c0daa087a0765f6e0cccf1400f4` / `0e9b633d545e87bc09f580857b78dfd0d81eef6c2eaeaedb37e27d5be1d80946`；对应 host 为 `6c42ef5ebb71ce4ff904f1eabcba745fac3c5507565987b398a0084c8307fc97` / `1ced15314f593e803d440ae94f618b4fa2b4f8199bfacb83ba0cd2af8b119d39`；最终 ARM64 Dev MSIX 为 `2202682ec2255f9ecd44b6578d7e58f40ca6dcf0f0e951e69b8c623de4118e55`。全 target Clippy 仍命中既有 test-only unused imports/dead code；Apple-only C header shell check 在 Windows 无 `xcrun`，两者不记为通过。
+- explicit Stop 后的开发 probe uninstall 已通过。一次主动删除仍在运行的 probe package 会先停止 VPN，但本机 package 状态随后停留在 `DeploymentInProgress, Servicing`；Phase 3 不承诺 active upgrade/uninstall，package script 现拒绝在 VPN route active 时 install/replace。该 servicing 状态清理后的最终 clean-uninstall 仍待复测。
+- 仍待 Phase 3A：正常 App UI 的 session restore、proxy/measure interop、provider fail-closed 后约一秒 UI 收敛、formal App rapid reconnect。Phase 3B 的正式 Identity、ARM64/x64 bundle、Windows 10、WACK 与 restricted-capability approval 仍为 `NOT RUN`。
+
 ## Revision 11 当前配置迁移门禁
 
 - `docs/config.yaml` 必须由当前 runtime parser 直接通过；YAML 顶层写入

@@ -1,6 +1,6 @@
 # VCore Windows UWP TUN 调研
 
-> 状态：首版架构基线已确认；Phase 0/1 已通过，Phase 2A lifecycle/双栈/DNS/网络变化与跨 session 资源回收已通过，但长时间 active pressure 和完整平台/代理矩阵未完成；正式产品接入尚未开始。记录于 2026-08-22，阶段结果更新于 2026-08-23。
+> 状态：首版架构基线已确认；Phase 0/1 与本机 Phase 2A 已通过，Phase 3A 的首个 Flutter ARM64 开发签名 MSIX tracer 已通过；外部平台矩阵、正常 App UI lifecycle 与正式发布门禁仍未完成。记录于 2026-08-22，阶段结果更新于 2026-08-23。
 
 ## 开发原则
 
@@ -356,12 +356,12 @@ pressure 还发现 Windows NCSI 在 active VPN 中会持续降级物理 profile 
 
 仍未执行：真实物理 IPv6 出站、Windows 10 22H2、原生 x64 Windows、WACK。因此 Phase 2 仍为进行中。
 
-### Phase 3：Flutter/MSIX
+### Phase 3：Flutter/MSIX（3A 进行中）
 
-- Windows profile/status native bridge。
-- package-local config/start snapshot。
-- MSIX manifest、签名、安装、卸载、升级。
-- 打开 Windows runtime gates，删除对应 fail-closed 断言并替换为正向集成检查。
+- Dart worker isolate 直接调用同包 `vcore.dll`：业务仍用 Invoke API v5，Windows host 使用独立 revision-1 `VCoreWindowsVpnInvoke`。package environment、单一 profile、status/start/stop、content-addressed snapshot 与 StartupTask 均由 Rust WinRT 实现。
+- VCore 构建独立最小 provider-host executable；真实 Flutter full-trust foreground、hidden AppContainer provider、DLL、`onevcore:` protocol、StartupTask 与两项 restricted capabilities 已进入同一 ARM64 开发签名 MSIX并安装启动。
+- production provider 的双栈 ICMP、Windows DNS、TCP DNS、普通 UDP、foreground 退出后继续运行和显式 Stop 已通过；细节见 `docs/acceptance.md`。
+- 仍需完成正常 App UI session restore、proxy/measure、fail-closed UI 收敛、formal rapid lifecycle、clean uninstall 复测。Phase 3B 才打开 release builder，并补齐正式 Identity、ARM64/x64 bundle、升级、WACK 与 Store capability 流程。
 
 ## 必须验收
 

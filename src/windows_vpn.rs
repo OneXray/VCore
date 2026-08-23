@@ -35,7 +35,7 @@ use windows::{
         },
     },
     Storage::{
-        ApplicationData, CreationCollisionOption,
+        ApplicationData,
         Streams::{Buffer, IOutputStream},
     },
     Win32::{
@@ -66,6 +66,7 @@ use crate::{
     geodata::GeoDataManager,
     platform::{TunIo, WindowsPacketAdapter, WindowsPacketStats},
     runtime::{PreparedCore, RunningCore},
+    windows_snapshot::SnapshotReference,
 };
 
 const CLASS_NAME: &str = "OneVCore.VpnBackgroundTask";
@@ -78,27 +79,9 @@ const FAIL_CLOSED_IDLE: u8 = 0;
 const FAIL_CLOSED_STOPPING: u8 = 1;
 const FAIL_CLOSED_CANCELLED: u8 = 2;
 const NETWORK_CHANGE_DEBOUNCE: Duration = Duration::from_secs(2);
+const MAX_LOG_BYTES: u64 = 1024 * 1024;
 static VPN_RUNNING: AtomicBool = AtomicBool::new(false);
 static EXIT_AFTER_RUN: AtomicBool = AtomicBool::new(false);
-const CONFIG_YAML: &str = r#"tun:
-  enable: true
-dns:
-  enable: true
-  ipv6: true
-  nameserver:
-    - udp://223.5.5.5:53#DIRECT
-    - tcp://223.5.5.5:53#DIRECT
-proxies:
-  - name: unused
-    type: socks5
-    server: 127.0.0.1
-    port: 9
-    udp: false
-rules:
-  - IP-CIDR,223.5.5.5/32,DIRECT,no-resolve
-  - NETWORK,UDP,DIRECT
-  - MATCH,unused
-"#;
 
 #[derive(Clone)]
 struct FailClosedHandle {
@@ -533,6 +516,7 @@ struct ProviderRuntime {
 impl ProviderRuntime {
     fn start(
         local_folder: PathBuf,
+        config_yaml: Vec<u8>,
         physical: PhysicalNetwork,
         tun: TunIo,
         fail_closed: FailClosedHandle,
@@ -544,7 +528,7 @@ impl ProviderRuntime {
         let thread_startup_complete = startup_complete.clone();
         let stop_requested = Arc::new(AtomicBool::new(false));
         let thread_stop_requested = stop_requested.clone();
-        let log_path = local_folder.join("phase1.log");
+        let log_path = local_folder.join("logs/windows-vpn.log");
         let thread = thread::Builder::new()
             .name("vcore-windows-vpn".into())
             .stack_size(1024 * 1024)
@@ -558,6 +542,7 @@ impl ProviderRuntime {
                     }
                     let result = run_vcore(
                         &local_folder,
+                        &config_yaml,
                         physical,
                         tun,
                         stop_rx,
@@ -627,6 +612,7 @@ impl Drop for ProviderRuntime {
 
 fn run_vcore(
     local_folder: &Path,
+    config_yaml: &[u8],
     physical: PhysicalNetwork,
     tun: TunIo,
     stop: oneshot::Receiver<()>,
@@ -638,10 +624,10 @@ fn run_vcore(
         .enable_time()
         .build()?;
     let started = runtime.block_on(async {
-        let config = Config::parse_yaml(CONFIG_YAML.as_bytes())
+        let config = Config::parse_yaml(config_yaml)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
         let geodata = GeoDataManager::open(
-            local_folder.join("phase1-geodata"),
+            local_folder.join("vcore/geodata"),
             Duration::from_secs(24 * 60 * 60),
         )
         .map_err(io::Error::other)?;
@@ -723,15 +709,10 @@ impl VpnProvider {
     }
 
     fn connect_inner(&self, channel: &VpnChannel) -> Result<()> {
+        let local_folder = local_folder()?;
+        let token = channel.Configuration()?.CustomField()?.to_string();
+        let config_yaml = SnapshotReference::parse(&token)?.read_yaml(&local_folder)?;
         let physical = PhysicalNetwork::current()?;
-        let local_folder_object = ApplicationData::Current()?.LocalFolder()?;
-        local_folder_object
-            .CreateFolderAsync(
-                &"phase1-geodata".into(),
-                CreationCollisionOption::OpenIfExists,
-            )?
-            .join()?;
-        let local_folder = PathBuf::from(local_folder_object.Path()?.to_string());
 
         let localhost = HostName::CreateHostName(&"127.0.0.1".into())?;
         let transport = DatagramSocket::new()?;
@@ -765,6 +746,7 @@ impl VpnProvider {
         let (fail_closed, fail_closed_handle) = FailClosedStop::start(channel, physical.clone())?;
         let runtime = ProviderRuntime::start(
             local_folder,
+            config_yaml,
             physical.clone(),
             tun,
             fail_closed_handle.clone(),
@@ -1158,7 +1140,7 @@ static LOG_LOCK: Mutex<()> = Mutex::new(());
 
 fn log(message: &str) {
     if let Ok(path) = local_folder() {
-        log_to(&path.join("phase1.log"), message);
+        log_to(&path.join("logs/windows-vpn.log"), message);
     }
 }
 
@@ -1166,6 +1148,22 @@ fn log_to(path: &Path, message: &str) {
     let Ok(_guard) = LOG_LOCK.lock() else {
         return;
     };
+    let Some(parent) = path.parent() else {
+        return;
+    };
+    if std::fs::create_dir_all(parent).is_err() {
+        return;
+    }
+    if path
+        .metadata()
+        .is_ok_and(|metadata| metadata.len() >= MAX_LOG_BYTES)
+    {
+        let previous = path.with_file_name("windows-vpn.previous.log");
+        _ = std::fs::remove_file(&previous);
+        if std::fs::rename(path, previous).is_err() {
+            _ = OpenOptions::new().write(true).truncate(true).open(path);
+        }
+    }
     if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
         _ = writeln!(file, "{message}");
     }
@@ -1176,10 +1174,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn embedded_configuration_is_current_bounded_and_enables_dns() {
-        assert!(CONFIG_YAML.len() < 1024);
-        let config = Config::parse_yaml(CONFIG_YAML.as_bytes()).unwrap();
-        assert!(config.dns.enable);
+    fn provider_log_rotates_at_its_bound() {
+        let root = tempfile::tempdir().unwrap();
+        let current = root.path().join("windows-vpn.log");
+        std::fs::write(&current, vec![b'x'; MAX_LOG_BYTES as usize]).unwrap();
+        log_to(&current, "next session");
+        assert_eq!(std::fs::read_to_string(&current).unwrap(), "next session\n");
+        assert_eq!(
+            std::fs::metadata(root.path().join("windows-vpn.previous.log"))
+                .unwrap()
+                .len(),
+            MAX_LOG_BYTES
+        );
     }
 
     #[test]

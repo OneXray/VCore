@@ -46,6 +46,10 @@ pub mod transport;
 #[cfg(all(feature = "tun", any(unix, windows)))]
 mod tun_runtime;
 #[cfg(all(windows, feature = "ffi"))]
+mod windows_host;
+#[cfg(all(windows, feature = "ffi"))]
+mod windows_snapshot;
+#[cfg(all(windows, feature = "ffi"))]
 mod windows_vpn;
 #[cfg(feature = "outbound-vless")]
 pub mod xudp;

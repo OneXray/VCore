@@ -2,7 +2,7 @@
 
 VCore is the standalone Rust proxy core used by the sibling OneVCore Flutter app. The current public contract is Invoke API v5 with internal schema revision 11. Runtime configuration is strict latest-only Mihomo-shaped YAML passed inline as `configYaml` / `configYamls`; the YAML contains neither `configVersion` nor `default-proxy`. Public lifecycle state is runtime-local and single-instance.
 
-Apple and Android currently use host-owned TUN fds through the Unix `rust-tun` adapter. Windows VPN support uses `windows-rs` / `Windows.Networking.Vpn`; the ARM64 IPv4 tracer and the first Phase 2 lifecycle/dual-stack/DNS slice are implemented, while formal product packaging and the remaining Phase 2 matrix are incomplete. Linux remains unsupported.
+Apple and Android currently use host-owned TUN fds through the Unix `rust-tun` adapter. Windows VPN support uses `windows-rs` / `Windows.Networking.Vpn`; Phase 2 and the first packaged Flutter ARM64 Phase 3A tracer are implemented, while normal App lifecycle completion, Store packaging, and the external platform matrix remain incomplete. Linux remains unsupported.
 
 # Sources of Truth
 
@@ -28,7 +28,7 @@ Read the relevant document completely before changing that area:
 - `src/platform/` contains platform adapters. Keep Windows callback semantics here instead of simulating a Unix fd.
 - `src/dialer.rs` is the shared physical TCP/UDP socket seam. Fix socket protection or Windows `(source IP, interface index)` binding once here rather than in each outbound.
 - `crates/vcore-netstack` is platform-independent raw-IP state and must not depend on WinRT, JNI, Swift, or Flutter.
-- VCore does not know App, extension, service, or daemon process roles and does not implement cross-process lifecycle state or IPC.
+- Core runtime lifecycle does not infer App, extension, service, or daemon roles and does not implement cross-process state or IPC. The Windows-only host Invoke is the explicit package integration seam for foreground profile/status/snapshot/StartupTask operations; provider runtime state remains process-local.
 
 # Development Rules
 

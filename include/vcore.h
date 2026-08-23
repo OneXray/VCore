@@ -13,6 +13,16 @@ extern "C" {
  */
 char *VCoreInvoke(const char *request_json);
 
+/*
+ * Windows package hosts use a separate revision-1 JSON contract for package
+ * environment, VPN profile lifecycle, immutable snapshot publication, and
+ * StartupTask operations. The response has the same allocation ownership as
+ * VCoreInvoke and must be released with VCoreFree.
+ */
+#ifdef _WIN32
+char *VCoreWindowsVpnInvoke(const char *request_json);
+#endif
+
 /* A NULL response is ignored. Do not use the host allocator. */
 void VCoreFree(char *response);
 

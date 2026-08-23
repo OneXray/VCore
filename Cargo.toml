@@ -9,6 +9,11 @@ publish = false
 name = "vcore"
 crate-type = ["rlib", "staticlib", "cdylib"]
 
+[[bin]]
+name = "vcore-windows-vpn-host"
+path = "src/bin/windows_vpn_host.rs"
+required-features = ["ffi"]
+
 [features]
 default = [
     "inbound-http",
@@ -83,6 +88,7 @@ windows = { version = "=0.62.2", optional = true, features = [
     "Storage",
     "Storage_Search",
     "Storage_Streams",
+    "UI_Core",
     "Win32_Foundation",
     "Win32_NetworkManagement_IpHelper",
     "Win32_NetworkManagement_Ndis",

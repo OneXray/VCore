@@ -34,6 +34,7 @@ use.
 | --- | --- | --- |
 | `UwpVpnPluginSample/CppWinRT/TestVpnPluginAppBg/{TestVpnPluginAppBgTask.cpp,VpnPlugInImpl.cpp,BackgroundPacketWorker.cpp}` @ `d589fe0` | `src/windows_vpn.rs` | Adapted to Rust for activation, `IVpnPlugIn` lifecycle and packet-buffer handling. Retains Microsoft Corporation's MIT notice through this file. |
 | `wireguard-uwp-rs/plugin/src/{background.rs,plugin.rs}` @ `328e622` | `src/windows_vpn.rs` | Adapted Rust `windows-rs` activation factory, persistent provider instance and `IBufferByteAccess` handling under the upstream MIT option; copyright © 2021 Luqman Aden. |
+| `wireguard-uwp-rs/app/src/main.rs` @ `328e622` | `src/bin/windows_vpn_host.rs` | Adapted the minimal `IFrameworkViewSource`/`CoreApplication::Run` activation shell under the upstream MIT option; copyright © 2021 Luqman Aden. |
 | `Maple.Task/VpnPlugin.cpp` @ `ec052fc` | `src/windows_vpn.rs`, `src/platform/windows_tun_io.rs` | Adapted loopback `DatagramSocket` wake, empty-to-non-empty coalescing, `/1` routes and proxy packet flow under Apache-2.0. The repository's Apache-2.0 license remains applicable to these adapted portions. |
 
 No upstream cryptographic or proxy-protocol implementation was copied into the Windows provider. The VCore-specific bounded queue, `TunRuntime` connection and `Dialer` source-bind implementation are original project code.
