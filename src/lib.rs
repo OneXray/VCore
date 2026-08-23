@@ -48,6 +48,8 @@ mod tun_runtime;
 #[cfg(all(windows, feature = "ffi"))]
 mod windows_host;
 #[cfg(all(windows, feature = "ffi"))]
+mod windows_packet_channel;
+#[cfg(all(windows, feature = "ffi"))]
 mod windows_snapshot;
 #[cfg(all(windows, feature = "ffi"))]
 mod windows_vpn;

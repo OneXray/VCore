@@ -346,16 +346,13 @@ impl Dialer {
         self.connect_one(address).await
     }
 
-    /// Creates a direct UDP socket for one address family and applies the
-    /// platform protect hook before the socket is exposed to the caller.
-    pub async fn bind_udp(&self, ipv6: bool) -> io::Result<UdpSocket> {
-        let bind_address = self.source_address(ipv6)?.unwrap_or_else(|| {
-            if ipv6 {
-                SocketAddr::from(([0_u16; 8], 0))
-            } else {
-                SocketAddr::from(([0_u8; 4], 0))
-            }
-        });
+    /// Creates a direct UDP socket for one destination and applies the
+    /// platform protect or binding policy before exposing it to the caller.
+    pub async fn bind_udp_for(&self, destination: SocketAddr) -> io::Result<UdpSocket> {
+        let ipv6 = destination.is_ipv6();
+        let bind_address = self
+            .source_address_for(destination)?
+            .unwrap_or_else(|| wildcard_address(ipv6));
         #[cfg(all(windows, feature = "ffi"))]
         let socket = {
             let socket = Socket::new(
@@ -363,7 +360,7 @@ impl Dialer {
                 Type::DGRAM,
                 Some(Protocol::UDP),
             )?;
-            self.apply_interface_binding(socket.as_raw_socket(), ipv6)?;
+            self.apply_interface_binding(socket.as_raw_socket(), destination)?;
             socket.bind(&bind_address.into())?;
             socket.set_nonblocking(true)?;
             UdpSocket::from_std(socket.into())?
@@ -382,6 +379,14 @@ impl Dialer {
             ));
         }
         Ok(socket)
+    }
+
+    fn source_address_for(&self, destination: SocketAddr) -> io::Result<Option<SocketAddr>> {
+        #[cfg(all(windows, feature = "ffi"))]
+        if self.interface_binding.is_some() && destination.ip().is_loopback() {
+            return Ok(Some(loopback_address(destination.is_ipv6())));
+        }
+        self.source_address(destination.is_ipv6())
     }
 
     fn source_address(&self, ipv6: bool) -> io::Result<Option<SocketAddr>> {
@@ -422,10 +427,18 @@ impl Dialer {
     }
 
     #[cfg(all(windows, feature = "ffi"))]
-    fn apply_interface_binding(&self, socket: RawSocket, ipv6: bool) -> io::Result<()> {
+    fn apply_interface_binding(
+        &self,
+        socket: RawSocket,
+        destination: SocketAddr,
+    ) -> io::Result<()> {
         let Some(binding) = self.interface_binding else {
             return Ok(());
         };
+        if destination.ip().is_loopback() {
+            return Ok(());
+        }
+        let ipv6 = destination.is_ipv6();
         let index = if ipv6 {
             binding.ipv6.map(|(_, index)| index)
         } else {
@@ -472,8 +485,8 @@ impl Dialer {
             ));
         }
         #[cfg(all(windows, feature = "ffi"))]
-        self.apply_interface_binding(socket.as_raw_socket(), ipv6)?;
-        if let Some(source_address) = self.source_address(ipv6)? {
+        self.apply_interface_binding(socket.as_raw_socket(), address)?;
+        if let Some(source_address) = self.source_address_for(address)? {
             socket.bind(source_address)?;
         }
         let stream = timeout(self.connect_timeout, socket.connect(address))
@@ -481,6 +494,22 @@ impl Dialer {
             .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "connect timed out"))??;
         stream.set_nodelay(true)?;
         Ok(stream)
+    }
+}
+
+fn wildcard_address(ipv6: bool) -> SocketAddr {
+    if ipv6 {
+        SocketAddr::from(([0_u16; 8], 0))
+    } else {
+        SocketAddr::from(([0_u8; 4], 0))
+    }
+}
+
+fn loopback_address(ipv6: bool) -> SocketAddr {
+    if ipv6 {
+        SocketAddr::from((Ipv6Addr::LOCALHOST, 0))
+    } else {
+        SocketAddr::from((Ipv4Addr::LOCALHOST, 0))
     }
 }
 
@@ -544,7 +573,10 @@ mod tests {
         assert_eq!(stream.local_addr().unwrap().ip(), source);
         assert_eq!(peer.ip(), source);
 
-        let udp = dialer.bind_udp(false).await.unwrap();
+        let udp = dialer
+            .bind_udp_for(SocketAddr::from(([127, 0, 0, 1], 9)))
+            .await
+            .unwrap();
         assert_eq!(udp.local_addr().unwrap().ip(), source);
     }
 
@@ -557,21 +589,56 @@ mod tests {
             .unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
         assert_eq!(
-            dialer.bind_udp(true).await.unwrap_err().kind(),
+            dialer
+                .bind_udp_for("[2001:db8::1]:9".parse().unwrap())
+                .await
+                .unwrap_err()
+                .kind(),
             io::ErrorKind::InvalidInput
         );
     }
 
     #[cfg(all(windows, feature = "ffi"))]
     #[tokio::test]
-    async fn interface_binding_rejects_missing_address_family() {
+    async fn interface_binding_rejects_missing_non_loopback_address_family() {
         let ipv4_only = Dialer::default().with_windows_interface(
-            Some((Ipv4Addr::LOCALHOST, NonZeroU32::new(10).unwrap())),
+            Some((Ipv4Addr::new(192, 0, 2, 10), NonZeroU32::new(10).unwrap())),
             None,
         );
         assert_eq!(
-            ipv4_only.bind_udp(true).await.unwrap_err().kind(),
+            ipv4_only
+                .bind_udp_for("[2001:db8::1]:9".parse().unwrap())
+                .await
+                .unwrap_err()
+                .kind(),
             io::ErrorKind::InvalidInput
+        );
+    }
+
+    #[cfg(all(windows, feature = "ffi"))]
+    #[tokio::test]
+    async fn windows_physical_binding_exempts_resolved_loopback_tcp_and_udp() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let dialer = Dialer::default().with_windows_interface(
+            Some((Ipv4Addr::new(192, 0, 2, 10), NonZeroU32::new(10).unwrap())),
+            None,
+        );
+
+        let stream = dialer
+            .connect_address(listener.local_addr().unwrap())
+            .await
+            .unwrap();
+        let (_, peer) = listener.accept().await.unwrap();
+        assert!(stream.local_addr().unwrap().ip().is_loopback());
+        assert!(peer.ip().is_loopback());
+
+        let udp = dialer
+            .bind_udp_for(SocketAddr::from(([127, 0, 0, 1], 9)))
+            .await
+            .unwrap();
+        assert_eq!(
+            udp.local_addr().unwrap().ip(),
+            IpAddr::V4(Ipv4Addr::LOCALHOST)
         );
     }
 

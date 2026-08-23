@@ -72,6 +72,13 @@ iOS 35/45 MiB 是 best-effort telemetry 与优化目标，不是生命周期 gua
 - 最小 IPv4/IPv6与 1500-byte workload共 100,002 frames、150,000,060 bytes单向 payload逐帧 echo，无 corruption；2,699 ms，单向 throughput 52.98 MiB/s。两端均观察 peer EOF/broken-pipe。transfer前 Session Host为 201 handles / 8 threads / 2,543,616 private bytes，AppContainer participant为 281 / 11 / 3,874,816。
 - Stop后两个 process均退出。package、LocalState、临时源码与 `%TEMP%`目录全部删除。该结果只验证 process/namespace/framing seam；正式 VCore/VpnChannel组合、相对旧数据面的 80%门禁与压力矩阵仍为 `NOT RUN`。
 
+## Windows Session Runtime Phase 1（2026-08-23）
+
+- 新增 internal version-1 control codec：16 KiB length-prefixed strict JSON、canonical snapshot token、bounded redacted error、physical binding与 packet counters；data frame为 1–1500-byte big-endian length + raw packet。未知字段、错误版本、zero/oversize/truncated frame均失败。
+- 新增最多 4 KiB 的 strict rendezvous DTO，只接受 canonical `AppContainerNamedObjects\\S-1-15-2-<7 subauthorities>`相对 path、固定 control/data leaf和匹配 snapshot token；qualified path显式包含动态 Windows session ID。
+- Windows `Dialer`现在只对解析后的 `127.0.0.0/8`/`::1`跳过 physical source/interface，并绑定相应 loopback family。非 loopback仍缺 family即失败。DIRECT UDP按 IPv4/IPv6 × loopback/physical最多保留四个 socket class。
+- TDD先得到缺失 `bind_udp_for` 的编译失败，再完成实现。Windows ARM64 `cargo test --all-features --lib` 为 432 passed / 1 ignored；packet-channel focused 4项与 Windows loopback TCP/UDP test通过。lib Clippy在显式 allow两项既有 Rust 1.98 config style lint后以 `-D warnings`通过；fmt和 diff check通过。
+
 ## Revision 11 当前配置迁移门禁
 
 - `docs/config.yaml` 必须由当前 runtime parser 直接通过；YAML 顶层写入

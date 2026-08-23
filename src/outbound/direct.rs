@@ -1,7 +1,8 @@
-use std::{io, net::SocketAddr};
+use std::{future::Future, io, net::SocketAddr, pin::Pin};
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use futures_util::future::select_all;
 use tokio::net::UdpSocket;
 
 use crate::{
@@ -81,10 +82,15 @@ impl OutboundConnector for DirectOutbound {
 
 struct DirectDatagramTransport {
     dialer: Dialer,
-    ipv4: Option<UdpSocket>,
-    ipv6: Option<UdpSocket>,
+    sockets: Vec<(UdpSocketClass, UdpSocket)>,
     max_response_payload_size: usize,
     receive_buffer: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct UdpSocketClass {
+    ipv6: bool,
+    loopback: bool,
 }
 
 impl DirectDatagramTransport {
@@ -98,62 +104,52 @@ impl DirectDatagramTransport {
             .expect("direct UDP response ceiling fits usize");
         Self {
             dialer,
-            ipv4: None,
-            ipv6: None,
+            sockets: Vec::with_capacity(4),
             max_response_payload_size,
             receive_buffer: vec![0; receive_buffer_size],
         }
     }
 
     async fn socket_for(&mut self, address: SocketAddr) -> Result<&UdpSocket, DispatchError> {
-        let slot = if address.is_ipv4() {
-            &mut self.ipv4
-        } else {
-            &mut self.ipv6
+        let class = UdpSocketClass {
+            ipv6: address.is_ipv6(),
+            loopback: address.ip().is_loopback(),
         };
-        if slot.is_none() {
-            *slot = Some(
-                self.dialer
-                    .bind_udp(address.is_ipv6())
-                    .await
-                    .map_err(DispatchError::from)?,
-            );
+        if let Some(index) = self.sockets.iter().position(|(key, _)| *key == class) {
+            return Ok(&self.sockets[index].1);
         }
-        Ok(slot.as_ref().expect("direct UDP socket was initialized"))
+        let socket = self
+            .dialer
+            .bind_udp_for(address)
+            .await
+            .map_err(DispatchError::from)?;
+        self.sockets.push((class, socket));
+        Ok(&self
+            .sockets
+            .last()
+            .expect("direct UDP socket was inserted")
+            .1)
     }
 
     async fn receive_from_ready_socket(&mut self) -> Result<Datagram, DispatchError> {
         loop {
-            let selected = match (&self.ipv4, &self.ipv6) {
-                (Some(ipv4), Some(ipv6)) => tokio::select! {
-                    result = ipv4.readable() => {
-                        result.map_err(DispatchError::from)?;
-                        4_u8
-                    }
-                    result = ipv6.readable() => {
-                        result.map_err(DispatchError::from)?;
-                        6_u8
-                    }
-                },
-                (Some(ipv4), None) => {
-                    ipv4.readable().await.map_err(DispatchError::from)?;
-                    4
-                }
-                (None, Some(ipv6)) => {
-                    ipv6.readable().await.map_err(DispatchError::from)?;
-                    6
-                }
-                (None, None) => {
-                    return Err(DispatchError::Other(
-                        "direct UDP receive requested before the first datagram".to_owned(),
-                    ));
-                }
-            };
-            let socket = if selected == 4 {
-                self.ipv4.as_ref().expect("selected IPv4 socket")
-            } else {
-                self.ipv6.as_ref().expect("selected IPv6 socket")
-            };
+            if self.sockets.is_empty() {
+                return Err(DispatchError::Other(
+                    "direct UDP receive requested before the first datagram".to_owned(),
+                ));
+            }
+            let readiness: Vec<Pin<Box<dyn Future<Output = io::Result<usize>> + Send + '_>>> = self
+                .sockets
+                .iter()
+                .enumerate()
+                .map(|(index, (_, socket))| {
+                    Box::pin(async move { socket.readable().await.map(|()| index) })
+                        as Pin<Box<dyn Future<Output = io::Result<usize>> + Send + '_>>
+                })
+                .collect();
+            let (selected, _, _) = select_all(readiness).await;
+            let selected = selected.map_err(DispatchError::from)?;
+            let socket = &self.sockets[selected].1;
             match socket.try_recv_from(&mut self.receive_buffer) {
                 // A UDP datagram is indivisible. Never turn an oversized
                 // response into a shorter, apparently valid datagram for the
@@ -197,8 +193,7 @@ impl DatagramTransport for DirectDatagramTransport {
     }
 
     async fn close(&mut self) -> Result<(), DispatchError> {
-        self.ipv4 = None;
-        self.ipv6 = None;
+        self.sockets.clear();
         Ok(())
     }
 }

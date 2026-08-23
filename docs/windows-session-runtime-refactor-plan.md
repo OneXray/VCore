@@ -424,9 +424,11 @@ Session Host 是包内普通 full-trust executable，不显示在 App list，不
 
 Phase 0因此通过，但通过的是“Provider server + qualified AppContainer path + hidden Application activation”架构，而不是初始的“Session Host server + CreateProcess + custom DACL”架构。后续阶段必须按实测结果实现。
 
-### Phase 1：可测试基础模块
+### Phase 1：可测试基础模块 — PASS
 
-按 TDD 顺序：
+2026-08-23 已完成 bounded control/data codec、strict rendezvous/qualified path、physical binding DTO，以及 Windows destination-aware loopback socket policy。`Dialer` 只对解析后的 loopback IP跳过 physical source/interface；DIRECT UDP按 IPv4/IPv6 × loopback/physical最多保留四个 socket class。Windows ARM64 all-feature lib tests为 432 passed / 1 ignored；focused packet-channel 4项和 loopback TCP/UDP测试通过；lib Clippy在显式允许两项既有 Rust 1.98 config style lint后以 `-D warnings`通过。
+
+实施顺序：
 
 1. control length/JSON strictness tests；
 2. packet length/truncation/oversize tests；
