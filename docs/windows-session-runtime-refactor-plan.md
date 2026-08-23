@@ -1,6 +1,6 @@
 # Windows Session Runtime 重构计划
 
-> 状态：已完成设计访谈，等待 Phase 0 可行性验证。
+> 状态：Phase 0 已于 2026-08-23 在 Windows 11 ARM64 build 26200.9168 通过；架构已按实测结果收敛，进入正式实现。
 >
 > 范围：Windows TUN runtime；不改变 Apple/Android、Invoke API v5、配置 schema revision 11 或既有代理协议。
 >
@@ -70,6 +70,7 @@ vcore-windows-session-host.exe (full trust, one process per VPN session)
   └─ authenticated TrafficController
          ▲
          │ same-package Windows packet channel
+         │ Provider pipe server + Session Host client
          │ control pipe + full-duplex data pipe
          ▼
 vcore-windows-vpn-host.exe (AppContainer)
@@ -88,8 +89,8 @@ vcore-windows-vpn-host.exe (AppContainer)
 | --- | --- | --- |
 | Flutter | 用户命令、session record、Controller metadata、状态展示 | VCore TUN runtime、packet channel、Provider state |
 | Windows host bridge | snapshot publication、profile management、Session Host process launch | packet data、runtime task、代理 flow |
-| Windows Session Host | 一次 VCore TUN runtime、Controller、GeoData registration、packet-channel server | `VpnChannel`、Windows routes、外部 SOCKS5 service |
-| Windows VPN provider | `VpnChannel`、WinRT buffers、callback queues、physical network identity、network monitor | YAML 业务解析、proxy graph、Controller、GeoData |
+| Windows Session Host | 一次 VCore TUN runtime、Controller、GeoData registration、packet-channel client | `VpnChannel`、Windows routes、外部 SOCKS5 service |
+| Windows VPN provider | `VpnChannel`、AppContainer-local pipe server、WinRT buffers、callback queues、physical network identity、network monitor | YAML 业务解析、proxy graph、Controller、GeoData |
 | 外部 SOCKS5 server | 自身 listener、outer sockets 和绕过 VPN 的方式 | VCore session、Windows VPN profile |
 
 Session Host 是每次 VPN session 一个新进程。它不复用 runtime、不承接下一次 Connect，也不是常驻 daemon。
@@ -118,22 +119,22 @@ Session Host 是每次 VPN session 一个新进程。它不复用 runtime、不�
 1. Flutter 调用 `VCoreWindowsVpnInvoke.startVpn(configYaml)`。
 2. host bridge 使用当前 VCore parser 验证 TUN config，并发布 immutable snapshot。
 3. 若 profile 已 Connected 且 token 相同，按现有语义幂等返回，不启动第二个 Session Host。
-4. 对 disconnected profile，host bridge 从 package installed location 解析固定的 `vcore-windows-session-host.exe`。
-5. 使用 `CreateProcessW` 直接启动，不经过 shell、不搜索 `PATH`，只传递：
+4. 对 disconnected profile，host bridge 使用 `IApplicationActivationManager::ActivateApplication` 激活 manifest 中隐藏的 `SessionHost` Application，不经过 shell、不搜索 `PATH`，并只传递：
 
    ```text
    --snapshot-token onevcore-v1:<sha256>
    ```
 
-6. Session Host 获取自己的 package identity 和 LocalState，创建 first-instance control/data pipes。
-7. host bridge 发送 `LauncherProbe` 并在 5 秒内等待 `LauncherReady`。
-8. host bridge 更新单一 VPN profile，然后调用 `ConnectProfileAsync`。
-9. Windows 激活 Provider。Provider 在安装 VPN routes 前选择 `Physical network binding`。
-10. Provider 连接 control pipe，发送 `ProviderHello`：internal protocol version、profile token 和 immutable physical binding。
-11. Session Host 严格比较 command-line token、handshake token 和 snapshot digest，读取 YAML并启动 VCore。
+5. activation 返回精确 PID；host bridge 立即打开并暂时持有该 process handle。Session Host 获取 package identity/LocalState 后等待 Provider rendezvous。
+6. host bridge 更新单一 VPN profile，然后调用 `ConnectProfileAsync`。
+7. Windows 激活 Provider。Provider 在安装 VPN routes 前选择 `Physical network binding`，并在自己的 AppContainer namespace 创建 first-instance control/data pipe servers。
+8. Provider 通过 `GetAppContainerNamedObjectPath` 取得当前相对 object path，原子发布最多 4 KiB 的严格内部 rendezvous record：protocol version、snapshot token、object path 和两个固定 pipe leaf name；它不含 YAML、secret、PID 或 physical binding。
+9. Session Host 读取并校验 rendezvous token，使用当前 Windows session ID 把相对 object path 限定为 `\\.\pipe\Sessions\<id>\AppContainerNamedObjects\<sid>\...`，再作为 full-trust client 连接两条 pipe。
+10. Session Host 发送 `SessionHello`；Provider 返回 internal protocol version、profile token 和 immutable physical binding。
+11. Session Host 严格比较 command-line token、rendezvous token、handshake token 和 snapshot digest，读取 YAML并启动 VCore。
 12. Controller、GeoData、proxy graph 和 `WindowsIpcTunIo` 全部成功后，Session Host 返回 `RuntimeReady`。
 13. Provider 才调用 `StartWithMainTransport`，安装 network callback 并 arm fail-closed worker。
-14. `ConnectProfileAsync` 成功后，Flutter 按现有事务写入 `run/start.json`。
+14. `ConnectProfileAsync` 成功后，Flutter 按现有事务写入 `run/start.json`；internal rendezvous 随后删除。
 
 任一步失败都必须：
 
@@ -155,38 +156,43 @@ Windows 设置直接 Connect 时若没有匹配 Session Host，Provider 立即�
 - packaged/unpackaged app 的 pipe name 必须使用 `\\.\pipe\LOCAL\...`；
 - named pipe server 可以提供自定义 security attributes。
 
-这些文档不能代替当前 package 模型的实机结果。正式编码前必须完成 Phase 0，同机验证 AppContainer Provider 方向、full-trust Session Host 方向、package SID DACL 和 parent-exit 生命周期。
+这些文档不能代替当前 package 模型的实机结果。Phase 0 已证明 unqualified `LOCAL` name 不会自动跨越 full-trust/AppContainer namespace；产品必须由 AppContainer Provider 创建对象，再由 Session Host 使用 provider 发布的相对 object path 构造 qualified name。
 
 ### 7.2 两条 pipe
 
-Session Host 是两条 pipe 的 server：
+Provider 在自己的 AppContainer namespace 创建两条 server pipe：
 
 ```text
-\\.\pipe\LOCAL\OneVCore.<sha256(PFN)>.Vpn.Control.v1
-\\.\pipe\LOCAL\OneVCore.<sha256(PFN)>.Vpn.Data.v1
+\\.\pipe\LOCAL\OneVCore.Vpn.Control.v1
+\\.\pipe\LOCAL\OneVCore.Vpn.Data.v1
 ```
 
-- PFN 使用 `Package::Current().Id().FamilyName()` 的 UTF-8 bytes 做 SHA-256。
-- PFN digest 避免 Dev/Store identity 的命名冲突；DACL负责拒绝 unpackaged client。
+full-trust Session Host 根据 Provider rendezvous 和当前 Windows session ID 使用：
+
+```text
+\\.\pipe\Sessions\<id>\AppContainerNamedObjects\<package-sid>\OneVCore.Vpn.Control.v1
+\\.\pipe\Sessions\<id>\AppContainerNamedObjects\<package-sid>\OneVCore.Vpn.Data.v1
+```
+
+- AppContainer namespace 自然隔离 Dev/Store identity，无需在 leaf name重复 PFN hash。
 - control pipe 与 data pipe 分开，控制消息不受 packet backpressure 阻塞。
-- server 使用 first-instance 与 reject-remote-client 语义；control first instance 同时是 Session Host 单实例锁。
+- Provider server 使用 first-instance 与 reject-remote-client 语义；control first instance 同时拒绝同一 Provider 内的重复 session。
+- Session Host 只接受 rendezvous 给出的 canonical relative path和固定 leaf name，不接受任意 pipe path参数。
 
-### 7.3 ACL
+### 7.3 Namespace 与 rendezvous
 
-Session Host 创建 security descriptor，只允许：
+Provider 使用 AppContainer默认 named-object security，不扩大 DACL，也不设置 loopback exemption。Phase 0实测中，同用户 unpackaged process 对两个 unqualified `LOCAL` name均得到 `ERROR_FILE_NOT_FOUND (2)`；只有通过同包 Provider发布的 qualified AppContainer path，隐藏的 full-trust Session Host才能连接。
 
-- pipe owner；
-- 当前 package 的 AppContainer/package SID；
-- Windows 为对象管理所必需的系统主体。
+`vcore/windows/rendezvous.json` 是最多 4 KiB 的原子、严格、session-scoped内部记录：
 
-不得使用“当前用户全部进程可访问”的宽泛 DACL。Phase 0 必须证明：
+- 只由 active Provider写入；
+- 包含 protocol version、snapshot token、`GetAppContainerNamedObjectPath` 返回值和固定 pipe leaf names；
+- 不包含 YAML、Controller secret、physical binding、PID或业务配置；
+- Session Host 校验 token/shape后读取，handshake成功即删除；
+- disconnected Start在 launch前清理 stale record，active profile下不得覆盖；
+- reparse point、非普通文件、超限、未知字段或 token不匹配均 fail-closed。
 
-- packaged Flutter probe 可以完成 launcher handshake；
-- AppContainer client 可以完成 provider handshake/data I/O；
-- 独立 unpackaged same-user client 被拒绝；
-- 不需要 `CheckNetIsolation` exemption。
-
-snapshot token 不是 secret。认证依靠对象 ACL，token 只防止错误 session/配置交叉连接。
+snapshot token不是 secret；AppContainer namespace负责访问隔离，token负责拒绝错误 session交叉连接。
 
 ### 7.4 Control framing
 
@@ -208,8 +214,7 @@ UTF-8 JSON bytes
 Version 1 消息集合固定为：
 
 ```text
-LauncherProbe { version, snapshotToken }
-LauncherReady { version }
+SessionHello { version, snapshotToken }
 ProviderHello { version, snapshotToken, physicalBinding }
 RuntimeReady { version }
 RuntimeFailed { code, redactedMessage }
@@ -219,8 +224,8 @@ Stopped { packetCounters }
 
 Timeout：
 
-- launcher/process ready：5 秒；
-- provider handshake + VCore prepare/start：15 秒；
+- hidden Application activation与 process handle取得：5 秒；
+- rendezvous + provider handshake + VCore prepare/start：15 秒；
 - orderly stop acknowledgement：10 秒；
 - active packet stream 不设置 idle timeout；
 - 第一版不发送 heartbeat。
@@ -353,16 +358,16 @@ logs/windows-vpn-session.previous.log
 | 文件 | 计划 |
 | --- | --- |
 | `src/windows_vpn.rs` | 保留 COM activation、Provider、WinRT packet ownership、transport wake、physical network monitor、fail-closed；删除 `ProviderRuntime` 和 `run_vcore` |
-| `src/windows_host.rs` | 在现有 `startVpn` 内增加固定 Session Host launch/ready/rollback；六个 bridge method不变 |
+| `src/windows_host.rs` | 在现有 `startVpn` 内用 `IApplicationActivationManager` 激活隐藏 Session Host，并持有精确 process handle完成 rollback；六个 bridge method不变 |
 | `src/windows_snapshot.rs` | 复用 publication/verification；向 Session Host runner提供 crate 内入口 |
-| `src/windows_packet_channel.rs` | 新增 pipe naming、ACL、control/data codec、provider/session endpoints、strict DTO |
+| `src/windows_packet_channel.rs` | 新增 AppContainer-server pipe naming、rendezvous、qualified path、control/data codec、provider/session endpoints和 strict DTO |
 | `src/windows_session.rs` | 新增 Session Host 主生命周期、snapshot读取、VCore prepare/start/stop、error convergence |
 | `src/windows_log.rs` | 提取 bounded per-process logger |
-| `src/platform/windows_tun_io.rs` | 从同进程 adapter 改为 pipe-backed `WindowsIpcTunIo` |
+| `src/platform/windows_tun_io.rs` | 从同进程 adapter 改为 pipe-backed `WindowsIpcTunIo`；blocking Win32 pipe I/O留在专用线程，Tokio侧只看 bounded channel |
 | `src/dialer.rs` | destination-aware loopback/physical TCP 与 UDP binding |
 | `src/bin/windows_session_host.rs` | 新增最小参数 parser 和对 library runner 的调用 |
 | `src/lib.rs` | target/feature-gated session modules；不新增 C ABI |
-| `Cargo.toml` | 新增 required-features=`ffi` binary；补足现有 `windows` security/process feature flags，不新增 crate |
+| `Cargo.toml` | 新增 required-features=`ffi` binary；补足现有 `windows` Shell、Pipes、IO、FileSystem和 Security Isolation feature flags，不新增 crate |
 | `scripts/build_windows.ps1` | 构建、复制并 hash 第三个 Windows artifact |
 
 `TunIo` 继续是 compile-time concrete alias：
@@ -383,7 +388,7 @@ Windows TunIo = WindowsIpcTunIo
 | `build_scripts/sync_vcore_windows.ps1` | 要求、校验、复制第三 artifact；architecture/static CRT checks覆盖三个文件 |
 | `windows/app.cmake` | 安装 Session Host beside Flutter executable |
 | `build_scripts/package_windows_msix.ps1` | package completeness gate加入第三文件；继续禁止 active VPN package replacement |
-| `windows/packaging/msix/AppxManifest.xml.in` | 不加入 `LoopbackAccessRules`；Session Host不注册可见 Application/StartupTask/protocol |
+| `windows/packaging/msix/AppxManifest.xml.in` | 不加入 `LoopbackAccessRules`；注册 `AppListEntry="none"` 的 full-trust `SessionHost` Application，不注册 StartupTask/protocol |
 | `build_scripts/tests/test_windows_msix_contract.py` | 固定三 artifact、无 rules/exemption、provider activation不变 |
 | `lib/core/ffi/windows_native_api.dart` | 预期无 wire/API 变化；仅在响应语义实际变化时修改测试，不新增 method |
 | `lib/service/xray/metrics/*` | 保持现有 HTTP Controller路径；不增加 Windows-specific transport |
@@ -393,26 +398,31 @@ Session Host 是包内普通 full-trust executable，不显示在 App list，不
 
 ## 13. 分阶段实施
 
-### Phase 0：可删除 process/pipe spike
+### Phase 0：可删除 process/pipe spike — PASS
 
-正式源码修改前，在 `%TEMP%` 创建独立最小 MSIX。使用固定的 `cert/OneVCore.Phase0.pfx`，不生成、导入或删除证书。
+2026-08-23 在 Windows 11 ARM64 build 26200.9168、Rust 1.98、`windows = 0.62.2`、开发签名 package `OneVCore.SessionHostSpike_1.0.0.0_arm64__r64v7h3q1b2jt` 上完成。最终 MSIX SHA-256 为 `a9d1d6046422fb15727ca82c06779e545d482b4fb4d36fe61422ec21f2921105`，Authenticode 状态为 `Valid`。
 
-必须验证：
+实测收敛了四个原设计假设：
 
-1. packaged full-trust launcher 用 `CreateProcessW` 启动固定 child。
-2. child 内 `Package::Current` 与 `ApplicationData::Current` 成功。
-3. launcher 退出后 child 继续运行。
-4. AppContainer client 与 full-trust server 完成 control/data 两条 `LOCAL` pipe 双向通信。
-5. package-SID DACL允许 packaged launcher和 AppContainer，拒绝 unpackaged same-user client。
-6. IPv4/IPv6 最小 packet 与 1500-byte packet framing正确。
-7. 十万次双向 frame 无 corruption。
-8. 任一端退出，另一端在 bounded 时间观察 EOF。
-9. 记录 throughput、packet rate、CPU、handles、threads、private memory。
-10. 全程无 `CheckNetIsolation` exemption。
+1. `CreateProcessW` child可以取得 `Package::Current`/`ApplicationData::Current`并在 launcher退出后继续运行，但 unqualified `LOCAL` pipe不会自动跨越它与 AppContainer namespace，因此不作为产品 activation seam。
+2. 从 packaged full-trust launcher调用 `FullTrustProcessLauncher` 在本机返回 `0x80010117`，不可作为已验证路径。
+3. manifest隐藏 full-trust `SessionHost` Application + `IApplicationActivationManager` 成功返回精确 PID；launcher退出后 Session Host继续运行。
+4. AppContainer创建 pipe server并发布 `GetAppContainerNamedObjectPath`，Session Host以 `\\.\pipe\Sessions\1\AppContainerNamedObjects\<sid>\...` qualified name连接成功。反向 full-trust server、unqualified同包访问和 full-trust端动态推导 package SID均未成立，不能保留为产品假设。
 
-若 `CreateProcessW` 无法保留 package identity或独立生命周期，停止并把启动机制重新决策为 manifest `windows.fullTrustProcess` + `FullTrustProcessLauncher`；不得静默混用两种方式。
+最终通过项：
 
-完成后删除 package、进程、LocalState、临时源码和测试文件。Phase 0 未通过时正式重构停止。
+- AppContainer control/data两条 pipe双向通信；
+- 最小 IPv4、IPv6 与 1500-byte frame；
+- 100,002 frames、150,000,060 bytes单向 payload全部逐帧 echo，无 corruption；
+- 2,699 ms，单向 payload throughput `52.98 MiB/s`（约 444 Mbit/s）；
+- 双方均观察 peer EOF/broken-pipe；
+- unpackaged same-user client对两个 unqualified `LOCAL` name均为 `ERROR_FILE_NOT_FOUND (2)`；
+- transfer前 Session Host为 201 handles / 8 threads / 2,543,616 private bytes，AppContainer client为 281 / 11 / 3,874,816；
+- launcher退出后 Session Host存活，Stop后双方退出；
+- `CheckNetIsolation` exemption列表前后为空；
+- package、process、LocalState、临时源码和 `%TEMP%`目录已全部删除。
+
+Phase 0因此通过，但通过的是“Provider server + qualified AppContainer path + hidden Application activation”架构，而不是初始的“Session Host server + CreateProcess + custom DACL”架构。后续阶段必须按实测结果实现。
 
 ### Phase 1：可测试基础模块
 
@@ -421,12 +431,12 @@ Session Host 是包内普通 full-trust executable，不显示在 App list，不
 1. control length/JSON strictness tests；
 2. packet length/truncation/oversize tests；
 3. message ordering/state-machine tests；
-4. PFN pipe-name determinism tests；
-5. security descriptor ownership/cleanup tests；
+4. canonical AppContainer leaf name、qualified path和 rendezvous strictness tests；
+5. stale/oversize/reparse rendezvous cleanup tests；
 6. Dialer loopback TCP test（带虚构 physical binding仍使用 loopback）；
 7. Dialer loopback/physical UDP socket-class tests；
 8. missing-family 和 non-loopback unbound failure tests；
-9. 实现最小 codec、ACL builder、binding DTO和 Dialer policy。
+9. 实现最小 codec、rendezvous、binding DTO和 Dialer policy。
 
 本阶段不改变正式 Provider runtime。
 
@@ -434,8 +444,8 @@ Session Host 是包内普通 full-trust executable，不显示在 App list，不
 
 1. 添加第三 binary与静态 CRT build。
 2. 严格解析唯一 `--snapshot-token` 参数，拒绝 extra args。
-3. 获取 package identity/LocalState，创建 first-instance pipes。
-4. 实现 launcher handshake、provider handshake和 timeout。
+3. 获取 package identity/LocalState，等待并验证 Provider rendezvous，再作为 blocking Win32 pipe client连接 qualified path。
+4. 实现 SessionHello/provider handshake和 timeout；pipe blocking reader/writer留在专用线程，不把 Tokio named-pipe wrapper作为产品前提。
 5. 读取并验证现有 snapshot。
 6. 把当前 `ProviderRuntime` / `run_vcore` 逻辑迁入 `windows_session.rs`。
 7. 用 `WindowsIpcTunIo` 调用现有 `PreparedCore::prepare_config` / `start_tun`。
@@ -446,7 +456,7 @@ Session Host 是包内普通 full-trust executable，不显示在 App list，不
 ### Phase 3：Provider 变为 packet gateway
 
 1. 保留现有 WinRT transport/wake/buffer code。
-2. 用 packet-channel client替换 `WindowsTunIo`/`ProviderRuntime`。
+2. 用 AppContainer-local packet-channel server替换 `WindowsTunIo`/`ProviderRuntime`，并原子发布 rendezvous。
 3. `Encapsulate` 只复制并 try-queue ingress。
 4. data reader填充 egress并触发 empty-to-nonempty wake。
 5. ProviderHello 发送 token和 physical binding。
@@ -460,7 +470,7 @@ Session Host 是包内普通 full-trust executable，不显示在 App list，不
 
 1. Windows builder输出三个 artifact。
 2. sync/CMake/package tests先 red，随后接入 Session Host。
-3. `startVpn` 在 profile connect前 launch/probe host，并在失败路径只清理本次 process handle。
+3. `startVpn` 在 profile connect前通过 `IApplicationActivationManager` 激活隐藏 Session Host、取得并持有精确 process handle；失败路径只清理该 process。
 4. 生成无 `LoopbackAccessRules` 的下一版开发 MSIX；版本必须高于当前已安装版本。
 5. 验证签名 `Valid`、artifact architecture、static CRT、package identity和 in-place disconnected upgrade。
 6. 确认现有 Roaming config、snapshot、StartupTask state和单一 VPN profile保留。
@@ -599,7 +609,7 @@ vcore-windows-session-host.exe
 - `VCore/docs/adr/0003-run-windows-runtime-in-a-full-trust-session-host.md`；
 - `OneVCore/docs/adr/0007-run-windows-runtime-in-a-full-trust-session-host.md`。
 
-Phase 0通过后把两份 ADR改为 `accepted`。实现各阶段同步更新：
+Phase 0通过后两份 ADR已改为 `accepted`。实现各阶段同步更新：
 
 - `VCore/CONTEXT.md`、`OneVCore/CONTEXT.md`；
 - `VCore/AGENTS.md`、`OneVCore/AGENTS.md`；
@@ -630,7 +640,7 @@ Phase 0通过后把两份 ADR改为 `accepted`。实现各阶段同步更新：
 
 - Provider源码不再依赖 `Config`、`PreparedCore`、`RunningCore` 或 proxy graph。
 - Session Host是 Windows TUN VCore runtime的唯一 owner。
-- Provider与 Session Host只通过 version-1 packet channel通信。
+- Provider作为 AppContainer-local server，与 Session Host只通过 version-1 packet channel和最小 rendezvous通信。
 - Invoke v5、schema 11、bridge v1、snapshot token和 Dart API未改变。
 - VLESS、SOCKS5、AnyTLS、DIRECT、DNS、rules、GeoData、sniffer与 chains通过回归。
 - `127.0.0.1:1080` SOCKS5 TCP/UDP路径通过。
@@ -643,14 +653,14 @@ Phase 0通过后把两份 ADR改为 `accepted`。实现各阶段同步更新：
 - throwaway package、fixture、临时源码、LocalState和进程全部清理。
 - Phase 3B延期项目仍清楚标记为 deferred，而非暗示发布完成。
 
-## 19. 当前待验证事实
+## 19. 后续仍需取得的事实
 
-以下不是继续讨论的产品决策，而是 Phase 0必须取得的事实：
+Phase 0已解决 process activation、namespace qualification、unpackaged isolation、framing和初始 throughput。正式阶段仍必须实测：
 
-1. 当前目标 Windows build上，`CreateProcessW` 启动的包内 child是否取得 package identity。
-2. Flutter launcher退出后 child是否保持运行。
-3. package-SID DACL是否同时允许 packaged full-trust launcher和 AppContainer Provider，并拒绝 unpackaged same-user process。
-4. `tokio` named pipe在当前 AppContainer/full-trust方向的实际行为。
-5. named pipe相对当前内嵌 packet path的吞吐、CPU和资源成本。
+1. 相同 workload下新 packet channel相对当前 provider内嵌数据面的吞吐与 CPU比例，最终门禁仍为至少 80%。
+2. `IApplicationActivationManager` 从真实 Flutter worker-isolate host bridge调用时返回的 PID/handle、错误和 package-update行为。
+3. 动态 Windows session ID（不能硬编码 Phase 0 的 `1`）与 qualified AppContainer path在注销/登录和多 session场景中的行为。
+4. 真实 `VpnChannel` callback pressure下 blocking Win32 pipe worker、256 queues和 Decapsulate wake的组合行为。
+5. Provider crash、Session Host crash、network change、rapid reconnect与 package upgrade下 rendezvous清理是否按契约收敛。
 
-任一事实不成立时，停在对应 gate重新决策；不得把失败隐藏在兼容 fallback中。
+任一事实不成立时，停在对应 gate修正当前阶段；不得把失败隐藏在兼容 fallback中。

@@ -13,7 +13,7 @@ The VCore runtime serving one active Windows tunnel session inside the Windows s
 _Avoid_: Flutter runtime, provider runtime, external core
 
 **Windows session host**:
-The packaged full-trust executable that owns the Windows session runtime independently of the Flutter foreground.
+The hidden packaged full-trust Application that owns the Windows session runtime independently of the Flutter foreground.
 _Avoid_: Flutter process, provider host, external-core host
 
 **Windows provider host**:
@@ -25,8 +25,12 @@ The raw-IP exchange point between Windows VPN callbacks and a VCore tunnel runti
 _Avoid_: UWP TUN, fake fd, channel transport
 
 **Windows packet channel**:
-The same-package named-pipe connection carrying raw-IP packets and lifecycle control between the Windows VPN provider and Windows session host.
+The Provider-owned AppContainer named-pipe connection carrying raw-IP packets and lifecycle control to the Windows session host.
 _Avoid_: Controller, VPN transport, socket exemption
+
+**Windows rendezvous record**:
+The small package-local record that lets one Windows session host locate the active Provider's AppContainer packet channel.
+_Avoid_: Session record, tunnel snapshot, configuration file
 
 **Physical network binding**:
 The immutable adapter identity and source-IP/interface-index pairs selected for one Windows tunnel session.

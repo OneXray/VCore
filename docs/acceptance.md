@@ -64,6 +64,14 @@ iOS 35/45 MiB 是 best-effort telemetry 与优化目标，不是生命周期 gua
 - stopped `OneVCore.Dev` 产品包最终 clean uninstall 已通过：package registration、foreground/provider processes、`WindowsApps` 目录、package LocalState、StartupTask key、`/1` routes 和 package-owned system VPN profile 均不存在；Roaming App 配置按升级/重装语义保留。Phase 3A 在 Windows 11 ARM64 完成。
 - disconnected `26.8.1.1 -> 26.8.1.2` 原位 MSIX upgrade 保留 immutable snapshot、Roaming DB hash、disabled StartupTask state 与 system profile；升级后的 App 从新 `WindowsApps` path 启动，重连后 TCP DNS/UDP NTP 通过。packaging `-Install` 随后移除隐式卸载逻辑：same/older version 会 fail closed，后续原位升级至 `26.8.1.4` 仍保留 current/previous snapshots、App config 与 StartupTask state。最终源码 `dart analyze` 无 warning；签名 `26.8.1.4` SHA-256 为 `c2d59f5844fe465dfb361f2bc5245c0b2b57b7701415068fd3429846f3c7467d`。Phase 3B 的正式 Identity、ARM64/x64 bundle、Windows 10、WACK 与 restricted-capability approval 仍为 `NOT RUN`。
 
+## Windows Session Runtime Phase 0（2026-08-23）
+
+- 环境为 Windows 11 ARM64 build 26200.9168、Rust 1.98、`windows = 0.62.2`。独立开发签名 `OneVCore.SessionHostSpike_1.0.0.0_arm64__r64v7h3q1b2jt` 的最终 passing MSIX SHA-256 为 `a9d1d6046422fb15727ca82c06779e545d482b4fb4d36fe61422ec21f2921105`，Authenticode 为 `Valid`。
+- `CreateProcessW` child虽有 package identity且在 launcher退出后存活，但无法凭 unqualified `LOCAL` name跨 AppContainer namespace；`FullTrustProcessLauncher` 从 packaged full-trust launcher调用返回 `0x80010117`。最终 seam是 manifest隐藏 `SessionHost` Application + `IApplicationActivationManager`，activation返回 PID与进程内报告一致，launcher退出后 host继续运行。
+- AppContainer participant创建 control/data pipe servers并通过 `GetAppContainerNamedObjectPath` 发布相对 path。Session Host使用 `\\.\pipe\Sessions\1\AppContainerNamedObjects\<sid>\...` qualified name连接；同用户 unpackaged probe对两个 unqualified `LOCAL` name均得到 `ERROR_FILE_NOT_FOUND (2)`。没有添加或改变 `CheckNetIsolation` exemption。
+- 最小 IPv4/IPv6与 1500-byte workload共 100,002 frames、150,000,060 bytes单向 payload逐帧 echo，无 corruption；2,699 ms，单向 throughput 52.98 MiB/s。两端均观察 peer EOF/broken-pipe。transfer前 Session Host为 201 handles / 8 threads / 2,543,616 private bytes，AppContainer participant为 281 / 11 / 3,874,816。
+- Stop后两个 process均退出。package、LocalState、临时源码与 `%TEMP%`目录全部删除。该结果只验证 process/namespace/framing seam；正式 VCore/VpnChannel组合、相对旧数据面的 80%门禁与压力矩阵仍为 `NOT RUN`。
+
 ## Revision 11 当前配置迁移门禁
 
 - `docs/config.yaml` 必须由当前 runtime parser 直接通过；YAML 顶层写入

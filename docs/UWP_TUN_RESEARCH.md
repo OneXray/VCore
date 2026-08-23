@@ -174,10 +174,15 @@ OneVCore full-trust foreground 访问 AppContainer Controller 的产品方案；
 不受影响。
 
 后续产品方向不增加 loopback exemption，也不放弃 VCore 的 Controller 或 SOCKS5
-outbound。拟议的 [Windows Session Runtime 重构计划](windows-session-runtime-refactor-plan.md)
-将完整 VCore runtime 移到同包 full-trust Session Host，并只用 named pipe 跨越
-AppContainer 边界；该方向在独立 process/ACL/packet spike 通过前仍是 proposed，
-不是已实现能力。
+outbound。[Windows Session Runtime 重构计划](windows-session-runtime-refactor-plan.md)
+的 Phase 0 已在同一设备通过，但实测 seam 比初始假设更窄：unqualified `LOCAL` pipe
+不会自动跨 full-trust/AppContainer namespace；必须由 AppContainer Provider 创建
+server，以 `GetAppContainerNamedObjectPath` 发布相对路径，再由 manifest 隐藏的
+full-trust Session Host 使用 `IApplicationActivationManager` 激活并连接 qualified
+`\\.\pipe\Sessions\<id>\AppContainerNamedObjects\<sid>\...` path。100,002 个双向
+frame 无 corruption，单向 payload throughput 为 52.98 MiB/s，unpackaged same-user
+probe 对 unqualified name 得到 `ERROR_FILE_NOT_FOUND`，且无 loopback exemption。
+这些仍只是 named-pipe/process-model证据，不是完整 VCore/VpnChannel数据面已实现。
 
 VCore 版必须保留自身资源边界：回包队列最多沿用 `packet_queue_capacity = 256`，只在 empty -> non-empty 时发 dummy，`Decapsulate` 一次 drain；队列满时局部丢包并记统计，不能阻塞 Windows callback，也不能采用 Maple 的无界 `std::queue`。
 
