@@ -1783,7 +1783,7 @@ fn dispatch_to_io(error: DispatchError) -> io::Error {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use std::{
         net::{Ipv4Addr, SocketAddr},

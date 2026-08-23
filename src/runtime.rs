@@ -9,13 +9,11 @@ use futures_util::future::{join_all, select_all};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-#[cfg(all(unix, feature = "tun"))]
-use crate::{platform::TunIo, tun_runtime::TunRuntime};
-#[cfg(not(all(unix, feature = "tun")))]
+#[cfg(all(feature = "tun", any(unix, windows)))]
+use crate::{platform::TunIo, traffic::TrafficController, tun_runtime::TunRuntime};
+#[cfg(not(all(feature = "tun", any(unix, windows))))]
 type TunRuntime = ();
-#[cfg(all(unix, feature = "tun"))]
-use crate::traffic::TrafficController;
-#[cfg(not(all(unix, feature = "tun")))]
+#[cfg(not(all(feature = "tun", any(unix, windows))))]
 type TrafficController = ();
 
 #[cfg(feature = "ffi")]
@@ -367,7 +365,7 @@ impl PreparedCore {
 
     /// Starts the configured TUN listener and any loopback HTTP listener in the
     /// same cancellation domain.
-    #[cfg(all(unix, feature = "tun"))]
+    #[cfg(all(feature = "tun", any(unix, windows)))]
     pub(crate) async fn start_tun(self, tun: TunIo, dialer: Dialer) -> io::Result<RunningCore> {
         let tun_count = self
             .config
@@ -858,13 +856,13 @@ impl RunningCore {
             }
         }
 
-        #[cfg(all(unix, feature = "tun"))]
+        #[cfg(all(feature = "tun", any(unix, windows)))]
         if let Some(tun_runtime) = tun_runtime {
             let child = cancellation.clone();
             tasks.push(tokio::spawn(tun_runtime.run(child)));
         }
 
-        #[cfg(all(unix, feature = "tun"))]
+        #[cfg(all(feature = "tun", any(unix, windows)))]
         if let Some(traffic_controller) = traffic_controller {
             let child = cancellation.clone();
             tasks.push(tokio::spawn(traffic_controller.serve(child)));
@@ -969,7 +967,7 @@ mod tests {
         atomic::{AtomicUsize, Ordering},
     };
 
-    #[cfg(all(unix, feature = "tun"))]
+    #[cfg(all(feature = "tun", any(unix, windows)))]
     use std::net::Ipv4Addr;
 
     #[cfg(all(unix, feature = "tun"))]
@@ -984,6 +982,8 @@ mod tests {
     #[cfg(all(unix, feature = "tun"))]
     use crate::config::TunInboundConfig;
     use crate::dialer::ResolvedEndpoint;
+    #[cfg(all(windows, feature = "tun"))]
+    use crate::platform::TunIo;
 
     struct FixedResolver;
 
@@ -1614,6 +1614,35 @@ rules:
         assert_eq!(build(chain).await, 6);
     }
 
+    #[cfg(all(windows, feature = "tun"))]
+    #[tokio::test]
+    async fn windows_packet_adapter_runs_the_tun_runtime() {
+        let prepared = PreparedCore::prepare(
+            CURRENT_TUN_CONFIG.as_bytes(),
+            &FixedResolver,
+            ResourceLimits::default(),
+        )
+        .await
+        .unwrap();
+        let (tun, adapter) = TunIo::new(4, || Ok(()));
+        let running = prepared.start_tun(tun, Dialer::default()).await.unwrap();
+
+        assert!(adapter.try_send(icmpv4_echo_request()));
+        let reply = tokio::time::timeout(Duration::from_millis(100), async {
+            loop {
+                if let Some(reply) = adapter.pop_egress() {
+                    break reply;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("Windows packet adapter did not return the ICMP reply");
+        assert_eq!(reply[20], 0);
+
+        running.stop().await.unwrap();
+    }
+
     #[cfg(all(unix, feature = "tun"))]
     #[tokio::test]
     async fn start_tun_requires_exactly_one_tun_listener() {
@@ -1748,7 +1777,7 @@ rules:
         assert!(reconnect.is_err());
     }
 
-    #[cfg(all(unix, feature = "tun"))]
+    #[cfg(all(feature = "tun", any(unix, windows)))]
     const CURRENT_TUN_CONFIG: &str = r#"tun:
   enable: true
 proxies:
@@ -1792,7 +1821,7 @@ rules:
         }
     }
 
-    #[cfg(all(unix, feature = "tun"))]
+    #[cfg(all(feature = "tun", any(unix, windows)))]
     fn icmpv4_echo_request() -> Vec<u8> {
         let mut message = vec![8, 0, 0, 0, 0x12, 0x34, 0x56, 0x78, b'o', b'd', b'd'];
         let checksum = test_checksum(&message);
@@ -1813,7 +1842,7 @@ rules:
         packet
     }
 
-    #[cfg(all(unix, feature = "tun"))]
+    #[cfg(all(feature = "tun", any(unix, windows)))]
     fn test_checksum(bytes: &[u8]) -> u16 {
         let mut sum = 0_u32;
         let mut chunks = bytes.chunks_exact(2);

@@ -8,7 +8,7 @@ VCore 的 netstack、DNS、rules 和 outbound 只处理完整 raw IPv4/IPv6 pack
 TunRuntime
   -> platform::TunIo
        -> RustTunIo (当前 Unix fd backend)
-       -> UwpTunIo  (Windows 后续 backend，尚未实现)
+       -> WindowsTunIo（Windows Phase 1 IPv4 tracer 已实现）
 ```
 
 当前 `RustTunIo` 使用 crates.io `tun` 0.8.14（项目内别名 `rust-tun`）：
@@ -61,18 +61,18 @@ rust-tun 在 `target_os = "windows"` 下实现的是 Wintun：
 
 `Windows.Networking.Vpn` 则是 `IVpnPlugIn` + `VpnChannel` callback 模型。系统用 `VpnPacketBufferList` 交付 L3 packet，plugin 必须按平台规则申请、归还和 flush buffer。两者没有可互换的 fd、handle 或 session，因此 VCore 不会 fork rust-tun 伪造 UWP backend，也不会在 UWP 产物中链接 Wintun。
 
-## 5. UWP 后续实现边界
+## 5. Windows UWP 实现边界
 
-当前已批准的完整设计与产品基线见 [Windows UWP TUN 接入调研](UWP_TUN_RESEARCH.md)；它在与本节历史候选冲突时优先。Windows TUN 必须作为独立里程碑实现，至少包含以下部分：
+当前已批准的完整设计、已通过的 Phase 0/1 结果与产品基线见 [Windows UWP TUN 接入调研](UWP_TUN_RESEARCH.md)；它在与本节历史候选冲突时优先。Phase 1 已在 Windows 11 ARM64 上由 `vcore.dll` 跑通真实 IPv4 ICMP 与 DIRECT TCP；正式产品仍需完成以下边界：
 
-1. OneVCore 的 UWP/AppContainer background component 用 `windows-rs` 实现 `IVpnPlugIn`、activation factory 和系统 `Connect`/`Disconnect` 生命周期；VCore 提供可复用的 raw-IP adapter 与物理出口绑定能力。
-2. `UwpTunIo` 立即复制 callback 中的 L3 bytes，通过有界 ingress/egress queue 接入现有 `TunRuntime`；不得把 `VpnPacketBuffer` 的裸 slice 保存到 callback 之外。
+1. VCore 的 Windows-only VPN provider 已用 `windows-rs` 实现最小 `IVpnPlugIn`、activation factory、Connect/Disconnect stop barrier；OneVCore 后续负责 profile、snapshot、状态和 App/MSIX 接入。
+2. `WindowsTunIo` 在 callback 内复制 L3 bytes，通过有界 ingress/egress queue 接入现有 `TunRuntime`；不得把 `VpnPacketBuffer` 的裸 slice 保存到 callback 之外。
 3. 所有系统提供或从 `VpnChannel` 申请的 buffer 都按 WinRT 契约归还；callback 可并发到达，core 状态由单一 runtime owner 串行管理。
 4. `AssociateTransport` 只管理用于唤醒 `Decapsulate` 的 loopback `DatagramSocket` transport。VLESS/XHTTP、DIRECT 和 DNS 继续复用集中在 `Dialer` 的普通 Tokio TCP/UDP socket，并在 connect/send 前绑定选定物理网卡的本地 IPv4/IPv6，防止再次被虚拟接口捕获；不得为每个协议增加第二套 WinRT socket factory。
 5. Windows TUN 生命周期由 plugin callback 驱动，不把 `VpnChannel`、COM pointer 或伪 fd 放入统一 Invoke JSON。App 进程中的非 TUN `measureDelay` 仍可使用普通 transport。
 6. OneVCore 使用同一个 Store MSIX/AppX family package 交付 Flutter medium-IL full-trust foreground 与 UWP VPN background component，并声明 `runFullTrust` 和 `networkingVpnProvider`。普通 zip/exe 不能仅靠复制 DLL 获得 VPN 能力。
 
-第一项 ARM64 原型先在 Windows 11 验证 activation、ICMP/raw packet 往返、loopback wake 和物理 source bind，再在 Windows 10 22H2 验证最低版本；发布前补齐 x64。网络切换首版 fail-closed 并要求用户手动重连。
+Windows 11 ARM64 已验证 activation、真实 VCore ICMP/raw packet 往返、loopback wake、DIRECT TCP 与物理 source bind。Windows 10 22H2 最低版本、x64、IPv6/UDP、网络切换 fail-closed 和正式 App/MSIX 仍待后续阶段。
 
 ## 6. 验收顺序
 

@@ -43,8 +43,10 @@ mod tcp_sniffer;
 pub(crate) mod traffic;
 #[cfg(feature = "outbound-vless")]
 pub mod transport;
-#[cfg(all(unix, feature = "tun"))]
+#[cfg(all(feature = "tun", any(unix, windows)))]
 mod tun_runtime;
+#[cfg(all(windows, feature = "ffi"))]
+mod windows_vpn;
 #[cfg(feature = "outbound-vless")]
 pub mod xudp;
 

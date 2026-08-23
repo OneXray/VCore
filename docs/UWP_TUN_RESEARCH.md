@@ -1,6 +1,6 @@
 # VCore Windows UWP TUN 调研
 
-> 状态：首版架构基线已确认；Phase 0 最小数据面 spike 已通过；Phase 1 tracer bullet 的完成线已确认，尚未实现。记录于 2026-08-22，Phase 0 结果记录于 2026-08-23。
+> 状态：首版架构基线已确认；Phase 0 最小数据面 spike 与 Phase 1 VCore IPv4 端到端 tracer bullet 均已通过，正式产品接入尚未开始。记录于 2026-08-22，Phase 0/1 结果记录于 2026-08-23。
 
 ## 开发原则
 
@@ -288,6 +288,18 @@ VpnPacketBuffer
 5. 成功 Disconnect，确认 runtime stop barrier 完成，执行 `git diff --check` 后立即停止并报告。
 
 IPv6、UDP 实测、VCore DNS integration、VCore 代理协议、Flutter、snapshot、Windows 10、x64、WACK、正式 packaging 与 runtime 意外退出后的自动 Stop 全部延期，不能顺带实现。
+
+#### Phase 1 结果：PASS
+
+2026-08-23 在 Windows 11 ARM64 build 26200.9168 上实际执行：
+
+- crates.io `windows = 0.62.2`、普通 `aarch64-pc-windows-msvc` target 的 release `vcore.dll` 同时导出 COM activation 与现有 FFI；dev-signed AppX 安装并报告 `SignatureKind=Developer`。
+- 真实 VCore provider 成功 Connect；VCore netstack 对 `203.0.113.1` 返回 1 ms fake ICMP reply，日志记录首个 40-byte ingress 与首个 60-byte egress packet。
+- VPN 断开时，TCP DNS probe 从物理 `172.16.29.128` 向 `223.5.5.5:53` 查询 `www.baidu.com` 成功；VPN 内同一 probe 从虚拟 `192.168.3.1` 经完整 TUN -> VCore -> DIRECT -> source-bound `Dialer` 路径取得 3 个 answer。
+- 显式 Disconnect 等待 VCore runtime stop barrier，最终计数为 32 encapsulated / 12 decapsulated。
+- AppContainer 可直接使用 `ApplicationData` path，但 Windows 拒绝对该 package path 执行 `std::fs::canonicalize`；Windows `GeoDataManager` 因此保留由平台返回的绝对 path，其余平台继续 canonicalize。
+
+Focused tests、Windows `cargo check --all-features`、格式与 diff 检查通过。完整命令和 hash 记录在 `docs/acceptance.md`；所有已延期范围保持 `NOT RUN`，到此停止开发。
 
 ### Phase 2：Windows provider 完整化
 

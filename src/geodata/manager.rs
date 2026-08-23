@@ -303,6 +303,11 @@ impl GeoDataManager {
     ) -> Result<Arc<Self>, GeoDataManagerError> {
         let asset_dir = asset_dir.as_ref();
         create_private_directory(asset_dir)?;
+        // AppContainer can use its ApplicationData path through normal file
+        // APIs, but Windows denies canonicalizing that same package path.
+        #[cfg(windows)]
+        let store_dir = asset_dir.to_path_buf();
+        #[cfg(not(windows))]
         let store_dir = fs::canonicalize(asset_dir).map_err(|source| io_at(asset_dir, source))?;
         let state = read_initial_state(&store_dir)?;
         let manager = Arc::new(Self {

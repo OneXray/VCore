@@ -13,7 +13,9 @@ This file records the source and license boundaries used while designing VCore. 
 | [MetaCubeX/mihomo](https://github.com/MetaCubeX/mihomo) | `cbd11db1e13a75d8e680e0fe7742c95be4cba2be` (`v1.19.28`) | GPL-3.0 | Current configuration shape and routing-rule vocabulary/order research; not a VLESS, wire-protocol, linked-code, or source-code dependency |
 | [anytls/anytls-go](https://github.com/anytls/anytls-go) | `0c36ca9f0d88bc1af5ddb998e619166913c7445c` | No recognizable `LICENSE` file in the recorded checkout | AnyTLS wire behavior, v2/v1 negotiation, padding, session reuse, and sing UoT research only; no source was copied, translated, modified, linked, or distributed |
 | [meh/rust-tun](https://github.com/meh/rust-tun) | `d77c12a7f5536e3f72e668c5b00a4164d5acced2` (`0.8.14`) | WTFPL | Authoritative platform adapter behavior for the Apple/Android raw-fd TUN dependency; its Windows/Wintun backend is explicitly outside VCore's Windows UWP plan |
-| [luqmana/wireguard-uwp-rs](https://github.com/luqmana/wireguard-uwp-rs) | `328e622fb613d611bb022874a6535e2846ac6640` | MIT OR Apache-2.0 | Windows `IVpnPlugIn`, `VpnChannel`, packet-buffer ownership, background activation and AppX packaging research only; not a current dependency |
+| [luqmana/wireguard-uwp-rs](https://github.com/luqmana/wireguard-uwp-rs) | `328e622fb613d611bb022874a6535e2846ac6640` | MIT OR Apache-2.0 | Windows `IVpnPlugIn`, `VpnChannel`, packet-buffer ownership, background activation and AppX packaging reference |
+| [Microsoft UWP VPN plug-in sample](https://github.com/microsoft/UwpVpnPluginSample) | `d589fe0f57af13e052c44c662ade5fb1da2bcbb0` | MIT | Authoritative Windows VPN callback, background activation, buffer and manifest sample |
+| [YtFlow/Maple](https://github.com/YtFlow/Maple) | `ec052fcb014b14e50cb264abc1415807609ec07b` | Apache-2.0 | Proxy-style loopback wake, `/1` routes and physical-source-binding reference |
 
 Mihomo is used only as a shape and behavior reference for the documented current configuration/rules subset. VCore does not claim general Mihomo configuration compatibility, and Mihomo remains outside the VLESS implementation and protocol-authority boundary. The recorded revision above is the clean local `references/mihomo` checkout from `https://github.com/MetaCubeX/mihomo.git`.
 
@@ -25,6 +27,16 @@ on protocol behavior research and independent duplex mock tests. Real
 into VCore, and none of its code may be distributed with VCore unless an
 upstream license is made explicit and a separate license review authorizes that
 use.
+
+## Windows source mappings
+
+| Upstream path | VCore destination | Use and license treatment |
+| --- | --- | --- |
+| `UwpVpnPluginSample/CppWinRT/TestVpnPluginAppBg/{TestVpnPluginAppBgTask.cpp,VpnPlugInImpl.cpp,BackgroundPacketWorker.cpp}` @ `d589fe0` | `src/windows_vpn.rs` | Adapted to Rust for activation, `IVpnPlugIn` lifecycle and packet-buffer handling. Retains Microsoft Corporation's MIT notice through this file. |
+| `wireguard-uwp-rs/plugin/src/{background.rs,plugin.rs}` @ `328e622` | `src/windows_vpn.rs` | Adapted Rust `windows-rs` activation factory, persistent provider instance and `IBufferByteAccess` handling under the upstream MIT option; copyright © 2021 Luqman Aden. |
+| `Maple.Task/VpnPlugin.cpp` @ `ec052fc` | `src/windows_vpn.rs`, `src/platform/windows_tun_io.rs` | Adapted loopback `DatagramSocket` wake, empty-to-non-empty coalescing, `/1` routes and proxy packet flow under Apache-2.0. The repository's Apache-2.0 license remains applicable to these adapted portions. |
+
+No upstream cryptographic or proxy-protocol implementation was copied into the Windows provider. The VCore-specific bounded queue, `TunRuntime` connection and `Dialer` source-bind implementation are original project code.
 
 ## Existing dependencies and derived components
 
@@ -41,6 +53,7 @@ use.
 - `webpki-roots` `1.0.8` supplies the downloader and measurement clients' bundled public trust anchors and declares `CDLA-Permissive-2.0`.
 - `oslog` `0.2.0` is an Apple-only direct runtime dependency used without its default `logger` feature to write bounded VCore events to Apple Unified Logging. Its crate metadata declares MIT.
 - `tun` `0.8.14` (`rust-tun` in `Cargo.toml`) is an unmodified, target-specific Unix dependency used without default/async features. VCore supplies an already-nonblocking duplicate fd, wraps the synchronous device in Tokio `AsyncFd`, and uses its Apple PI/Android raw-IP packet I/O. The crate declares WTFPL. Cargo.lock records upstream target-specific Windows packages, but VCore's Unix-only dependency declaration prevents them from being compiled or linked into Windows/UWP artifacts.
+- `windows` and `windows-core` `0.62.2` plus `windows-collections` `0.3.2` are unmodified, target-specific Windows dependencies used for the VPN provider and declare MIT OR Apache-2.0.
 - The versions above are the versions resolved in `Cargo.lock`; their transitive dependencies remain part of the release dependency/license audit rather than the research-baseline table.
 - The VCore repository root is MIT licensed.
 

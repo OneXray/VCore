@@ -35,9 +35,16 @@ use crate::{
     data_dir::DataDirectory,
     dialer::{Dialer, SocketProtector, SystemResolver},
     geodata::{GeoDataManager, GeoDataStatus, GeoResourceState},
-    platform::{TunFd, TunIo},
     runtime::PreparedCore,
 };
+
+#[cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]
+use crate::platform::{TunFd, TunIo};
+
+#[cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]
+type InvokeTun = (TunFd, TunFraming);
+#[cfg(not(any(target_os = "android", target_os = "ios", target_os = "macos")))]
+type InvokeTun = ();
 
 #[cfg(target_os = "android")]
 mod android;
@@ -935,10 +942,7 @@ impl CoreController {
             let tun = validate_start_tun(has_tun, payload, presence)?;
             // Duplicate before consuming prepared state. If duplication fails,
             // the caller can correct the fd and retry from prepared.
-            let tun = tun
-                .map(|(fd, framing)| TunFd::duplicate(fd).map(|fd| (fd, framing)))
-                .transpose()
-                .map_err(InvokeFailure::from)?;
+            let tun = duplicate_start_tun(tun)?;
             let prepared = inner
                 .prepared
                 .take()
@@ -1217,6 +1221,23 @@ fn geodata_resource_data(state: GeoResourceState) -> Value {
     })
 }
 
+#[cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]
+fn duplicate_start_tun(tun: Option<(i32, TunFraming)>) -> Result<Option<InvokeTun>, InvokeFailure> {
+    tun.map(|(fd, framing)| TunFd::duplicate(fd).map(|fd| (fd, framing)))
+        .transpose()
+        .map_err(InvokeFailure::from)
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios", target_os = "macos")))]
+fn duplicate_start_tun(tun: Option<(i32, TunFraming)>) -> Result<Option<InvokeTun>, InvokeFailure> {
+    if tun.is_some() {
+        return Err(InvokeFailure::invalid_request(
+            "TUN fd is unsupported on this target; only iOS, macOS, and Android are supported",
+        ));
+    }
+    Ok(None)
+}
+
 fn validate_start_tun(
     has_tun: bool,
     payload: StartPayload,
@@ -1289,7 +1310,7 @@ struct EngineContext {
 fn run_engine(
     context: EngineContext,
     prepared: PreparedCore,
-    tun: Option<(TunFd, TunFraming)>,
+    tun: Option<InvokeTun>,
     dialer: Dialer,
     stop: oneshot::Receiver<()>,
     startup: SyncSender<Result<(), InvokeFailure>>,
@@ -1324,7 +1345,7 @@ fn run_engine_inner(
     instance_id: u64,
     has_tun: bool,
     prepared: PreparedCore,
-    tun: Option<(TunFd, TunFraming)>,
+    tun: Option<InvokeTun>,
     dialer: Dialer,
     stop: oneshot::Receiver<()>,
     startup: SyncSender<Result<(), InvokeFailure>>,
@@ -1342,6 +1363,7 @@ fn run_engine_inner(
         }
     };
     runtime.block_on(async move {
+        #[cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]
         let started = match tun {
             Some((duplicate, framing)) => {
                 tracing::info!(instance_id, ?framing, "VCore attaching TUN descriptor");
@@ -1349,6 +1371,11 @@ fn run_engine_inner(
                 prepared.start_tun(tun, dialer).await
             }
             None => prepared.start_local(dialer).await,
+        };
+        #[cfg(not(any(target_os = "android", target_os = "ios", target_os = "macos")))]
+        let started = {
+            debug_assert!(tun.is_none());
+            prepared.start_local(dialer).await
         };
         let running = match started {
             Ok(running) => running,
@@ -1441,6 +1468,7 @@ fn reset_failed_operation(
     Ok(())
 }
 
+#[cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]
 fn vcore_to_io(error: VCoreError) -> io::Error {
     match error {
         VCoreError::Io(error) => error,
@@ -1509,10 +1537,12 @@ mod tests {
         ffi::{CStr, CString},
         io::{Read, Write},
         net::{TcpListener, TcpStream},
-        os::{fd::AsRawFd, unix::net::UnixDatagram},
         ptr,
         sync::{Arc, Barrier, Mutex},
     };
+
+    #[cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]
+    use std::os::{fd::AsRawFd, unix::net::UnixDatagram};
 
     use super::*;
 
@@ -1945,18 +1975,28 @@ rules:
         let presence = start_field_presence(&null_value).unwrap();
         assert!(validate_start_tun(false, null, presence).is_err());
 
-        let (tun_framing, expected_framing) = if cfg!(any(target_os = "ios", target_os = "macos")) {
-            ("utun", TunFraming::Utun)
+        let tun_framing = if cfg!(any(target_os = "ios", target_os = "macos")) {
+            "utun"
         } else {
-            ("rawIp", TunFraming::RawIp)
+            "rawIp"
         };
         let tun_value = json!({"tunFd": 7, "tunFraming": tun_framing});
         let tun: StartPayload = decode_payload(tun_value.clone()).unwrap();
         let presence = start_field_presence(&tun_value).unwrap();
+        #[cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]
         assert_eq!(
             validate_start_tun(true, tun, presence).unwrap(),
-            Some((7, expected_framing))
+            Some((
+                7,
+                if cfg!(any(target_os = "ios", target_os = "macos")) {
+                    TunFraming::Utun
+                } else {
+                    TunFraming::RawIp
+                }
+            ))
         );
+        #[cfg(not(any(target_os = "android", target_os = "ios", target_os = "macos")))]
+        assert!(validate_start_tun(true, tun, presence).is_err());
 
         #[cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]
         {
@@ -2182,6 +2222,7 @@ rules:
         assert_registry_is_idle();
     }
 
+    #[cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]
     #[test]
     fn prepare_start_stop_is_instance_scoped_and_borrows_tun_fd() {
         let _guard = TEST_LOCK.lock().unwrap();

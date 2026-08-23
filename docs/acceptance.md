@@ -2,7 +2,7 @@
 
 状态：当前 YAML 使用字段名与嵌套均与 Mihomo 一致的严格平铺
 VLESS/SOCKS5/AnyTLS 子集，不含 `configVersion` 或 `default-proxy`。Invoke API
-v4 的 `version.configVersion` 与 `buildIdentity` 单独报告内部 schema revision
+v5 的 `version.configVersion` 与 `buildIdentity` 单独报告内部 schema revision
 11。宿主必须先调用 `initialize({dataDir})`；VCore 固定管理
 `configs`/`geodata`，并经运行配置最终 `MATCH` 指向的实际 proxy 及其完整 graph
 后台更新业务实际需要的 GeoData。GeoSite/GeoIP 缺失各自降级，不阻塞首次启动，
@@ -14,6 +14,19 @@ Apple/Android `rust-tun` fd adapter 和既有数据面保持不变。当前 TUN/
 query、DNS upstream 或 active physical TCP 的固定并发上限；只保留局部有界资源。
 iOS 35/45 MiB 是 best-effort telemetry 与优化目标，不是生命周期 guard。本轮
 物理 iOS/Android TUN 仍为 `NOT RUN`；更早结果只属于对应历史候选。
+
+## Windows UWP Phase 1 当前本机验收（2026-08-23）
+
+环境为 Windows 11 ARM64 build 26200.9168、Rust 1.98.0、VS 18、Windows SDK 26100；基线 HEAD 为 `8a7d6d937e00ac73e184e271d48e885898a025b1`，本节结果来自其后的当前工作树。
+
+- `node-tools/vs-cargo.cmd check --manifest-path VCore/Cargo.toml --all-features` 通过。四组 focused test 分别通过：`Dialer` source bind 2 项、Windows packet adapter 1 项、adapter -> `TunRuntime` ICMP 往返 1 项、provider 内嵌 current-schema config 1 项。
+- release `vcore.dll` 与 foreground 均为 ARM64；DLL 同时导出 `DllGetActivationFactory`、`VCoreInvoke`、`VCoreFree`，无 VC runtime 动态依赖。Dev-signed AppX 安装后系统报告 `SignatureKind=Developer`。
+- VPN 断开时，TCP DNS probe 从物理 `172.16.29.128` 向中国大陆可达的 `223.5.5.5:53` 查询 `www.baidu.com`，得到 3 个 answer。VPN Connect 后，同一 probe 从虚拟 `192.168.3.1` 经 TUN -> VCore -> DIRECT -> source-bound `Dialer` 得到同样有效响应。
+- 对文档地址 `203.0.113.1` 的 fake ICMP reply 为 1 ms；provider 不再包含 Phase 0 fake responder，日志记录首个 40-byte VCore ingress 和首个 60-byte VCore egress packet。
+- Disconnect 成功并等待 VCore runtime stop barrier；最终计数为 32 encapsulated / 12 decapsulated。`cargo fmt --all -- --check` 与 `git diff --check` 通过。
+- `vcore.dll` SHA-256 为 `9a6b471068abb976084c17bd59758c7a864867ec62cc5fdaea45c5ba47e7115a`；本轮 AppX SHA-256 为 `71b98eae11d2b83b1b40bfe023c135adb4904d3506b8cbcbb98a6524b28eaaeb`。
+
+本轮没有执行 IPv6、UDP 数据面、VCore DNS、VCore 代理协议、Flutter、snapshot、Windows 10、x64、WACK、正式 packaging、压力测试、网络切换或 runtime 意外退出后的自动 Stop；这些项目保持 `NOT RUN`。
 
 ## Revision 11 当前配置迁移门禁
 

@@ -226,6 +226,7 @@ pub trait SocketProtector: Send + Sync {
 #[derive(Clone)]
 pub struct Dialer {
     protector: Option<Arc<dyn SocketProtector>>,
+    source_ip: Option<IpAddr>,
     connect_timeout: Duration,
 }
 
@@ -234,6 +235,7 @@ impl std::fmt::Debug for Dialer {
         formatter
             .debug_struct("Dialer")
             .field("has_protector", &self.protector.is_some())
+            .field("source_ip", &self.source_ip)
             .field("connect_timeout", &self.connect_timeout)
             .finish()
     }
@@ -243,6 +245,7 @@ impl Default for Dialer {
     fn default() -> Self {
         Self {
             protector: None,
+            source_ip: None,
             connect_timeout: Duration::from_secs(10),
         }
     }
@@ -252,6 +255,12 @@ impl Dialer {
     #[must_use]
     pub fn with_protector(mut self, protector: Arc<dyn SocketProtector>) -> Self {
         self.protector = Some(protector);
+        self
+    }
+
+    #[must_use]
+    pub const fn with_source_ip(mut self, source_ip: IpAddr) -> Self {
+        self.source_ip = Some(source_ip);
         self
     }
 
@@ -283,11 +292,13 @@ impl Dialer {
     /// Creates a direct UDP socket for one address family and applies the
     /// platform protect hook before the socket is exposed to the caller.
     pub async fn bind_udp(&self, ipv6: bool) -> io::Result<UdpSocket> {
-        let bind_address = if ipv6 {
-            SocketAddr::from(([0_u16; 8], 0))
-        } else {
-            SocketAddr::from(([0_u8; 4], 0))
-        };
+        let bind_address = self.source_address(ipv6)?.unwrap_or_else(|| {
+            if ipv6 {
+                SocketAddr::from(([0_u16; 8], 0))
+            } else {
+                SocketAddr::from(([0_u8; 4], 0))
+            }
+        });
         let socket = UdpSocket::bind(bind_address).await?;
         #[cfg(unix)]
         if let Some(protector) = &self.protector {
@@ -303,11 +314,22 @@ impl Dialer {
         Ok(socket)
     }
 
+    fn source_address(&self, ipv6: bool) -> io::Result<Option<SocketAddr>> {
+        match self.source_ip {
+            Some(source_ip) if source_ip.is_ipv6() != ipv6 => Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "source IP and destination address families differ",
+            )),
+            source_ip => Ok(source_ip.map(|source_ip| SocketAddr::new(source_ip, 0))),
+        }
+    }
+
     async fn connect_one(&self, address: SocketAddr) -> io::Result<tokio::net::TcpStream> {
-        let socket = if address.is_ipv4() {
-            TcpSocket::new_v4()?
-        } else {
+        let ipv6 = address.is_ipv6();
+        let socket = if ipv6 {
             TcpSocket::new_v6()?
+        } else {
+            TcpSocket::new_v4()?
         };
         #[cfg(unix)]
         if let Some(protector) = &self.protector {
@@ -320,6 +342,9 @@ impl Dialer {
                 "socket protection is only supported on Unix platforms",
             ));
         }
+        if let Some(source_address) = self.source_address(ipv6)? {
+            socket.bind(source_address)?;
+        }
         let stream = timeout(self.connect_timeout, socket.connect(address))
             .await
             .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "connect timed out"))??;
@@ -330,7 +355,10 @@ impl Dialer {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::{
+        net::{IpAddr, Ipv4Addr, Ipv6Addr},
+        sync::atomic::{AtomicUsize, Ordering},
+    };
 
     use tokio::net::TcpListener;
 
@@ -354,6 +382,38 @@ mod tests {
                 "protect rejected",
             ))
         }
+    }
+
+    #[tokio::test]
+    async fn source_ip_binds_tcp_and_udp() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let source = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2));
+        let dialer = Dialer::default().with_source_ip(source);
+
+        let stream = dialer
+            .connect_address(listener.local_addr().unwrap())
+            .await
+            .unwrap();
+        let (_, peer) = listener.accept().await.unwrap();
+        assert_eq!(stream.local_addr().unwrap().ip(), source);
+        assert_eq!(peer.ip(), source);
+
+        let udp = dialer.bind_udp(false).await.unwrap();
+        assert_eq!(udp.local_addr().unwrap().ip(), source);
+    }
+
+    #[tokio::test]
+    async fn source_ip_rejects_another_address_family() {
+        let dialer = Dialer::default().with_source_ip(IpAddr::V4(Ipv4Addr::LOCALHOST));
+        let error = dialer
+            .connect_address(SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 9))
+            .await
+            .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        assert_eq!(
+            dialer.bind_udp(true).await.unwrap_err().kind(),
+            io::ErrorKind::InvalidInput
+        );
     }
 
     #[tokio::test]
