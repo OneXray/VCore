@@ -94,6 +94,15 @@ iOS 35/45 MiB 是 best-effort telemetry 与优化目标，不是生命周期 gua
 - 正常 Disconnect将 encapsulated/decapsulated与三项 queue counters放入 Stop，要求 Session Host原样 Stopped ack并执行 bounded 10秒 barrier；rendezvous在 handshake或任一失败路径删除。Provider log改为独立 `windows-vpn-provider.log`且只记录 family可用性，不记录 adapter、IP或 network name。
 - Windows ARM64 all-feature lib tests为 435 passed / 1 ignored；lib+bins Clippy在两项既有 config style lint allow后以 `-D warnings`通过；fmt和 diff check通过。release SHA-256：`vcore.dll` `913671ede0c1f415fa247147fd41be9739d94eee87834d1907ab5b626ccc2ddf`，Session Host `e8100c05fd07b2e841f630d99cf3e66a1e814859fd93a823fc0f726d7948578e`，Provider Host `8b1bf857a8a925a9ef733cc6080bde701af007652f91d1ed869b1debe2149428`。真实 MSIX组合仍为 Phase 4 `NOT RUN`。
 
+## Windows Session Runtime Phase 4（2026-08-24）
+
+- `VCoreWindowsVpnInvoke.startVpn`现在通过 `IApplicationActivationManager`激活 `<PFN>!SessionHost`，只传 canonical snapshot token，立即打开 `PROCESS_TERMINATE|PROCESS_SYNCHRONIZE` handle；profile update/connect任一失败时 RAII仅终止该 PID，成功后释放 handle而不结束 Session Host。bridge revision与六个 method shape不变。
+- OneVCore Windows sync/CMake/packaging固定 `vcore.dll`、Provider Host、Session Host三个 architecture-matched static-CRT artifact；manifest增加 `AppListEntry="none"` full-trust `SessionHost` Application，无 `LoopbackAccessRules`。packaging contract 4项通过。
+- 正常 Flutter `OneVCore.Dev_26.8.1.7_arm64` 完成 disconnected原位升级、签名、安装和 App启动；SHA-256 `bdb7497f12c9b60d75d75da8107ceef7ba1aaa511b5995176bff591f42cea0b2`，签名 `Valid`。该步没有自动操作 UI连接。
+- 另以独立同构开发签名 package调用真实 `VCoreWindowsVpnInvoke`：host bridge发布 token `eba53424b3526542a5419007069ba8ba4aba2f21b922a0c33ac2495f101746cf`，Provider PID 7184、Session Host PID 10832。TCP DNS `223.5.5.5:53`、Aliyun NTP `203.107.6.88:123`、Baidu HTTP 200和 `203.0.113.1` fake ICMP均通过，TCP/UDP/HTTP local均为 `192.168.3.1`。
+- 正常 Stop返回 disconnected；Provider最终 48 encapsulated / 21 decapsulated，三项 queue drops均0，rendezvous和routes删除，Session Host退出。integration MSIX SHA-256 `39774811b857d8256905b15881c857a62400bc7cab228c546f24ed5ec164ae3e`、签名 `Valid`；probe package、LocalState、process和临时源码均已清理。
+- 当前 release artifact SHA-256：`vcore.dll` `de0365c41b51c56055538247179c2c2b53fbbacbcba7c2acfc75c8541e2eecee`，Session Host `04260829e66b8e96257bb3427be7da9425d0cef678873a3ea203825f8b318e09`，Provider Host `40eeca850a3006692b3185693782e21d3214a13261321ecacdee94848dcfdf79`。Flutter UI连接、Controller metrics和 local SOCKS5属于 Phase 5。
+
 ## Revision 11 当前配置迁移门禁
 
 - `docs/config.yaml` 必须由当前 runtime parser 直接通过；YAML 顶层写入

@@ -476,7 +476,11 @@ Phase 0因此通过，但通过的是“Provider server + qualified AppContainer
 9. 删除 provider 内 `Config`、`GeoDataManager`、`PreparedCore`、`RunningCore`依赖。
 10. 不保留 runtime fallback或第二 packet path。
 
-### Phase 4：OneVCore package integration
+### Phase 4：OneVCore package integration — PASS
+
+2026-08-24 VCore host bridge已用 `IApplicationActivationManager`激活 manifest隐藏 `SessionHost`、取得精确 process handle，并在 update/connect失败时只终止该 process。OneVCore sync/CMake/MSIX scripts和 contract tests已固定三个 artifact；`OneVCore.Dev_26.8.1.7_arm64` 完成 disconnected原位升级、签名与普通 App启动，MSIX SHA-256为 `bdb7497f12c9b60d75d75da8107ceef7ba1aaa511b5995176bff591f42cea0b2`，manifest无 `LoopbackAccessRules`。独立同构 integration package随后通过真实 host bridge → hidden Session Host → Provider → VCore：TCP DNS、UDP NTP、Baidu HTTP和 fake ICMP均从 `192.168.3.1`经过 TUN，Stop最终 48/21且 queue drops为0。probe package/LocalState/process已清理；正常 Flutter UI发起连接仍留给 Phase 5人工验收。
+
+完成项：
 
 1. Windows builder输出三个 artifact。
 2. sync/CMake/package tests先 red，随后接入 Session Host。
