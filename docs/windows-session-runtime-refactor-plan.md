@@ -489,7 +489,9 @@ Phase 0因此通过，但通过的是“Provider server + qualified AppContainer
 5. 验证签名 `Valid`、artifact architecture、static CRT、package identity和 in-place disconnected upgrade。
 6. 确认现有 Roaming config、snapshot、StartupTask state和单一 VPN profile保留。
 
-### Phase 5：功能验收
+### Phase 5：功能验收 — PASS
+
+2026-08-24 ARM64 build 26200.9168 完成三层验收。独立同构 package先验证本机 full-trust SOCKS5 CONNECT/UDP ASSOCIATE、authenticated Controller、错误 secret 401、活动速率、累计量、空闲归零和 Stop后 listener关闭；真实 RAW随后通过 VLESS/REALITY到 Cloudflare 204。正式 `OneVCore.Dev_26.8.1.7` 由用户从 Flutter UI手动连接：Provider PID 5468、Session Host PID 4392；45次 HTTP加 HTTPS、TCP DNS和UDP NTP均从 `192.168.3.1`经过 TUN，Controller最大 6,617/95,384 B/s、累计增量 50,990/1,443,264 bytes，空闲归零且错误 secret 401。强制结束并重开 Flutter后两 native PID、routes、Controller和数据面均保持，UI恢复 Connected并显示流量；用户随后手动 Stop。最终 1,155/1,564、queue drop 0，start record、rendezvous、routes和 Session Host均清理。throwaway packages、LocalState、fixtures和源码已删除；真实凭据未写入日志、文档或 package。
 
 使用不含真实凭据的 committed config做基础回归；真实节点只用本地临时 YAML，不进入日志、文档或提交。
 

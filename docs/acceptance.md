@@ -103,6 +103,14 @@ iOS 35/45 MiB 是 best-effort telemetry 与优化目标，不是生命周期 gua
 - 正常 Stop返回 disconnected；Provider最终 48 encapsulated / 21 decapsulated，三项 queue drops均0，rendezvous和routes删除，Session Host退出。integration MSIX SHA-256 `39774811b857d8256905b15881c857a62400bc7cab228c546f24ed5ec164ae3e`、签名 `Valid`；probe package、LocalState、process和临时源码均已清理。
 - 当前 release artifact SHA-256：`vcore.dll` `de0365c41b51c56055538247179c2c2b53fbbacbcba7c2acfc75c8541e2eecee`，Session Host `04260829e66b8e96257bb3427be7da9425d0cef678873a3ea203825f8b318e09`，Provider Host `40eeca850a3006692b3185693782e21d3214a13261321ecacdee94848dcfdf79`。Flutter UI连接、Controller metrics和 local SOCKS5属于 Phase 5。
 
+## Windows Session Runtime Phase 5（2026-08-24）
+
+- 独立同构 package以本机 full-trust SOCKS5 fixture验证 CONNECT和UDP ASSOCIATE；fixture outer sockets绑定 `172.16.29.130` + interface 10。Controller拒绝错误 secret为401，活动最大 10,254/412,418 B/s、累计 162,798/5,121,912 bytes，空闲为0/0；Stop后 Controller关闭。Provider最终 3,011/4,840，queue drop 0。
+- 不修改或复制真实凭据地读取用户本地 RAW，Session Host通过 `real-proxy` VLESS/REALITY到 `cp.cloudflare.com` 得到 HTTPS 204；HTTP、TCP DNS和UDP NTP同时通过，local均为 `192.168.3.1`。Controller最大 2,382/95,057 B/s并按预期空闲归零；Provider最终 1,585/2,400，queue drop 0。
+- 用户从正式 Flutter `OneVCore.Dev_26.8.1.7_arm64` 手动连接同一 RAW。Provider PID 5468、Session Host PID 4392；20秒内45次 HTTP及 HTTPS、TCP DNS、UDP NTP通过，Controller最大 6,617/95,384 B/s，累计增量 50,990/1,443,264 bytes，错误 secret 401且空闲为0/0。用户确认 UI恢复 Connected并显示流量。
+- 强制结束 Flutter foreground 后 routes、Controller、Provider和 Session Host继续工作；重开 Flutter后两个 native PID不变，HTTPS 204和 totals恢复。用户随后从 UI显式 Stop；最终 1,155/1,564、queue drop 0，start record、rendezvous、routes和 Session Host清理。
+- DIRECT、VLESS、SOCKS5和 Windows packet/Controller边界均完成新路径实机回归；AnyTLS/UoT和无环 chain继续由同一未改动 runtime的 all-feature tests及此前物理 TUN矩阵覆盖。所有 throwaway package、LocalState、fixture、临时 YAML/source均删除，未安装 exemption，真实凭据未进入日志、文档或 package。
+
 ## Revision 11 当前配置迁移门禁
 
 - `docs/config.yaml` 必须由当前 runtime parser 直接通过；YAML 顶层写入
