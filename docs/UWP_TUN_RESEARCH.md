@@ -150,6 +150,35 @@ Decapsulate(dummy):
 - [`Maple.Task/VpnPlugin.cpp`](https://github.com/YtFlow/Maple/blob/ec052fcb014b14e50cb264abc1415807609ec07b/Maple.Task/VpnPlugin.cpp)
 - [UWP sockets/network isolation](https://github.com/MicrosoftDocs/windows-dev-docs/blob/docs/uwp/networking/sockets.md)
 
+### Full-trust foreground 到 AppContainer 的 loopback 对照
+
+2026-08-23 在 Windows 11 ARM64 build 26200 上安装了独立签名的最小 MSIX，server
+固定为 AppContainer `TcpListener(127.0.0.1)`，client 只执行一次四字节
+`ping`/`pong`。所有失败用例均先确认 server 已处于 `LISTEN`，client 连接状态为
+`SYN_SENT` 并最终超时；没有使用 `CheckNetIsolation` exemption。
+
+| client / server | package 关系 | `LoopbackAccessRules` | 结果 |
+| --- | --- | --- | --- |
+| full-trust / AppContainer | 同 package | 无 | `TimedOut` |
+| full-trust / AppContainer | 同 package、self-PFN `out`/`in` | 有 | `TimedOut` |
+| full-trust / AppContainer | 两个 package、互列 PFN `out`/`in` | 有 | `TimedOut` |
+| AppContainer / AppContainer | 两个 package、互列 PFN `out`/`in` | 有 | `PASS` |
+| AppContainer / AppContainer | 同 package | 无 | `PASS` |
+
+这组对照只证明上述设备和包模型中的实际行为。微软
+[Loopback IPC 文档](https://learn.microsoft.com/windows/uwp/communication/interprocess-communication#loopback)
+明确描述两个 packaged application 互列 PFN 的规则，但没有明确覆盖 medium-integrity
+full-trust client 或同 package self-PFN。因而不能把 `LoopbackAccessRules` 当作
+OneVCore full-trust foreground 访问 AppContainer Controller 的产品方案；也不能把
+本机结果外推成未文档化的平台保证。同 AppContainer 内的 provider transport wake
+不受影响。
+
+后续产品方向不增加 loopback exemption，也不放弃 VCore 的 Controller 或 SOCKS5
+outbound。拟议的 [Windows Session Runtime 重构计划](windows-session-runtime-refactor-plan.md)
+将完整 VCore runtime 移到同包 full-trust Session Host，并只用 named pipe 跨越
+AppContainer 边界；该方向在独立 process/ACL/packet spike 通过前仍是 proposed，
+不是已实现能力。
+
 VCore 版必须保留自身资源边界：回包队列最多沿用 `packet_queue_capacity = 256`，只在 empty -> non-empty 时发 dummy，`Decapsulate` 一次 drain；队列满时局部丢包并记统计，不能阻塞 Windows callback，也不能采用 Maple 的无界 `std::queue`。
 
 Windows 11 后续可测量 v12 direct append 是否值得作为优化；第一版不必同时维护两条回包路径，loopback wake 已覆盖 Win10/Win11。
