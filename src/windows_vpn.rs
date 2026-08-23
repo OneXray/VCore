@@ -11,11 +11,11 @@ use std::{
     slice,
     sync::{
         Arc, Mutex, OnceLock,
-        atomic::{AtomicBool, AtomicU8, Ordering},
+        atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering},
         mpsc::SyncSender,
     },
     thread::{self, JoinHandle},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use tokio::sync::oneshot;
@@ -25,10 +25,7 @@ use windows::{
         Core::CoreApplication,
     },
     Networking::{
-        Connectivity::{
-            ConnectionProfile, NetworkConnectivityLevel, NetworkInformation,
-            NetworkStatusChangedEventHandler,
-        },
+        Connectivity::{ConnectionProfile, NetworkInformation, NetworkStatusChangedEventHandler},
         HostName, HostNameType,
         Sockets::DatagramSocket,
         Vpn::{
@@ -80,7 +77,9 @@ const VIRTUAL_DNS_IPV6: &str = "fd00::1";
 const FAIL_CLOSED_IDLE: u8 = 0;
 const FAIL_CLOSED_STOPPING: u8 = 1;
 const FAIL_CLOSED_CANCELLED: u8 = 2;
+const NETWORK_CHANGE_DEBOUNCE: Duration = Duration::from_secs(2);
 static VPN_RUNNING: AtomicBool = AtomicBool::new(false);
+static EXIT_AFTER_RUN: AtomicBool = AtomicBool::new(false);
 const CONFIG_YAML: &str = r#"tun:
   enable: true
 dns:
@@ -109,6 +108,7 @@ struct FailClosedHandle {
 struct FailClosedSignal {
     armed: AtomicBool,
     requested: AtomicBool,
+    network_generation: AtomicU64,
     phase: AtomicU8,
     worker: OnceLock<thread::Thread>,
 }
@@ -118,6 +118,16 @@ impl FailClosedSignal {
         if let Some(worker) = self.worker.get() {
             worker.unpark();
         }
+    }
+
+    fn request(&self, reason: &'static str) {
+        if self.phase.load(Ordering::Acquire) != FAIL_CLOSED_IDLE {
+            return;
+        }
+        if !self.requested.swap(true, Ordering::AcqRel) {
+            log(&format!("fail-closed stop requested: {reason}"));
+        }
+        self.wake();
     }
 }
 
@@ -130,20 +140,15 @@ impl FailClosedHandle {
     }
 
     fn request(&self, reason: &'static str) {
-        if self.signal.phase.load(Ordering::Acquire) != FAIL_CLOSED_IDLE {
-            return;
-        }
-        if !self.signal.requested.swap(true, Ordering::AcqRel) {
-            log(&format!("fail-closed stop requested: {reason}"));
-        }
-        self.signal.wake();
+        self.signal.request(reason);
     }
 
-    fn network_changed(&self, physical: &PhysicalNetwork) {
-        match physical.is_available() {
-            Ok(true) => {}
-            Ok(false) => self.request("physical network is no longer available"),
-            Err(_) => self.request("physical network validation failed"),
+    fn network_changed(&self) {
+        if self.signal.phase.load(Ordering::Acquire) == FAIL_CLOSED_IDLE {
+            self.signal
+                .network_generation
+                .fetch_add(1, Ordering::AcqRel);
+            self.signal.wake();
         }
     }
 }
@@ -154,11 +159,12 @@ struct FailClosedStop {
 }
 
 impl FailClosedStop {
-    fn start(channel: &VpnChannel) -> Result<(Self, FailClosedHandle)> {
+    fn start(channel: &VpnChannel, physical: PhysicalNetwork) -> Result<(Self, FailClosedHandle)> {
         let channel = AgileReference::new(channel)?;
         let signal = Arc::new(FailClosedSignal {
             armed: AtomicBool::new(false),
             requested: AtomicBool::new(false),
+            network_generation: AtomicU64::new(0),
             phase: AtomicU8::new(FAIL_CLOSED_IDLE),
             worker: OnceLock::new(),
         });
@@ -176,6 +182,7 @@ impl FailClosedStop {
                         return;
                     }
                 }
+                let mut checked_network_generation = 0;
                 loop {
                     if worker_signal.phase.load(Ordering::Acquire) == FAIL_CLOSED_CANCELLED {
                         break;
@@ -197,6 +204,40 @@ impl FailClosedStop {
                             Err(error) => log(&format!("fail-closed channel Stop failed: {error}")),
                         }
                         break;
+                    }
+
+                    let network_generation =
+                        worker_signal.network_generation.load(Ordering::Acquire);
+                    if worker_signal.armed.load(Ordering::Acquire)
+                        && network_generation != checked_network_generation
+                    {
+                        let deadline = Instant::now() + NETWORK_CHANGE_DEBOUNCE;
+                        while Instant::now() < deadline
+                            && worker_signal.phase.load(Ordering::Acquire) == FAIL_CLOSED_IDLE
+                            && !worker_signal.requested.load(Ordering::Acquire)
+                            && worker_signal.network_generation.load(Ordering::Acquire)
+                                == network_generation
+                        {
+                            thread::park_timeout(
+                                deadline.saturating_duration_since(Instant::now()),
+                            );
+                        }
+                        if worker_signal.network_generation.load(Ordering::Acquire)
+                            != network_generation
+                            || worker_signal.phase.load(Ordering::Acquire) != FAIL_CLOSED_IDLE
+                            || worker_signal.requested.load(Ordering::Acquire)
+                        {
+                            continue;
+                        }
+                        checked_network_generation = network_generation;
+                        match physical.is_available() {
+                            Ok(true) => {}
+                            Ok(false) => {
+                                worker_signal.request("physical network is no longer available")
+                            }
+                            Err(_) => worker_signal.request("physical network validation failed"),
+                        }
+                        continue;
                     }
                     thread::park();
                 }
@@ -356,7 +397,6 @@ fn network_identity(profile: &ConnectionProfile) -> Result<NetworkIdentity> {
 #[derive(Debug, Clone)]
 struct PhysicalNetwork {
     adapter_id: GUID,
-    connectivity: NetworkConnectivityLevel,
     identity: NetworkIdentity,
     ipv4: Option<Ipv4Addr>,
     ipv6: Option<Ipv6Addr>,
@@ -368,7 +408,6 @@ impl PhysicalNetwork {
     fn current() -> Result<Self> {
         let profile = NetworkInformation::GetInternetConnectionProfile()?;
         let adapter_id = profile.NetworkAdapter()?.NetworkAdapterId()?;
-        let connectivity = profile.GetNetworkConnectivityLevel()?;
         let identity = network_identity(&profile)?;
         let host_names = NetworkInformation::GetHostNames()?;
         let mut ipv4 = Vec::new();
@@ -437,7 +476,6 @@ impl PhysicalNetwork {
         };
         Ok(Self {
             adapter_id,
-            connectivity,
             identity,
             ipv4,
             ipv6,
@@ -477,7 +515,6 @@ impl PhysicalNetwork {
                 continue;
             };
             if adapter.NetworkAdapterId()? == self.adapter_id
-                && profile.GetNetworkConnectivityLevel()? == self.connectivity
                 && network_identity(&profile)? == self.identity
             {
                 return Ok(true);
@@ -725,7 +762,7 @@ impl VpnProvider {
         let (tun, packets) = TunIo::new(PACKET_QUEUE_CAPACITY, move || {
             write_dummy(&wake_output.resolve().map_err(io::Error::other)?).map_err(io::Error::other)
         });
-        let (fail_closed, fail_closed_handle) = FailClosedStop::start(channel)?;
+        let (fail_closed, fail_closed_handle) = FailClosedStop::start(channel, physical.clone())?;
         let runtime = ProviderRuntime::start(
             local_folder,
             physical.clone(),
@@ -755,9 +792,8 @@ impl VpnProvider {
         )?;
 
         let network_stop = fail_closed_handle.clone();
-        let monitored_physical = physical.clone();
         let handler = NetworkStatusChangedEventHandler::new(move |_| {
-            network_stop.network_changed(&monitored_physical);
+            network_stop.network_changed();
             Ok(())
         });
         let token = NetworkInformation::NetworkStatusChanged(&handler)?;
@@ -859,6 +895,7 @@ impl IVpnPlugIn_Impl for VpnProvider_Impl {
                 _ = self.stop_runtime();
                 _ = self.reset_state();
                 VPN_RUNNING.store(false, Ordering::Release);
+                EXIT_AFTER_RUN.store(true, Ordering::Release);
                 log(&format!("connect failed: {error}"));
                 _ = channel.SetErrorMessage(&error.to_string().into());
                 Err(error)
@@ -883,11 +920,13 @@ impl IVpnPlugIn_Impl for VpnProvider_Impl {
                 packet_stats.egress_queue_dropped
             ));
             VPN_RUNNING.store(false, Ordering::Release);
+            EXIT_AFTER_RUN.store(true, Ordering::Release);
             channel_result?;
             runtime_result
         });
         if result.is_err() {
             VPN_RUNNING.store(false, Ordering::Release);
+            EXIT_AFTER_RUN.store(true, Ordering::Release);
         }
         result
     }
@@ -990,7 +1029,8 @@ impl IBackgroundTask_Impl for BackgroundTask_Impl {
             });
             let completed = deferral.Complete();
             let result = result.and(completed);
-            if !VPN_RUNNING.load(Ordering::Acquire) {
+            if EXIT_AFTER_RUN.swap(false, Ordering::AcqRel) && !VPN_RUNNING.load(Ordering::Acquire)
+            {
                 _ = CoreApplication::Exit();
             }
             result
