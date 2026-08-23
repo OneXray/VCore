@@ -1,11 +1,15 @@
-#![allow(dead_code)] // Phase 1 protocol seam; production endpoints land in Phase 2.
-
 use std::{
-    io::{self, Read, Write},
+    fs, io,
     net::{Ipv4Addr, Ipv6Addr},
+    os::windows::fs::MetadataExt as _,
+    path::Path,
 };
 
+#[cfg(test)]
+use std::io::{Read, Write};
+
 use serde::{Deserialize, Serialize};
+use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
 
 use crate::windows_snapshot::SnapshotReference;
 
@@ -17,6 +21,7 @@ const MAX_CONTROL_BYTES: usize = 16 * 1024;
 const MAX_RENDEZVOUS_BYTES: usize = 4 * 1024;
 const MAX_ERROR_BYTES: usize = 4 * 1024;
 const MAX_PACKET_BYTES: usize = 1_500;
+const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -94,6 +99,7 @@ pub(crate) enum ControlMessage {
     },
     Stop {
         version: u32,
+        packet_counters: PacketCounters,
     },
     Stopped {
         version: u32,
@@ -108,7 +114,7 @@ impl ControlMessage {
             | Self::ProviderHello { version, .. }
             | Self::RuntimeReady { version }
             | Self::RuntimeFailed { version, .. }
-            | Self::Stop { version }
+            | Self::Stop { version, .. }
             | Self::Stopped { version, .. } => *version,
         };
         if version != PROTOCOL_VERSION {
@@ -151,6 +157,7 @@ pub(crate) struct Rendezvous {
 }
 
 impl Rendezvous {
+    #[allow(dead_code)] // Provider publication lands in Phase 3.
     pub(crate) fn new(snapshot_token: String, object_path: String) -> io::Result<Self> {
         let rendezvous = Self {
             protocol_version: PROTOCOL_VERSION,
@@ -176,6 +183,7 @@ impl Rendezvous {
         Ok(rendezvous)
     }
 
+    #[allow(dead_code)] // Provider publication lands in Phase 3.
     pub(crate) fn to_json(&self) -> io::Result<Vec<u8>> {
         self.validate()?;
         let bytes = serde_json::to_vec(self).map_err(io::Error::other)?;
@@ -207,6 +215,7 @@ impl Rendezvous {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn write_control(writer: &mut impl Write, message: &ControlMessage) -> io::Result<()> {
     message.validate()?;
     let bytes = serde_json::to_vec(message).map_err(io::Error::other)?;
@@ -220,6 +229,7 @@ pub(crate) fn write_control(writer: &mut impl Write, message: &ControlMessage) -
     writer.flush()
 }
 
+#[cfg(test)]
 pub(crate) fn read_control(reader: &mut impl Read) -> io::Result<ControlMessage> {
     let mut header = [0; 4];
     reader.read_exact(&mut header)?;
@@ -235,6 +245,40 @@ pub(crate) fn read_control(reader: &mut impl Read) -> io::Result<ControlMessage>
     Ok(message)
 }
 
+pub(crate) async fn write_control_async(
+    writer: &mut (impl AsyncWrite + Unpin),
+    message: &ControlMessage,
+) -> io::Result<()> {
+    message.validate()?;
+    let bytes = serde_json::to_vec(message).map_err(io::Error::other)?;
+    if bytes.len() > MAX_CONTROL_BYTES {
+        return Err(invalid_data(
+            "Windows control message exceeds its size limit",
+        ));
+    }
+    writer
+        .write_all(&(bytes.len() as u32).to_be_bytes())
+        .await?;
+    writer.write_all(&bytes).await?;
+    writer.flush().await
+}
+
+pub(crate) async fn read_control_async(
+    reader: &mut (impl AsyncRead + Unpin),
+) -> io::Result<ControlMessage> {
+    let length = reader.read_u32().await? as usize;
+    if length == 0 || length > MAX_CONTROL_BYTES {
+        return Err(invalid_data("invalid Windows control message size"));
+    }
+    let mut bytes = vec![0; length];
+    reader.read_exact(&mut bytes).await?;
+    let message: ControlMessage = serde_json::from_slice(&bytes)
+        .map_err(|_| invalid_data("invalid Windows control message"))?;
+    message.validate()?;
+    Ok(message)
+}
+
+#[cfg(test)]
 pub(crate) fn write_packet_frame(writer: &mut impl Write, packet: &[u8]) -> io::Result<()> {
     if packet.is_empty() || packet.len() > MAX_PACKET_BYTES {
         return Err(invalid_data("invalid Windows packet frame size"));
@@ -244,6 +288,7 @@ pub(crate) fn write_packet_frame(writer: &mut impl Write, packet: &[u8]) -> io::
     writer.flush()
 }
 
+#[cfg(test)]
 pub(crate) fn read_packet_frame(reader: &mut impl Read) -> io::Result<Vec<u8>> {
     let mut header = [0; 2];
     reader.read_exact(&mut header)?;
@@ -254,6 +299,53 @@ pub(crate) fn read_packet_frame(reader: &mut impl Read) -> io::Result<Vec<u8>> {
     let mut packet = vec![0; length];
     reader.read_exact(&mut packet)?;
     Ok(packet)
+}
+
+pub(crate) async fn write_packet_frame_async(
+    writer: &mut (impl AsyncWrite + Unpin),
+    packet: &[u8],
+) -> io::Result<()> {
+    if packet.is_empty() || packet.len() > MAX_PACKET_BYTES {
+        return Err(invalid_data("invalid Windows packet frame size"));
+    }
+    writer
+        .write_all(&(packet.len() as u16).to_be_bytes())
+        .await?;
+    writer.write_all(packet).await?;
+    writer.flush().await
+}
+
+pub(crate) async fn read_packet_frame_async(
+    reader: &mut (impl AsyncRead + Unpin),
+) -> io::Result<Vec<u8>> {
+    let length = reader.read_u16().await? as usize;
+    if !(1..=MAX_PACKET_BYTES).contains(&length) {
+        return Err(invalid_data("invalid Windows packet frame size"));
+    }
+    let mut packet = vec![0; length];
+    reader.read_exact(&mut packet).await?;
+    Ok(packet)
+}
+
+pub(crate) fn read_rendezvous(local_folder: &Path, expected_token: &str) -> io::Result<Rendezvous> {
+    let path = local_folder.join(RENDEZVOUS_FILE);
+    let metadata = fs::symlink_metadata(&path)?;
+    if !metadata.is_file()
+        || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+        || metadata.len() == 0
+        || metadata.len() > MAX_RENDEZVOUS_BYTES as u64
+    {
+        return Err(invalid_data("invalid Windows rendezvous file"));
+    }
+    Rendezvous::from_json(&fs::read(path)?, expected_token)
+}
+
+pub(crate) fn remove_rendezvous(local_folder: &Path) -> io::Result<()> {
+    match fs::remove_file(local_folder.join(RENDEZVOUS_FILE)) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+    }
 }
 
 fn valid_object_path(path: &str) -> bool {
@@ -330,6 +422,19 @@ mod tests {
         assert!(write_packet_frame(&mut Vec::new(), &[]).is_err());
         assert!(write_packet_frame(&mut Vec::new(), &[0; MAX_PACKET_BYTES + 1]).is_err());
         assert!(read_packet_frame(&mut Cursor::new([0, 0])).is_err());
+    }
+
+    #[test]
+    fn rendezvous_file_is_bounded_strict_and_removed_idempotently() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join(RENDEZVOUS_FILE);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let rendezvous = Rendezvous::new(TOKEN.to_owned(), OBJECT_PATH.to_owned()).unwrap();
+        fs::write(&path, rendezvous.to_json().unwrap()).unwrap();
+        assert_eq!(read_rendezvous(root.path(), TOKEN).unwrap(), rendezvous);
+        remove_rendezvous(root.path()).unwrap();
+        remove_rendezvous(root.path()).unwrap();
+        assert!(!path.exists());
     }
 
     #[test]

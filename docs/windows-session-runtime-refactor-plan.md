@@ -442,7 +442,11 @@ Phase 0因此通过，但通过的是“Provider server + qualified AppContainer
 
 本阶段不改变正式 Provider runtime。
 
-### Phase 2：Session Host
+### Phase 2：Session Host — PASS
+
+2026-08-23 已新增静态链接 `vcore-windows-session-host.exe`、strict argument/rendezvous读取、动态 Windows session ID qualification、SessionHello/ProviderHello lifecycle、current VCore prepare/start/Controller/stop，以及独立 bounded session log。Session Host在 Provider正式切换前通过现有 `WindowsTunIo` + bounded adapter桥接 packet pipe；Phase 3再删除 provider内 runtime并收敛最终 adapter。ARM64 Session Host为 4,700,672 bytes，SHA-256 `800ae6d1d35ee1595991d66c806f764bc08ca6e5ef917814dd92d07a67c1b8b5`，PE machine为 ARM64且无 dynamic CRT。Windows ARM64 all-feature lib tests为 436 passed / 1 ignored，host/codec/log focused tests和 lib+bins Clippy `-D warnings`通过。真实 packaged Session Host + Provider组合按阶段边界留给 Phase 4。
+
+完成项：
 
 1. 添加第三 binary与静态 CRT build。
 2. 严格解析唯一 `--snapshot-token` 参数，拒绝 extra args。

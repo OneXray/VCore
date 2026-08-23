@@ -79,6 +79,14 @@ iOS 35/45 MiB 是 best-effort telemetry 与优化目标，不是生命周期 gua
 - Windows `Dialer`现在只对解析后的 `127.0.0.0/8`/`::1`跳过 physical source/interface，并绑定相应 loopback family。非 loopback仍缺 family即失败。DIRECT UDP按 IPv4/IPv6 × loopback/physical最多保留四个 socket class。
 - TDD先得到缺失 `bind_udp_for` 的编译失败，再完成实现。Windows ARM64 `cargo test --all-features --lib` 为 432 passed / 1 ignored；packet-channel focused 4项与 Windows loopback TCP/UDP test通过。lib Clippy在显式 allow两项既有 Rust 1.98 config style lint后以 `-D warnings`通过；fmt和 diff check通过。
 
+## Windows Session Runtime Phase 2（2026-08-23）
+
+- 新增 `vcore-windows-session-host.exe` 与 package-internal Rust runner。参数只接受 `--snapshot-token onevcore-v1:<sha256>`；Session Host读取 strict rendezvous、动态取得 Windows session ID、连接 qualified AppContainer control/data paths并执行 SessionHello/ProviderHello/RuntimeReady/Stop/Stopped lifecycle。
+- Session Host从原 snapshot读取同一 YAML，复用 `PreparedCore::prepare_config`、`start_tun`、现有 VLESS/SOCKS5/AnyTLS/DIRECT graph、GeoData和 TrafficController；physical source/interface仍通过现有 `Dialer::with_windows_interface`成对注入。启动/runtime错误只回传 bounded redacted code/message。
+- 当前 Phase 2桥接复用现有 bounded `WindowsTunIo`/`WindowsPacketAdapter`：pipe reader把 frame try-queue给 VCore，VCore egress的 empty-to-nonempty wake驱动 pipe writer。任一 data task、control pipe或 runtime提前退出都会收敛整个 host；正式 Provider切换和最终 adapter去重属于 Phase 3。
+- 新增独立 `windows-vpn-session.log` 1 MiB current + one previous轮换。ARM64 Session Host为 4,700,672 bytes，SHA-256 `800ae6d1d35ee1595991d66c806f764bc08ca6e5ef917814dd92d07a67c1b8b5`，PE machine ARM64、无 dynamic CRT。
+- Windows ARM64 all-feature lib tests为 436 passed / 1 ignored；Session Host参数/binding 2项、packet channel 5项、session log 1项通过。lib+bins Clippy在两项既有 Rust 1.98 config style lint allow后以 `-D warnings`通过；三个 Windows artifact release build成功。真实 packaged Session Host + Provider组合仍为 Phase 4 `NOT RUN`。
+
 ## Revision 11 当前配置迁移门禁
 
 - `docs/config.yaml` 必须由当前 runtime parser 直接通过；YAML 顶层写入

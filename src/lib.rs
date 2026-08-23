@@ -48,7 +48,12 @@ mod tun_runtime;
 #[cfg(all(windows, feature = "ffi"))]
 mod windows_host;
 #[cfg(all(windows, feature = "ffi"))]
+mod windows_log;
+#[cfg(all(windows, feature = "ffi"))]
 mod windows_packet_channel;
+#[cfg(all(windows, feature = "ffi"))]
+#[doc(hidden)]
+pub mod windows_session;
 #[cfg(all(windows, feature = "ffi"))]
 mod windows_snapshot;
 #[cfg(all(windows, feature = "ffi"))]

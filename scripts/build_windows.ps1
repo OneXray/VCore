@@ -17,12 +17,15 @@ try {
     if ($LASTEXITCODE) { throw "VCore Windows DLL build failed: $LASTEXITCODE" }
     cargo build --locked --all-features --release --target $target --bin vcore-windows-vpn-host
     if ($LASTEXITCODE) { throw "VCore Windows provider host build failed: $LASTEXITCODE" }
+    cargo build --locked --all-features --release --target $target --bin vcore-windows-session-host
+    if ($LASTEXITCODE) { throw "VCore Windows session host build failed: $LASTEXITCODE" }
 
     Remove-Item $dist -Recurse -Force -ErrorAction SilentlyContinue
     New-Item $dist -ItemType Directory | Out-Null
     Copy-Item (Join-Path $release 'vcore.dll') $dist
     Copy-Item (Join-Path $release 'vcore-windows-vpn-host.exe') $dist
-    Get-FileHash (Join-Path $dist 'vcore.dll'), (Join-Path $dist 'vcore-windows-vpn-host.exe') -Algorithm SHA256 |
+    Copy-Item (Join-Path $release 'vcore-windows-session-host.exe') $dist
+    Get-FileHash (Join-Path $dist 'vcore.dll'), (Join-Path $dist 'vcore-windows-vpn-host.exe'), (Join-Path $dist 'vcore-windows-session-host.exe') -Algorithm SHA256 |
         Format-Table Path, Hash -AutoSize
 } finally {
     Pop-Location
