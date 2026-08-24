@@ -30,8 +30,7 @@ use crate::{
     windows_log,
     windows_packet_channel::{
         ControlMessage, PROTOCOL_VERSION, PhysicalBinding, Rendezvous, read_control_async,
-        read_packet_frame_async, read_rendezvous, remove_rendezvous, write_control_async,
-        write_packet_frame_async,
+        read_packet_frame_async, read_rendezvous, write_control_async, write_packet_frame_async,
     },
     windows_snapshot::SnapshotReference,
 };
@@ -109,7 +108,7 @@ async fn run_async(local_folder: &Path, token: &str) -> io::Result<()> {
     let (control_name, data_name) = rendezvous.qualified_names(session_id)?;
     let control = open_pipe(&control_name, STARTUP_TIMEOUT).await?;
     let data = open_pipe(&data_name, STARTUP_TIMEOUT).await?;
-    remove_rendezvous(local_folder)?;
+    // The Provider publishes and removes rendezvous; competing deletes can return ACCESS_DENIED.
 
     let (mut control_read, mut control_write) = tokio::io::split(control);
     write_control_async(

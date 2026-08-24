@@ -111,6 +111,18 @@ iOS 35/45 MiB 是 best-effort telemetry 与优化目标，不是生命周期 gua
 - 强制结束 Flutter foreground 后 routes、Controller、Provider和 Session Host继续工作；重开 Flutter后两个 native PID不变，HTTPS 204和 totals恢复。用户随后从 UI显式 Stop；最终 1,155/1,564、queue drop 0，start record、rendezvous、routes和 Session Host清理。
 - DIRECT、VLESS、SOCKS5和 Windows packet/Controller边界均完成新路径实机回归；AnyTLS/UoT和无环 chain继续由同一未改动 runtime的 all-feature tests及此前物理 TUN矩阵覆盖。所有 throwaway package、LocalState、fixture、临时 YAML/source均删除，未安装 exemption，真实凭据未进入日志、文档或 package。
 
+## Windows Session Runtime Phase 6（2026-08-24）
+
+- 无等待 Start/Stop loop稳定复现 status 15，临时定点诊断把原始 `ERROR_ACCESS_DENIED`定位到 Provider和 Session Host并发 `RemoveFile(rendezvous.json)`。Session Host不再删除 Provider发布的 rendezvous；发布者的 RAII cleanup成为唯一 owner。所有 `[DEBUG-*]`诊断已移除。
+- 原始最小 loop修复后20/20；另10轮每轮通过 TCP DNS和UDP NTP，Provider PIDs `5388,4940,3660,2296,9420,5892,5508,9572,10580,10668`、Session Host PIDs `5976,3268,10288,11616,10668,1764,11080,4820,11508,504`，每组均唯一，local均为 `192.168.3.1`，每轮queue drop 0。
+- Provider PID 11476 crash在529 ms内移除routes并使 Session Host 4772退出；Session Host PID 8460 crash在524 ms内触发 Provider 5884 fail-closed Stop。两者均无rendezvous或进程残留。invalid/truncated frame由strict codec tests覆盖，进程中断则按EOF fail-closed。
+- 本机 SOCKS5 fixture正常时Baidu HTTP 200；强杀fixture后新flow得到预期 `RemoteDisconnected`，VPN routes和 Session Host继续存在，DIRECT TCP DNS仍通过；显式 Stop最终137/60、queue drop 0。
+- 10分钟 pressure下载110,000,000 bytes并执行60轮 TCP DNS + UDP NTP；最终45,336/89,474、queue drop 0。Provider handles/threads/private-memory的中段→尾段均值为438.6→437.4、11.4→12、20.31→20.38 MiB；Session Host为228.3→228.2、5.8→4.8、2.73→2.68 MiB。
+- packet frame header+payload改为一次write并有write-count regression test。相同Cloudflare 100 MB三次 workload的旧provider内嵌中位数22.479 MiB/s，新packet channel中位数22.888 MiB/s，即101.8%，超过80%门禁。
+- `OneVCore.Dev_26.8.1.8_arm64` disconnected原位升级成功，MSIX SHA-256 `678d9363b3eeb6ad10f6535604eb38bd0e71d0e7ffbaec0f5bffb2e07cd350e1`、签名Valid、无 `LoopbackAccessRules`。用户用正式UI连接真实RAW；VLESS/REALITY、HTTP/HTTPS、TCP DNS、UDP NTP和Controller totals通过，累计增加18,509/640,406 bytes，local均为 `192.168.3.1`，错误secret为401。用户显式Stop后最终182/108、queue drop 0，routes、record、rendezvous、Session Host与foreground均清理。
+- 最终 artifact SHA-256：`vcore.dll` `267bcaf8ce795f1ac5a0de697b4914567503f036d09b41e8a58b8bbd88a77d97`，Provider Host `deb213bd75a343279da84f0459b458514771f008345e17f92cea74cce377bb4b`，Session Host `b468f6d90387e296655bb0b9bfe47e3d286fc9e3c7582631836a60cb3ada6efc`。ARM64 all-feature lib为435 passed / 1 ignored；bins、fmt、Clippy `-D warnings`、Dart analyze、focused Flutter和packaging tests均通过。MSIX builder另修复x64 PowerShell在ARM64 OS误报host architecture的问题；native registry gate的完整非SkipBuild dry package通过后删除。throwaway old/new packages、LocalState、fixtures、源码和process已删除，`CheckNetIsolation`无OneVCore exemption。
+- 当前agent无提升权限，`Disable-NetAdapter`以系统error 5拒绝；physical network变化继续引用Phase 2同机真实断网结果，相关Provider monitor代码在本次重构中未改。Windows 10、原生x64、真实物理IPv6、WACK和Store发布继续deferred。
+
 ## Revision 11 当前配置迁移门禁
 
 - `docs/config.yaml` 必须由当前 runtime parser 直接通过；YAML 顶层写入

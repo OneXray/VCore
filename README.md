@@ -33,7 +33,7 @@ VCore 是独立的 Rust 客户端代理 core。配置只接受字段名和嵌套
 - [TUN ICMP 与 DNS](docs/tun-icmp-dns.md)：ICMP fake response、Mihomo-compatible DNS 语义、资源边界和验收状态。
 - [TUN 平台层](docs/tun-platform.md)：`rust-tun` fd adapter、所有权/分配约束与 Windows UWP 后续边界。
 - [Windows UWP TUN 接入调研](docs/UWP_TUN_RESEARCH.md)：已确认的 Win10/Win11、Store MSIX、packet callback、物理出口绑定与 fail-closed 基线。
-- [Windows Session Runtime 重构计划](docs/windows-session-runtime-refactor-plan.md)：把完整 Windows VCore runtime 移到 full-trust Session Host，并以同包 packet channel 保留现有协议、Controller 与 local SOCKS5 用法。
+- [Windows Session Runtime 重构计划](docs/windows-session-runtime-refactor-plan.md)：Phase 0–6已把完整 Windows VCore runtime移到 full-trust Session Host，并以同包 packet channel保留现有协议、Controller与local SOCKS5用法；Phase 7发布矩阵延期。
 - [自有 rustls REALITY 实现计划](docs/rustls-reality-plan.md)：fork 分支规则、连接级安全状态、迁移阶段、验收门槛与回滚策略。
 - [iOS TUN 业务优先优化计划](docs/ios-business-first-optimization-plan.md)：取消内存 fail-closed、移除业务并发硬门、保留有限资源优化和真机验收的演进记录。
 - [验收](docs/acceptance.md)：当前自动化证据与仍待真机完成的验收项。

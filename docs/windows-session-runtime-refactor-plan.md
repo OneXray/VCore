@@ -1,6 +1,6 @@
 # Windows Session Runtime 重构计划
 
-> 状态：Phase 0 已于 2026-08-23 在 Windows 11 ARM64 build 26200.9168 通过；架构已按实测结果收敛，进入正式实现。
+> 状态：Phase 0–6 已于 2026-08-24 在 Windows 11 ARM64 build 26200.9168 完成；Windows Session Runtime重构已通过开发身份验收，Phase 7发布门禁继续延期。
 >
 > 范围：Windows TUN runtime；不改变 Apple/Android、Invoke API v5、配置 schema revision 11 或既有代理协议。
 >
@@ -520,7 +520,15 @@ Metrics 验收：
 6. reconnect后四字段从零开始；
 7. Stop后 Controller不可访问。
 
-### Phase 6：lifecycle、pressure 与升级
+### Phase 6：lifecycle、pressure 与升级 — PASS
+
+2026-08-24 ARM64 build 26200.9168 完成最终门禁。无等待的最小 Start/Stop loop稳定复现 status 15；定点诊断确认 Provider与 Session Host并发删除同一 rendezvous时 `RemoveFile`偶发 `ERROR_ACCESS_DENIED`。修复后 rendezvous只由发布者 Provider拥有和清理，原始 loop为20/20，带 TCP DNS + UDP NTP的 rapid reconnect为10/10且两类 PID每轮更换。packet frame改为单次 write并由 write-count测试锁定；同机100 MB三次中位吞吐为新路径22.888 MiB/s、旧 provider内嵌路径22.479 MiB/s，即101.8%。
+
+Provider crash和 Session Host crash分别在529 ms与524 ms内移除 routes并结束 Session Host；后者记录 fail-closed request/Stop完成。外部 SOCKS5 fixture退出后新 flow按预期失败，但 routes、Provider和 Session Host保持，显式 Stop最终137/60且queue drop 0。10分钟 pressure下载110,000,000 bytes并完成60轮 TCP DNS + UDP NTP，最终45,336/89,474、queue drop 0；Provider handles 438.6→437.4、threads 11.4→12、private 20.31→20.38 MiB，Session Host分别228.3→228.2、5.8→4.8、2.73→2.68 MiB。invalid/truncated frame继续由codec tests与 crash EOF覆盖。当前会话无提升权限，重复 `Disable-NetAdapter`得到系统 error 5；physical network fail-closed沿用 Phase 2同机实测且相关 Provider monitor代码未改。
+
+正式 `OneVCore.Dev_26.8.1.8_arm64`完成 disconnected原位升级，MSIX SHA-256为 `678d9363b3eeb6ad10f6535604eb38bd0e71d0e7ffbaec0f5bffb2e07cd350e1`且签名Valid。用户从正式 UI手动连接/断开；真实 VLESS/REALITY、HTTP/HTTPS、TCP DNS、UDP NTP和Controller累计量通过，均从 `192.168.3.1`进入 TUN，最终182/108且queue drop 0。Stop后 start record、rendezvous、routes和 Session Host清理。throwaway old/new packages完成 clean uninstall，LocalState/process/profile均无残留；无 loopback exemption。Windows 10、原生x64、物理IPv6、WACK与Store身份仍只属于延期的 Phase 7。
+
+完成项：
 
 - Provider crash；
 - Session Host/VCore crash；
@@ -669,14 +677,8 @@ Phase 0通过后两份 ADR已改为 `accepted`。实现各阶段同步更新：
 - throwaway package、fixture、临时源码、LocalState和进程全部清理。
 - Phase 3B延期项目仍清楚标记为 deferred，而非暗示发布完成。
 
-## 19. 后续仍需取得的事实
+## 19. 已取得事实与延期项
 
-Phase 0已解决 process activation、namespace qualification、unpackaged isolation、framing和初始 throughput。正式阶段仍必须实测：
+Phase 0–6已实测 process activation、namespace qualification、dynamic current-session path、unpackaged isolation、framing、真实 Flutter host bridge、`VpnChannel` pressure、crash、rapid reconnect、rendezvous cleanup、disconnected upgrade和相对吞吐。新路径同机100 MB中位吞吐达到旧路径的101.8%，10分钟 callback/pipe pressure无queue drop或资源上升。
 
-1. 相同 workload下新 packet channel相对当前 provider内嵌数据面的吞吐与 CPU比例，最终门禁仍为至少 80%。
-2. `IApplicationActivationManager` 从真实 Flutter worker-isolate host bridge调用时返回的 PID/handle、错误和 package-update行为。
-3. 动态 Windows session ID（不能硬编码 Phase 0 的 `1`）与 qualified AppContainer path在注销/登录和多 session场景中的行为。
-4. 真实 `VpnChannel` callback pressure下 blocking Win32 pipe worker、256 queues和 Decapsulate wake的组合行为。
-5. Provider crash、Session Host crash、network change、rapid reconnect与 package upgrade下 rendezvous清理是否按契约收敛。
-
-任一事实不成立时，停在对应 gate修正当前阶段；不得把失败隐藏在兼容 fallback中。
+剩余事实严格属于 Phase 7：Windows 10 22H2、原生x64 Windows、真实物理IPv6、WACK、Partner Center正式identity、restricted-capability approval、Store bundle/submission，以及需要相应环境才能扩展的多用户/远程会话矩阵。它们不改变当前开发身份重构完成结论，也不得被写成已验证的平台保证。

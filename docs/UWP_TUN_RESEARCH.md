@@ -1,6 +1,6 @@
 # VCore Windows UWP TUN 调研
 
-> 状态：首版架构基线已确认；Phase 0/1、Phase 2A 与 Phase 3A Windows 11 ARM64 开发签名 MSIX 验收已通过；外部平台矩阵与 Phase 3B 正式发布门禁仍未完成。记录于 2026-08-22，阶段结果更新于 2026-08-23。
+> 状态：首版架构基线与 Windows Session Runtime Phase 0–6 已在 Windows 11 ARM64 开发签名 MSIX完成；外部平台矩阵与 Phase 3B正式发布门禁仍未完成。记录于 2026-08-22，阶段结果更新于 2026-08-24。
 
 ## 开发原则
 
@@ -182,7 +182,8 @@ full-trust Session Host 使用 `IApplicationActivationManager` 激活并连接 q
 `\\.\pipe\Sessions\<id>\AppContainerNamedObjects\<sid>\...` path。100,002 个双向
 frame 无 corruption，单向 payload throughput 为 52.98 MiB/s，unpackaged same-user
 probe 对 unqualified name 得到 `ERROR_FILE_NOT_FOUND`，且无 loopback exemption。
-这些仍只是 named-pipe/process-model证据，不是完整 VCore/VpnChannel数据面已实现。
+Phase 1–6随后完成完整 VCore/VpnChannel数据面、正式 Flutter链路、crash/reconnect、
+SOCKS5/metrics、10分钟pressure和相对吞吐验收；详见计划与 `acceptance.md`。
 
 VCore 版必须保留自身资源边界：回包队列最多沿用 `packet_queue_capacity = 256`，只在 empty -> non-empty 时发 dummy，`Decapsulate` 一次 drain；队列满时局部丢包并记统计，不能阻塞 Windows callback，也不能采用 Maple 的无界 `std::queue`。
 

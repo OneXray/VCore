@@ -589,8 +589,10 @@ pub(crate) fn write_packet_frame(writer: &mut impl Write, packet: &[u8]) -> io::
     if packet.is_empty() || packet.len() > MAX_PACKET_BYTES {
         return Err(invalid_data("invalid Windows packet frame size"));
     }
-    writer.write_all(&(packet.len() as u16).to_be_bytes())?;
-    writer.write_all(packet)?;
+    let mut frame = [0_u8; MAX_PACKET_BYTES + 2];
+    frame[..2].copy_from_slice(&(packet.len() as u16).to_be_bytes());
+    frame[2..packet.len() + 2].copy_from_slice(packet);
+    writer.write_all(&frame[..packet.len() + 2])?;
     writer.flush()
 }
 
@@ -614,10 +616,10 @@ pub(crate) async fn write_packet_frame_async(
     if packet.is_empty() || packet.len() > MAX_PACKET_BYTES {
         return Err(invalid_data("invalid Windows packet frame size"));
     }
-    writer
-        .write_all(&(packet.len() as u16).to_be_bytes())
-        .await?;
-    writer.write_all(packet).await?;
+    let mut frame = [0_u8; MAX_PACKET_BYTES + 2];
+    frame[..2].copy_from_slice(&(packet.len() as u16).to_be_bytes());
+    frame[2..packet.len() + 2].copy_from_slice(packet);
+    writer.write_all(&frame[..packet.len() + 2]).await?;
     writer.flush().await
 }
 
@@ -680,6 +682,24 @@ mod tests {
         "onevcore-v1:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     const OBJECT_PATH: &str = "AppContainerNamedObjects\\S-1-15-2-3625493040-1926059196-1414268811-1331793124-1328616665-2242015017-1330142422";
 
+    #[derive(Default)]
+    struct CountingWriter {
+        bytes: Vec<u8>,
+        writes: usize,
+    }
+
+    impl Write for CountingWriter {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.writes += 1;
+            self.bytes.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
     fn binding() -> PhysicalBinding {
         PhysicalBinding {
             adapter_id: "C2AFE445-9ED9-423D-8C29-6B2CD49691D2".to_owned(),
@@ -721,9 +741,13 @@ mod tests {
     #[test]
     fn packet_frames_preserve_boundaries_and_reject_invalid_lengths() {
         let packet = vec![0x45; MAX_PACKET_BYTES];
-        let mut wire = Vec::new();
+        let mut wire = CountingWriter::default();
         write_packet_frame(&mut wire, &packet).unwrap();
-        assert_eq!(read_packet_frame(&mut Cursor::new(wire)).unwrap(), packet);
+        assert_eq!(wire.writes, 1);
+        assert_eq!(
+            read_packet_frame(&mut Cursor::new(wire.bytes)).unwrap(),
+            packet
+        );
 
         assert!(write_packet_frame(&mut Vec::new(), &[]).is_err());
         assert!(write_packet_frame(&mut Vec::new(), &[0; MAX_PACKET_BYTES + 1]).is_err());
