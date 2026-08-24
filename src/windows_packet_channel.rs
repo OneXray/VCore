@@ -18,7 +18,7 @@ use std::io::Read;
 
 use serde::{Deserialize, Serialize};
 use tokio::{
-    io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _},
+    io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _, BufReader},
     net::windows::named_pipe::ServerOptions,
     sync::oneshot,
     task::JoinSet,
@@ -40,6 +40,9 @@ const MAX_CONTROL_BYTES: usize = 16 * 1024;
 const MAX_RENDEZVOUS_BYTES: usize = 4 * 1024;
 const MAX_ERROR_BYTES: usize = 4 * 1024;
 const MAX_PACKET_BYTES: usize = 1_500;
+pub(crate) const MAX_PACKET_BATCH_PACKETS: usize = 8;
+pub(crate) const DATA_PIPE_READ_BUFFER_BYTES: usize = 64 * 1024;
+const MAX_PACKET_BATCH_BYTES: usize = MAX_PACKET_BATCH_PACKETS * (MAX_PACKET_BYTES + 2);
 const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
 const SESSION_START_TIMEOUT: Duration = Duration::from_secs(15);
 const SESSION_STOP_TIMEOUT: Duration = Duration::from_secs(10);
@@ -381,17 +384,19 @@ async fn run_provider_session(
     }
 
     let tun = Arc::new(tun);
-    let (mut data_read, mut data_write) = tokio::io::split(data);
+    let (data_read, mut data_write) = tokio::io::split(data);
+    let mut data_read = BufReader::with_capacity(DATA_PIPE_READ_BUFFER_BYTES, data_read);
     let mut data_tasks = JoinSet::new();
     let ingress = Arc::clone(&tun);
     data_tasks.spawn(async move {
-        let mut packet = Vec::with_capacity(MAX_PACKET_BYTES);
+        let mut packets = Vec::with_capacity(MAX_PACKET_BATCH_PACKETS);
+        let mut frame_buffer = Vec::new();
         loop {
             ingress
-                .read_packet(&mut packet)
+                .read_packet_batch(&mut packets, MAX_PACKET_BATCH_PACKETS)
                 .await
                 .map_err(io::Error::other)?;
-            write_packet_frame_async(&mut data_write, &packet).await?;
+            write_packet_batch_async(&mut data_write, &packets, &mut frame_buffer).await?;
         }
     });
     let egress = Arc::clone(&tun);
@@ -609,17 +614,24 @@ pub(crate) fn read_packet_frame(reader: &mut impl Read) -> io::Result<Vec<u8>> {
     Ok(packet)
 }
 
-pub(crate) async fn write_packet_frame_async(
+pub(crate) async fn write_packet_batch_async(
     writer: &mut (impl AsyncWrite + Unpin),
-    packet: &[u8],
+    packets: &[Vec<u8>],
+    frame_buffer: &mut Vec<u8>,
 ) -> io::Result<()> {
-    if packet.is_empty() || packet.len() > MAX_PACKET_BYTES {
-        return Err(invalid_data("invalid Windows packet frame size"));
+    if packets.is_empty() || packets.len() > MAX_PACKET_BATCH_PACKETS {
+        return Err(invalid_data("invalid Windows packet batch size"));
     }
-    let mut frame = [0_u8; MAX_PACKET_BYTES + 2];
-    frame[..2].copy_from_slice(&(packet.len() as u16).to_be_bytes());
-    frame[2..packet.len() + 2].copy_from_slice(packet);
-    writer.write_all(&frame[..packet.len() + 2]).await?;
+    frame_buffer.clear();
+    frame_buffer.reserve(MAX_PACKET_BATCH_BYTES);
+    for packet in packets {
+        if packet.is_empty() || packet.len() > MAX_PACKET_BYTES {
+            return Err(invalid_data("invalid Windows packet frame size"));
+        }
+        frame_buffer.extend_from_slice(&(packet.len() as u16).to_be_bytes());
+        frame_buffer.extend_from_slice(packet);
+    }
+    writer.write_all(frame_buffer).await?;
     writer.flush().await
 }
 
@@ -674,7 +686,13 @@ fn invalid_data(message: &'static str) -> io::Error {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
+    use std::{
+        io::Cursor,
+        pin::Pin,
+        task::{Context, Poll},
+    };
+
+    use tokio::io::AsyncWrite;
 
     use super::*;
 
@@ -697,6 +715,32 @@ mod tests {
 
         fn flush(&mut self) -> io::Result<()> {
             Ok(())
+        }
+    }
+
+    #[derive(Default)]
+    struct CountingAsyncWriter {
+        bytes: Vec<u8>,
+        writes: usize,
+    }
+
+    impl AsyncWrite for CountingAsyncWriter {
+        fn poll_write(
+            mut self: Pin<&mut Self>,
+            _context: &mut Context<'_>,
+            bytes: &[u8],
+        ) -> Poll<io::Result<usize>> {
+            self.writes += 1;
+            self.bytes.extend_from_slice(bytes);
+            Poll::Ready(Ok(bytes.len()))
+        }
+
+        fn poll_flush(self: Pin<&mut Self>, _context: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn poll_shutdown(self: Pin<&mut Self>, _context: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Poll::Ready(Ok(()))
         }
     }
 
@@ -752,6 +796,44 @@ mod tests {
         assert!(write_packet_frame(&mut Vec::new(), &[]).is_err());
         assert!(write_packet_frame(&mut Vec::new(), &[0; MAX_PACKET_BYTES + 1]).is_err());
         assert!(read_packet_frame(&mut Cursor::new([0, 0])).is_err());
+    }
+
+    #[tokio::test]
+    async fn packet_batches_use_one_bounded_write_and_preserve_frames() {
+        let packets = (0..MAX_PACKET_BATCH_PACKETS)
+            .map(|value| vec![value as u8; MAX_PACKET_BYTES])
+            .collect::<Vec<_>>();
+        let mut wire = CountingAsyncWriter::default();
+        let mut buffer = Vec::new();
+        write_packet_batch_async(&mut wire, &packets, &mut buffer)
+            .await
+            .unwrap();
+        assert_eq!(wire.writes, 1);
+
+        let mut reader = wire.bytes.as_slice();
+        for packet in packets {
+            assert_eq!(read_packet_frame_async(&mut reader).await.unwrap(), packet);
+        }
+        assert!(
+            write_packet_batch_async(&mut wire, &[], &mut buffer)
+                .await
+                .is_err()
+        );
+        assert!(
+            write_packet_batch_async(
+                &mut wire,
+                &vec![vec![0x45]; MAX_PACKET_BATCH_PACKETS + 1],
+                &mut buffer,
+            )
+            .await
+            .is_err()
+        );
+        assert!(
+            write_packet_batch_async(&mut wire, &[vec![0x45; MAX_PACKET_BYTES + 1]], &mut buffer,)
+                .await
+                .is_err()
+        );
+        assert_eq!(wire.writes, 1);
     }
 
     #[test]

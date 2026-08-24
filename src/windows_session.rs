@@ -7,6 +7,7 @@ use std::{
 };
 
 use tokio::{
+    io::BufReader,
     net::windows::named_pipe::{ClientOptions, NamedPipeClient},
     sync::Notify,
     task::JoinSet,
@@ -29,8 +30,9 @@ use crate::{
     runtime::{PreparedCore, RunningCore},
     windows_log,
     windows_packet_channel::{
-        ControlMessage, PROTOCOL_VERSION, PhysicalBinding, Rendezvous, read_control_async,
-        read_packet_frame_async, read_rendezvous, write_control_async, write_packet_frame_async,
+        ControlMessage, DATA_PIPE_READ_BUFFER_BYTES, MAX_PACKET_BATCH_PACKETS, PROTOCOL_VERSION,
+        PhysicalBinding, Rendezvous, read_control_async, read_packet_frame_async, read_rendezvous,
+        write_control_async, write_packet_batch_async,
     },
     windows_snapshot::SnapshotReference,
 };
@@ -235,7 +237,8 @@ async fn start_vcore(
         observed.notify_one();
         Ok(())
     });
-    let (mut data_read, mut data_write) = tokio::io::split(data);
+    let (data_read, mut data_write) = tokio::io::split(data);
+    let mut data_read = BufReader::with_capacity(DATA_PIPE_READ_BUFFER_BYTES, data_read);
     let mut tasks = JoinSet::new();
     let ingress = packets.clone();
     tasks.spawn(async move {
@@ -245,10 +248,20 @@ async fn start_vcore(
         }
     });
     tasks.spawn(async move {
+        let mut packet_batch = Vec::with_capacity(MAX_PACKET_BATCH_PACKETS);
+        let mut frame_buffer = Vec::new();
         loop {
             wake.notified().await;
             while let Some(packet) = packets.pop_egress() {
-                write_packet_frame_async(&mut data_write, &packet).await?;
+                packet_batch.clear();
+                packet_batch.push(packet);
+                while packet_batch.len() < MAX_PACKET_BATCH_PACKETS {
+                    let Some(packet) = packets.pop_egress() else {
+                        break;
+                    };
+                    packet_batch.push(packet);
+                }
+                write_packet_batch_async(&mut data_write, &packet_batch, &mut frame_buffer).await?;
             }
         }
     });

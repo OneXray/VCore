@@ -61,29 +61,39 @@ impl WindowsTunIo {
     }
 
     pub(crate) async fn read_packet(&self, packet: &mut Vec<u8>) -> Result<IpVersion> {
-        let received = self.ingress.lock().await.recv().await.ok_or_else(|| {
-            VCoreError::Io(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                "Windows packet ingress closed",
-            ))
-        })?;
-        if received.len() > TUN_MTU {
-            return Err(VCoreError::InvalidPacket(
-                "TUN packet exceeds configured MTU",
-            ));
-        }
-        let (version, _) = TunFraming::RawIp.decode(&received)?;
+        let received = self.ingress.lock().await.recv().await.ok_or_else(closed)?;
+        let version = packet_version(&received)?;
         *packet = received;
         Ok(version)
     }
 
-    pub(crate) async fn write_packet(&self, packet: &[u8]) -> Result<IpVersion> {
-        if packet.len() > TUN_MTU {
-            return Err(VCoreError::InvalidPacket(
-                "TUN packet exceeds configured MTU",
-            ));
+    pub(crate) async fn read_packet_batch(
+        &self,
+        packets: &mut Vec<Vec<u8>>,
+        max_packets: usize,
+    ) -> Result<()> {
+        debug_assert!(max_packets > 0);
+        packets.clear();
+        let mut ingress = self.ingress.lock().await;
+        let first = ingress.recv().await.ok_or_else(closed)?;
+        packet_version(&first)?;
+        packets.push(first);
+        while packets.len() < max_packets {
+            match ingress.try_recv() {
+                Ok(packet) => {
+                    packet_version(&packet)?;
+                    packets.push(packet);
+                }
+                Err(mpsc::error::TryRecvError::Empty | mpsc::error::TryRecvError::Disconnected) => {
+                    break;
+                }
+            }
         }
-        let (version, _) = TunFraming::RawIp.decode(packet)?;
+        Ok(())
+    }
+
+    pub(crate) async fn write_packet(&self, packet: &[u8]) -> Result<IpVersion> {
+        let version = packet_version(packet)?;
         let wake = {
             let mut egress =
                 self.shared.egress.lock().map_err(|_| {
@@ -145,6 +155,22 @@ impl WindowsPacketAdapter {
     }
 }
 
+fn packet_version(packet: &[u8]) -> Result<IpVersion> {
+    if packet.len() > TUN_MTU {
+        return Err(VCoreError::InvalidPacket(
+            "TUN packet exceeds configured MTU",
+        ));
+    }
+    TunFraming::RawIp.decode(packet).map(|(version, _)| version)
+}
+
+fn closed() -> VCoreError {
+    VCoreError::Io(io::Error::new(
+        io::ErrorKind::UnexpectedEof,
+        "Windows packet ingress closed",
+    ))
+}
+
 fn saturating_increment(counter: &AtomicU64) {
     _ = counter.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
         Some(value.saturating_add(1))
@@ -167,6 +193,30 @@ mod tests {
         0x60, 0, 0, 0, 0, 0, 59, 64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
     ];
+
+    #[tokio::test]
+    async fn ingress_batch_waits_for_one_then_drains_only_ready_packets() {
+        let (io, adapter) = WindowsTunIo::new(3, || Ok(()));
+        assert!(adapter.try_send(IPV4.to_vec()));
+        assert!(adapter.try_send(IPV6.to_vec()));
+        assert!(adapter.try_send(IPV4.to_vec()));
+
+        let mut packets = Vec::new();
+        io.read_packet_batch(&mut packets, 2).await.unwrap();
+        assert_eq!(packets, [IPV4, IPV6]);
+        io.read_packet_batch(&mut packets, 2).await.unwrap();
+        assert_eq!(packets, [IPV4]);
+
+        assert!(adapter.try_send(IPV6.to_vec()));
+        tokio::time::timeout(
+            std::time::Duration::from_millis(100),
+            io.read_packet_batch(&mut packets, 2),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(packets, [IPV6]);
+    }
 
     #[tokio::test]
     async fn packets_cross_the_windows_packet_adapter_and_wake_once() {

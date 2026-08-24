@@ -123,6 +123,15 @@ iOS 35/45 MiB 是 best-effort telemetry 与优化目标，不是生命周期 gua
 - 最终 artifact SHA-256：`vcore.dll` `267bcaf8ce795f1ac5a0de697b4914567503f036d09b41e8a58b8bbd88a77d97`，Provider Host `deb213bd75a343279da84f0459b458514771f008345e17f92cea74cce377bb4b`，Session Host `b468f6d90387e296655bb0b9bfe47e3d286fc9e3c7582631836a60cb3ada6efc`。ARM64 all-feature lib为435 passed / 1 ignored；bins、fmt、Clippy `-D warnings`、Dart analyze、focused Flutter和packaging tests均通过。MSIX builder另修复x64 PowerShell在ARM64 OS误报host architecture的问题；native registry gate的完整非SkipBuild dry package通过后删除。throwaway old/new packages、LocalState、fixtures、源码和process已删除，`CheckNetIsolation`无OneVCore exemption。
 - 当前agent无提升权限，`Disable-NetAdapter`以系统error 5拒绝；physical network变化继续引用Phase 2同机真实断网结果，相关Provider monitor代码在本次重构中未改。Windows 10、原生x64、真实物理IPv6、WACK和Store发布继续deferred。
 
+## Windows packet channel有界合并（2026-08-24）
+
+- Windows 11 ARM64 build 26200.9168 VM（报告1个logical CPU）上的throwaway full-trust跨进程demo固定Tokio 1.52.3、current-thread runtime、64 KiB named-pipe buffer、1500-byte payload和现有`u16` big-endian framing。5轮各512 MiB的中位数：当前逐frame路径262.3 MiB/s；2-frame 514.1、4-frame 624.3、8-frame 627.4 MiB/s；共享内存4096-slot busy-spin SPSC为11,011.6 MiB/s。
+- 实现选择8-packet bound而非shared memory。writer只等待第一包并立即drain最多7个已ready packet；不启动timer、不等待未来packet、不改变现有256 queue。连续v1 frames共用一次pipe write和可复用encoding buffer；两端reader增加64 KiB user-space buffer，仍逐frame执行相同strict parser。因此packet-channel protocol保持version 1。
+- production-shaped microbenchmark由262.3提升至627.4 MiB/s，即2.39倍并超过500 MiB/s目标25.5%。这是纯IPC证据，不宣称AppContainer namespace、双向`VpnChannel`或端到端代理达到同一数值。
+- 新codec test固定8帧只触发一次underlying write、wire仍可由旧frame reader逐包解析且空/9-packet batch被拒绝；Windows adapter test固定“等待第一包、只drain ready包”。ARM64 all-feature lib为437 passed / 1 ignored，bins、fmt、Clippy `-D warnings`和三个release artifacts构建通过。
+- artifact SHA-256：`vcore.dll` `c0c8d52024df5f37b31e0ec68f65c5a66e894ff284430b1a5e5feb181748f68c`，Provider Host `0ab3783112acaaad3af7d4c4d30b23f14da9ef122c0555a402bb9f9b095d54a7`，Session Host `ea17bba7cb8b48fafb23224742552b21607610b9152cb729ba25534137aae7a6`。`OneVCore.Dev_26.8.1.9_arm64` MSIX为 `4e6ed42def9d67e4f3367c86f3e792c1eee394f55d5f1c167dcc98e38c8094aa`、签名Valid并完成disconnected原位安装。
+- 用户从`26.8.1.9`正式UI手动连接/断开真实RAW。Provider/Session Host PID为10916/10568；HTTP 200、HTTPS 204、TCP DNS和UDP NTP通过，后两者local均为`192.168.3.1`，错误Controller secret为401。3次50,000,000-byte Cloudflare外网下载为496,159/556,474/561,587 B/s；该端到端代理/网络结果不作为500 MiB/s纯IPC门禁。Controller最终累计5,995,181/249,227,521 bytes；Stop counters为98,617/194,277且三类queue drop均0。Stop后Provider、Session Host、foreground、routes、start record和rendezvous全部清理，无loopback exemption。
+
 ## Revision 11 当前配置迁移门禁
 
 - `docs/config.yaml` 必须由当前 runtime parser 直接通过；YAML 顶层写入

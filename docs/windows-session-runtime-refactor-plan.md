@@ -50,7 +50,7 @@ VCore 已经具备本次需要的业务能力：
 - 不替外部 SOCKS5 server 保护 outer sockets；该 server 必须自行绕过 VPN 或绑定物理出口。
 - 不增加 SOCKS5 inbound、URI 配置 parser、per-node traffic metrics、持续 metrics stream 或新的 Invoke method。
 - 不改变当前 YAML、snapshot token、Flutter start/status/stop API 或 session record shape。
-- 不在第一版实现 shared-memory ring、packet batching、compression、heartbeat、自动网络迁移或从 Windows 设置独立启动 Session Host。
+- 不增加 shared-memory ring、compression、heartbeat、自动网络迁移或从 Windows 设置独立启动 Session Host；有界合并既有 frame的 pipe I/O优化不增加新 wire envelope。
 - 不把延期的 Phase 3B 发布矩阵算作本次开发验收已完成。
 
 ## 4. 目标架构
@@ -244,7 +244,9 @@ packet bytes
 - length 必须为 `1..=1500`；
 - EOF、truncated frame、zero/oversize length 或 framing violation 终止 session；
 - 合法 frame 内的无效 IP packet 仍由现有 `TunFraming::RawIp` / TunRuntime 校验并局部丢弃；
-- 不增加 direction byte、checksum、compression、batch 或 shared-memory ring。
+- wire format不增加 direction byte、checksum、compression、batch envelope或 shared-memory ring；
+- writer只等待第一包，随后最多再取7个已经位于现有bounded queue中的packet，一次写入连续的原始v1 frames；不等待计时器或未来packet；
+- 两端使用64 KiB buffered reader，但继续逐frame执行相同length、EOF和truncation校验。
 
 ### 7.6 Callback queues
 
@@ -524,6 +526,8 @@ Metrics 验收：
 
 2026-08-24 ARM64 build 26200.9168 完成最终门禁。无等待的最小 Start/Stop loop稳定复现 status 15；定点诊断确认 Provider与 Session Host并发删除同一 rendezvous时 `RemoveFile`偶发 `ERROR_ACCESS_DENIED`。修复后 rendezvous只由发布者 Provider拥有和清理，原始 loop为20/20，带 TCP DNS + UDP NTP的 rapid reconnect为10/10且两类 PID每轮更换。packet frame改为单次 write并由 write-count测试锁定；同机100 MB三次中位吞吐为新路径22.888 MiB/s、旧 provider内嵌路径22.479 MiB/s，即101.8%。
 
+同日后续纯IPC复验使用与产品相同的Tokio 1.52.3、current-thread runtime、1500-byte payload、`u16` frame和64 KiB pipe buffer，执行5轮各512 MiB跨进程单向传输。逐frame路径中位262.3 MiB/s；只等待第一包、最多合并8个已ready packet并使用64 KiB buffered reader后为627.4 MiB/s，即2.39倍并超过500 MiB/s目标25.5%。正式实现对两个方向采用相同边界，复用encoding buffer且不改变protocol version 1；focused codec/queue tests锁定单次bounded write、frame兼容和无等待drain。该microbenchmark不是AppContainer package-boundary或端到端`VpnChannel`吞吐证据。
+
 Provider crash和 Session Host crash分别在529 ms与524 ms内移除 routes并结束 Session Host；后者记录 fail-closed request/Stop完成。外部 SOCKS5 fixture退出后新 flow按预期失败，但 routes、Provider和 Session Host保持，显式 Stop最终137/60且queue drop 0。10分钟 pressure下载110,000,000 bytes并完成60轮 TCP DNS + UDP NTP，最终45,336/89,474、queue drop 0；Provider handles 438.6→437.4、threads 11.4→12、private 20.31→20.38 MiB，Session Host分别228.3→228.2、5.8→4.8、2.73→2.68 MiB。invalid/truncated frame继续由codec tests与 crash EOF覆盖。当前会话无提升权限，重复 `Disable-NetAdapter`得到系统 error 5；physical network fail-closed沿用 Phase 2同机实测且相关 Provider monitor代码未改。
 
 正式 `OneVCore.Dev_26.8.1.8_arm64`完成 disconnected原位升级，MSIX SHA-256为 `678d9363b3eeb6ad10f6535604eb38bd0e71d0e7ffbaec0f5bffb2e07cd350e1`且签名Valid。用户从正式 UI手动连接/断开；真实 VLESS/REALITY、HTTP/HTTPS、TCP DNS、UDP NTP和Controller累计量通过，均从 `192.168.3.1`进入 TUN，最终182/108且queue drop 0。Stop后 start record、rendezvous、routes和 Session Host清理。throwaway old/new packages完成 clean uninstall，LocalState/process/profile均无残留；无 loopback exemption。Windows 10、原生x64、物理IPv6、WACK与Store身份仍只属于延期的 Phase 7。
@@ -679,6 +683,6 @@ Phase 0通过后两份 ADR已改为 `accepted`。实现各阶段同步更新：
 
 ## 19. 已取得事实与延期项
 
-Phase 0–6已实测 process activation、namespace qualification、dynamic current-session path、unpackaged isolation、framing、真实 Flutter host bridge、`VpnChannel` pressure、crash、rapid reconnect、rendezvous cleanup、disconnected upgrade和相对吞吐。新路径同机100 MB中位吞吐达到旧路径的101.8%，10分钟 callback/pipe pressure无queue drop或资源上升。
+Phase 0–6已实测 process activation、namespace qualification、dynamic current-session path、unpackaged isolation、framing、真实 Flutter host bridge、`VpnChannel` pressure、crash、rapid reconnect、rendezvous cleanup、disconnected upgrade和相对吞吐。新路径同机100 MB中位吞吐达到旧路径的101.8%，10分钟 callback/pipe pressure无queue drop或资源上升。后续production-shaped纯IPC基准进一步确认逐frame调度而非named-pipe内存传输是局部上限：8-packet无等待有界合并从262.3提升至627.4 MiB/s，共享内存ring不成为当前实现依赖。
 
 剩余事实严格属于 Phase 7：Windows 10 22H2、原生x64 Windows、真实物理IPv6、WACK、Partner Center正式identity、restricted-capability approval、Store bundle/submission，以及需要相应环境才能扩展的多用户/远程会话矩阵。它们不改变当前开发身份重构完成结论，也不得被写成已验证的平台保证。
