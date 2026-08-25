@@ -89,6 +89,8 @@ IPv6: ::/1, 8000::/1
 
 Provider安装固定TUN DNS地址和search namespace；DNS packet与普通IP packet一样进入VCore runtime。Ping、Controller port/secret和TUN地址是session运行时字段，不写回用户保存的RAW YAML。
 
+两条`/1`不是`0.0.0.0/0`的可替换写法。Windows 11 ARM64 build 26200.9168上的隔离package差分测试中，同一TCP socket同时绑定physical source与`IP_UNICAST_IF`：`/1 + /1`前后两次均从physical source连接成功，改成VPN `/0`后立即返回`WSAENETUNREACH` 10051；不绑定的socket则取得TUN地址并进入Provider。因而Windows实现不得合并为单条`/0`。
+
 ## 6. 物理出口防递归
 
 Provider在route安装前选择immutable physical binding：
@@ -106,7 +108,7 @@ source address bind + IP_UNICAST_IF / IPV6_UNICAST_IF
 
 只绑定地址或只绑定interface都不满足contract。解析后的`127.0.0.0/8`与`::1`可跳过physical binding；LAN/private地址不属于例外。缺少family、source bind或setsockopt失败时当前connection fail closed。
 
-`AssociateTransport`只用于Provider wake transport，不用于逐flow TCP/UDP proxy socket。
+`AssociateTransport`只用于Provider wake transport，不用于逐flow TCP/UDP proxy socket。官方示例会先关联并连接实际VPN server transport，再安装routes；该特殊transport由VPN framework标记。Session Host的普通flow socket不持有`VpnChannel`，不能获得同一例外。
 
 ## 7. 网络变化
 
@@ -193,6 +195,7 @@ Windows 11 ARM64开发身份已覆盖：
 
 - [`IVpnPlugIn`](https://learn.microsoft.com/uwp/api/windows.networking.vpn.ivpnplugin)
 - [`VpnChannel`](https://learn.microsoft.com/uwp/api/windows.networking.vpn.vpnchannel)
+- [`VpnChannel.AssociateTransport`](https://learn.microsoft.com/uwp/api/windows.networking.vpn.vpnchannel.associatetransport)
 - [`VpnPacketBuffer`](https://learn.microsoft.com/uwp/api/windows.networking.vpn.vpnpacketbuffer)
 - [`VpnManagementAgent`](https://learn.microsoft.com/uwp/api/windows.networking.vpn.vpnmanagementagent)
 - [`IApplicationActivationManager`](https://learn.microsoft.com/windows/win32/api/shobjidl_core/nn-shobjidl_core-iapplicationactivationmanager)

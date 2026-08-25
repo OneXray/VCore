@@ -175,6 +175,8 @@ vcore-windows-session-host.exe
 - Controller 401、active rates、totals、idle zero和Stop关闭。
 - 非loopback socket成对绑定physical source和interface index。
 
+2026-08-25在同一环境使用独立签名package做IPv4 route差分，配置在TUN内拒绝探针目标以阻止递归放大。对同一`223.5.5.5:53` TCP socket应用产品相同的source + `IP_UNICAST_IF`：无VPN及`0.0.0.0/1 + 128.0.0.0/1`安装前后均连接成功；VPN改成`0.0.0.0/0`后立即失败为`WSAENETUNREACH` 10051。`/0`下完全不绑定的对照取得虚拟地址`192.168.3.1`，Provider产生一个52-byte回包，证明流量进入TUN而非physical network。测试package、profile、routes和进程随后全部清理；产品package未替换。
+
 ### 6.3 Session Runtime lifecycle
 
 通过项：
