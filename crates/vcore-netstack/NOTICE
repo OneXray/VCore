@@ -18,14 +18,19 @@ is recorded at:
     ab06bc3de566fc6485a238dd4c746bb3e4f79484
     https://github.com/automesh-network/netstack-smoltcp/tree/ab06bc3de566fc6485a238dd4c746bb3e4f79484
 
-That package also declares `MIT OR Apache-2.0`. VCore uses its MIT option and
-retains its copyright notice in `LICENSE`.
+That package also declares `MIT OR Apache-2.0`. VCore uses its MIT option.
+
+Upstream copyright notices
+--------------------------
+
+Copyright (c) Watfaq/clash-rs contributors
+Copyright (c) 2024 cavivie and netstack-smoltcp Contributors
 
 VCore treatment
 ---------------
 
-The crate is distributed under the MIT license in `LICENSE`. Material VCore
-changes include:
+The crate is distributed with VCore under the repository-root MIT `LICENSE`.
+Material VCore changes include:
 
 * bounded packet, accept, UDP, and application byte queues;
 * a safe, capacity-limited application byte queue instead of an unsafe ring;
