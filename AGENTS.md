@@ -1,12 +1,12 @@
 # Project Overview
 
-VCore is the standalone Rust proxy core used by the sibling OneVCore Flutter app. The current public contract is Invoke API v5 with internal schema revision 11. Runtime configuration is strict latest-only Mihomo-shaped YAML passed inline as `configYaml` / `configYamls`; the YAML contains neither `configVersion` nor `default-proxy`. Public lifecycle state is runtime-local and single-instance.
+VCore is the standalone Rust proxy core used by the sibling OneVCore Flutter app. The current public contract is Invoke API v5 with internal schema revision 11. Runtime configuration uses the strict schema documented in `docs/config.yaml` and is passed inline as `configYaml` / `configYamls`; YAML contains neither `configVersion` nor `default-proxy`. Public lifecycle state is runtime-local and single-instance.
 
-Apple and Android currently use host-owned TUN fds through the Unix `rust-tun` adapter. Windows VPN support uses `windows-rs` / `Windows.Networking.Vpn`; Phase 2 and the first packaged Flutter ARM64 Phase 3A tracer are implemented, while normal App lifecycle completion, Store packaging, and the external platform matrix remain incomplete. Linux remains unsupported.
+Apple and Android use host-owned TUN fds through the Unix `rust-tun` adapter. Windows uses `windows-rs` / `Windows.Networking.Vpn`; the packaged ARM64 foreground, AppContainer provider, per-session full-trust runtime, lifecycle, pressure, and packet-channel gates pass on Windows 11. Windows 10, native x64, physical IPv6, WACK, and Store publishing remain release gates. Linux remains unsupported.
 
 # Sources of Truth
 
-Current source, tests, and the root `README.md` define implemented behavior. The documents imported into `docs/` contain valuable design history and acceptance evidence, but several still describe Invoke API v4, `configPath` / `configPaths`, or older Windows transport assumptions. Do not restore those historical contracts. When touching a documented public boundary, reconcile the relevant document with API v5 and the current tests in the same change.
+Current source, tests, and the public contract documents under `docs/` define implemented behavior. When touching a documented boundary, reconcile its document with API v5 and current tests in the same change.
 
 Read the relevant document completely before changing that area:
 
@@ -15,9 +15,9 @@ Read the relevant document completely before changing that area:
 - AnyTLS: `docs/anytls.md`.
 - TUN traffic metrics: `docs/controller-api.md`.
 - GeoData: `docs/geodata.md`.
-- REALITY or the sibling rustls fork: `docs/reality-wire-protocol.md` and `docs/rustls-reality-plan.md`.
+- REALITY or the sibling rustls fork: `docs/reality-wire-protocol.md` and `docs/rustls-reality-release.md`.
 - Unix TUN fd ownership or packet I/O: `docs/tun-platform.md`.
-- Windows VPN/TUN, Win10/Win11, outbound binding, or UWP packet buffers: `docs/UWP_TUN_RESEARCH.md` and `docs/tun-platform.md`. The approved research document supersedes older Windows assumptions where they conflict: use `IVpnPlugIn`, bounded raw-IP queues, loopback wakeups, and physical-source-address binding; never Wintun.
+- Windows VPN/TUN, outbound binding, AppContainer packet buffers, or package lifecycle: `docs/windows-vpn.md`, `docs/windows-session-runtime.md`, and `docs/tun-platform.md`.
 - Claims that something passed: `docs/acceptance.md`. Record only commands and environments actually executed; host tests and cross-builds do not prove physical-device data paths.
 
 # Architecture Boundaries
@@ -39,7 +39,7 @@ Read the relevant document completely before changing that area:
 5. Windows uses official `Windows.Networking.Vpn` through `windows-rs`. `VpnPacketBuffer` bytes are copied within callbacks and every framework buffer is returned according to WinRT ownership rules. Network changes stop the first release; they do not silently rebind or reconnect.
 6. Reuse the existing raw-IP netstack and outbound graph. Add no second Windows proxy core, Wintun path, per-protocol socket factory, or fake fd layer.
 7. Keep optional protocol/platform code feature- and target-gated. Default non-TUN builds must continue to compile.
-8. Research checkouts under `references/` are not dependencies. Before copying, translating, linking, or distributing reference code, update `THIRD_PARTY_NOTICES.md` with revision, license, and file-level provenance.
+8. Before copying, translating, linking, or distributing third-party code, update `THIRD_PARTY_NOTICES.md` with revision, license, file-level provenance, and destination.
 
 # Validation
 
@@ -48,7 +48,7 @@ Choose the smallest relevant set, then expand for shared contracts:
 ```shell
 cargo fmt --all -- --check
 cargo test --all-features --all-targets
-cargo clippy --all-features --all-targets -- -D warnings
+cargo clippy --locked --all-features --lib --bins -- -D warnings -A clippy::chunks-exact-to-as-chunks -A clippy::map-or-identity
 cargo test --manifest-path crates/vcore-netstack/Cargo.toml --all-targets
 cargo clippy --manifest-path crates/vcore-netstack/Cargo.toml --all-targets -- -D warnings
 ./scripts/check_c_header.sh

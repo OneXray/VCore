@@ -1,11 +1,10 @@
 # AnyTLS outbound
 
-状态：当前 client outbound 契约。VCore 独立实现 AnyTLS wire、session、padding 与
-sing UoT；不依赖或复制 `references/anytls-go` 源码。
+状态：当前 client outbound 契约。VCore 实现 AnyTLS wire、session、padding 与 UoT v2。
 
 ## 配置边界
 
-AnyTLS 使用平铺 Mihomo 字段：
+AnyTLS 使用以下平铺字段：
 
 ```yaml
 rules:
@@ -87,7 +86,7 @@ chunk 和诊断字符串都有独立上限，但这些边界不开放成 YAML se
 
 ## UDP over TCP
 
-`udp: true` 时，AnyTLS 使用 sing UoT v2：
+`udp: true` 时，AnyTLS 使用 UoT v2：
 
 ```text
 sp.v2.udp-over-tcp.arpa:0
@@ -132,17 +131,8 @@ AnyTLS session、idle pool、padding 和 UoT 状态都属于持有它的 runtime
 worker；不同 runtime 不共享。`measureDelay` 返回前必须完成私有 graph 的 AnyTLS
 shutdown，不进入公共实例表。
 
-## 兼容与来源边界
+## 验证边界
 
-协议行为同时由本仓库独立 duplex mock 协议测试和 opt-in 真实进程互操作验证。
-2026-07-28 已对本地 anytls-go
-`0c36ca9f0d88bc1af5ddb998e619166913c7445c` 运行
-`bash tests/run_anytls_interop.sh`，通过 TCP 首流/复用、sing UoT v2 UDP echo、
-UoT 后再次 TCP、单物理 session 计数与显式 shutdown。动态自签名证书只由
-`interop-test` integration binary 内的 test connector 接受，生产 WebPKI 路径和
-release library 未放宽。Mihomo 与公网 AnyTLS 服务端互操作尚未执行。
+本仓库使用 duplex mock 覆盖 frame、v2/v1 协商、复用、watchdog、padding、UoT、取消和显式 shutdown。opt-in 互操作 harness 覆盖 TCP 首流/复用、UoT v2 UDP echo、UoT 后再次 TCP、单物理 session 计数与清理。
 
-当前
-`references/anytls-go` checkout 未提供可识别的 `LICENSE` 文件，因此仅作为协议
-行为研究和互操作参考：VCore 不复制、翻译、修改、链接或分发其源码，也不把它作为
-Cargo dependency。在上游许可证明确且完成独立审查前，不得把其代码带入发布产物。
+测试 connector 可以接受测试运行时生成的自签名证书；生产 WebPKI 路径和 release library 不共享该例外。公网服务互操作仍需在发布矩阵中单独登记。

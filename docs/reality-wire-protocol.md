@@ -1,15 +1,12 @@
 # REALITY V1 客户端协议基线
 
-状态：实现基线。本文冻结 VCore 自有 rustls fork 第一版所实现的 classic REALITY 客户端行为；它不是通用 REALITY、uTLS 或 Xray 配置规范。
+状态：实现基线。本文冻结 VCore 自有 rustls fork 当前实现的 classic REALITY V1 客户端行为；它不是通用 REALITY 或 ClientHello 模拟规范。
 
-## 1. 权威来源与版本
+## 1. 版本与变更规则
 
-- Xray-core：`50231eaff98ccc31b5cbd247a721c16e97fe5ec1`（`v26.7.11`）。
-- Xray 客户端算法：`transport/internet/reality/reality.go`。
-- Xray 服务端实现：`github.com/xtls/reality` revision `9234c772ba8f`，由上述 Xray-core `go.mod` 固定。
-- rustls 基线：官方 `v/0.23.42`，commit `411fb0278820bbf81ac825b24823f31bed55190e`。
+当前 fork 基于 rustls 0.23 系列，并由 release dependency 固定到不可变 revision。REALITY wire 行为由本文和 fork 内确定性测试向量共同冻结。
 
-升级任一基线时，必须重新生成向量并执行普通 TLS、REALITY、并发、平台构建和 iOS 内存验收；不得把协议升级与无关重构混为一个变更。
+升级 rustls base、crypto provider 或任一 wire 行为时，必须重新生成向量并执行普通 TLS、REALITY、并发、平台构建和 iOS 内存验收；协议升级不得与无关重构混在同一变更中。
 
 ## 2. V1 支持边界
 
@@ -78,7 +75,7 @@ session_id  = AES-256-GCM-Seal(auth_key, nonce,
 4. 使用该公钥验证标准 TLS 1.3 server `CertificateVerify`，且 signature scheme 必须是 Ed25519。
 5. 成功或失败后立即消费认证状态；第二次使用必须失败。
 
-真实伪装站点证书、intermediate、错误 HMAC、错误 SPKI/DER、错误 `CertificateVerify` 或缺失连接级状态全部 fail closed。Xray 客户端原有的 WebPKI/spider fallback 不属于 VCore 的代理连接语义。
+真实伪装站点证书、intermediate、错误 HMAC、错误 SPKI/DER、错误 `CertificateVerify` 或缺失连接级状态全部 fail closed。VCore 不提供 WebPKI 或 spider fallback。
 
 ## 5. 状态、并发与资源
 
@@ -99,4 +96,6 @@ rustls 单元测试固定以下独立向量：
 - Ed25519 SPKI、证书 HMAC、TLS 1.3 CertificateVerify message/signature；
 - 截断/非 canonical DER、错误 HMAC、错误签名、缺失状态、低阶公钥与 HRR 负例。
 
-实际字节保存在相邻 rustls fork 的 `rustls/src/client/reality.rs` 测试中；HRR 线级负例和两份配置交叉运行的 100 路并发 ClientHello 在 `rustls/src/client/test.rs`。VCore 的 `tests/xray_interop.rs` 和 `tests/run_xray_interop.sh` 回归范围包括 TLS/REALITY × `packet-up`/`stream-one`、共享 connector 并发、取消重连、错误 key/short ID 和单公共 lifecycle；Invoke API v4 还要求验证单批次最多 5 路 `measureDelay`。实际执行状态以 [验收文档](acceptance.md) 为准。REALITY 还必须以本地 ECDSA P-256 TLS 站点作为 Xray 伪装目标完成回归，证明 ClientHello 不会因只公布 Ed25519 而在 takeover 前被伪装站拒绝。
+实际字节保存在相邻 rustls fork 的 `rustls/src/client/reality.rs` 测试中；HRR 线级负例和两份配置交叉运行的 100 路并发 ClientHello 位于 `rustls/src/client/test.rs`。VCore 的 opt-in 互操作 harness 覆盖 TLS/REALITY × `packet-up`/`stream-one`、共享 connector 并发、取消重连、错误 key/short ID、单公共 lifecycle 和 API v5 的最多五路 `measureDelay`。
+
+REALITY 数据面还必须以本地 ECDSA P-256 TLS 站点作为 cover target，证明 ClientHello 公布完整 signature schemes，同时不会把 cover certificate 当作 REALITY 身份接受。实际执行状态以 [验收](acceptance.md) 为准。

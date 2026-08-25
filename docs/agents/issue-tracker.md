@@ -4,7 +4,7 @@ Issues and specs live in this repository's GitHub Issues.
 
 Repository: `OneXray/VCore`
 
-Because `origin` uses the `yiguo.dev` SSH alias, pass `--repo` explicitly to every `gh` command instead of relying on remote inference. Use a GitHub account that can access the private repository; `yiguodev` currently has access.
+Pass `--repo OneXray/VCore` explicitly because development often runs from a workspace containing multiple repositories.
 
 ## Operations
 

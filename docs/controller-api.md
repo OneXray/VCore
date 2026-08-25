@@ -1,8 +1,6 @@
 # TUN 流量 Controller API
 
-状态：当前公共契约。VCore 参考 Mihomo 的 Controller 配置和流量字段，但只实现
-TUN 流量的单次 HTTP snapshot；不实现持续响应、WebSocket、连接明细、配置修改或
-其他 Mihomo Controller endpoint。
+状态：当前公共契约。Controller 只提供 TUN 流量的单次 HTTP snapshot；不实现持续响应、WebSocket、连接明细、配置修改或其他管理 endpoint。
 
 ## 1. 配置
 
@@ -15,7 +13,7 @@ secret: "onevcore-runtime-secret"
 
 - 省略 `external-controller` 表示不启动 Controller；此时不允许单独出现
   `secret`。
-- `external-controller` 可以单独出现，此时采用 Mihomo 的无鉴权语义。
+- `external-controller` 可以单独出现，此时不要求鉴权。
 - `secret` 只允许在 `external-controller` 存在时出现；一旦出现就必须是合法的
   非空 bearer token。
 - 这两个字段只属于启用了 `tun` 的运行配置。非 TUN 公共实例和
@@ -41,7 +39,7 @@ session 重新启动都创建新的统计状态并将全部计数清零。
 Authorization: Bearer onevcore-runtime-secret
 ```
 
-鉴权语义与 Mihomo 对齐：
+鉴权规则：
 
 - scheme 必须是 `Bearer`；
 - token 必须与当前配置的 `secret` 完全一致；
@@ -81,7 +79,7 @@ TUN packet I/O 边界的 L3 packet，因此包含经 TUN 进入的数据、DNS �
 但不重复计算 proxy transport/TLS/XHTTP framing，也不包含 HTTP proxy inbound、
 GeoData 下载、Controller 自身请求或 `measureDelay`。
 
-`GET /traffic` 与 Mihomo 的字段名相同，但 VCore 有意只返回一次当前 snapshot：
+`GET /traffic` 只返回一次当前 snapshot：
 
 - 不等待下一个 tick；
 - 不保持 chunked stream；
