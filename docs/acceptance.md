@@ -252,6 +252,18 @@ Normal non-`SkipBuild` ARM64 release build、签名和从`26.8.1.9`到`26.8.1.10
 
 相同payload重复Start保持Provider/Session Host PID `9936/1820`不变；把TUN IPv4改为`192.168.9.1`的active Start以`Windows VPN is connected with different session settings`拒绝。Stop counters为217 / 125，三类queue drop均0；随后产品process、四条`/1` routes、custom NRPT、rendezvous和session record均为0/不存在。本项没有执行Flutter UI手动验收。
 
+### 6.7 External Xray SOCKS tun2socks demo
+
+2026-08-25在同一Windows 11 ARM64环境和package `26.8.1.10`执行：
+
+```text
+python scripts/windows_tun2socks_demo.py
+```
+
+脚本从`references/Xray-core` revision `2323273e`临时编译Xray，仅派生外部用户配置中选定的proxy与DIRECT outbound；临时SOCKS inbound只监听`127.0.0.1:19080`，启用HTTP/TLS/QUIC sniffing和UDP。VCore配置只有一个SOCKS5 outbound、`dns.enable: false`和最终`MATCH`。用户配置未修改且未进入仓库或package；派生配置、binary和access log均在结束时删除。产品不集成或监管Xray。
+
+普通DNS UDP从TUN `192.168.8.1`到`223.5.5.5:53`通过；HTTP Host sniffing选择DIRECT并返回200；HTTPS fallback选择proxy并返回200；到`203.107.6.88:123`的SOCKS5 UDP/NTP通过。最终Provider counters为99 / 69，三类queue drop均0；Stop后routes、NRPT、Session Host、rendezvous和session record均清理。输入配置把DIRECT `sockopt`放在outbound顶层，但Xray只消费`streamSettings.sockopt`；demo只在临时派生配置中修正该层级，否则实测出现17,013 ingress / 0 egress的出口递归。
+
 ## 7. 仍未完成
 
 ### Windows release
