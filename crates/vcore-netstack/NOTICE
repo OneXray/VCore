@@ -1,25 +1,37 @@
 vcore-netstack
-Copyright 2026 VCore contributors
+Copyright (c) 2026 OneVCore
 
-This crate was independently adapted for VCore after studying the
-`clash-netstack` crate in clash-rs:
+Source provenance
+-----------------
 
-    https://github.com/Watfaq/clash-rs/tree/master/clash-netstack
+This crate adapts the `clash-netstack` crate from Watfaq/clash-rs at revision:
 
-The studied crate declares `MIT OR Apache-2.0`. This derivative crate is
-distributed under Apache-2.0.
+    b76234d94d5918133b0806a897ed8b27aedf196e
+    https://github.com/Watfaq/clash-rs/tree/b76234d94d5918133b0806a897ed8b27aedf196e/clash-netstack
 
-Material VCore changes include:
+That package declares `MIT OR Apache-2.0`. VCore uses its MIT option.
 
-* replaced every unbounded channel with bounded channels or a coalescing
-  `Notify` wake-up;
-* replaced the unsafe lock-free application ring with a safe, capacity-limited
-  byte queue;
-* changed the default per-socket buffers from 256 KiB at each layer to a total
-  configurable 32 KiB budget per direction;
-* combined packet and socket polling in one cancellable driver task;
-* added explicit packet, accept and UDP queue limits while allowing active and
-  half-open TCP flow counts to follow workload;
-* added a stop completion barrier and resource counters;
-* kept UDP datagram boundaries and implemented IPv4 and IPv6 packet creation;
-* added synthetic dual-stack, backpressure, stop and boundary tests.
+`clash-netstack` states that it is heavily based on
+`automesh-network/netstack-smoltcp`. The source state preceding that adaptation
+is recorded at:
+
+    ab06bc3de566fc6485a238dd4c746bb3e4f79484
+    https://github.com/automesh-network/netstack-smoltcp/tree/ab06bc3de566fc6485a238dd4c746bb3e4f79484
+
+That package also declares `MIT OR Apache-2.0`. VCore uses its MIT option and
+retains its copyright notice in `LICENSE`.
+
+VCore treatment
+---------------
+
+The crate is distributed under the MIT license in `LICENSE`. Material VCore
+changes include:
+
+* bounded packet, accept, UDP, and application byte queues;
+* a safe, capacity-limited application byte queue instead of an unsafe ring;
+* one cancellable smoltcp driver with a synchronous stop barrier;
+* configurable per-flow memory and timing limits;
+* explicit resource counters and bounded backpressure;
+* IPv4/IPv6 UDP emission through smoltcp wire representations;
+* optional validated synthetic ICMPv4/ICMPv6 echo replies;
+* dual-stack, pressure, shutdown, and packet-boundary tests.

@@ -1,7 +1,10 @@
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::net::{IpAddr, SocketAddr};
 
 use bytes::Bytes;
-use smoltcp::wire::{IpProtocol, IpVersion, Ipv4Packet, Ipv6Packet, UdpPacket};
+use smoltcp::{
+    phy::ChecksumCapabilities,
+    wire::{IpProtocol, IpRepr, IpVersion, Ipv4Packet, Ipv6Packet, UdpPacket, UdpRepr},
+};
 use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -104,165 +107,40 @@ pub(crate) fn parse_udp_packet(packet: &Packet) -> Option<UdpDatagram> {
 }
 
 pub(crate) fn build_udp_packet(datagram: &UdpDatagram, mtu: usize) -> Result<Packet, UdpError> {
-    match (datagram.source, datagram.destination) {
-        (SocketAddr::V4(source), SocketAddr::V4(destination)) => build_udp_v4(
-            *source.ip(),
-            source.port(),
-            *destination.ip(),
-            destination.port(),
-            &datagram.payload,
-            mtu,
-        ),
-        (SocketAddr::V6(source), SocketAddr::V6(destination)) => build_udp_v6(
-            *source.ip(),
-            source.port(),
-            *destination.ip(),
-            destination.port(),
-            &datagram.payload,
-            mtu,
-        ),
-        _ => Err(UdpError::AddressFamilyMismatch),
+    if datagram.source.is_ipv4() != datagram.destination.is_ipv4() {
+        return Err(UdpError::AddressFamilyMismatch);
     }
-}
 
-fn build_udp_v4(
-    source: Ipv4Addr,
-    source_port: u16,
-    destination: Ipv4Addr,
-    destination_port: u16,
-    payload: &[u8],
-    mtu: usize,
-) -> Result<Packet, UdpError> {
-    let packet_size = 20 + 8 + payload.len();
-    check_packet_size(packet_size, mtu)?;
-    let udp_len =
-        u16::try_from(8 + payload.len()).map_err(|_| UdpError::MtuExceeded { packet_size, mtu })?;
-    let total_len =
-        u16::try_from(packet_size).map_err(|_| UdpError::MtuExceeded { packet_size, mtu })?;
-
-    let mut packet = vec![0_u8; packet_size];
-    packet[0] = 0x45;
-    packet[2..4].copy_from_slice(&total_len.to_be_bytes());
-    packet[6..8].copy_from_slice(&0x4000_u16.to_be_bytes());
-    packet[8] = 64;
-    packet[9] = 17;
-    packet[12..16].copy_from_slice(&source.octets());
-    packet[16..20].copy_from_slice(&destination.octets());
-    let ip_checksum = internet_checksum(&packet[..20]);
-    packet[10..12].copy_from_slice(&ip_checksum.to_be_bytes());
-
-    write_udp_header(
-        &mut packet[20..],
-        source_port,
-        destination_port,
-        udp_len,
-        payload,
+    let source = datagram.source.ip().into();
+    let destination = datagram.destination.ip().into();
+    let udp = UdpRepr {
+        src_port: datagram.source.port(),
+        dst_port: datagram.destination.port(),
+    };
+    let ip = IpRepr::new(
+        source,
+        destination,
+        IpProtocol::Udp,
+        udp.header_len() + datagram.payload.len(),
+        64,
     );
-    let checksum = udp_checksum_v4(source, destination, &packet[20..]);
-    packet[26..28].copy_from_slice(&nonzero_checksum(checksum).to_be_bytes());
-    Ok(Packet::new(packet))
-}
-
-fn build_udp_v6(
-    source: Ipv6Addr,
-    source_port: u16,
-    destination: Ipv6Addr,
-    destination_port: u16,
-    payload: &[u8],
-    mtu: usize,
-) -> Result<Packet, UdpError> {
-    let packet_size = 40 + 8 + payload.len();
-    check_packet_size(packet_size, mtu)?;
-    let udp_len =
-        u16::try_from(8 + payload.len()).map_err(|_| UdpError::MtuExceeded { packet_size, mtu })?;
-
-    let mut packet = vec![0_u8; packet_size];
-    packet[0] = 0x60;
-    packet[4..6].copy_from_slice(&udp_len.to_be_bytes());
-    packet[6] = 17;
-    packet[7] = 64;
-    packet[8..24].copy_from_slice(&source.octets());
-    packet[24..40].copy_from_slice(&destination.octets());
-    write_udp_header(
-        &mut packet[40..],
-        source_port,
-        destination_port,
-        udp_len,
-        payload,
-    );
-    let checksum = udp_checksum_v6(source, destination, &packet[40..]);
-    packet[46..48].copy_from_slice(&nonzero_checksum(checksum).to_be_bytes());
-    Ok(Packet::new(packet))
-}
-
-fn check_packet_size(packet_size: usize, mtu: usize) -> Result<(), UdpError> {
+    let packet_size = ip.buffer_len();
     if packet_size > mtu || packet_size > usize::from(u16::MAX) {
-        Err(UdpError::MtuExceeded { packet_size, mtu })
-    } else {
-        Ok(())
+        return Err(UdpError::MtuExceeded { packet_size, mtu });
     }
-}
 
-fn write_udp_header(
-    udp: &mut [u8],
-    source_port: u16,
-    destination_port: u16,
-    udp_len: u16,
-    payload: &[u8],
-) {
-    udp[..2].copy_from_slice(&source_port.to_be_bytes());
-    udp[2..4].copy_from_slice(&destination_port.to_be_bytes());
-    udp[4..6].copy_from_slice(&udp_len.to_be_bytes());
-    udp[8..].copy_from_slice(payload);
-}
-
-fn udp_checksum_v4(source: Ipv4Addr, destination: Ipv4Addr, udp: &[u8]) -> u16 {
-    let mut sum = 0_u32;
-    add_checksum_bytes(&mut sum, &source.octets());
-    add_checksum_bytes(&mut sum, &destination.octets());
-    sum += 17;
-    sum += u32::try_from(udp.len()).unwrap_or(u32::MAX);
-    add_checksum_bytes(&mut sum, udp);
-    fold_checksum(sum)
-}
-
-fn udp_checksum_v6(source: Ipv6Addr, destination: Ipv6Addr, udp: &[u8]) -> u16 {
-    let mut sum = 0_u32;
-    add_checksum_bytes(&mut sum, &source.octets());
-    add_checksum_bytes(&mut sum, &destination.octets());
-    let length = u32::try_from(udp.len()).unwrap_or(u32::MAX);
-    sum += length >> 16;
-    sum += length & 0xffff;
-    sum += 17;
-    add_checksum_bytes(&mut sum, udp);
-    fold_checksum(sum)
-}
-
-fn internet_checksum(bytes: &[u8]) -> u16 {
-    let mut sum = 0_u32;
-    add_checksum_bytes(&mut sum, bytes);
-    fold_checksum(sum)
-}
-
-fn add_checksum_bytes(sum: &mut u32, bytes: &[u8]) {
-    let mut chunks = bytes.chunks_exact(2);
-    for chunk in &mut chunks {
-        *sum += u32::from(u16::from_be_bytes([chunk[0], chunk[1]]));
-    }
-    if let Some(byte) = chunks.remainder().first() {
-        *sum += u32::from(*byte) << 8;
-    }
-}
-
-fn fold_checksum(mut sum: u32) -> u16 {
-    while sum >> 16 != 0 {
-        sum = (sum & 0xffff) + (sum >> 16);
-    }
-    !u16::try_from(sum).expect("folded checksum fits in u16")
-}
-
-const fn nonzero_checksum(checksum: u16) -> u16 {
-    if checksum == 0 { u16::MAX } else { checksum }
+    let checksum = ChecksumCapabilities::default();
+    let mut bytes = vec![0_u8; packet_size];
+    ip.emit(&mut bytes[..], &checksum);
+    udp.emit(
+        &mut UdpPacket::new_unchecked(&mut bytes[ip.header_len()..]),
+        &source,
+        &destination,
+        datagram.payload.len(),
+        |payload| payload.copy_from_slice(&datagram.payload),
+        &checksum,
+    );
+    Ok(Packet::new(bytes))
 }
 
 #[cfg(test)]
@@ -284,7 +162,51 @@ mod tests {
             ),
         ] {
             let packet = build_udp_packet(&datagram, 1_500).unwrap();
+            let source = datagram.source.ip().into();
+            let destination = datagram.destination.ip().into();
+            let checksum_valid = match IpVersion::of_packet(packet.data()).unwrap() {
+                IpVersion::Ipv4 => {
+                    let ip = Ipv4Packet::new_checked(packet.data()).unwrap();
+                    assert!(ip.verify_checksum());
+                    UdpPacket::new_checked(ip.payload())
+                        .unwrap()
+                        .verify_checksum(&source, &destination)
+                }
+                IpVersion::Ipv6 => {
+                    let ip = Ipv6Packet::new_checked(packet.data()).unwrap();
+                    UdpPacket::new_checked(ip.payload())
+                        .unwrap()
+                        .verify_checksum(&source, &destination)
+                }
+            };
+            assert!(checksum_valid);
             assert_eq!(parse_udp_packet(&packet), Some(datagram));
         }
+    }
+
+    #[test]
+    fn rejects_mixed_families_and_packets_over_mtu() {
+        let mixed = UdpDatagram::new(
+            "192.0.2.1:53".parse().unwrap(),
+            "[2001:db8::1]:4000".parse().unwrap(),
+            &b"mixed"[..],
+        );
+        assert_eq!(
+            build_udp_packet(&mixed, 1_500),
+            Err(UdpError::AddressFamilyMismatch)
+        );
+
+        let oversized = UdpDatagram::new(
+            "192.0.2.1:53".parse().unwrap(),
+            "198.51.100.2:4000".parse().unwrap(),
+            vec![0_u8; 1_473],
+        );
+        assert_eq!(
+            build_udp_packet(&oversized, 1_500),
+            Err(UdpError::MtuExceeded {
+                packet_size: 1_501,
+                mtu: 1_500,
+            })
+        );
     }
 }

@@ -117,8 +117,6 @@ impl TxToken for RawTxToken<'_> {
 
 #[cfg(test)]
 mod tests {
-    use smoltcp::phy::Device as _;
-
     use super::*;
 
     #[test]

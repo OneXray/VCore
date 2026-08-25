@@ -12,12 +12,15 @@ The following mappings require source-level attribution in addition to the depen
 | `luqmana/wireguard-uwp-rs` plug-in files at `328e622fb613d611bb022874a6535e2846ac6640` | `src/windows_vpn.rs` | Adapted activation-factory, provider-instance, and buffer-access patterns under the upstream MIT option. Copyright © 2021 Luqman Aden. |
 | `luqmana/wireguard-uwp-rs` application shell at `328e622fb613d611bb022874a6535e2846ac6640` | `src/bin/windows_vpn_host.rs` | Adapted the minimal Windows application activation shell under the upstream MIT option. Copyright © 2021 Luqman Aden. |
 | `YtFlow/Maple` VPN plug-in at `ec052fcb014b14e50cb264abc1415807609ec07b` | `src/windows_vpn.rs`, `src/platform/windows_tun_io.rs` | Adapted loopback wake, empty-to-non-empty coalescing, `/1` routes, and packet-flow mechanics under Apache-2.0. Retain the applicable license and NOTICE terms. |
+| `Watfaq/clash-rs` `clash-netstack` at `b76234d94d5918133b0806a897ed8b27aedf196e` | `crates/vcore-netstack` | Adapted under the package's MIT option. Retain the crate `LICENSE` and exact provenance in its `NOTICE`. |
+| `automesh-network/netstack-smoltcp` at `ab06bc3de566fc6485a238dd4c746bb3e4f79484` | Source lineage inherited by `crates/vcore-netstack` | Retain the upstream MIT copyright notice recorded in the crate `LICENSE` and `NOTICE`. |
 
 VCore’s bounded queues, Session Host packet channel, proxy graph, runtime DNS, rule engine, Controller, GeoData matcher, and physical-source/interface dialer policy are project code unless a source file states otherwise.
 
 ## Direct dependencies and bundled components
 
-- `crates/vcore-netstack` retains its own Apache-2.0 `LICENSE` and `NOTICE`; those files are authoritative for that crate.
+- `crates/vcore-netstack` retains its own MIT `LICENSE` and source-provenance `NOTICE`; those files are authoritative for that crate.
+- `smoltcp` 0.13.1 provides the userspace IPv4/IPv6 TCP state machine and wire representations (`0BSD`).
 - The project rustls fork is based on rustls 0.23 and retains `Apache-2.0 OR ISC OR MIT`. Release builds must pin an immutable fork revision in `Cargo.toml` and `Cargo.lock`.
 - `tokio-rustls` 0.26.4 is the unmodified crates.io release (`MIT OR Apache-2.0`).
 - `x25519-dalek` 2.0.1 is used by the REALITY feature (`BSD-3-Clause`).

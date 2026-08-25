@@ -183,6 +183,25 @@ async fn stop_is_a_completion_barrier_for_all_async_endpoints() {
     assert_eq!(parts.stats.snapshot().active_tcp, 0);
 }
 
+#[test]
+fn dropping_the_tokio_runtime_still_completes_driver_shutdown() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .unwrap();
+    let parts = runtime.block_on(async {
+        NetStack::start(NetStackConfig::default())
+            .unwrap()
+            .into_parts()
+    });
+    assert!(!parts.control.is_stopped());
+
+    drop(runtime);
+
+    assert!(parts.control.is_stopped());
+    assert_eq!(parts.stats.snapshot().active_tcp, 0);
+}
+
 #[tokio::test]
 async fn fake_icmp_echo_is_explicitly_gated_and_answers_both_families() {
     let default_stack = NetStack::start(NetStackConfig::default()).unwrap();
@@ -496,11 +515,11 @@ fn internet_checksum(bytes: &[u8]) -> u16 {
 }
 
 fn add_bytes(sum: &mut u32, bytes: &[u8]) {
-    let mut chunks = bytes.chunks_exact(2);
-    for chunk in &mut chunks {
-        *sum += u32::from(u16::from_be_bytes([chunk[0], chunk[1]]));
+    let (chunks, remainder) = bytes.as_chunks::<2>();
+    for chunk in chunks {
+        *sum += u32::from(u16::from_be_bytes(*chunk));
     }
-    if let Some(byte) = chunks.remainder().first() {
+    if let Some(byte) = remainder.first() {
         *sum += u32::from(*byte) << 8;
     }
 }

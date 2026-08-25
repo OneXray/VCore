@@ -13,8 +13,7 @@ VCore does not assume the host process role:
 - no unbounded channel;
 - cancellation plus a stop completion barrier.
 
-See `NOTICE` for the upstream implementation studied while implementing this
-crate and the material differences from it.
+See `NOTICE` for source provenance, license choices, and material VCore changes.
 
 ## Main API
 

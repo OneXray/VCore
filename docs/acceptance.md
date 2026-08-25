@@ -31,6 +31,15 @@ cargo clippy --locked --all-features --lib --bins -- -D warnings ...
 
 cargo fmt --all -- --check
   PASS
+
+cargo test --manifest-path crates/vcore-netstack/Cargo.toml --all-targets
+  21 passed
+
+cargo clippy --manifest-path crates/vcore-netstack/Cargo.toml --all-targets -- -D warnings
+  PASS
+
+cargo build --locked --release --all-features --lib --bins
+  PASS (native ARM64)
 ```
 
 Ignored项依赖本机外部资产环境，不属于默认host gate。

@@ -389,7 +389,6 @@ impl Driver {
                 () = tokio::time::sleep(delay) => {}
             }
         }
-        self.shutdown();
     }
 
     fn handle_packet(&mut self, packet: Packet) {
@@ -630,6 +629,12 @@ impl Driver {
         self.sockets = SocketSet::new(Vec::new());
         self.update_flow_stats();
         let _ = self.stopped.send(true);
+    }
+}
+
+impl Drop for Driver {
+    fn drop(&mut self) {
+        self.shutdown();
     }
 }
 

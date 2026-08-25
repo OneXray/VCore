@@ -1,6 +1,6 @@
 use std::{
     collections::VecDeque,
-    io::{Error, ErrorKind},
+    io::{Error, ErrorKind, Read as _},
     net::SocketAddr,
     pin::Pin,
     sync::{
@@ -51,12 +51,9 @@ impl ByteQueue {
     }
 
     pub(crate) fn read(&self, destination: &mut [u8]) -> usize {
-        let mut bytes = self.lock();
-        let count = destination.len().min(bytes.len());
-        for slot in &mut destination[..count] {
-            *slot = bytes.pop_front().expect("queue length checked");
-        }
-        count
+        self.lock()
+            .read(destination)
+            .expect("reading an in-memory queue cannot fail")
     }
 
     pub(crate) fn is_empty(&self) -> bool {
