@@ -25,7 +25,7 @@ Reply：
 - IPv4 允许合法 options，但 reply 不复制 options。
 - IPv4 分片和 IPv6 Fragment Header 不重组、不回复。
 - IPv6 base Next Header 必须直接是 ICMPv6；当前不遍历 extension chain。
-- 非 Echo、非零 code、截断、unspecified source、multicast/broadcast destination 均丢弃。
+- 非 Echo、非零 code、截断及非单播源/目标地址均丢弃，包括 unspecified、multicast 和 broadcast。
 - 单包失败不停止 netstack，也不生成 ICMP error。
 
 实现使用现有 bounded raw egress queue，不创建 ICMP task、socket、flow table 或 timer。Queue full 时只丢当前 reply；单次分配不超过 1,500-byte MTU。

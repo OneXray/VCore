@@ -38,5 +38,5 @@ Material VCore changes include:
 * configurable per-flow memory and timing limits;
 * explicit resource counters and bounded backpressure;
 * IPv4/IPv6 UDP emission through smoltcp wire representations;
-* optional validated synthetic ICMPv4/ICMPv6 echo replies;
+* strict local ICMP policy with bounded smoltcp-generated IPv4/IPv6 echo replies;
 * dual-stack, pressure, shutdown, and packet-boundary tests.

@@ -17,7 +17,7 @@
 
 环境：Windows 11 ARM64 build 26200.9168，Rust 1.98，all features。
 
-最近一次与Windows packet batching同批执行：
+最近一次当前数据面变更执行：
 
 ```text
 cargo test --locked --all-features --lib
@@ -33,7 +33,7 @@ cargo fmt --all -- --check
   PASS
 
 cargo test --manifest-path crates/vcore-netstack/Cargo.toml --all-targets
-  21 passed
+  17 passed
 
 cargo clippy --manifest-path crates/vcore-netstack/Cargo.toml --all-targets -- -D warnings
   PASS

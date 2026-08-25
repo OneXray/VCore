@@ -12,6 +12,7 @@ futures-util = "0.3"
 smoltcp = { version = "0.13", default-features = false, features = [
     "std",
     "medium-ip",
+    "auto-icmp-echo-reply",
     "proto-ipv4",
     "proto-ipv6",
     "socket-tcp",

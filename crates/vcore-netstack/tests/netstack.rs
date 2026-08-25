@@ -238,6 +238,7 @@ async fn fake_icmp_echo_is_explicitly_gated_and_answers_both_families() {
         let reply = timeout_packet(&mut parts.packet_stream).await;
         assert_eq!(reply.data()[0] >> 4, request_version);
         let offset = ip_header_len(reply.data());
+        assert_icmp_checksums(&reply);
         assert_eq!(reply.data()[offset], reply_type);
         assert_eq!(reply.data()[offset + 1], 0);
         assert_eq!(
@@ -248,6 +249,170 @@ async fn fake_icmp_echo_is_explicitly_gated_and_answers_both_families() {
     let snapshot = parts.stats.snapshot();
     assert_eq!(snapshot.icmp_replied, 2);
     assert_eq!(snapshot.icmp_dropped, 0);
+    parts.control.stop().await;
+}
+
+#[tokio::test]
+async fn fake_icmp_rejects_non_unicast_addresses() {
+    let stack = NetStack::start(NetStackConfig {
+        fake_icmp_echo: true,
+        ..NetStackConfig::default()
+    })
+    .unwrap();
+    let mut parts = stack.into_parts();
+
+    for request in [
+        build_icmpv4_echo_between(
+            Ipv4Addr::UNSPECIFIED,
+            Ipv4Addr::new(198, 51, 100, 20),
+            b"invalid-source",
+        ),
+        build_icmpv4_echo_between(
+            Ipv4Addr::BROADCAST,
+            Ipv4Addr::new(198, 51, 100, 20),
+            b"invalid-source",
+        ),
+        build_icmpv4_echo_between(
+            Ipv4Addr::new(192, 0, 2, 10),
+            Ipv4Addr::UNSPECIFIED,
+            b"invalid-destination",
+        ),
+        build_icmpv4_echo_between(
+            Ipv4Addr::new(192, 0, 2, 10),
+            Ipv4Addr::BROADCAST,
+            b"invalid-destination",
+        ),
+        build_icmpv4_echo_between(
+            Ipv4Addr::new(192, 0, 2, 10),
+            Ipv4Addr::new(224, 0, 0, 1),
+            b"invalid-destination",
+        ),
+        build_icmpv6_echo_between(
+            Ipv6Addr::UNSPECIFIED,
+            "2001:db8:2::20".parse().unwrap(),
+            b"invalid-source",
+        ),
+        build_icmpv6_echo_between(
+            "ff02::1".parse().unwrap(),
+            "2001:db8:2::20".parse().unwrap(),
+            b"invalid-source",
+        ),
+        build_icmpv6_echo_between(
+            "2001:db8:1::10".parse().unwrap(),
+            Ipv6Addr::UNSPECIFIED,
+            b"invalid-destination",
+        ),
+        build_icmpv6_echo_between(
+            "2001:db8:1::10".parse().unwrap(),
+            "ff02::1".parse().unwrap(),
+            b"invalid-destination",
+        ),
+    ] {
+        parts.packet_sink.send(request).await.unwrap();
+    }
+
+    for _ in 0..50 {
+        if parts.stats.snapshot().icmp_dropped == 9 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(2)).await;
+    }
+    assert_eq!(parts.stats.snapshot().icmp_dropped, 9);
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), parts.packet_stream.recv())
+            .await
+            .is_err(),
+        "fake ICMP replied to a non-unicast address"
+    );
+
+    parts.control.stop().await;
+}
+
+#[tokio::test]
+async fn fake_icmp_preserves_strict_wire_policy_and_mtu() {
+    const REJECTED: usize = 9;
+
+    let stack = NetStack::start(NetStackConfig {
+        fake_icmp_echo: true,
+        ..NetStackConfig::default()
+    })
+    .unwrap();
+    let mut parts = stack.into_parts();
+
+    let mut trailing_v4 = build_icmpv4_echo(b"trailing").data().to_vec();
+    trailing_v4.push(0xaa);
+    let mut trailing_v6 = build_icmpv6_echo(b"trailing").data().to_vec();
+    trailing_v6.push(0xaa);
+
+    let mut bad_ip_checksum = build_icmpv4_echo(b"bad-ip-checksum").data().to_vec();
+    bad_ip_checksum[10] ^= 1;
+    let mut bad_icmpv4_checksum = build_icmpv4_echo(b"bad-icmp-checksum").data().to_vec();
+    bad_icmpv4_checksum[22] ^= 1;
+    let mut fragmented = build_icmpv4_echo(b"fragmented").data().to_vec();
+    fragmented[6..8].copy_from_slice(&0x2000_u16.to_be_bytes());
+    rewrite_checksum(&mut fragmented[..20], 10);
+    let mut non_echo = build_icmpv4_echo(b"non-echo").data().to_vec();
+    non_echo[20] = 3;
+    rewrite_checksum(&mut non_echo[20..], 2);
+    let mut bad_icmpv4_code = build_icmpv4_echo(b"bad-code").data().to_vec();
+    bad_icmpv4_code[21] = 1;
+    rewrite_checksum(&mut bad_icmpv4_code[20..], 2);
+
+    let mut bad_icmpv6_checksum = build_icmpv6_echo(b"bad-checksum").data().to_vec();
+    bad_icmpv6_checksum[42] ^= 1;
+    let mut bad_icmpv6_code = build_icmpv6_echo(b"bad-code").data().to_vec();
+    bad_icmpv6_code[41] = 1;
+    rewrite_icmpv6_checksum(&mut bad_icmpv6_code);
+
+    for bytes in [
+        trailing_v4,
+        trailing_v6,
+        bad_ip_checksum,
+        bad_icmpv4_checksum,
+        fragmented,
+        non_echo,
+        bad_icmpv4_code,
+        bad_icmpv6_checksum,
+        bad_icmpv6_code,
+    ] {
+        parts.packet_sink.send(Packet::new(bytes)).await.unwrap();
+    }
+
+    for _ in 0..100 {
+        if parts.stats.snapshot().icmp_dropped == REJECTED {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(2)).await;
+    }
+    assert_eq!(parts.stats.snapshot().icmp_dropped, REJECTED);
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), parts.packet_stream.recv())
+            .await
+            .is_err(),
+        "invalid ICMP generated a reply"
+    );
+
+    let mut extension_header = build_icmpv6_echo(b"extension").data().to_vec();
+    extension_header[6] = 44;
+    parts
+        .packet_sink
+        .send(Packet::new(extension_header))
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    assert_eq!(parts.stats.snapshot().icmp_dropped, REJECTED);
+
+    for (request, expected_len) in [
+        (build_icmpv4_echo_with_options(b"odd"), 20 + 8 + 3),
+        (build_icmpv4_echo(&vec![0x5a; 1_472]), 1_500),
+        (build_icmpv6_echo(&vec![0xa5; 1_452]), 1_500),
+    ] {
+        parts.packet_sink.send(request).await.unwrap();
+        let reply = timeout_packet(&mut parts.packet_stream).await;
+        assert_eq!(reply.len(), expected_len);
+    }
+    assert_eq!(parts.stats.snapshot().icmp_replied, 3);
+
     parts.control.stop().await;
 }
 
@@ -385,8 +550,14 @@ fn build_udp(flow: &Flow, payload: &[u8]) -> Packet {
 }
 
 fn build_icmpv4_echo(payload: &[u8]) -> Packet {
-    let source = Ipv4Addr::new(192, 0, 2, 10);
-    let destination = Ipv4Addr::new(198, 51, 100, 20);
+    build_icmpv4_echo_between(
+        Ipv4Addr::new(192, 0, 2, 10),
+        Ipv4Addr::new(198, 51, 100, 20),
+        payload,
+    )
+}
+
+fn build_icmpv4_echo_between(source: Ipv4Addr, destination: Ipv4Addr, payload: &[u8]) -> Packet {
     let mut message = vec![0_u8; 8 + payload.len()];
     message[0] = 8;
     message[4..8].copy_from_slice(&[0x12, 0x34, 0x56, 0x78]);
@@ -396,9 +567,31 @@ fn build_icmpv4_echo(payload: &[u8]) -> Packet {
     build_ipv4(source, destination, 1, &message)
 }
 
+fn build_icmpv4_echo_with_options(payload: &[u8]) -> Packet {
+    let base = build_icmpv4_echo(payload);
+    let mut packet = vec![0_u8; base.len() + 4];
+    let packet_len = u16::try_from(packet.len()).unwrap();
+    packet[0] = 0x46;
+    packet[2..4].copy_from_slice(&packet_len.to_be_bytes());
+    packet[6..8].copy_from_slice(&0x4000_u16.to_be_bytes());
+    packet[8] = 64;
+    packet[9] = 1;
+    packet[12..20].copy_from_slice(&base.data()[12..20]);
+    packet[20..24].copy_from_slice(&[1, 1, 0, 0]);
+    packet[24..].copy_from_slice(&base.data()[20..]);
+    rewrite_checksum(&mut packet[..24], 10);
+    Packet::new(packet)
+}
+
 fn build_icmpv6_echo(payload: &[u8]) -> Packet {
-    let source: Ipv6Addr = "2001:db8:1::10".parse().unwrap();
-    let destination: Ipv6Addr = "2001:db8:2::20".parse().unwrap();
+    build_icmpv6_echo_between(
+        "2001:db8:1::10".parse().unwrap(),
+        "2001:db8:2::20".parse().unwrap(),
+        payload,
+    )
+}
+
+fn build_icmpv6_echo_between(source: Ipv6Addr, destination: Ipv6Addr, payload: &[u8]) -> Packet {
     let mut message = vec![0_u8; 8 + payload.len()];
     message[0] = 128;
     message[4..8].copy_from_slice(&[0x12, 0x34, 0x56, 0x78]);
@@ -455,6 +648,26 @@ fn tcp_sequence(packet: &Packet) -> u32 {
     u32::from_be_bytes(packet.data()[offset + 4..offset + 8].try_into().unwrap())
 }
 
+fn assert_icmp_checksums(packet: &Packet) {
+    let bytes = packet.data();
+    let offset = ip_header_len(bytes);
+    match bytes[0] >> 4 {
+        4 => {
+            assert_eq!(internet_checksum(&bytes[..offset]), u16::MAX);
+            assert_eq!(internet_checksum(&bytes[offset..]), u16::MAX);
+        }
+        6 => {
+            let source = Ipv6Addr::from(<[u8; 16]>::try_from(&bytes[8..24]).unwrap());
+            let destination = Ipv6Addr::from(<[u8; 16]>::try_from(&bytes[24..40]).unwrap());
+            assert_eq!(
+                transport_checksum_v6(source, destination, 58, &bytes[offset..]),
+                u16::MAX
+            );
+        }
+        _ => unreachable!(),
+    }
+}
+
 fn assert_udp_packet(packet: &Packet, expected: &UdpDatagram) {
     let offset = ip_header_len(packet.data());
     assert_eq!(
@@ -506,6 +719,20 @@ fn transport_checksum_v6(
     sum += u32::from(next_header);
     add_bytes(&mut sum, transport);
     fold(sum)
+}
+
+fn rewrite_icmpv6_checksum(packet: &mut [u8]) {
+    packet[42..44].fill(0);
+    let source = Ipv6Addr::from(<[u8; 16]>::try_from(&packet[8..24]).unwrap());
+    let destination = Ipv6Addr::from(<[u8; 16]>::try_from(&packet[24..40]).unwrap());
+    let checksum = transport_checksum_v6(source, destination, 58, &packet[40..]);
+    packet[42..44].copy_from_slice(&checksum.to_be_bytes());
+}
+
+fn rewrite_checksum(bytes: &mut [u8], offset: usize) {
+    bytes[offset..offset + 2].fill(0);
+    let checksum = internet_checksum(bytes);
+    bytes[offset..offset + 2].copy_from_slice(&checksum.to_be_bytes());
 }
 
 fn internet_checksum(bytes: &[u8]) -> u16 {

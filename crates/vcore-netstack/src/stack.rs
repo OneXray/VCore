@@ -9,7 +9,9 @@ use std::{
 };
 
 use smoltcp::{
-    iface::{Config as InterfaceConfig, Interface, SocketHandle, SocketSet},
+    iface::{
+        Config as InterfaceConfig, Interface, PollIngressSingleResult, SocketHandle, SocketSet,
+    },
     socket::tcp,
     time::Instant,
     wire::{
@@ -25,7 +27,7 @@ use crate::{
     NetStackConfig, Packet,
     config::ConfigError,
     device::RawIpDevice,
-    icmp::{EchoReply, build_echo_reply},
+    icmp::{IcmpIngress, classify as classify_icmp},
     tcp::{FlowKey, TcpListener, TcpStream, TcpStreamHandle},
     udp::{UdpDatagram, UdpSocket, parse_udp_packet},
 };
@@ -393,19 +395,14 @@ impl Driver {
 
     fn handle_packet(&mut self, packet: Packet) {
         if self.config.fake_icmp_echo {
-            match build_echo_reply(&packet, self.config.mtu) {
-                EchoReply::NotIcmp => {}
-                EchoReply::Dropped => {
+            match classify_icmp(&packet) {
+                IcmpIngress::NotIcmp => {}
+                IcmpIngress::Dropped => {
                     self.stats.0.icmp_dropped.fetch_add(1, Ordering::AcqRel);
                     return;
                 }
-                EchoReply::Reply(reply) => {
-                    let counter = if self.raw_outbound.try_send(reply).is_ok() {
-                        &self.stats.0.icmp_replied
-                    } else {
-                        &self.stats.0.icmp_dropped
-                    };
-                    counter.fetch_add(1, Ordering::AcqRel);
+                IcmpIngress::Smoltcp => {
+                    self.handle_icmp_packet(packet);
                     return;
                 }
             }
@@ -426,6 +423,39 @@ impl Driver {
                 self.stats.0.invalid_packets.fetch_add(1, Ordering::AcqRel);
             }
         }
+    }
+
+    fn handle_icmp_packet(&mut self, packet: Packet) {
+        if !self.device.rx_is_empty()
+            || self.device.tx_is_full()
+            || self.raw_outbound.capacity() == 0
+        {
+            self.stats.0.icmp_dropped.fetch_add(1, Ordering::AcqRel);
+            return;
+        }
+
+        // Keep low-priority fake echo replies out of the shared device TX backlog.
+        // One synchronous ingress poll gives this request at most one immediate reply.
+        let tx_checkpoint = self.device.tx_checkpoint();
+        if self.device.push_rx(packet).is_err() {
+            self.stats.0.icmp_dropped.fetch_add(1, Ordering::AcqRel);
+            return;
+        }
+        let result =
+            self.interface
+                .poll_ingress_single(Instant::now(), &mut self.device, &mut self.sockets);
+        debug_assert_ne!(result, PollIngressSingleResult::None);
+
+        let replied = self
+            .device
+            .pop_tx_after(tx_checkpoint)
+            .is_some_and(|reply| self.raw_outbound.try_send(reply).is_ok());
+        let counter = if replied {
+            &self.stats.0.icmp_replied
+        } else {
+            &self.stats.0.icmp_dropped
+        };
+        counter.fetch_add(1, Ordering::AcqRel);
     }
 
     fn handle_tcp_packet(&mut self, packet: Packet) {

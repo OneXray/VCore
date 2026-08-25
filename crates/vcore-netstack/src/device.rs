@@ -37,6 +37,23 @@ impl RawIpDevice {
         }
     }
 
+    pub(crate) fn rx_is_empty(&self) -> bool {
+        self.rx.is_empty()
+    }
+
+    pub(crate) fn tx_checkpoint(&self) -> usize {
+        self.tx.len()
+    }
+
+    pub(crate) fn pop_tx_after(&mut self, checkpoint: usize) -> Option<Packet> {
+        debug_assert!(self.tx.len() <= checkpoint + 1);
+        if self.tx.len() > checkpoint {
+            self.tx.pop_back()
+        } else {
+            None
+        }
+    }
+
     pub(crate) fn pop_tx(&mut self) -> Option<Packet> {
         self.tx.pop_front()
     }
