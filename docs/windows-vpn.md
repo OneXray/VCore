@@ -87,7 +87,9 @@ IPv4: 0.0.0.0/1, 128.0.0.0/1
 IPv6: ::/1, 8000::/1
 ```
 
-Provider安装固定TUN DNS地址和search namespace；DNS packet与普通IP packet一样进入VCore runtime。Ping、Controller port/secret和TUN地址是session运行时字段，不写回用户保存的RAW YAML。
+OneVCore在`startVpn` strict payload中提供每个session的TUN IPv4/IPv6和DNS IPv4/IPv6地址。Host bridge验证后把它们与snapshot token写入VPN profile configuration；Provider从`VpnChannel.Configuration.CustomField`读取并交给`StartWithMainTransport`。这些是运行时字段，不写回用户保存的RAW YAML。
+
+Provider为suffix `.`安装外部DNS地址。`dns.enable: true`时，目标port 53由runtime DNS处理；`dns.enable: false`时，TCP/UDP 53保留该外部DNS目标并作为普通业务流量执行rules。DNS assignment本身不提供resolver或NAT。
 
 两条`/1`不是`0.0.0.0/0`的可替换写法。Windows 11 ARM64 build 26200.9168上的隔离package差分测试中，同一TCP socket同时绑定physical source与`IP_UNICAST_IF`：`/1 + /1`前后两次均从physical source连接成功，改成VPN `/0`后立即返回`WSAENETUNREACH` 10051；不绑定的socket则取得TUN地址并进入Provider。因而Windows实现不得合并为单条`/0`。
 
@@ -150,7 +152,8 @@ vcore-windows-session-host.exe
 - Session Host `AppListEntry="none"`，不注册StartupTask或protocol handler。
 - Provider activation class来自`vcore.dll`。
 - 只维护一个package-owned VPN profile。
-- Active token不同不hot swap；必须显式Stop后再Start。
+- Profile custom configuration是最大1 KiB的strict JSON，只包含revision 1、snapshot token和四个外部network address；不包含YAML、Controller secret、PID或pipe path。
+- Active snapshot或network settings不同都不hot swap；必须显式Stop后再Start。
 - Unpackaged运行缺少package identity时fail closed。
 - Package update必须在disconnected状态执行，版本必须递增，不能通过隐式卸载替代升级。
 

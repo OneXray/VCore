@@ -230,6 +230,28 @@ MSIX signature为Valid。用户从正式UI手动连接/断开：HTTP 200、HTTPS
 
 三次50,000,000-byte外网下载为496,159 / 556,474 / 561,587 B/s；该结果受代理和网络限制，只证明持续真实数据面，不用于500 MiB/s IPC门禁。
 
+### 6.6 Candidate package `26.8.1.10`
+
+Artifact SHA-256：
+
+```text
+vcore.dll
+c9cbefa6eb1b7d6abb5545e8e9507c5947b00c0476f8a360be0b8633722f00a3
+
+vcore-windows-vpn-host.exe
+bab6f94170d99c1027d952a42caef2a4c0b4bd9c93d820e59cc2d6e384a7a664
+
+vcore-windows-session-host.exe
+721118e86ee31f25edeb54195e96b990f6918fffcea74c7746d002b75552bde4
+
+OneVCore.Dev_26.8.1.10_arm64.msix
+b07550d00dc26db0cf7ff51e8c43d7d6b02d4008702b125b743cbd12786188e0
+```
+
+Normal non-`SkipBuild` ARM64 release build、签名和从`26.8.1.9`到`26.8.1.10`的disconnected in-place update通过，Authenticode状态为Valid。Packaged full-trust probe使用credential-free config提交外部TUN `192.168.8.1` / `fd00:8::2`及DNS `223.5.5.5` / `2400:3200::1`；interface 25精确安装两个/32、/128 client address，effective NRPT suffix `.`精确列出两个DNS address，系统`Resolve-DnsName www.baidu.com`返回A records。
+
+相同payload重复Start保持Provider/Session Host PID `9936/1820`不变；把TUN IPv4改为`192.168.9.1`的active Start以`Windows VPN is connected with different session settings`拒绝。Stop counters为217 / 125，三类queue drop均0；随后产品process、四条`/1` routes、custom NRPT、rendezvous和session record均为0/不存在。本项没有执行Flutter UI手动验收。
+
 ## 7. 仍未完成
 
 ### Windows release

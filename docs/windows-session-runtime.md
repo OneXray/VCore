@@ -8,7 +8,7 @@
 - 每个VPN session由一个hidden full-trust Session Host独占完整VCore runtime。
 - Flutter退出不停止VPN；重启后可恢复system profile、Controller和traffic状态。
 - VLESS、SOCKS5、AnyTLS、DIRECT、DNS、rules、GeoData、sniffer、proxy chain和四字段traffic统计保持不变。
-- Invoke API v5、schema revision 11、Windows bridge revision 1和Dart start/status/stop接口保持不变。
+- Invoke API v5、schema revision 11、Windows bridge revision 1、六个bridge method和snapshot token格式保持不变；`startVpn` strict payload同时携带外部network settings。
 - Windows只保留一条raw-IP packet path，不提供Provider内嵌runtime fallback。
 
 ## 2. 进程与所有权
@@ -49,25 +49,25 @@ Session Host每次session启动一个新process，不常驻、不复用runtime�
 ## 3. Snapshot 与 profile
 
 - Windows只维护一个package-owned `OneVCore` profile。
-- Host bridge先用当前parser验证TUN config，再发布content-addressed snapshot：
+- Host bridge先用当前parser验证TUN config和外部TUN/DNS地址，再发布content-addressed YAML snapshot：
 
   ```text
   onevcore-v1:<64 lowercase sha256>
   LocalState/vcore/windows/snapshots/<sha256>.yaml
   ```
 
-- Profile只保存canonical token，不保存YAML、Controller secret、PID或pipe path。
-- Active profile token相同按现有语义幂等；不同token必须显式Stop，不能hot swap。
+- Profile custom configuration保存最大1 KiB的strict JSON：revision 1、canonical token，以及TUN IPv4/IPv6和DNS IPv4/IPv6；不保存YAML、Controller secret、PID或pipe path。
+- Active profile的token和四个network address全部相同才幂等；任一不同必须显式Stop，不能hot swap。
 - Snapshot读取校验size、regular file、reparse point和content digest。
 - Runtime字段如TUN地址、Controller port/secret和Ping目标不写入用户RAW YAML。
 
 ## 4. 启动顺序
 
-1. Flutter调用bridge `startVpn(configYaml)`。
-2. Bridge验证配置并发布immutable snapshot。
+1. Flutter调用bridge `startVpn(configYaml, networkSettings)`；network settings来自TUN Settings，不进入RAW YAML。
+2. Bridge验证配置和地址，发布immutable YAML snapshot，并生成strict profile configuration。
 3. Bridge通过`IApplicationActivationManager`激活manifest隐藏的Session Host，只传`--snapshot-token <token>`。
 4. Bridge取得并持有精确process handle。
-5. Bridge更新单一VPN profile并调用`ConnectProfileAsync`。
+5. Bridge把profile configuration写入单一VPN profile并调用`ConnectProfileAsync`。
 6. Windows激活Provider。
 7. Provider在安装routes前选择physical binding并创建control/data pipe servers。
 8. Provider原子发布strict rendezvous。

@@ -62,15 +62,11 @@ use crate::{
     windows_packet_channel::{
         AddressBindingV4, AddressBindingV6, PacketCounters, PhysicalBinding, ProviderPacketSession,
     },
-    windows_snapshot::SnapshotReference,
+    windows_profile::{WindowsNetworkSettings, WindowsProfileConfiguration},
 };
 
 const CLASS_NAME: &str = "OneVCore.VpnBackgroundTask";
 const PACKET_QUEUE_CAPACITY: usize = 256;
-const VIRTUAL_IPV4: &str = "192.168.3.1";
-const VIRTUAL_IPV6: &str = "fd00::2";
-const VIRTUAL_DNS_IPV4: &str = "192.168.3.2";
-const VIRTUAL_DNS_IPV6: &str = "fd00::1";
 const FAIL_CLOSED_IDLE: u8 = 0;
 const FAIL_CLOSED_STOPPING: u8 = 1;
 const FAIL_CLOSED_CANCELLED: u8 = 2;
@@ -566,8 +562,10 @@ impl VpnProvider {
 
     fn connect_inner(&self, channel: &VpnChannel) -> Result<()> {
         let local_folder = local_folder()?;
-        let token = channel.Configuration()?.CustomField()?.to_string();
-        _ = SnapshotReference::parse(&token)?;
+        let profile = WindowsProfileConfiguration::parse(
+            &channel.Configuration()?.CustomField()?.to_string(),
+        )?;
+        let token = profile.snapshot_token().to_owned();
         let physical = PhysicalNetwork::current()?;
 
         let localhost = HostName::CreateHostName(&"127.0.0.1".into())?;
@@ -589,11 +587,8 @@ impl VpnProvider {
         let output = back_transport.OutputStream()?;
 
         let routes = vpn_routes()?;
-        let assigned_ipv4 =
-            IVectorView::from(vec![Some(HostName::CreateHostName(&VIRTUAL_IPV4.into())?)]);
-        let assigned_ipv6 =
-            IVectorView::from(vec![Some(HostName::CreateHostName(&VIRTUAL_IPV6.into())?)]);
-        let dns = vpn_dns_assignment()?;
+        let (assigned_ipv4, assigned_ipv6) = vpn_client_addresses(profile.network_settings())?;
+        let dns = vpn_dns_assignment(profile.network_settings())?;
 
         let wake_output = AgileReference::new(&output)?;
         let (tun, packets) = TunIo::new(PACKET_QUEUE_CAPACITY, move || {
@@ -935,10 +930,27 @@ fn vpn_routes() -> Result<VpnRouteAssignment> {
     Ok(routes)
 }
 
-fn vpn_dns_assignment() -> Result<VpnDomainNameAssignment> {
+fn vpn_client_addresses(
+    settings: &WindowsNetworkSettings,
+) -> Result<(IVectorView<HostName>, IVectorView<HostName>)> {
+    Ok((
+        IVectorView::from(vec![Some(HostName::CreateHostName(
+            &settings.ipv4_address().to_string().into(),
+        )?)]),
+        IVectorView::from(vec![Some(HostName::CreateHostName(
+            &settings.ipv6_address().to_string().into(),
+        )?)]),
+    ))
+}
+
+fn vpn_dns_assignment(settings: &WindowsNetworkSettings) -> Result<VpnDomainNameAssignment> {
     let dns_servers = IVectorView::from(vec![
-        Some(HostName::CreateHostName(&VIRTUAL_DNS_IPV4.into())?),
-        Some(HostName::CreateHostName(&VIRTUAL_DNS_IPV6.into())?),
+        Some(HostName::CreateHostName(
+            &settings.dns_ipv4_address().to_string().into(),
+        )?),
+        Some(HostName::CreateHostName(
+            &settings.dns_ipv6_address().to_string().into(),
+        )?),
     ]);
     let proxy_servers = IVectorView::from(Vec::<Option<HostName>>::new());
     let info = VpnDomainNameInfo::CreateVpnDomainNameInfo(
@@ -1012,6 +1024,21 @@ fn log(message: &str) {
 mod tests {
     use super::*;
 
+    struct WinRtGuard;
+
+    impl WinRtGuard {
+        fn enter() -> Self {
+            unsafe { RoInitialize(RO_INIT_MULTITHREADED).unwrap() };
+            Self
+        }
+    }
+
+    impl Drop for WinRtGuard {
+        fn drop(&mut self) {
+            unsafe { RoUninitialize() };
+        }
+    }
+
     #[test]
     fn adapter_name_matches_winrt_network_adapter_id() {
         let id = GUID::from_u128(0xc2afe445_9ed9_423d_8c29_6b2cd49691d2);
@@ -1043,6 +1070,32 @@ mod tests {
         };
         assert_eq!(first, same);
         assert_ne!(first, other);
+    }
+
+    #[test]
+    fn provider_assignments_use_profile_addresses() {
+        let _winrt = WinRtGuard::enter();
+        let digest = "0123456789abcdef".repeat(4);
+        let profile = crate::windows_profile::WindowsProfileConfiguration::parse(&format!(
+            r#"{{"version":1,"snapshotToken":"onevcore-v1:{digest}","networkSettings":{{"ipv4Address":"192.168.8.1","ipv6Address":"fd00:8::2","dnsIpv4Address":"223.5.5.5","dnsIpv6Address":"2400:3200::1"}}}}"#
+        ))
+        .unwrap();
+
+        let (ipv4, ipv6) = vpn_client_addresses(profile.network_settings()).unwrap();
+        assert_eq!(ipv4.GetAt(0).unwrap().DisplayName().unwrap(), "192.168.8.1");
+        assert_eq!(ipv6.GetAt(0).unwrap().DisplayName().unwrap(), "fd00:8::2");
+
+        let dns = vpn_dns_assignment(profile.network_settings()).unwrap();
+        let info = dns.DomainNameList().unwrap().GetAt(0).unwrap();
+        let servers = info.DnsServers().unwrap();
+        assert_eq!(
+            servers.GetAt(0).unwrap().DisplayName().unwrap(),
+            "223.5.5.5"
+        );
+        assert_eq!(
+            servers.GetAt(1).unwrap().DisplayName().unwrap(),
+            "2400:3200::1"
+        );
     }
 
     #[test]

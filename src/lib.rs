@@ -52,6 +52,8 @@ mod windows_log;
 #[cfg(all(windows, feature = "ffi"))]
 mod windows_packet_channel;
 #[cfg(all(windows, feature = "ffi"))]
+mod windows_profile;
+#[cfg(all(windows, feature = "ffi"))]
 #[doc(hidden)]
 pub mod windows_session;
 #[cfg(all(windows, feature = "ffi"))]

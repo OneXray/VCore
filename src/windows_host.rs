@@ -32,7 +32,10 @@ use windows::{
 };
 
 use crate::{
-    config::Config, windows_packet_channel::remove_rendezvous, windows_snapshot::SnapshotReference,
+    config::Config,
+    windows_packet_channel::remove_rendezvous,
+    windows_profile::{WindowsNetworkSettings, WindowsProfileConfiguration},
+    windows_snapshot::SnapshotReference,
 };
 
 const BRIDGE_VERSION: u32 = 1;
@@ -58,6 +61,7 @@ struct EmptyPayload {}
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct StartPayload {
     config_yaml: String,
+    network_settings: WindowsNetworkSettings,
 }
 
 #[derive(Deserialize)]
@@ -223,6 +227,9 @@ fn start_vpn(payload: StartPayload) -> Result<Value, String> {
     let snapshot =
         SnapshotReference::publish(&environment.local_folder, payload.config_yaml.as_bytes())
             .map_err(display_error)?;
+    let profile_configuration =
+        WindowsProfileConfiguration::new(&snapshot, payload.network_settings);
+    let profile_configuration_json = profile_configuration.to_json().map_err(display_error)?;
     let token = snapshot.token();
     let agent = VpnManagementAgent::new().map_err(display_error)?;
     let existing = find_profile(&agent, &environment.family_name)?;
@@ -235,10 +242,10 @@ fn start_vpn(payload: StartPayload) -> Result<Value, String> {
                     .CustomConfiguration()
                     .map_err(display_error)?
                     .to_string();
-                if current == token {
+                if current == profile_configuration_json {
                     return profile_status_data(Some(existing));
                 }
-                return Err("Windows VPN is connected to a different snapshot".to_owned());
+                return Err("Windows VPN is connected with different session settings".to_owned());
             }
             VpnManagementConnectionStatus::Connecting
             | VpnManagementConnectionStatus::Disconnecting => {
@@ -252,7 +259,8 @@ fn start_vpn(payload: StartPayload) -> Result<Value, String> {
     let previous = existing
         .as_ref()
         .and_then(|existing| existing.profile.CustomConfiguration().ok())
-        .and_then(|token| SnapshotReference::parse(&token.to_string()).ok());
+        .and_then(|value| WindowsProfileConfiguration::parse(&value.to_string()).ok())
+        .and_then(|configuration| configuration.snapshot_reference().ok());
     let profile = existing
         .as_ref()
         .map_or_else(VpnPlugInProfile::new, |existing| {
@@ -261,7 +269,11 @@ fn start_vpn(payload: StartPayload) -> Result<Value, String> {
         .map_err(display_error)?;
     remove_rendezvous(&environment.local_folder).map_err(display_error)?;
     let session_host = SessionHostProcess::launch(&environment.family_name, &token)?;
-    configure_profile(&profile, &environment.family_name, &token)?;
+    configure_profile(
+        &profile,
+        &environment.family_name,
+        &profile_configuration_json,
+    )?;
     let status = if existing.is_some() {
         agent
             .UpdateProfileFromObjectAsync(&profile)
@@ -324,8 +336,8 @@ fn stop_vpn() -> Result<Value, String> {
             .profile
             .CustomConfiguration()
             .ok()
-            .and_then(|value| SnapshotReference::parse(&value.to_string()).ok())
-            .map(|reference| reference.token()),
+            .and_then(|value| WindowsProfileConfiguration::parse(&value.to_string()).ok())
+            .map(|configuration| configuration.snapshot_token().to_owned()),
     }))
 }
 
@@ -410,12 +422,12 @@ fn find_profile(
 fn configure_profile(
     profile: &VpnPlugInProfile,
     family_name: &str,
-    token: &str,
+    profile_configuration: &str,
 ) -> Result<(), String> {
     profile
         .SetProfileName(&PROFILE_NAME.into())
         .and_then(|()| profile.SetVpnPluginPackageFamilyName(&family_name.into()))
-        .and_then(|()| profile.SetCustomConfiguration(&token.into()))
+        .and_then(|()| profile.SetCustomConfiguration(&profile_configuration.into()))
         .map_err(display_error)?;
     let servers = profile.ServerUris().map_err(display_error)?;
     servers.Clear().map_err(display_error)?;
@@ -435,16 +447,16 @@ fn profile_status_data(profile: Option<&ProfileMatch>) -> Result<Value, String> 
         VpnManagementConnectionStatus::Connecting => "connecting",
         _ => return Err("unknown Windows VPN profile status".to_owned()),
     };
-    let token = profile
+    let profile_configuration = profile
         .profile
         .CustomConfiguration()
         .map_err(display_error)?
         .to_string();
-    let token = SnapshotReference::parse(&token)
+    let token = WindowsProfileConfiguration::parse(&profile_configuration)
         .ok()
-        .map(|reference| reference.token());
+        .map(|configuration| configuration.snapshot_token().to_owned());
     if status != "disconnected" && token.is_none() {
-        return Err("active Windows VPN profile has an invalid snapshot token".to_owned());
+        return Err("active Windows VPN profile has invalid configuration".to_owned());
     }
     Ok(json!({"status": status, "snapshotToken": token}))
 }
@@ -531,6 +543,47 @@ mod tests {
                 "data": null,
                 "error": "unsupported Windows bridge version"
             })
+        );
+    }
+
+    #[test]
+    fn start_payload_accepts_only_strict_external_network_settings() {
+        let payload: StartPayload = decode_payload(json!({
+            "configYaml": "tun:\n  enable: true\n",
+            "networkSettings": {
+                "ipv4Address": "192.168.8.1",
+                "ipv6Address": "fd00:8::2",
+                "dnsIpv4Address": "223.5.5.5",
+                "dnsIpv6Address": "2400:3200::1"
+            }
+        }))
+        .unwrap();
+        assert_eq!(
+            payload.network_settings.ipv4_address().to_string(),
+            "192.168.8.1"
+        );
+        assert_eq!(
+            payload.network_settings.dns_ipv4_address().to_string(),
+            "223.5.5.5"
+        );
+
+        assert!(
+            decode_payload::<StartPayload>(json!({
+                "configYaml": "tun:\n  enable: true\n"
+            }))
+            .is_err()
+        );
+        assert!(
+            decode_payload::<StartPayload>(json!({
+                "configYaml": "tun:\n  enable: true\n",
+                "networkSettings": {
+                    "ipv4Address": "192.168.8.1",
+                    "ipv6Address": "fd00:8::2",
+                    "dnsIpv4Address": "192.168.8.1",
+                    "dnsIpv6Address": "2400:3200::1"
+                }
+            }))
+            .is_err()
         );
     }
 
