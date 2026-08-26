@@ -1,8 +1,8 @@
 # VCore Invoke API
 
-状态：当前公共契约。业务 API version 为 5，内部配置 schema revision 为 11。配置只通过 inline `configYaml` / `configYamls` 交付；公共生命周期在每份已加载 runtime 内保持单实例。
+业务接口版本为 5，配置结构修订版为 11。配置只通过内联的 `configYaml` 或 `configYamls` 传入；每份已加载的 VCore 运行时最多拥有一个公共实例。
 
-## 1. C ABI
+## C ABI
 
 ```c
 char *VCoreInvoke(const char *request_json);
@@ -12,13 +12,13 @@ char *VCoreWindowsVpnInvoke(const char *request_json);
 void VCoreFree(char *response);
 ```
 
-- request 必须是 NUL 结尾 UTF-8 JSON。
-- 每个非空 response 都由 VCore 独立分配，调用方必须使用 `VCoreFree`。
-- 非法输入、未知 method、状态错误和 panic 返回合法 failure JSON；除灾难性分配失败外不返回 `NULL`。
-- 完整 request/response、配置、UUID、密钥、short ID 和凭据不得写入日志。
-- `VCoreWindowsVpnInvoke` 是 package host bridge，不属于业务 API v5，见第 7 节。
+- 请求必须是以 NUL 结尾的 UTF-8 JSON。
+- 非空响应由 VCore 分配，调用方必须使用同一库中的 `VCoreFree` 释放。
+- 非法输入、未知方法、状态错误和 panic 返回合法失败 JSON；只有灾难性分配失败可以返回 `NULL`。
+- 请求正文、响应正文、完整配置、UUID、密钥、short ID 和凭据不得写入日志。
+- `VCoreWindowsVpnInvoke` 是 Windows 安装包桥接接口，不属于业务 API v5。
 
-## 2. Envelope
+## 请求与响应
 
 请求：
 
@@ -31,32 +31,31 @@ void VCoreFree(char *response);
 }
 ```
 
-响应：
+成功响应：
 
 ```json
 {"success":true,"data":{},"error":""}
 ```
 
-或：
+失败响应：
 
 ```json
-{"success":false,"data":null,"error":"invalid configuration: ..."}
+{"success":false,"data":null,"error":"invalid configuration"}
 ```
 
-规则：
+约束：
 
 - `apiVersion` 必填且只能为 `5`。
-- `method` 必须来自本文白名单。
-- `payload` 必须是 object；无参数时使用 `{}`。
-- registry method 必须省略 `instanceId`；instance method 必须携带 VCore 返回的非空 ID。
-- 未知 envelope 或 payload 字段全部失败。
-- 无业务数据的方法成功时返回 `{}`，不返回 `null`。
+- `method` 必须来自本文列出的白名单。
+- `payload` 必须是对象；无参数时传 `{}`。
+- 运行时级方法必须省略 `instanceId`；实例级方法必须携带 VCore 返回的非空 ID。
+- 未知 envelope 字段和未知 payload 字段都会失败。
+- 无业务数据的方法成功时返回空对象，不返回 `null`。
+- Invoke envelope 最大 3 MiB，单份 YAML 最大 256 KiB。
 
-业务 Invoke envelope 最大 3 MiB；单份 YAML 最大 256 KiB。
+## 初始化与生命周期
 
-## 3. Registry 与生命周期
-
-每份已加载 VCore runtime 必须先调用：
+每份已加载的 VCore 运行时先调用：
 
 ```json
 {
@@ -66,16 +65,16 @@ void VCoreFree(char *response);
 }
 ```
 
-`dataDir` 必须是可写绝对路径。VCore 创建并固定使用：
+`dataDir` 必须是可写绝对路径。VCore 固定使用：
 
 ```text
 <dataDir>/configs   # 宿主可选持久化目录，不是 Invoke 输入
-<dataDir>/geodata   # VCore 独占管理
+<dataDir>/geodata   # VCore 管理的 GeoData 目录
 ```
 
-同一路径重复 initialize 幂等；切换到其他路径失败。
+同一路径重复初始化幂等，切换路径失败。
 
-每份 runtime 最多存在一个公共实例：
+公共实例状态：
 
 ```text
 stopped -> preparing -> prepared -> starting -> running
@@ -85,24 +84,24 @@ stopped -> preparing -> prepared -> starting -> running
 关键数据面提前退出 -> failed
 ```
 
-- `instanceId` 是 runtime-local、不可复用的 generation token，不表示并行实例能力。
-- 同一 ID 同时只执行一个生命周期命令；重叠命令 fail-fast。
-- `validateConfig` 是可并发的 registry 纯校验。
-- `measureDelay` 使用独立单批次 admission 和私有 worker，不进入公共实例表。
-- 不支持实例内热重载；切换配置使用 `stop -> prepare -> start`。
-- `stop` 在 stopped 时幂等；`destroyInstance` 是最终同步清理屏障。
+- `instanceId` 是当前运行时内不可复用的代次令牌，不代表支持并行公共实例。
+- 同一实例一次只执行一个生命周期命令，重叠命令立即失败。
+- `validateConfig` 是可并发的纯校验方法。
+- `measureDelay` 使用独立批次和私有工作器，不进入公共实例表。
+- 不支持热重载；切换配置需要 `stop -> prepare -> start`。
+- `stop` 在 stopped 状态幂等；`destroyInstance` 是最终同步清理屏障。
 
-## 4. Methods
+## 方法
 
-### 4.1 `version`
+### `version`
 
-Registry method：
+运行时级方法：
 
 ```json
 {"apiVersion":5,"method":"version","payload":{}}
 ```
 
-成功数据：
+返回：
 
 ```json
 {
@@ -114,21 +113,21 @@ Registry method：
 }
 ```
 
-`configVersion` 是二进制兼容性 revision，不是 YAML 字段。源码 revision 和 artifact hash 由 release manifest 单独记录。
+`configVersion` 是二进制报告的结构修订号，不是 YAML 字段。源码 revision 和产物 hash 由发布系统记录。
 
-### 4.2 `initialize`
+### `initialize`
 
-见第 3 节。成功返回规范化后的 `dataDir`。
+参数和幂等语义见“初始化与生命周期”。成功时返回规范化后的 `dataDir`。
 
-### 4.3 `getGeoDataState`
+### `getGeoDataState`
 
-Registry method，要求已 initialize：
+运行时级只读方法，要求已经初始化：
 
 ```json
 {"apiVersion":5,"method":"getGeoDataState","payload":{}}
 ```
 
-按 `geosite` / `geoip` 返回：
+返回 `geosite` 和 `geoip` 两项：
 
 ```json
 {
@@ -155,37 +154,35 @@ Registry method，要求已 initialize：
 }
 ```
 
-该方法只读，不创建实例、不联网、不改变调度。时间为 Unix seconds，hash 为小写 SHA-256。
+时间使用 Unix 秒，hash 为小写 SHA-256。调用不会创建实例、联网或改变更新调度。
 
-### 4.4 `createInstance`
-
-Registry method：
+### `createInstance`
 
 ```json
 {"apiVersion":5,"method":"createInstance","payload":{}}
 ```
 
-成功：
+返回：
 
 ```json
 {"instanceId":"1"}
 ```
 
-只创建 stopped 状态记录，不读取配置或启动 runtime。实例销毁前再次创建失败。
+该方法只创建 stopped 状态记录。实例销毁前再次创建失败。
 
-### 4.5 `destroyInstance`
+### `destroyInstance`
 
-Instance method：
+实例级方法：
 
 ```json
 {"apiVersion":5,"method":"destroyInstance","instanceId":"1","payload":{}}
 ```
 
-若实例仍 prepared、running 或 failed，先执行与 stop 等价的清理。取得 command admission 后，无论清理成功、失败或 panic，ID 都会 tombstone 并永久失效；只有 admission 前因 busy 被拒绝时实例保留。
+实例仍处于 prepared、running 或 failed 时，先执行与 `stop` 等价的清理。取得命令锁后，无论清理成功、失败或 panic，ID 都会永久失效；只有因 busy 在取得命令锁前被拒绝时，实例才保留。
 
-### 4.6 `validateConfig`
+### `validateConfig`
 
-Registry method：
+运行时级方法：
 
 ```json
 {
@@ -195,11 +192,11 @@ Registry method：
 }
 ```
 
-完成 size、YAML、schema、引用、代理图和组合校验。不创建实例、不解析远端域名、不联网、不读取或更新 GeoData。资产缺失不使配置校验失败。
+完成大小、YAML、结构、引用、代理图和字段组合校验。不创建实例、不解析远端域名、不联网，也不读取 GeoData。资产缺失不影响纯配置校验。
 
-### 4.7 `prepare`
+### `prepare`
 
-Instance method，只允许 stopped：
+实例级方法，只允许 stopped 状态：
 
 ```json
 {
@@ -210,15 +207,15 @@ Instance method，只允许 stopped：
 }
 ```
 
-- 读取本地可用 GeoData，但不启动或等待下载。
-- 只对直接连接物理网络的 proxy root 做 bootstrap DNS；链上 domain 交给下一跳。
+- 读取当时可用的本地 GeoData，不启动或等待下载。
+- 只为直接访问物理网络的代理根节点执行引导 DNS；代理链上的域名交给下一跳。
 - 成功进入 prepared；失败释放临时资源并回到 stopped。
-- TUN 配置从 preparing 起持有 runtime-local TUN/protect lease，直到 stop/destroy。
-- Android 仅在配置实际启用 TUN 时要求已注册 protect controller。
+- 含 TUN 的配置从 preparing 起持有运行时本地的 TUN/protect 租约，直到停止或销毁。
+- Android 只有在实际启用 TUN 时才要求事先注册 protect controller。
 
-### 4.8 `start`
+### `start`
 
-Unix TUN fd target：
+Apple 和 Android 的 TUN 启动参数：
 
 ```json
 {
@@ -229,40 +226,40 @@ Unix TUN fd target：
 }
 ```
 
-Android 使用 `rawIp`。非 TUN 配置必须省略 `tunFd` / `tunFraming`。
+Android 使用 `rawIp`。非 TUN 配置必须省略 `tunFd` 和 `tunFraming`。
 
-- `tunFd` 为 borrowed；宿主必须预先设为 nonblocking。
-- VCore 验证后建立 CLOEXEC duplicate，只关闭 duplicate，不关闭宿主原 fd。
-- Apple 只接受 `utun`；Android 只接受 `rawIp`。
-- 全部 listener 和关键数据面成功后才进入 running。
-- GeoData 更新只在 start 后、配置启用且有实际需求时后台执行，不进入启动关键路径。
-- Windows 系统 VPN 不使用此 fd method，而使用第 7 节 package bridge。
+- `tunFd` 由宿主借用，宿主必须预先设置 nonblocking。
+- VCore 校验后建立带 `CLOEXEC` 的副本，只关闭副本。
+- Apple 只接受 `utun`，Android 只接受 `rawIp`。
+- 所有监听器和关键数据面成功后才进入 running。
+- GeoData 更新只在启动后按需后台运行，不属于启动关键路径。
+- Windows 系统 VPN 使用安装包桥接接口，不使用文件描述符启动参数。
 
-### 4.9 `stop`
+### `stop`
 
 ```json
 {"apiVersion":5,"method":"stop","instanceId":"1","payload":{}}
 ```
 
-同步取消并等待 listener、TUN、netstack、DNS、session、outbound 和 updater task，关闭 core-owned fd，并释放 platform callback lease。返回后不得继续产生 packet 或调用 protect callback。
+同步取消并等待监听器、TUN、netstack、DNS、会话、出站和更新任务，关闭 VCore 持有的文件描述符副本并释放平台回调租约。返回后不得继续产生数据包或调用 protect callback。
 
-### 4.10 `getState`
+### `getState`
 
 ```json
 {"apiVersion":5,"method":"getState","instanceId":"1","payload":{}}
 ```
 
-成功：
+返回：
 
 ```json
 {"state":"running","lastError":""}
 ```
 
-异步数据面失败时状态为 failed，`lastError` 只包含有界、脱敏摘要。
+异步数据面失败时状态为 `failed`，`lastError` 只包含有界且脱敏的摘要。
 
-### 4.11 `measureDelay`
+### `measureDelay`
 
-Registry method：
+运行时级方法：
 
 ```json
 {
@@ -276,53 +273,53 @@ Registry method：
 }
 ```
 
-成功：
+返回顺序与输入一致：
 
 ```json
 {
   "results": [
     {"success":true,"delay":123,"error":""},
-    {"success":false,"error":"measureDelay probe failed: TLS handshake failed"}
+    {"success":false,"error":"measureDelay probe failed"}
   ]
 }
 ```
 
-- `configYamls` 接受 1–5 份非空 node-only YAML；`timeout` 为 1–30 秒。
-- 同一 runtime 只允许一个批次；Core 最多并发五个私有 worker。
-- node-only YAML 顶层只允许 `proxies`。Core 推导唯一未被其他节点引用的链头，该链必须覆盖全部节点。
-- Worker 直接准备 outbound graph，执行 TCP、可选目标 TLS 和 HTTP/1.1 HEAD；不创建公共实例、listener、TUN、DNS、rules、sniffer 或 GeoData。
-- URL 必须是无 userinfo/fragment 的绝对 HTTP/HTTPS URL；HTTPS 使用 release trust roots。
-- 任意合法 HTTP status 表示探测成功；不跟随 redirect，不读取 body。
-- 结果与输入严格等长同序；单项失败不取消其他项。方法返回前全部 worker 和 task 已释放。
+- `configYamls` 接受 1–5 份非空节点配置，`timeout` 为 1–30 秒。
+- 同一运行时一次只允许一个测速批次，最多并发五个私有工作器。
+- 节点配置顶层只允许 `proxies`。VCore 推导唯一链头，且该链必须覆盖全部节点。
+- 工作器只准备出站图并执行 TCP、可选 TLS 和 HTTP/1.1 HEAD；不创建公共实例、监听器、TUN、DNS、规则、嗅探器或 GeoData。
+- URL 必须是无 userinfo 和 fragment 的绝对 HTTP/HTTPS URL；HTTPS 使用发布信任根。
+- 任意合法 HTTP 状态都表示探测成功；不跟随重定向、不读取正文。
+- 单项失败不取消其他项；方法返回前释放全部私有任务。
 
-## 5. Android protect
+## Android protect
 
-Android TUN 通过 Invoke 之外的 runtime-local callback 注册：
+Android TUN 通过 Invoke 之外的运行时本地回调注册：
 
 ```text
 ProtectFd(fd) -> bool
 ```
 
-- 含 TUN 配置的实例必须在 prepare 前注册；非 TUN和 measureDelay 不要求。
-- 每个 outbound TCP/UDP socket 在 connect 前同步调用 protect。
-- 返回 false、抛异常或 controller 失效使该连接 fail closed。
-- Callback 必须快速、同步、非阻塞，且不能重入 Invoke 或注册接口。
-- TUN lease 存活期间不能替换或注销 controller；stop/destroy 是释放前的屏障。
-- Android binding 使用 UTF-8 `byte[]`，支持完整 Unicode，不依赖 Modified UTF-8。
+- 含 TUN 的实例必须在 `prepare` 前注册；非 TUN 和 `measureDelay` 不需要。
+- 每个出站 TCP/UDP socket 在 connect 前同步调用 protect。
+- 返回 false、抛出异常或 controller 失效都会使当前连接失败关闭。
+- 回调必须快速、同步、非阻塞，且不能重入 Invoke 或注册接口。
+- TUN 租约存活期间不能替换或注销 controller；`stop`/`destroyInstance` 是释放屏障。
+- Android binding 使用 UTF-8 `byte[]`，不依赖 Modified UTF-8。
 
-## 6. Controller 与流量
+## Controller
 
-TUN 流量不增加 Invoke method。配置 `external-controller` 后，当前 TUN runtime 提供 loopback `GET /traffic`；可选 secret 使用 Bearer 鉴权。查询不携带 `instanceId`，不进入 Invoke admission。完整语义见 [`controller-api.md`](controller-api.md)。
+配置 `external-controller` 后，TUN 运行时提供回环 `GET /traffic`。该查询不是 Invoke 方法，不携带 `instanceId`。完整语义见 [Controller API](controller-api.md)。
 
-## 7. Windows package bridge
+## Windows 安装包桥接
 
-`VCoreWindowsVpnInvoke` 只接受：
+`VCoreWindowsVpnInvoke` 使用独立的桥接修订版 1：
 
 ```json
 {"bridgeVersion":1,"method":"getVpnStatus","payload":{}}
 ```
 
-固定六个 method：
+只接受六个方法：
 
 - `getEnvironment`
 - `getVpnStatus`
@@ -331,12 +328,26 @@ TUN 流量不增加 Invoke method。配置 `external-controller` 后，当前 TU
 - `getStartupTaskStatus`
 - `setStartupTaskEnabled`
 
-Bridge request 最大 1 MiB。它管理 package identity、单一 VPN profile、immutable snapshot、Session Host activation 和系统 VPN 状态；不公开 profile CRUD、文件路径、PID、pipe name 或 snapshot maintenance。Windows packet 数据、Controller 查询和业务 lifecycle 不经过该 JSON bridge。
+`startVpn` 的 payload 为：
 
-## 8. 编码与安全边界
+```json
+{
+  "configYaml": "tun:\n  enable: true\n...",
+  "networkSettings": {
+    "ipv4Address": "192.168.3.1",
+    "ipv6Address": "fd00::2",
+    "dnsIpv4Address": "8.8.8.8",
+    "dnsIpv6Address": "2001:4860:4860::8888"
+  }
+}
+```
+
+桥接请求最大 1 MiB。它负责安装包身份、单一 VPN profile、不可变快照、Session Host 激活和系统 VPN 状态；不公开 profile CRUD、内部文件路径、PID、管道名称或快照维护。数据包、Controller 查询和业务生命周期不经过该 JSON 桥接。
+
+## 编码与安全边界
 
 - 所有 JSON DTO 拒绝未知字段。
-- 配置、错误和日志按 UTF-8 byte 计数并有固定上限。
-- TUN raw packet 最大 1,500 bytes；最终 proxy UDP payload 最大 1,452 bytes。
-- 嵌套 UDP 协议可以增加有界 wire header，但解封装后仍执行最终 payload ceiling。
+- 配置、错误和日志按 UTF-8 字节计数并受固定上限约束。
+- TUN 原始数据包最大 1,500 字节；最终代理 UDP 负载最大 1,452 字节。
+- 嵌套 UDP 协议可以增加有界帧头，但解封装后的最终负载仍受 1,452 字节限制。
 - Secret、password、UUID、REALITY key、short ID、目标地址和完整配置不得进入日志。

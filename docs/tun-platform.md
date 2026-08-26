@@ -1,87 +1,76 @@
 # TUN 平台层
 
-VCore 的 netstack、DNS、rules 和 outbound 只处理完整 raw IPv4/IPv6 packet。平台差异集中在编译期选择的 `platform::TunIo`。
+VCore 的 netstack、DNS、规则和出站只处理完整的原始 IPv4/IPv6 数据包。平台差异集中在编译期选择的 `platform::TunIo`。
 
-## 1. Apple 与 Android fd
+## Apple 与 Android
 
 ```text
-TunRuntime -> RustTunIo -> host-owned TUN fd duplicate
+TunRuntime -> RustTunIo -> 宿主持有的 TUN fd 副本
 ```
 
-- iOS/macOS：宿主提供 utun fd；adapter 处理四字节 packet-information header。
-- Android：`VpnService` 提供 raw-IP fd。
-- Linux：产品入口不支持，即使依赖可以编译也必须 fail closed。
+- iOS/macOS：宿主提供 utun 文件描述符，适配器处理四字节 packet-information 头。
+- Android：`VpnService` 提供 raw-IP 文件描述符。
+- Linux：产品入口不支持，即使依赖能够编译也会失败关闭。
 
-宿主始终拥有原 fd。VCore 在 start 时：
+宿主始终拥有原始文件描述符。VCore 启动时：
 
-1. 验证 fd 有效且已经设置 `O_NONBLOCK`。
-2. 通过 `F_DUPFD_CLOEXEC` 建立 core-owned duplicate。
-3. 把 duplicate 交给同步 TUN device，并通过 Tokio `AsyncFd` 驱动。
-4. Runtime stop/drop 只关闭 duplicate。
+1. 验证文件描述符有效且已设置 `O_NONBLOCK`；
+2. 通过 `F_DUPFD_CLOEXEC` 创建 VCore 持有的副本；
+3. 把副本交给同步 TUN device，并用 Tokio `AsyncFd` 驱动；
+4. 停止时只关闭副本。
 
-VCore 不调用会修改共享 open-file-description flags 的异步 constructor。`tunFraming` 是严格宿主协议：Apple 只接受 `utun`，Android 只接受 `rawIp`，不自动探测。
+VCore 不调用会修改共享 open-file-description 标志的异步构造器。`tunFraming` 是严格宿主协议：Apple 只接受 `utun`，Android 只接受 `rawIp`，不自动探测。
 
-Packet I/O：
+包 I/O 规则：
 
-- `recv == 0` 表示设备关闭。
-- 收包首 nibble 必须是 IPv4 或 IPv6。
-- 单次 read buffer 固定 1,500 bytes。
-- Write 必须一次完成完整 packet；partial write 立即失败。
-- Apple PI header 不进入 netstack，也不计入流量统计。
+- `recv == 0` 表示设备关闭；
+- 首个半字节必须表示 IPv4 或 IPv6；
+- 单次读取缓冲区固定为 1,500 字节；
+- 写入必须一次完成整个包，部分写入立即失败；
+- Apple PI 头不进入 netstack，也不计入流量。
 
-## 2. Windows VPN
+## Windows VPN
 
 ```text
-VpnChannel callbacks
+VpnChannel callback
   -> WindowsPacketAdapter
-  -> bounded queues
-  -> package packet channel
+  -> 有界队列
+  -> 同包 packet channel
   -> WindowsTunIo
   -> TunRuntime
 ```
 
-Windows 使用 `Windows.Networking.Vpn` callback 模型，不通过 fd 或 adapter ring：
+Windows 使用 `Windows.Networking.Vpn` 回调，不使用文件描述符或适配器 ring：
 
-- Provider 在 callback 内复制 `VpnPacketBuffer` bytes，不能保存 framework buffer slice。
-- 系统提供和 Provider申请的 buffer 都按 WinRT ownership contract 归还。
-- Callback 不等待 pipe I/O；ingress/egress queue 均保持有界。
-- Empty-to-non-empty loopback wake 只用于通知 `Decapsulate` drain 回包队列。
-- Provider 与 full-trust Session Host 通过 package namespace 内的 control/data named pipes交换 raw-IP。
-- Data protocol 保持 `u16` length + `1..=1500` packet。Writer最多合并8个已经ready的frame，不等待未来packet；reader使用64 KiB buffer并继续逐frame严格校验。
-- EOF、truncated/oversize frame、queue/task异常和进程退出都使 session fail closed。
+- Provider 在回调内复制 `VpnPacketBuffer` 字节，不保存系统缓冲区的借用；
+- 系统和 Provider 创建的缓冲区都按 WinRT 所有权规则归还；
+- 回调不等待管道 I/O，入站和出站队列保持有界；
+- 空到非空的回环唤醒只通知 `Decapsulate` 排空响应队列；
+- Provider 与完全信任的 Session Host 通过安装包命名空间中的控制管道和数据管道交换原始 IP 包；
+- 数据帧为 `u16` 长度加 `1..=1500` 字节数据。写端最多合并 8 个已经就绪的帧，读端使用 64 KiB 缓冲区并逐帧校验；
+- EOF、截断、超限、任务异常和进程退出都会停止当前会话。
 
-完整 Windows ownership 和 lifecycle 见 [`windows-vpn.md`](windows-vpn.md) 与 [`windows-session-runtime.md`](windows-session-runtime.md)。
+完整契约见 [Windows VPN 平台边界](windows-vpn.md) 和 [Windows 会话运行时](windows-session-runtime.md)。
 
-## 3. MTU 与资源
+## MTU 与结构上限
 
-当前配置只接受 MTU 1500：
+当前只接受 MTU 1500：
 
 ```text
-raw TUN packet ceiling     1,500 bytes
-final proxy UDP payload    1,452 bytes
-packet queue               256
-ordinary event/response    128
-DNS ingress/response       128 / 128
+原始 TUN 包                   1,500 字节
+最终代理 UDP 负载             1,452 字节
+包队列                        256
+普通事件 / UDP 响应           128
+DNS 入站 / DNS 响应           128 / 128
 ```
 
-TCP session、普通 UDP association、half-open 和 outbound handshake 不设固定业务总数。结构安全由 bounded queue、每流 buffer、wire/parser size、timeout、idle cleanup 和 cache 提供。
+TCP 会话、普通 UDP 关联、半开连接和出站握手不设固定业务数量上限。结构安全由有界队列、每流缓冲区、解析大小、超时、空闲清理和缓存提供。
 
-## 4. 物理出口
+## 物理出口
 
-- Android：每个 outbound TCP/UDP socket 在 connect 前通过宿主 protect callback；失败则当前连接 fail closed。
-- Windows：Provider选择 immutable physical binding，并向 Session Host传递IPv4/IPv6 source + interface index。普通 outbound socket必须成对绑定source address和WinSock interface index。
-- Windows loopback目标仅对解析后的 `127.0.0.0/8` 和 `::1`跳过physical binding。
-- 物理adapter、地址或network identity变化后，Provider debounce并Stop，不迁移现有socket、不自动fallback。
+- Android：每个出站 TCP/UDP socket 在 connect 前调用宿主 protect；失败则当前连接失败关闭。
+- Windows：Provider 为当前会话选择不可变的物理网络绑定，并把每个地址族的源 IP 和接口索引交给 Session Host。普通出站 socket 必须同时绑定源地址和 WinSock 接口索引。
+- Windows 只有解析后的 `127.0.0.0/8` 和 `::1` 可以跳过物理绑定。
+- 物理适配器、地址或网络身份变化后，Provider 等待 2 秒消抖并停止会话，不迁移 socket 或自动回退。
 
-## 5. 验收边界
-
-Host tests证明 framing、fd ownership、invalid packet、queue和lifecycle逻辑；它们不能代替物理设备或package证据。
-
-发布前分别登记：
-
-- Apple/Android 真机 ICMP、TCP、UDP、DNS、cancel和重复启停。
-- Release iOS 整进程 footprint。
-- Android protect fail-closed。
-- Windows package activation、buffer ownership、physical binding、network-change Stop、crash、pressure和签名。
-
-当前结果见 [`acceptance.md`](acceptance.md)。
+主机测试只能证明帧、所有权、队列和生命周期逻辑；平台实测范围见 [验收矩阵](acceptance.md)。

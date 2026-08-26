@@ -1,33 +1,28 @@
-# Issue tracker: GitHub
+# Issue 跟踪器：GitHub
 
-Issues and specs live in this repository's GitHub Issues.
+Issue 和规格存放在仓库 `OneXray/VCore` 的 GitHub Issues 中。工作区包含多个仓库时，命令必须显式传入 `--repo OneXray/VCore`。
 
-Repository: `OneXray/VCore`
+## 常用操作
 
-Pass `--repo OneXray/VCore` explicitly because development often runs from a workspace containing multiple repositories.
+- 创建：`gh issue create --repo OneXray/VCore --title "..." --body "..."`
+- 读取：`gh issue view <number> --repo OneXray/VCore --comments`
+- 列表：`gh issue list --repo OneXray/VCore --state open --json number,title,body,labels,comments`
+- 评论：`gh issue comment <number> --repo OneXray/VCore --body "..."`
+- 标签：`gh issue edit <number> --repo OneXray/VCore --add-label "..."`
+- 关闭：`gh issue close <number> --repo OneXray/VCore --comment "..."`
 
-## Operations
+Pull Request 不作为需求入口。
 
-- Create: `gh issue create --repo OneXray/VCore --title "..." --body "..."`
-- Read: `gh issue view <number> --repo OneXray/VCore --comments`
-- List: `gh issue list --repo OneXray/VCore --state open --json number,title,body,labels,comments`
-- Comment: `gh issue comment <number> --repo OneXray/VCore --body "..."`
-- Label: `gh issue edit <number> --repo OneXray/VCore --add-label "..."`
-- Close: `gh issue close <number> --repo OneXray/VCore --comment "..."`
+## Skill 约定
 
-## Pull requests as a triage surface
+- “发布到 issue 跟踪器”表示创建 GitHub Issue。
+- “读取相关 ticket”表示读取对应 Issue 的正文、评论和标签。
 
-PRs as a request surface: no.
+## Wayfinder 约定
 
-## Skill conventions
-
-When a skill says "publish to the issue tracker", create a GitHub issue. When it says "fetch the relevant ticket", read the referenced GitHub issue, including comments and labels.
-
-## Wayfinding
-
-- Map: one issue labelled `wayfinder:map`.
-- Child: a sub-issue labelled `wayfinder:<type>`.
-- Blocking: use native GitHub issue dependencies; fall back to a `Blocked by: #<n>` line when unavailable.
-- Frontier: first open, unblocked, unassigned child in map order.
-- Claim: assign the issue to the driving developer before work.
-- Resolve: comment with the answer, close the issue, then update the map's Decisions-so-far.
+- 地图：带 `wayfinder:map` 标签的总 Issue。
+- 子项：带 `wayfinder:<type>` 标签的子 Issue。
+- 阻塞：优先使用 GitHub 原生依赖；不可用时写入 `Blocked by: #<n>`。
+- 前沿：按地图顺序找到第一个未关闭、未阻塞、未分配的子项。
+- 认领：开始工作前把 Issue 分配给执行者。
+- 完成：评论结论、关闭 Issue，并更新地图中的既有决策。

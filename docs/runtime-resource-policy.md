@@ -1,142 +1,105 @@
-# Runtime 资源策略
+# 运行时资源策略
 
-状态：当前策略。所有Apple/Android TUN fd runtime使用同一组局部结构边界；VCore不以业务flow总数或整进程内存读数拒绝正常业务。本文不记录已退役资源模型。
+所有 TUN 运行时使用同一组局部结构上限。VCore 不根据业务流总数或整进程内存读数拒绝正常流量；容量控制放在包、队列、缓冲区、缓存、解析器和生命周期所有者处。
 
-## 1. 原则
+## 原则
 
-1. 数据正确性、安全边界和同步Stop优先。
-2. Queue、buffer、cache、wire/parser size、timeout和idle cleanup保持有界。
-3. TCP session、普通UDP association、half-open、outbound handshake和active DNS transport不设置固定业务总数。
-4. Queue full按协议语义局部丢弃或失败，不阻塞TUN callback或全局loop。
-5. Current/peak统计只用于诊断，不参与admission。
-6. iOS内存采样是best effort；读取失败或超过优化目标不改变VPN lifecycle。
+1. 数据正确性、安全边界和同步停止优先。
+2. 队列、缓冲区、缓存、wire 大小、解析大小、超时和空闲清理必须有界。
+3. TCP 会话、普通 UDP 关联、半开连接、出站握手和活动 DNS 传输不设置固定业务数量上限。
+4. 队列满时按局部协议语义丢当前项目或失败，不能阻塞 TUN 回调或全局循环。
+5. 当前值和峰值只用于诊断，不参与 admission。
+6. 平台内存采样是尽力而为的遥测，不改变生命周期结果。
 
-## 2. 当前TUN profile
+## TUN 结构上限
 
 ```text
-raw packet / MTU                 1,500 bytes
-final proxy UDP payload          1,452 bytes
-packet queue                     256
-ordinary event / UDP response    128
-DNS ingress / DNS response       128 / 128
-TCP buffer                       32 KiB per direction
-TLS / XHTTP buffer               64 KiB
-DNS typed cache                  256 entries
-DNS opaque cache                 64 entries / 256 KiB
-TUN domain hint store            256 entries when enabled
-GeoData allocation capacity      8 MiB
+原始包 / MTU                    1,500 字节
+最终代理 UDP 负载               1,452 字节
+包队列                          256
+普通事件 / UDP 响应             128
+DNS 入站 / DNS 响应             128 / 128
+每个 TCP 方向缓冲区             32 KiB
+TLS / XHTTP 缓冲区              64 KiB
+DNS 类型化缓存                  256 项
+DNS 原始响应缓存                64 项 / 256 KiB
+TUN 域名提示                    256 项（按需）
+GeoData 分配容量                8 MiB
 ```
 
-- DNS response和ordinary UDP response使用独立queue，但仍共享netstack ingress receiver。
-- TUN domain hint store只在TUN + domain-rule scope内创建，从空容量按需增长。
-- ICMP reply使用现有raw egress queue，不增加task或长期状态。
-- 每项扩容前执行checked arithmetic和局部预算检查。
+- DNS 响应和普通 UDP 响应使用不同队列，但共享 netstack UDP 入站接收器。
+- TUN 域名提示只在 TUN 配置实际包含域名规则时创建，并从空容量按需增长。
+- ICMP 响应复用原始包出站队列，不创建独立任务或长期状态。
+- 每次扩容前执行 checked arithmetic 和局部预算检查。
 
-## 3. TCP 与 handshake
+## TCP 与握手
 
-- TCP flow按需创建task。
-- 每方向buffer固定32 KiB；TLS/XHTTP内部buffer固定64 KiB。
-- Half-open、outbound handshake和active session只记录current/peak，不触发资源错误。
-- Timeout、cancel、EOF和protocol error负责收敛；Stop必须等待tracked task结束。
-- Bootstrap resolver最多4个worker thread；全部忙时在调用方既有deadline内等待，不返回人为资源上限错误。
+- TCP 流按需创建任务，每方向缓冲区固定为 32 KiB。
+- TLS/XHTTP 内部缓冲区固定为 64 KiB。
+- 半开连接、出站握手和活动会话只记录当前值和峰值，不触发资源错误。
+- 超时、取消、EOF 和协议错误负责回收；停止必须等待全部已跟踪任务结束。
+- 引导解析器最多使用四个工作线程；全部忙时在调用方既有期限内等待，不返回人为容量错误。
 
-## 4. UDP
+## UDP
 
-普通TUN UDP association：
+普通 TUN UDP 关联：
 
-- Map不设固定项数。
-- 每association ingress queue有界，full只丢当前datagram。
-- 使用generation-aware completion和child cancellation。
-- Idle timeout 30秒，cleanup周期10秒。
-- Cleanup先从map删除，再cancel child。
-- 只有成功入队的request或response刷新activity；drop不刷新。
-- Parent停止时删除、cancel并drain全部child。
+- 关联表不设固定项数；
+- 每个关联的入站队列有界，满时只丢当前数据报；
+- 使用代次感知所有权和子取消令牌；
+- 空闲超时 30 秒，清理周期 10 秒；
+- 清理时先从表中删除，再取消子任务；
+- 只有成功入队的请求或响应刷新活动时间；
+- 父运行时停止时删除、取消并等待全部子任务。
 
-嵌套proxy wire可以为header增加有界余量，但最终解封装payload仍不得超过1,452 bytes。
+嵌套代理协议可以增加有界帧头，但最终解封装负载仍不得超过调用方给出的上限；TUN 最终负载上限为 1,452 字节。
 
-## 5. DNS
+## DNS
 
-- 不设置固定client-request或aggregate live-transport permit。
-- Cache miss使用同key singleflight；leader取消后followers重选。
-- UDP transport保持request-scoped，同一attempt重发复用当前transport。
-- 显式TCP nameserver按endpoint + 最终egress复用；一条连接只处理一个query。
-- Active TCP不设固定上限；idle总数/单key为4/2，idle timeout 30秒。
-- Query/attempt/UDP resend deadline固定为5秒/3秒/1秒。
-- Response最多扫描64条record，typed cache/hint最多保留16个唯一IP。
-- Stop取消open/send/receive/retry和response send，并释放全部transport。
+- 不设置固定的活动请求或活动传输总许可数。
+- 相同 key 的 cache miss 使用 singleflight；leader 取消后 follower 重新选举。
+- UDP 传输属于单次请求，同一尝试的重发复用当前传输。
+- 显式 TCP nameserver 按 endpoint 和最终出口复用；一条连接同时只处理一个查询。
+- 活动 TCP 不设固定数量上限；空闲连接总数最多 4，同 key 最多 2，空闲超时 30 秒。
+- 查询、单次尝试和 UDP 重发期限分别为 5 秒、3 秒和 1 秒。
+- 响应最多扫描 64 条记录，类型化缓存和提示最多保留 16 个唯一 IP。
+- 停止取消打开、发送、接收、重试和响应发送，并释放全部传输。
 
-完整语义见 [`tun-icmp-dns.md`](tun-icmp-dns.md)。
+完整语义见 [TUN ICMP 与 DNS](tun-icmp-dns.md)。
 
-## 6. GeoData
+## GeoData
 
-- GeoSite与GeoIP共享8 MiB allocation capacity。
-- Loader只解析被引用分类，未选分类按wire length跳过。
-- Matcher使用紧凑连续存储，运行期匹配不分配。
-- Regex source、编译预留和retained DFA均有独立上限。
-- Asset缺失或更新失败按种类降级，不阻塞prepare/start。
-- Release iOS整进程内存不能由GeoData内部ledger替代。
+- GeoSite 与 GeoIP 共享 8 MiB 分配容量。
+- Loader 只解析被引用的分类，其他分类按 wire 长度跳过。
+- 匹配器使用紧凑连续存储，运行期匹配不分配。
+- 正则源码、编译预留和保留 DFA 内存都有独立上限。
+- 资产缺失或更新失败只使对应种类不可用，不阻塞准备或启动。
 
-完整边界见 [`geodata.md`](geodata.md)。
+完整边界见 [GeoData 规则与资产](geodata.md)。
 
-## 7. iOS telemetry
+## Apple 内存遥测
 
-VCore通过Apple `TASK_VM_INFO` best effort记录：
+Apple 目标通过 `TASK_VM_INFO` 尽力记录当前 physical footprint、进程生命周期峰值和限频阈值事件，运行期间最多每 30 秒采样一次。
 
-- current physical footprint；
-- process lifetime peak；
-- current首次跨过35、40、45 MiB的限频事件；
-- running期间最多每30秒一次采样。
+- 采样失败只记录一次警告；
+- 遥测不写入 `lastError`；
+- 读数和阈值越界不改变 prepare、start、running、stop 或 panic recovery；
+- 停止后的 allocator pressure relief 同样是尽力而为；
+- 固定阈值只是诊断信号，不是产品内存承诺或 admission gate。
 
-规则：
+## 日志与观测
 
-- Measurement failure只记录一次warning。
-- Telemetry不写入`lastError`。
-- 读数不改变prepare、start、running、stop或panic recovery结果。
-- Cleanup后的allocator pressure relief同样是best effort。
-- 35 MiB cold-start current和45 MiB representative-workload peak是优化目标，不是hard gate。
-- 极端压力下允许OS终止extension；VCore不以预测模型提前拒绝业务。
+运行时可记录 TCP、半开连接、UDP、握手和 DNS 的当前值/峰值，以及缓存命中、singleflight、队列丢弃、连接池回收、非法包和 ICMP 统计。
 
-## 8. 日志与观测
+日志必须有界且脱敏，不记录目标、DNS question、UUID、凭据、密钥、负载或完整配置。
 
-Runtime保留：
+## 变更要求
 
-- TCP、half-open、UDP、handshake和DNS current/peak；
-- singleflight join、cache hit；
-- queue drop/closed；
-- TCP pool idle/expiration/eviction；
-- invalid packet、ICMP reply/drop；
-- session stop后的final counters。
+新增全局 admission、可配置容量或长期缓存前，必须：
 
-日志必须有界、脱敏，不记录目标、DNS question、UUID、credential、key、payload或完整配置。
+1. 证明现有局部边界不足；
+2. 定义所有者、上限、取消和停止语义；
+3. 增加边界值和越界测试；
+4. 记录主机和对应物理平台证据。
 
-## 9. 验收
-
-Host automation必须覆盖：
-
-- 刚好命中queue/cache/wire上限和下一项失败；
-- 超过曾经固定flow阈值后仍按需工作；
-- Cancel命中open/send/receive/retry/response-send；
-- Repeated prepare/start/stop无task、fd、queue或matcher增长；
-- Queue full只影响当前packet/flow；
-- Stop后无detached task或回包。
-
-Release iOS真机必须在无debugger条件下记录：
-
-1. Cold start。
-2. Representative TCP/UDP/DNS workload。
-3. 长时间plateau。
-4. Explicit Stop后的回收。
-5. 极端pressure下的OS行为。
-
-Android与macOS继续验证TUN、DNS、proxy chain、cancel和重复启停。实际执行状态见 [`acceptance.md`](acceptance.md)。
-
-## 10. 变更规则
-
-新增全局admission、可配置容量或长期缓存前必须：
-
-1. 证明现有局部边界不足。
-2. 定义owner、上限、取消和Stop语义。
-3. 增加刚好命中上限与越界测试。
-4. 记录host与对应物理平台证据。
-
-没有测量证据时，不增加新的资源控制层。
+没有测量证据时不增加新的资源控制层。实际验证范围见 [验收矩阵](acceptance.md)。

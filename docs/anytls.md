@@ -1,14 +1,10 @@
-# AnyTLS outbound
+# AnyTLS 出站
 
-状态：当前 client outbound 契约。VCore 实现 AnyTLS wire、session、padding 与 UoT v2。
+本文描述当前 AnyTLS 客户端出站契约。VCore 支持 AnyTLS v2、兼容 v1 的会话、内置填充和 UoT v2。
 
-## 配置边界
-
-AnyTLS 使用以下平铺字段：
+## 配置
 
 ```yaml
-rules:
-  - MATCH,anytls-edge
 proxies:
   - name: anytls-edge
     type: anytls
@@ -18,121 +14,86 @@ proxies:
     sni: origin.example.com
     udp: true
     # dialer-proxy: socks-hop
+rules:
+  - MATCH,anytls-edge
 ```
 
-- `name`、`type`、`server`、`port`、`password` 必填；`type` 固定 `anytls`。
-- `password` 是 1–1024 UTF-8 byte。它不会进入 `Debug`、tracing 或错误正文。
-- `sni` 可选，省略时使用 `server`；两者都必须是当前 host validator 接受的 IP
-  literal 或 domain。
-- `udp` 省略时为 `false`；设为 `true` 后允许 AnyTLS UoT。
-- `dialer-proxy` 与 VLESS/SOCKS5 使用同一有向无环 graph 语义。
-- 未列字段全部拒绝。首版没有可配置 TLS/REALITY、ALPN、fingerprint、
-  `skip-cert-verify`、ECH、mTLS certificate/private-key、padding、session
-  check/timeout/min-idle、reuse 开关或连接池容量。
+- `name`、`type`、`server`、`port` 和 `password` 必填，`type` 固定为 `anytls`。
+- `password` 长度为 1–1024 个 UTF-8 字节，不得出现在调试输出、日志或错误正文中。
+- `sni` 可省略，默认使用 `server`；两者都必须是合法 IP 字面量或域名。
+- `udp` 默认为 `false`；设为 `true` 后启用 UoT v2。
+- `dialer-proxy` 使用与其他出站相同的无环代理图。
+- 未列出的字段一律拒绝。TLS、ALPN、指纹、证书跳过、ECH、mTLS、填充和会话参数不可配置。
 
 ## TLS 与认证
 
-AnyTLS 只消费 VCore 的标准 TLS carrier：
+AnyTLS 使用 VCore 的标准 TLS 客户端：
 
-- 支持 TLS 1.3 与 TLS 1.2；
-- 使用 WebPKI root、配置归一化后的 SNI 和完整证书校验；
+- 支持 TLS 1.3 和 TLS 1.2；
+- 使用 WebPKI 根证书、规范化 SNI 和完整证书校验；
 - 不发送 ALPN；
-- 不支持 REALITY、伪造 fingerprint、证书跳过、ECH 或客户端证书。
+- 不支持 REALITY、伪造指纹、证书跳过、ECH 或客户端证书。
 
-连接建立后，client 先写 SHA-256 password hash、认证 padding，再发送第一个
-session batch。配置、日志和诊断不输出 password 或 hash。
+连接建立后，客户端依次写入 SHA-256 password hash、认证填充和首个会话批次。认证材料不得进入日志或错误信息。
 
-## v2 与 v1 fallback
+## 版本协商
 
-client 的首个 Settings 固定声明 `v=2`，并携带自身版本和当前 padding MD5。
-server 的 `ServerSettings` 若返回合法 `v>=2`，该 session 按 v2 工作；更高版本在
-当前能力上限处按 v2 处理。未收到 `ServerSettings` 时保留 peer version 1，按
-v1-compatible 行为继续，不要求显式协商。
+客户端首个 `Settings` 固定声明 `v=2`，并携带客户端版本和当前填充方案的 MD5。服务端返回合法的 `ServerSettings v>=2` 时按 v2 工作；未返回时按兼容 v1 的方式继续。
 
-首个 stream 随认证 batch 一次发送。复用 idle session 时：
+首个流与认证批次一同发送。复用空闲会话时：
 
-- v2 session 写出 `SYN` 与目标后立即向调用方返回可用 stream，同时在 client
-  `TaskTracker` 中启动最长 3 秒的 `SYNACK` watchdog；open 不能同步等待
-  `SYNACK`，因为服务端可能要先读取 stream 上的协议数据（例如 UoT request）才
-  能完成出站并回复；
-- v1-compatible session 不启动 `SYNACK` watchdog；
-- 非空 `SYNACK` payload 表示远端拒绝：整个 session 失败且不会回到 idle pool，
-  已返回的 stream 通过后续 I/O 或 session 关闭暴露错误；API 不承诺当前 open
-  同步返回 `ConnectionRefused`，也不会在后台为该 stream 静默重拨；
-- watchdog timeout、writer/reader 关闭或其他 protocol failure 同样销毁整个
-  session。只有 open 返回之前发生的 stale idle write/setup failure，才允许当前
-  open 丢弃旧 session 后建立一次 fresh TLS/AnyTLS session；open 返回后的失败只
-  能由后续独立 open 建立 fresh session。
+- v2 会话写出 `SYN` 和目标后立即返回可用流，并启动最长 3 秒的 `SYNACK` 监视任务；
+- 兼容 v1 的会话不等待 `SYNACK`；
+- 非空 `SYNACK` 负载表示拒绝，整个物理会话随即失败；已经返回的流通过后续 I/O 暴露错误；
+- `SYNACK` 超时、读写器关闭或协议错误都会销毁物理会话；
+- 只有在 `open` 返回前发现空闲会话已经失效时，当前请求才允许新建一次物理连接。返回后的失败不会静默重拨。
 
-未知 stream、错误 control-stream ID、服务端发送 client-only frame、越界 payload
-或不合法 ServerSettings 都是 session 级协议错误。远端诊断最多保留 256 bytes。
+未知流、错误控制流 ID、方向错误的帧、越界负载和非法 `ServerSettings` 都是会话级错误。远端诊断最多保留 256 字节。
 
-## TCP session 与复用
+## TCP 会话复用
 
-普通 TCP 请求在 AnyTLS session 上创建 stream。当前复用策略有意保持简单：
+- 一个物理会话同时只承载一个活动流。
+- 流完整结束后，物理会话才进入空闲列表。
+- 新请求优先复用序号最大的空闲会话。
+- 空闲检查周期和超时均为 30 秒，不预热连接。
+- 活动物理会话不设固定业务数量上限。
+- 流 ID、会话序号耗尽或状态不一致时立即关闭对应会话。
 
-- 每个物理 session 同时只允许一个 active stream；
-- stream 完整结束后 session 才进入 idle；
-- 新请求在全部 idle session 中优先选择 sequence 最大的 session；归还 idle
-  的先后顺序不改变这一选择；
-- idle cleanup 与 timeout 固定为 30 秒，`min-idle-session` 固定为 0；
-- active session 数不设业务级固定上限；没有预热或后台补足 idle 数；
-- stream ID 或 session sequence 耗尽、active 状态不一致、未完成 FIN 即 drop 等
-  情况会 fail-closed 并销毁 session。
-
-writer command channel 固定为 2；每 stream 的 incoming channel 从 runtime
-buffer capacity 推导且至少为 1。frame payload、padding scheme、队列、stream
-chunk 和诊断字符串都有独立上限，但这些边界不开放成 YAML session knobs。
+写命令通道容量为 2。每个流的接收通道由运行时缓冲区容量推导且至少为 1。帧、填充、队列和诊断字符串都受固定上限约束，这些上限不开放为 YAML 参数。
 
 ## UDP over TCP
 
-`udp: true` 时，AnyTLS 使用 UoT v2：
+`udp: true` 时使用 UoT v2 目标：
 
 ```text
 sp.v2.udp-over-tcp.arpa:0
 ```
 
-固定使用 datagram mode。首包携带 UoT request 和第一份 datagram；后续每包自行
-编码 IPv4、IPv6 或 domain 目标，因此同一 association 可以发送到不同目标。每个
-payload 最多 65535 bytes，并继续受调用方提供的 response payload ceiling 约束。
-response channel 固定为 1；close/cancel 会停止 reader task 并关闭 stream，drop
-也会取消和 abort 尚未收敛的 reader。
+UoT 固定采用数据报模式。首包携带 UoT 请求和第一份数据报，后续数据报各自编码 IPv4、IPv6 或域名目标，因此同一关联可以访问不同目标。协议帧负载最多 65,535 字节，同时继续受调用方给出的最终响应负载上限约束。
 
-## Padding
+响应通道容量为 1。关闭、取消或丢弃 UoT 传输时，读取任务和底层流必须一起结束。
 
-client 内置固定默认 padding scheme，不提供 YAML 配置。每次新建 session 时取得
-一次不可变 snapshot；server 的合法 `UpdatePaddingScheme` 通过 per-client 原子
-替换只影响之后创建的 session，不能改变当前 session 的 frame 边界。无效更新仅
-记录有界 warning 并忽略，不破坏正在运行的 session。
+## 填充
 
-padding 文本、packet item 数、stop 值、单包逻辑 padding 与 frame payload 均有
-固定上限。认证 padding 与后续 packet padding 都使用该 session 的同一 snapshot。
+客户端内置固定填充方案，不提供 YAML 配置。每个新物理会话取得一份不可变快照；服务端的合法 `UpdatePaddingScheme` 只影响之后创建的会话，不改变当前帧边界。非法更新只产生有界警告。
 
-## 生命周期与清理
+填充文本、每包条目数、停止值、逻辑填充量和帧负载均有固定上限。认证填充和后续数据填充使用同一份会话快照。
 
-每个 runtime proxy graph 为 AnyTLS 节点创建共享 client 和显式 lifecycle handle：
+## 生命周期
+
+每个运行时代理图为 AnyTLS 节点创建一个共享客户端和显式生命周期句柄：
 
 ```text
-prepare graph
-  -> start
-  -> open TCP/UoT streams as needed
+准备代理图
+  -> 启动
+  -> 按需打开 TCP/UoT 流
   -> begin_shutdown
   -> shutdown().await
-  -> release graph
+  -> 释放代理图
 ```
 
-`begin_shutdown` 是同步第一阶段屏障：标记 client closed、清空 idle 列表、取消
-client token、对所有 session 发起关闭并拒绝新 stream。`shutdown` 会再次幂等执行
-第一阶段，然后等待 `TaskTracker` 中的 idle cleanup、session reader/writer 与 UoT
-后台任务全部结束。runtime stop、prepare rollback、measurement worker release 和
-失败清理都必须走同一生命周期，不能只 drop graph 或依赖进程退出。
+`begin_shutdown` 是同步第一阶段屏障：禁止新流、清空空闲列表、取消客户端令牌并通知所有会话关闭。`shutdown` 随后等待空闲清理、会话读写器和 UoT 任务全部结束。运行时停止、准备回滚、测速工作器释放和失败清理必须使用同一路径。
 
-AnyTLS session、idle pool、padding 和 UoT 状态都属于持有它的 runtime/measurement
-worker；不同 runtime 不共享。`measureDelay` 返回前必须完成私有 graph 的 AnyTLS
-shutdown，不进入公共实例表。
+AnyTLS 状态只属于创建它的运行时或测速工作器，不跨运行时共享。`measureDelay` 返回前必须完成私有代理图的关闭。
 
-## 验证边界
-
-本仓库使用 duplex mock 覆盖 frame、v2/v1 协商、复用、watchdog、padding、UoT、取消和显式 shutdown。opt-in 互操作 harness 覆盖 TCP 首流/复用、UoT v2 UDP echo、UoT 后再次 TCP、单物理 session 计数与清理。
-
-测试 connector 可以接受测试运行时生成的自签名证书；生产 WebPKI 路径和 release library 不共享该例外。公网服务互操作仍需在发布矩阵中单独登记。
+自动化和外部互操作的实际覆盖范围见 [验收矩阵](acceptance.md)。

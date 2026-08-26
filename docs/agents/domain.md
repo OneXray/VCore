@@ -1,10 +1,10 @@
-# Domain Docs
+# 领域文档
 
-This repository uses a single-context domain layout:
+本仓库使用单一领域上下文：
 
-- `CONTEXT.md` at the repository root
-- system-wide ADRs under `docs/adr/`
+- 根目录 `CONTEXT.md` 定义领域词汇；
+- `docs/adr/` 保存系统级架构决策。
 
-Before exploring a domain, read `CONTEXT.md` and relevant ADRs when they exist. If they do not exist, proceed silently; create them lazily through the domain-modeling workflow when terminology or decisions are actually resolved.
+进入一个领域前，先阅读 `CONTEXT.md` 和相关 ADR。没有对应文档时直接继续；只有术语或决策已经明确且需要长期保存时，才通过领域建模流程补充文档。
 
-Use vocabulary defined by `CONTEXT.md` in issues, specs, tests, and code. If proposed work contradicts an ADR, identify the ADR and surface the conflict instead of silently overriding it.
+Issue、规格、测试和代码应使用 `CONTEXT.md` 中的词汇。拟议工作与 ADR 冲突时，必须指出冲突并显式修改决策，不能静默绕过。

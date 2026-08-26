@@ -1,6 +1,6 @@
-# Triage Labels
+# Issue 分类标签
 
-| Canonical role | Tracker label |
+| 规范角色 | GitHub 标签 |
 | --- | --- |
 | `needs-triage` | `needs-triage` |
 | `needs-info` | `needs-info` |
@@ -8,4 +8,4 @@
 | `ready-for-human` | `ready-for-human` |
 | `wontfix` | `wontfix` |
 
-When a skill mentions a canonical role, use the corresponding tracker label.
+Skill 提到规范角色时，使用表中对应的仓库标签。
