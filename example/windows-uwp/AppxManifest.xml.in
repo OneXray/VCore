@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap5="http://schemas.microsoft.com/appx/manifest/uap/windows10/5"
+  xmlns:desktop4="http://schemas.microsoft.com/appx/manifest/desktop/windows10/4"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap uap5 desktop4 rescap">
+  <Identity Name="__IDENTITY_NAME__" Publisher="__PUBLISHER__" Version="__VERSION__" ProcessorArchitecture="__ARCHITECTURE__" />
+  <Properties>
+    <DisplayName>VCore UWP VPN Demo</DisplayName>
+    <PublisherDisplayName>VCore</PublisherDisplayName>
+    <Logo>Assets\Logo.png</Logo>
+  </Properties>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19045.0" MaxVersionTested="10.0.26200.0" />
+  </Dependencies>
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+  <Applications>
+    <Application Id="Demo" Executable="VCoreUwpDemo.exe" EntryPoint="Windows.FullTrustApplication" desktop4:SupportsMultipleInstances="true">
+      <uap:VisualElements
+        DisplayName="VCore UWP VPN Demo"
+        Description="Minimal VCore Windows VPN integration"
+        Square150x150Logo="Assets\Logo.png"
+        Square44x44Logo="Assets\Logo.png"
+        BackgroundColor="transparent">
+        <uap:DefaultTile />
+      </uap:VisualElements>
+      <Extensions>
+        <uap5:Extension Category="windows.appExecutionAlias" Executable="VCoreUwpDemo.exe" EntryPoint="Windows.FullTrustApplication">
+          <uap5:AppExecutionAlias desktop4:Subsystem="console">
+            <uap5:ExecutionAlias Alias="vcore-uwp-demo.exe" />
+          </uap5:AppExecutionAlias>
+        </uap5:Extension>
+      </Extensions>
+    </Application>
+    <Application Id="SessionHost" Executable="vcore-windows-session-host.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="VCore VPN Session Host"
+        Description="VCore VPN session host"
+        Square150x150Logo="Assets\Logo.png"
+        Square44x44Logo="Assets\Logo.png"
+        BackgroundColor="transparent"
+        AppListEntry="none" />
+    </Application>
+    <Application Id="VpnProvider" Executable="vcore-windows-vpn-host.exe" EntryPoint="OneVCore.VpnHost.App">
+      <uap:VisualElements
+        DisplayName="VCore VPN Provider"
+        Description="VCore VPN provider"
+        Square150x150Logo="Assets\Logo.png"
+        Square44x44Logo="Assets\Logo.png"
+        BackgroundColor="transparent"
+        AppListEntry="none" />
+      <Extensions>
+        <Extension Category="windows.backgroundTasks" Executable="vcore-windows-vpn-host.exe" EntryPoint="OneVCore.VpnBackgroundTask">
+          <BackgroundTasks>
+            <uap:Task Type="vpnClient" />
+          </BackgroundTasks>
+        </Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+  <Capabilities>
+    <Capability Name="internetClientServer" />
+    <Capability Name="privateNetworkClientServer" />
+    <rescap:Capability Name="runFullTrust" />
+    <rescap:Capability Name="networkingVpnProvider" />
+  </Capabilities>
+  <Extensions>
+    <Extension Category="windows.activatableClass.inProcessServer">
+      <InProcessServer>
+        <Path>vcore.dll</Path>
+        <ActivatableClass ActivatableClassId="OneVCore.VpnBackgroundTask" ThreadingModel="both" />
+      </InProcessServer>
+    </Extension>
+  </Extensions>
+</Package>

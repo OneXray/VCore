@@ -19,6 +19,7 @@
 2. [Windows 会话运行时](windows-session-runtime.md)：Provider、Session Host、包通道和生命周期。
 3. [运行时资源策略](runtime-resource-policy.md)：局部容量、取消、回收和遥测原则。
 4. [rustls REALITY 依赖](rustls-reality-release.md)：自有 fork 的边界和发布要求。
+5. [Windows UWP VPN 最小集成](../example/windows-uwp/README.md)：同包 manifest、完全信任宿主和可运行 demo。
 
 ## 证据与维护
 

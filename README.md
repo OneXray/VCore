@@ -108,6 +108,10 @@ TCP session、普通 UDP association、half-open、outbound handshake 和 active
 - [运行时资源策略](docs/runtime-resource-policy.md)
 - [验收矩阵](docs/acceptance.md)
 
+## 示例
+
+- [Windows UWP VPN 最小集成](example/windows-uwp/README.md)：同包 Provider、Session Host、完全信任前台、MSIX manifest 和可运行命令行 demo。
+
 ## 验证
 
 ```bash

@@ -3649,8 +3649,9 @@ rules:
     }
 
     #[test]
-    fn documented_current_example_stays_parseable() {
+    fn documented_current_examples_stay_parseable() {
         Config::parse_yaml(include_bytes!("../../docs/config.yaml")).unwrap();
+        Config::parse_yaml(include_bytes!("../../example/windows-uwp/demo.yaml")).unwrap();
     }
 
     #[test]
