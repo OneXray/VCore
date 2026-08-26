@@ -120,15 +120,19 @@ cargo test --all-features --all-targets
 cargo clippy --locked --all-features --lib --bins -- -D warnings -A clippy::chunks-exact-to-as-chunks -A clippy::map-or-identity
 cargo test --manifest-path crates/vcore-netstack/Cargo.toml --all-targets
 cargo clippy --manifest-path crates/vcore-netstack/Cargo.toml --all-targets -- -D warnings
-./scripts/check_c_header.sh
+uv run --project scripts --locked vcore-scripts check c-header
+uv run --project scripts --locked vcore-scripts check tls-dependencies
+uv run --project scripts --locked python -m unittest discover -s scripts/tests
+uv run --project scripts --locked ruff check scripts
+uv run --project scripts --locked ruff format --check scripts
 ```
 
-平台产物：
+平台产物（完整命令和环境变量见 [`scripts/README.md`](scripts/README.md)）：
 
 ```bash
-./scripts/build_apple.sh
-./scripts/build_android.sh
-powershell -File scripts/build_windows.ps1 -Architecture arm64
+uv run --project scripts --locked vcore-scripts build apple
+uv run --project scripts --locked vcore-scripts build android
+uv run --project scripts --locked vcore-scripts build windows --architecture arm64
 ```
 
 执行结果与仍延期的物理设备、Windows 发布矩阵见 [`docs/acceptance.md`](docs/acceptance.md)。

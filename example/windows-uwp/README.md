@@ -36,7 +36,7 @@ vcore-windows-vpn-host.exe + vcore.dll（AppContainer Provider）
 ## 前置条件
 
 - Windows 10 20H2 build 19042 或更新版本；
-- Visual Studio C++ 工具和 Windows 10/11 SDK；
+- `uv`、Visual Studio C++ 工具和 Windows 10/11 SDK；
 - Rust Windows MSVC target：`aarch64-pc-windows-msvc` 或 `x86_64-pc-windows-msvc`；
 - 可用于目标 `Publisher` 的代码签名证书，并已由测试设备信任；
 - 旁加载需要开发者模式或组织允许的安装策略；
@@ -64,7 +64,7 @@ powershell -ExecutionPolicy Bypass -File example/windows-uwp/build.ps1 `
   -Install
 ```
 
-脚本默认先调用 `scripts/build_windows.ps1`。已经生成当前架构产物时可以加 `-SkipVCoreBuild`。输出位于：
+脚本默认通过 `uv run --project scripts --locked vcore-scripts build windows` 构建 VCore。已经生成当前架构产物时可以加 `-SkipVCoreBuild`。输出位于：
 
 ```text
 dist/windows-uwp-demo/VCore.UwpDemo.Dev_<version>_<arch>.msix

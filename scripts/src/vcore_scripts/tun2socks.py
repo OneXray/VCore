@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Throwaway Windows demo: VCore TUN -> SOCKS5 -> a temporary Xray process.
+"""Windows demo: VCore TUN -> SOCKS5 -> a temporary Xray process.
 
 The source config is not modified; its selected outbounds are copied only to a
 user-temporary directory and deleted with the locally built Xray executable.
@@ -20,7 +20,7 @@ import time
 from pathlib import Path
 from urllib.parse import urlparse
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[3]
 XRAY_SOURCE = ROOT / "references" / "Xray-core"
 PACKAGE_NAME = "OneVCore.Dev"
 SOCKS_PORT = 19080
@@ -75,7 +75,8 @@ def package_info() -> dict[str, str]:
     result = powershell(
         f"$p=Get-AppxPackage -Name {ps_quote(PACKAGE_NAME)} | Select-Object -First 1; "
         "if($null -eq $p){throw 'OneVCore developer package is not installed'}; "
-        "$p | Select-Object PackageFamilyName,InstallLocation | ConvertTo-Json -Compress"
+        "$p | Select-Object PackageFamilyName,InstallLocation | "
+        "ConvertTo-Json -Compress"
     )
     return json.loads(result.stdout)
 
@@ -100,7 +101,8 @@ def invoke_bridge(
             + subprocess.list2cmdline(
                 [
                     sys.executable,
-                    str(Path(__file__).resolve()),
+                    "-m",
+                    "vcore_scripts.tun2socks",
                     "--bridge",
                     str(Path(package["InstallLocation"]) / "vcore.dll"),
                     str(request),
@@ -130,29 +132,35 @@ def invoke_bridge(
 
 def derive_xray_config(source_path: Path, temp: Path) -> tuple[dict, str, str]:
     source = json.loads(source_path.read_text(encoding="utf-8"))
-    inbound = copy.deepcopy(
-        next(item for item in source["inbounds"] if item["protocol"] == "socks")
-    )
-    inbound["listen"] = "127.0.0.1"
-    inbound["port"] = SOCKS_PORT
-    inbound["settings"]["udp"] = True
-    inbound["sniffing"] = {
-        "enabled": True,
-        "destOverride": ["http", "tls", "quic"],
-        "routeOnly": True,
-    }
-    inbound_tag = inbound["tag"]
-    proxy = copy.deepcopy(
-        next(item for item in source["outbounds"] if item.get("tag") == inbound_tag)
-    )
-    direct = copy.deepcopy(
-        next(item for item in source["outbounds"] if item["protocol"] == "freedom")
-    )
-    # Xray reads outbound sockopt only from streamSettings; the reference config
-    # currently places the freedom binding at the ignored top level.
-    if "sockopt" in direct:
-        direct.setdefault("streamSettings", {})["sockopt"] = direct.pop("sockopt")
-    direct_tag = direct["tag"]
+    try:
+        inbound = copy.deepcopy(
+            next(item for item in source["inbounds"] if item["protocol"] == "socks")
+        )
+        inbound["listen"] = "127.0.0.1"
+        inbound["port"] = SOCKS_PORT
+        inbound["settings"]["udp"] = True
+        inbound["sniffing"] = {
+            "enabled": True,
+            "destOverride": ["http", "tls", "quic"],
+            "routeOnly": True,
+        }
+        inbound_tag = inbound["tag"]
+        proxy = copy.deepcopy(
+            next(item for item in source["outbounds"] if item.get("tag") == inbound_tag)
+        )
+        direct = copy.deepcopy(
+            next(item for item in source["outbounds"] if item["protocol"] == "freedom")
+        )
+        # Xray reads outbound sockopt only from streamSettings; the reference config
+        # currently places the freedom binding at the ignored top level.
+        if "sockopt" in direct:
+            direct.setdefault("streamSettings", {})["sockopt"] = direct.pop("sockopt")
+        direct_tag = direct["tag"]
+    except (KeyError, StopIteration, TypeError) as error:
+        raise ValueError(
+            "source Xray config must contain a tagged SOCKS inbound, its matching "
+            "outbound, and a tagged freedom outbound"
+        ) from error
     direct_host = urlparse(DIRECT_URL).hostname
     rules = []
     if source.get("dns", {}).get("tag"):
@@ -320,23 +328,21 @@ rules:
 """
 
 
-def main() -> None:
+def run_demo(source_config: Path | None = None) -> None:
     if os.name != "nt":
-        raise SystemExit("This demo requires Windows")
-    source_config = (
-        Path(sys.argv[1])
-        if len(sys.argv) > 1
-        else Path.home() / "lib" / "xray" / "config.json"
-    )
+        raise RuntimeError("This demo requires Windows")
+    source_config = source_config or Path.home() / "lib" / "xray" / "config.json"
     if not source_config.is_file() or not (XRAY_SOURCE / "go.mod").is_file():
-        raise SystemExit("Xray source checkout or source config is missing")
+        raise RuntimeError("Xray source checkout or source config is missing")
 
     package = package_info()
     with tempfile.TemporaryDirectory(prefix="vcore-tun2socks-") as directory:
         temp = Path(directory)
         initial = invoke_bridge(temp, package, "getVpnStatus", {})
         if initial["status"] != "disconnected":
-            raise SystemExit("Stop the existing OneVCore VPN before running this demo")
+            raise RuntimeError(
+                "Stop the existing OneVCore VPN before running this demo"
+            )
 
         xray_exe = temp / "xray.exe"
         env = os.environ.copy()
@@ -424,14 +430,17 @@ def main() -> None:
             print(f"Xray source {revision}: built and config-tested")
             print(f"DNS ordinary UDP: PASS ({dns_source} -> {DNS_IPV4}:53)")
             print(
-                f"HTTP sniffing route: PASS ({direct_status}, {inbound_tag} -> {direct_tag})"
+                "HTTP sniffing route: PASS "
+                f"({direct_status}, {inbound_tag} -> {direct_tag})"
             )
             print(
-                f"HTTPS proxy route: PASS ({proxy_status}, {inbound_tag} -> {inbound_tag})"
+                "HTTPS proxy route: PASS "
+                f"({proxy_status}, {inbound_tag} -> {inbound_tag})"
             )
             print(f"SOCKS5 UDP/NTP: PASS ({ntp_source} -> {NTP_IPV4}:123)")
             print(
-                "VERDICT: VCore can serve as tun2socks in front of an external Xray SOCKS inbound."
+                "VERDICT: VCore can serve as tun2socks in front of an external "
+                "Xray SOCKS inbound."
             )
         finally:
             if start_attempted:
@@ -454,7 +463,6 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) == 5 and sys.argv[1] == "--bridge":
-        bridge_main(*sys.argv[2:])
-    else:
-        main()
+    if len(sys.argv) != 5 or sys.argv[1] != "--bridge":
+        raise SystemExit("This module is an internal packaged bridge helper")
+    bridge_main(*sys.argv[2:])

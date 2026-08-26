@@ -42,9 +42,7 @@ try {
     $vcTarget = if ($Architecture -eq 'arm64') { 'amd64_arm64' } else { 'amd64' }
 
     if (-not $SkipVCoreBuild) {
-        $vcoreBuild = 'call "{0}" {1} >nul && powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{2}" -Architecture {3}' -f `
-            $vcvars, $vcTarget, (Join-Path $root 'scripts\build_windows.ps1'), $Architecture
-        & $env:ComSpec /d /s /c $vcoreBuild
+        & uv run --project (Join-Path $root 'scripts') --locked vcore-scripts build windows --architecture $Architecture
         if ($LASTEXITCODE) { throw "VCore build failed: $LASTEXITCODE" }
     }
     foreach ($artifact in @('vcore.dll', 'vcore-windows-vpn-host.exe', 'vcore-windows-session-host.exe')) {

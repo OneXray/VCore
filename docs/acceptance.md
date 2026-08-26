@@ -37,7 +37,11 @@ cargo clippy --locked --all-features --lib --bins -- -D warnings \
   -A clippy::map-or-identity
 cargo test --manifest-path crates/vcore-netstack/Cargo.toml --all-targets
 cargo clippy --manifest-path crates/vcore-netstack/Cargo.toml --all-targets -- -D warnings
-./scripts/check_c_header.sh
+uv run --project scripts --locked vcore-scripts check c-header
+uv run --project scripts --locked vcore-scripts check tls-dependencies
+uv run --project scripts --locked python -m unittest discover -s scripts/tests
+uv run --project scripts --locked ruff check scripts
+uv run --project scripts --locked ruff format --check scripts
 ```
 
 外部互操作按需运行：

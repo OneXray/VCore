@@ -10,6 +10,10 @@ target/
 # Tool-generated files
 **/*.rs.bk
 **/mutants.out*/
+**/__pycache__/
+**/.ruff_cache/
+*.py[cod]
+/scripts/.venv/
 
 # MSVC debug symbols
 *.pdb

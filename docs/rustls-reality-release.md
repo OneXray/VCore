@@ -42,10 +42,11 @@ cargo fetch --locked
 cargo fmt --all -- --check
 cargo test --locked --all-features --all-targets
 cargo clippy --locked --all-features --all-targets -- -D warnings
-./scripts/check_c_header.sh
-./scripts/build_apple.sh
-./scripts/build_android.sh
-powershell -File scripts/build_windows.ps1 -Architecture arm64
+uv run --project scripts --locked vcore-scripts check c-header
+uv run --project scripts --locked vcore-scripts check tls-dependencies
+uv run --project scripts --locked vcore-scripts build apple
+uv run --project scripts --locked vcore-scripts build android
+uv run --project scripts --locked vcore-scripts build windows --architecture arm64
 ```
 
 同时验证：

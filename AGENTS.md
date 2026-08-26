@@ -18,6 +18,7 @@ Read the relevant document completely before changing that area:
 - REALITY or the sibling rustls fork: `docs/reality-wire-protocol.md` and `docs/rustls-reality-release.md`.
 - Unix TUN fd ownership or packet I/O: `docs/tun-platform.md`.
 - Windows VPN/TUN, outbound binding, AppContainer packet buffers, or package lifecycle: `docs/windows-vpn.md`, `docs/windows-session-runtime.md`, and `docs/tun-platform.md`.
+- Build, validation, or interoperability tooling: `scripts/README.md` and the unified `vcore-scripts` interface.
 - Claims that something passed: `docs/acceptance.md`. Record only commands and environments actually executed; host tests and cross-builds do not prove physical-device data paths.
 
 # Architecture Boundaries
@@ -51,8 +52,12 @@ cargo test --all-features --all-targets
 cargo clippy --locked --all-features --lib --bins -- -D warnings -A clippy::chunks-exact-to-as-chunks -A clippy::map-or-identity
 cargo test --manifest-path crates/vcore-netstack/Cargo.toml --all-targets
 cargo clippy --manifest-path crates/vcore-netstack/Cargo.toml --all-targets -- -D warnings
-./scripts/check_c_header.sh
-sh -n scripts/*.sh tests/run_xray_interop.sh tests/run_anytls_interop.sh
+uv run --project scripts --locked vcore-scripts check c-header
+uv run --project scripts --locked vcore-scripts check tls-dependencies
+uv run --project scripts --locked python -m unittest discover -s scripts/tests
+uv run --project scripts --locked ruff check scripts
+uv run --project scripts --locked ruff format --check scripts
+sh -n tests/run_xray_interop.sh tests/run_anytls_interop.sh
 git diff --check
 ```
 
