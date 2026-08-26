@@ -4,7 +4,7 @@ Windows 数据面只使用官方 `Windows.Networking.Vpn` 和 `windows-rs`，不
 
 ## 产品边界
 
-- 最低目标系统：Windows 10 22H2 build 19045。
+- 最低目标系统：Windows 10 20H2 build 19042。
 - 目标架构：ARM64 和 x64。
 - 分发形式：具有 package identity 的 MSIX。
 - 前台：完全信任的 Flutter 应用。

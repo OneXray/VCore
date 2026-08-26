@@ -35,7 +35,7 @@ vcore-windows-vpn-host.exe + vcore.dll（AppContainer Provider）
 
 ## 前置条件
 
-- Windows 10 22H2 build 19045 或更新版本；
+- Windows 10 20H2 build 19042 或更新版本；
 - Visual Studio C++ 工具和 Windows 10/11 SDK；
 - Rust Windows MSVC target：`aarch64-pc-windows-msvc` 或 `x86_64-pc-windows-msvc`；
 - 可用于目标 `Publisher` 的代码签名证书，并已由测试设备信任；
@@ -193,7 +193,7 @@ VCore 会校验 YAML、发布内容寻址快照，并只把快照令牌和四个
 | in-process server path | `vcore.dll` |
 | activatable class | `OneVCore.VpnBackgroundTask`，`ThreadingModel="both"` |
 | capabilities | `internetClientServer`、`privateNetworkClientServer`、`runFullTrust`、`networkingVpnProvider` |
-| minimum desktop OS | `10.0.19045.0` |
+| minimum desktop OS | `10.0.19042.0` |
 
 可以修改 identity、publisher、版本、前台 Application Id/EXE、显示名称、图标和 app execution alias。除非同步修改 VCore 源码，否则不要修改 `SessionHost` 和 `OneVCore.VpnBackgroundTask`。桥接还固定使用 profile 名 `OneVCore`，可选 StartupTask 固定使用 `OneVCoreStartup`；两者都按 package family 隔离。
 
@@ -240,7 +240,7 @@ broker 负责 JSON bridge、命令串行化和结果回传。UWP UI 不接触 YA
 
 - 为 ARM64 和 x64 分别构建、签名并验证同架构四产物；
 - 从无旁路开发文件的干净检出执行 locked build；
-- 在 Windows 10 22H2 与支持的 Windows 11 上执行真实 TUN 测试；
+- 在 Windows 10 20H2 与支持的 Windows 11 上执行真实 TUN 测试；
 - 验证物理 IPv4/IPv6、DNS enabled/disabled、TCP、UDP、ICMP 和 Stop 清理；
 - 执行 WACK，使用 Partner Center 正式 identity/publisher；
 - 获得受限能力审批后再提交 Store；

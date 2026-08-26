@@ -13,7 +13,7 @@
     <Logo>Assets\Logo.png</Logo>
   </Properties>
   <Dependencies>
-    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19045.0" MaxVersionTested="10.0.26200.0" />
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19042.0" MaxVersionTested="10.0.26200.0" />
   </Dependencies>
   <Resources>
     <Resource Language="en-us" />
