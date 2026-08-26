@@ -39,7 +39,7 @@ Read the relevant document completely before changing that area:
 5. Windows uses official `Windows.Networking.Vpn` through `windows-rs`. `VpnPacketBuffer` bytes are copied within callbacks and every framework buffer is returned according to WinRT ownership rules. Network changes stop the first release; they do not silently rebind or reconnect.
 6. Reuse the existing raw-IP netstack and outbound graph. Add no second Windows proxy core, Wintun path, per-protocol socket factory, or fake fd layer.
 7. Keep optional protocol/platform code feature- and target-gated. Default non-TUN builds must continue to compile.
-8. Before copying, translating, linking, or distributing third-party code, update `THIRD_PARTY_NOTICES.md` with revision, license, file-level provenance, and destination.
+8. Before copying, translating, linking, or distributing third-party code, add the actual upstream project to the root `README.md` Credits section and preserve its applicable license terms.
 
 # Validation
 

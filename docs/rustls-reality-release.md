@@ -170,4 +170,4 @@ powershell -File scripts/build_windows.ps1 -Architecture arm64
 - Release artifacts记录hash并通过license audit。
 - 文档与验收记录最终revision，不包含本机路径假设。
 
-许可证和实际派生源码声明见 [`../THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)。
+相关上游项目见仓库根 `README.md` 的 Credits。

@@ -13,8 +13,8 @@ VCore does not assume the host process role:
 - no unbounded channel;
 - cancellation plus a stop completion barrier.
 
-The repository-root `LICENSE` covers this crate. See `NOTICE` for source
-provenance, license choices, and material VCore changes.
+The repository-root `LICENSE` covers this crate. Upstream projects are credited
+in the repository `README.md`.
 
 ## Main API
 
