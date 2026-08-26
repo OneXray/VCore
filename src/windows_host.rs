@@ -41,8 +41,8 @@ use crate::{
 const BRIDGE_VERSION: u32 = 1;
 const MAX_REQUEST_BYTES: usize = 1024 * 1024;
 const MAX_ERROR_BYTES: usize = 4096;
-const PROFILE_NAME: &str = "OneVCore";
-const STARTUP_TASK_ID: &str = "OneVCoreStartup";
+const PROFILE_NAME: &str = "VCore";
+const STARTUP_TASK_ID: &str = "VCoreStartup";
 static COMMAND: Mutex<()> = Mutex::new(());
 
 #[derive(Deserialize)]
@@ -409,7 +409,7 @@ fn find_profile(
             continue;
         }
         if found.is_some() {
-            return Err("multiple package-owned OneVCore VPN profiles exist".to_owned());
+            return Err("multiple package-owned VCore VPN profiles exist".to_owned());
         }
         found = Some(ProfileMatch {
             profile: plugin,

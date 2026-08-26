@@ -27,7 +27,7 @@ authentication:
 # 回环地址。secret 省略时不鉴权，出现时必须非空。只支持 `GET /traffic` 返回
 # 一次 up/down/upTotal/downTotal 快照；它不属于 Invoke API。
 external-controller: 127.0.0.1:9090
-secret: "onevcore-runtime-secret"
+secret: "vcore-runtime-secret"
 
 # TUN 文件描述符、帧格式和 Android protect 由 Invoke 提供，不进入 YAML。
 # 配置必须包含 port 或启用 TUN；MTU 默认为 1500，当前只接受该值。

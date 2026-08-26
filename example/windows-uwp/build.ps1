@@ -2,10 +2,13 @@ param(
     [ValidateSet('arm64', 'x64')]
     [string] $Architecture = 'arm64',
     [string] $IdentityName = 'VCore.UwpDemo.Dev',
-    [string] $Publisher = 'CN=OneVCore Phase0',
+    [Parameter(Mandatory = $true)]
+    [string] $Publisher,
     [string] $Version = '1.0.0.0',
+    [Parameter(Mandatory = $true)]
     [string] $PfxPath,
-    [string] $PfxPassword = 'onevcore-phase0',
+    [Parameter(Mandatory = $true)]
+    [string] $PfxPassword,
     [switch] $SkipVCoreBuild,
     [switch] $Install
 )
@@ -13,9 +16,6 @@ param(
 $ErrorActionPreference = 'Stop'
 $example = $PSScriptRoot
 $root = Split-Path (Split-Path $example -Parent) -Parent
-if (-not $PfxPath) {
-    $PfxPath = Join-Path (Split-Path $root -Parent) 'cert\OneVCore.Phase0.pfx'
-}
 if ($Version -notmatch '^\d+\.\d+\.\d+\.\d+$') {
     throw 'Version must contain four numeric components'
 }
@@ -25,6 +25,7 @@ if (($Version.Split('.') | ForEach-Object { [int] $_ }) | Where-Object { $_ -gt 
 if (-not (Test-Path $PfxPath -PathType Leaf)) {
     throw "signing certificate not found: $PfxPath"
 }
+$PfxPath = (Resolve-Path $PfxPath).Path
 
 $target = if ($Architecture -eq 'arm64') { 'aarch64-pc-windows-msvc' } else { 'x86_64-pc-windows-msvc' }
 $vcoreDist = Join-Path $root "dist\windows\$Architecture"

@@ -42,7 +42,7 @@ vcore-windows-vpn-host.exe + vcore.dll（AppContainer Provider）
 - 旁加载需要开发者模式或组织允许的安装策略；
 - Store 发布需要正式 package identity、publisher、`networkingVpnProvider` 与 `runFullTrust` 审批。
 
-工作区默认复用 `cert/OneVCore.Phase0.pfx`。脚本只读取并签名，不生成、导入或删除证书。独立使用 VCore 时，通过 `-PfxPath`、`-PfxPassword`、`-Publisher` 和 `-IdentityName` 传入自己的值。
+构建脚本要求显式传入 `-PfxPath`、`-PfxPassword` 和与证书 Subject 一致的 `-Publisher`。脚本只读取证书并签名，不生成、导入或删除证书。
 
 ## 构建与安装
 
@@ -52,6 +52,9 @@ vcore-windows-vpn-host.exe + vcore.dll（AppContainer Provider）
 powershell -ExecutionPolicy Bypass -File example/windows-uwp/build.ps1 `
   -Architecture arm64 `
   -Version 1.0.0.0 `
+  -PfxPath C:\path\to\development.pfx `
+  -PfxPassword '<password>' `
+  -Publisher 'CN=Development Publisher' `
   -Install
 ```
 
@@ -61,6 +64,9 @@ x64 使用：
 powershell -ExecutionPolicy Bypass -File example/windows-uwp/build.ps1 `
   -Architecture x64 `
   -Version 1.0.0.0 `
+  -PfxPath C:\path\to\development.pfx `
+  -PfxPassword '<password>' `
+  -Publisher 'CN=Development Publisher' `
   -Install
 ```
 
@@ -143,7 +149,7 @@ if (response != nullptr) {
 <desktop:Extension Category="windows.startupTask"
                    Executable="YourHost.exe"
                    EntryPoint="Windows.FullTrustApplication">
-  <desktop:StartupTask TaskId="OneVCoreStartup"
+  <desktop:StartupTask TaskId="VCoreStartup"
                        Enabled="false"
                        DisplayName="Your App" />
 </desktop:Extension>
@@ -188,14 +194,14 @@ VCore 会校验 YAML、发布内容寻址快照，并只把快照令牌和四个
 | Session Host Application Id | `SessionHost` |
 | Session Host executable | `vcore-windows-session-host.exe` |
 | Provider executable | `vcore-windows-vpn-host.exe` |
-| Provider Application EntryPoint | `OneVCore.VpnHost.App` |
-| Provider background EntryPoint | `OneVCore.VpnBackgroundTask` |
+| Provider Application EntryPoint | `VCore.VpnHost.App` |
+| Provider background EntryPoint | `VCore.VpnBackgroundTask` |
 | in-process server path | `vcore.dll` |
-| activatable class | `OneVCore.VpnBackgroundTask`，`ThreadingModel="both"` |
+| activatable class | `VCore.VpnBackgroundTask`，`ThreadingModel="both"` |
 | capabilities | `internetClientServer`、`privateNetworkClientServer`、`runFullTrust`、`networkingVpnProvider` |
 | minimum desktop OS | `10.0.19042.0` |
 
-可以修改 identity、publisher、版本、前台 Application Id/EXE、显示名称、图标和 app execution alias。除非同步修改 VCore 源码，否则不要修改 `SessionHost` 和 `OneVCore.VpnBackgroundTask`。桥接还固定使用 profile 名 `OneVCore`，可选 StartupTask 固定使用 `OneVCoreStartup`；两者都按 package family 隔离。
+可以修改 identity、publisher、版本、前台 Application Id/EXE、显示名称、图标和 app execution alias。除非同步修改 VCore 源码，否则不要修改 `SessionHost` 和 `VCore.VpnBackgroundTask`。桥接还固定使用 profile 名 `VCore`，可选 StartupTask 固定使用 `VCoreStartup`；两者都按 package family 隔离。
 
 三项 VCore 文件必须位于 package 根目录：
 

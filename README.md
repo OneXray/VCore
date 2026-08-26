@@ -1,6 +1,6 @@
 # VCore
 
-VCore 是独立的 Rust 客户端代理 core。它通过严格 YAML 配置和 Invoke API v5 提供代理图、DNS、规则、GeoData、HTTP listener、TUN 数据面与流量统计。内部配置 schema revision 为 11；revision 只出现在 `version` 响应和 `buildIdentity` 中，不写入 YAML。
+VCore 是独立且不绑定特定宿主应用的 Rust 客户端代理 core。它通过严格 YAML 配置和 Invoke API v5 提供代理图、DNS、规则、GeoData、HTTP listener、TUN 数据面与流量统计。内部配置 schema revision 为 11；revision 只出现在 `version` 响应和 `buildIdentity` 中，不写入 YAML。
 
 ## 能力
 

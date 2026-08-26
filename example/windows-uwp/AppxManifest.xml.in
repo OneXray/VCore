@@ -45,7 +45,7 @@
         BackgroundColor="transparent"
         AppListEntry="none" />
     </Application>
-    <Application Id="VpnProvider" Executable="vcore-windows-vpn-host.exe" EntryPoint="OneVCore.VpnHost.App">
+    <Application Id="VpnProvider" Executable="vcore-windows-vpn-host.exe" EntryPoint="VCore.VpnHost.App">
       <uap:VisualElements
         DisplayName="VCore VPN Provider"
         Description="VCore VPN provider"
@@ -54,7 +54,7 @@
         BackgroundColor="transparent"
         AppListEntry="none" />
       <Extensions>
-        <Extension Category="windows.backgroundTasks" Executable="vcore-windows-vpn-host.exe" EntryPoint="OneVCore.VpnBackgroundTask">
+        <Extension Category="windows.backgroundTasks" Executable="vcore-windows-vpn-host.exe" EntryPoint="VCore.VpnBackgroundTask">
           <BackgroundTasks>
             <uap:Task Type="vpnClient" />
           </BackgroundTasks>
@@ -72,7 +72,7 @@
     <Extension Category="windows.activatableClass.inProcessServer">
       <InProcessServer>
         <Path>vcore.dll</Path>
-        <ActivatableClass ActivatableClassId="OneVCore.VpnBackgroundTask" ThreadingModel="both" />
+        <ActivatableClass ActivatableClassId="VCore.VpnBackgroundTask" ThreadingModel="both" />
       </InProcessServer>
     </Extension>
   </Extensions>

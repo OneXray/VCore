@@ -22,7 +22,7 @@ use tracing::{
     subscriber::Interest,
 };
 
-const SUBSYSTEM: &str = "net.yuandev.log";
+const SUBSYSTEM: &str = "io.github.onexray.vcore";
 const CATEGORY: &str = "vcore";
 const MAX_EVENT_BYTES: usize = 2 * 1024;
 const TRUNCATION_MARKER: &str = "...";
@@ -333,7 +333,7 @@ mod tests {
     fn target_filter_excludes_host_and_dependency_events() {
         assert!(is_vcore_target("vcore::tun_runtime"));
         assert!(is_vcore_target("vcore_netstack::tcp"));
-        assert!(!is_vcore_target("onevcore"));
+        assert!(!is_vcore_target("host-application"));
         assert!(!is_vcore_target("h2"));
     }
 

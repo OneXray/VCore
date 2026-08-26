@@ -13,7 +13,7 @@ use windows::{
 };
 
 pub(crate) const SNAPSHOT_DIRECTORY: &str = "vcore/windows/snapshots";
-const SNAPSHOT_TOKEN_PREFIX: &str = "onevcore-v1:";
+const SNAPSHOT_TOKEN_PREFIX: &str = "vcore-v1:";
 const MAX_SNAPSHOT_BYTES: u64 = 256 * 1024;
 const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
 static STAGING_ID: AtomicU64 = AtomicU64::new(1);
@@ -182,15 +182,15 @@ mod tests {
     #[test]
     fn token_accepts_only_the_canonical_versioned_digest() {
         let digest = "0123456789abcdef".repeat(4);
-        let reference = SnapshotReference::parse(&format!("onevcore-v1:{digest}")).unwrap();
+        let reference = SnapshotReference::parse(&format!("vcore-v1:{digest}")).unwrap();
         assert_eq!(reference.file_name(), format!("{digest}.yaml"));
 
         for token in [
             digest.clone(),
-            format!("onevcore-v2:{digest}"),
-            format!("onevcore-v1:{}", digest.to_uppercase()),
-            "onevcore-v1:../vcore.yaml".to_owned(),
-            "onevcore-v1:00".to_owned(),
+            format!("vcore-v2:{digest}"),
+            format!("vcore-v1:{}", digest.to_uppercase()),
+            "vcore-v1:../vcore.yaml".to_owned(),
+            "vcore-v1:00".to_owned(),
         ] {
             assert!(
                 SnapshotReference::parse(&token).is_err(),

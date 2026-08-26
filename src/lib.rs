@@ -84,7 +84,7 @@ pub const ENGINE: &str = "rust";
 /// This is deliberately independent from a source revision. Release tooling
 /// records the immutable Git revision and artifact hash separately.
 pub const BUILD_IDENTITY: &str = concat!(
-    "OneVCore/VCore;engine=rust;coreVersion=",
+    "VCore;engine=rust;coreVersion=",
     env!("CARGO_PKG_VERSION"),
     ";invokeApiVersion=5;configVersion=11"
 );

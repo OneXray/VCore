@@ -22,7 +22,7 @@ from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parents[3]
 XRAY_SOURCE = ROOT / "references" / "Xray-core"
-PACKAGE_NAME = "OneVCore.Dev"
+PACKAGE_NAME = "VCore.UwpDemo.Dev"
 SOCKS_PORT = 19080
 TUN_IPV4 = "192.168.8.1"
 TUN_IPV6 = "fd00:8::2"
@@ -74,7 +74,7 @@ def ps_quote(value: str) -> str:
 def package_info() -> dict[str, str]:
     result = powershell(
         f"$p=Get-AppxPackage -Name {ps_quote(PACKAGE_NAME)} | Select-Object -First 1; "
-        "if($null -eq $p){throw 'OneVCore developer package is not installed'}; "
+        "if($null -eq $p){throw 'VCore UWP demo package is not installed'}; "
         "$p | Select-Object PackageFamilyName,InstallLocation | "
         "ConvertTo-Json -Compress"
     )
@@ -340,9 +340,7 @@ def run_demo(source_config: Path | None = None) -> None:
         temp = Path(directory)
         initial = invoke_bridge(temp, package, "getVpnStatus", {})
         if initial["status"] != "disconnected":
-            raise RuntimeError(
-                "Stop the existing OneVCore VPN before running this demo"
-            )
+            raise RuntimeError("Stop the existing VCore VPN before running this demo")
 
         xray_exe = temp / "xray.exe"
         env = os.environ.copy()

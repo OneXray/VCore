@@ -10,15 +10,15 @@ _Avoid_: Plugin, background task when referring to the whole participant, proxy 
 
 **Windows session runtime**:
 The VCore runtime serving one active Windows tunnel session inside the Windows session host.
-_Avoid_: Flutter runtime, provider runtime, external core
+_Avoid_: Foreground runtime, provider runtime, external core
 
 **Windows session host**:
-The hidden packaged full-trust Application that owns the Windows session runtime independently of the Flutter foreground.
-_Avoid_: Flutter process, provider host, external-core host
+The hidden packaged full-trust Application that owns the Windows session runtime independently of the foreground host.
+_Avoid_: Foreground process, provider host, external-core host
 
 **Windows provider host**:
 The minimal AppContainer executable that supplies a process for Windows to activate the Windows VPN provider.
-_Avoid_: Flutter host, plugin executable, background core
+_Avoid_: Foreground host, plugin executable, background core
 
 **Windows packet adapter**:
 The raw-IP exchange point between Windows VPN callbacks and a VCore tunnel runtime.

@@ -88,12 +88,12 @@ bash tests/run_anytls_interop.sh
 已验证范围限于 Windows 11 ARM64 开发签名安装包：
 
 - `Windows.Networking.Vpn` Provider 激活；
-- Flutter、AppContainer Provider 和完全信任 Session Host 的进程边界；
+- 完全信任前台宿主、AppContainer Provider 和完全信任 Session Host 的进程边界；
 - 同包限定命名管道和单一 package-owned profile；
 - IPv4/IPv6 两条 `/1` 路由、外部 DNS assignment 和不可变 TUN/DNS 地址；
 - ICMP、TCP、UDP、DNS、HTTP/HTTPS 和完整代理图；
 - 非回环 socket 的物理源地址与接口索引绑定；
-- Controller、外部回环 SOCKS5 和 Flutter 退出后的会话延续；
+- Controller、外部回环 SOCKS5 和前台宿主退出后的会话延续；
 - Provider/Session Host 退出、管道错误和网络变化时的失败关闭；
 - 快速重连、持续压力、零队列丢弃和显式 Stop 清理；
 - 断开状态下的安装包原位升级和签名校验。

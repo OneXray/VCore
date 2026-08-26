@@ -5,7 +5,7 @@ Windows 每个 VPN 会话由一个隐藏的完全信任 Session Host 独占完�
 ## 参与者与所有权
 
 ```text
-Flutter 前台（完全信任）
+前台宿主（完全信任）
   ├─ VCoreInvoke
   └─ VCoreWindowsVpnInvoke
          │ 激活
@@ -29,7 +29,7 @@ vcore-windows-vpn-host.exe + vcore.dll（AppContainer）
 
 | 参与者 | 拥有 | 不拥有 |
 | --- | --- | --- |
-| Flutter | 用户命令、会话记录、UI 状态 | TUN 运行时、包通道、Provider 状态 |
+| 前台宿主 | 用户命令、会话记录、UI 状态 | TUN 运行时、包通道、Provider 状态 |
 | Windows 桥接 | 快照、profile、Session Host 激活与回滚 | 数据包、代理流 |
 | Session Host | 单次 VCore 运行时、Controller、GeoData、包客户端 | `VpnChannel`、路由、外部 SOCKS 服务 |
 | Provider | `VpnChannel`、WinRT 缓冲区、路由、物理绑定、管道服务端、网络监控 | YAML、代理图、Controller、GeoData |
@@ -39,11 +39,11 @@ Session Host 每次连接新建一个进程，不常驻、不复用运行时，�
 
 ## 快照与 profile
 
-- Windows 只维护一个同包 `OneVCore` profile。
+- Windows 只维护一个同包 `VCore` profile。
 - 桥接先用当前解析器验证 TUN 配置和四个网络地址，再发布内容寻址快照：
 
   ```text
-  onevcore-v1:<64 lowercase sha256>
+  vcore-v1:<64 lowercase sha256>
   LocalState/vcore/windows/snapshots/<sha256>.yaml
   ```
 
@@ -55,7 +55,7 @@ Session Host 每次连接新建一个进程，不常驻、不复用运行时，�
 
 ## 启动顺序
 
-1. Flutter 调用 `startVpn(configYaml, networkSettings)`。
+1. 前台宿主调用 `startVpn(configYaml, networkSettings)`。
 2. 桥接验证配置和地址，发布不可变快照并生成 profile configuration。
 3. 桥接通过 `IApplicationActivationManager` 激活隐藏 Session Host，只传 `--snapshot-token <token>`。
 4. 桥接持有激活返回的精确进程句柄。
@@ -68,7 +68,7 @@ Session Host 每次连接新建一个进程，不常驻、不复用运行时，�
 11. Session Host 读取快照，准备并启动完整 VCore 运行时和 Controller。
 12. Session Host 返回 `RuntimeReady`。
 13. Provider 调用 `StartWithMainTransport` 并启动失败关闭监视器。
-14. 连接成功后，Flutter 原子写入 `run/start.json`。
+14. 连接成功后，桥接向前台宿主返回当前系统 VPN 状态。
 
 任一步失败都必须关闭包通道、终止本次精确 Session Host、收敛为 Disconnected，并只返回有界脱敏错误。
 
@@ -79,10 +79,10 @@ Session Host 每次连接新建一个进程，不常驻、不复用运行时，�
 ```json
 {
   "protocolVersion": 1,
-  "snapshotToken": "onevcore-v1:...",
+  "snapshotToken": "vcore-v1:...",
   "objectPath": "AppContainerNamedObjects\\S-1-15-2-...",
-  "controlLeaf": "OneVCore.Vpn.Control.v1",
-  "dataLeaf": "OneVCore.Vpn.Data.v1"
+  "controlLeaf": "VCore.Vpn.Control.v1",
+  "dataLeaf": "VCore.Vpn.Data.v1"
 }
 ```
 
@@ -168,8 +168,8 @@ Provider 订阅网络变化，等待 2 秒消抖后复验适配器、地址和 i
 
 - Controller 由 Session Host 监听完全信任的回环地址；
 - `RuntimeReady` 前必须完成绑定，失败则连接失败；
-- Flutter 从会话记录读取端口和 secret，并调用 `GET /traffic`；
-- Flutter 退出后 Controller 和运行时继续，重新启动后恢复查询；
+- 前台宿主持有配置中的端口和 secret，并调用 `GET /traffic`；
+- 前台宿主退出后 Controller 和运行时继续，重新启动后恢复查询；
 - Stop 关闭 Controller，下一会话从零计数；
 - 回环 SOCKS5 是普通 VCore 出站，外部服务的进程、监听器和外层网络绕过由其所有者负责；
 - 单个 SOCKS 流失败不停止 VPN。
@@ -178,8 +178,8 @@ Provider 订阅网络变化，等待 2 秒消抖后复验适配器、地址和 i
 
 | 事件 | 结果 |
 | --- | --- |
-| Flutter 退出 | Provider、Session Host 和运行时继续 |
-| Flutter 重启 | 以系统 profile 为权威恢复状态和 Controller 查询 |
+| 前台宿主退出 | Provider、Session Host 和运行时继续 |
+| 前台宿主重启 | 以系统 profile 为权威恢复状态和 Controller 查询 |
 | Provider 退出 | Windows 清理 VPN，Session Host 因 EOF 退出 |
 | Session Host 退出 | Provider 失败关闭并停止 VPN |
 | 物理网络变化 | 消抖后停止 VPN |
@@ -193,7 +193,7 @@ Provider 订阅网络变化，等待 2 秒消抖后复验适配器、地址和 i
 ## 安装包契约
 
 ```text
-OneVCore.exe
+HostApplication.exe
 vcore.dll
 vcore-windows-vpn-host.exe
 vcore-windows-session-host.exe

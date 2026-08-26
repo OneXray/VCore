@@ -65,7 +65,7 @@ use crate::{
     windows_profile::{WindowsNetworkSettings, WindowsProfileConfiguration},
 };
 
-const CLASS_NAME: &str = "OneVCore.VpnBackgroundTask";
+const CLASS_NAME: &str = "VCore.VpnBackgroundTask";
 const PACKET_QUEUE_CAPACITY: usize = 256;
 const FAIL_CLOSED_IDLE: u8 = 0;
 const FAIL_CLOSED_STOPPING: u8 = 1;
@@ -1077,7 +1077,7 @@ mod tests {
         let _winrt = WinRtGuard::enter();
         let digest = "0123456789abcdef".repeat(4);
         let profile = crate::windows_profile::WindowsProfileConfiguration::parse(&format!(
-            r#"{{"version":1,"snapshotToken":"onevcore-v1:{digest}","networkSettings":{{"ipv4Address":"192.168.8.1","ipv6Address":"fd00:8::2","dnsIpv4Address":"223.5.5.5","dnsIpv6Address":"2400:3200::1"}}}}"#
+            r#"{{"version":1,"snapshotToken":"vcore-v1:{digest}","networkSettings":{{"ipv4Address":"192.168.8.1","ipv6Address":"fd00:8::2","dnsIpv4Address":"223.5.5.5","dnsIpv6Address":"2400:3200::1"}}}}"#
         ))
         .unwrap();
 

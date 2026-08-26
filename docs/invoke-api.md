@@ -106,7 +106,7 @@ stopped -> preparing -> prepared -> starting -> running
 ```json
 {
   "apiVersion": 5,
-  "buildIdentity": "OneVCore/VCore;engine=rust;coreVersion=0.1.0;invokeApiVersion=5;configVersion=11",
+  "buildIdentity": "VCore;engine=rust;coreVersion=0.1.0;invokeApiVersion=5;configVersion=11",
   "configVersion": 11,
   "engine": "rust",
   "version": "0.1.0"

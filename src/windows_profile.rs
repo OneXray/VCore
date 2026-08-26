@@ -154,7 +154,7 @@ mod tests {
     fn valid_json() -> String {
         let digest = "0123456789abcdef".repeat(4);
         format!(
-            r#"{{"version":1,"snapshotToken":"onevcore-v1:{digest}","networkSettings":{{"ipv4Address":"192.168.8.1","ipv6Address":"fd00:8::2","dnsIpv4Address":"223.5.5.5","dnsIpv6Address":"2400:3200::1"}}}}"#
+            r#"{{"version":1,"snapshotToken":"vcore-v1:{digest}","networkSettings":{{"ipv4Address":"192.168.8.1","ipv6Address":"fd00:8::2","dnsIpv4Address":"223.5.5.5","dnsIpv6Address":"2400:3200::1"}}}}"#
         )
     }
 
@@ -165,7 +165,7 @@ mod tests {
 
         assert_eq!(
             configuration.snapshot_token(),
-            format!("onevcore-v1:{}", "0123456789abcdef".repeat(4))
+            format!("vcore-v1:{}", "0123456789abcdef".repeat(4))
         );
         assert_eq!(
             configuration.network_settings().ipv4_address().to_string(),

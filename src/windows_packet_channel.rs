@@ -33,8 +33,8 @@ use windows::Win32::{
 use crate::{platform::TunIo, windows_snapshot::SnapshotReference};
 
 pub(crate) const PROTOCOL_VERSION: u32 = 1;
-pub(crate) const CONTROL_LEAF: &str = "OneVCore.Vpn.Control.v1";
-pub(crate) const DATA_LEAF: &str = "OneVCore.Vpn.Data.v1";
+pub(crate) const CONTROL_LEAF: &str = "VCore.Vpn.Control.v1";
+pub(crate) const DATA_LEAF: &str = "VCore.Vpn.Data.v1";
 pub(crate) const RENDEZVOUS_FILE: &str = "vcore/windows/rendezvous.json";
 const MAX_CONTROL_BYTES: usize = 16 * 1024;
 const MAX_RENDEZVOUS_BYTES: usize = 4 * 1024;
@@ -696,8 +696,7 @@ mod tests {
 
     use super::*;
 
-    const TOKEN: &str =
-        "onevcore-v1:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    const TOKEN: &str = "vcore-v1:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     const OBJECT_PATH: &str = "AppContainerNamedObjects\\S-1-15-2-3625493040-1926059196-1414268811-1331793124-1328616665-2242015017-1330142422";
 
     #[derive(Default)]

@@ -12,7 +12,7 @@ from pathlib import Path
 
 CORE_DIR = Path(__file__).resolve().parents[3]
 EXPECTED_IDENTITY = (
-    b"OneVCore/VCore;engine=rust;coreVersion=0.1.0;invokeApiVersion=5;configVersion=11"
+    b"VCore;engine=rust;coreVersion=0.1.0;invokeApiVersion=5;configVersion=11"
 )
 DEFAULT_FEATURES = "ffi,tun,inbound-http,outbound-vless"
 

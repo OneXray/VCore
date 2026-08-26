@@ -6,7 +6,7 @@ Controller 只提供当前 TUN 会话的单次 HTTP 流量快照，不提供持�
 
 ```yaml
 external-controller: 127.0.0.1:9090
-secret: "onevcore-runtime-secret"
+secret: "vcore-runtime-secret"
 ```
 
 - 省略 `external-controller` 表示不启动 Controller，此时不能单独配置 `secret`。
@@ -16,14 +16,14 @@ secret: "onevcore-runtime-secret"
 - `validateConfig` 只校验字段；`prepare` 不监听端口；`start` 绑定端口，绑定失败则启动失败。
 - `stop` 和 `destroyInstance` 关闭监听器。
 
-Controller 与 TUN 会话同生共灭。每次会话启动都会新建统计状态并把全部计数清零。OneVCore 为每次运行选择专用端口和随机密钥，密钥不得写入日志或错误正文。
+Controller 与 TUN 会话同生共灭。每次会话启动都会新建统计状态并把全部计数清零。宿主应为每次运行选择专用端口和随机密钥，密钥不得写入日志或错误正文。
 
 ## Bearer 鉴权
 
 配置 `secret` 后，请求必须携带：
 
 ```http
-Authorization: Bearer onevcore-runtime-secret
+Authorization: Bearer vcore-runtime-secret
 ```
 
 要求：

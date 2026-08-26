@@ -353,8 +353,7 @@ fn invalid_data(message: &'static str) -> io::Error {
 mod tests {
     use super::*;
 
-    const TOKEN: &str =
-        "onevcore-v1:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    const TOKEN: &str = "vcore-v1:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
     #[test]
     fn session_host_accepts_only_one_canonical_snapshot_argument() {

@@ -58,4 +58,4 @@ uv run --project scripts --locked vcore-scripts demo windows-tun2socks
 uv run --project scripts --locked vcore-scripts demo windows-tun2socks C:\path\to\xray-config.json
 ```
 
-该命令仍是显式互操作验收：它临时构建 `references/Xray-core`，使用已安装的 `OneVCore.Dev` package，并在结束时停止测试 VPN 和删除临时文件。源配置不会被修改。真实配置、凭据和临时访问日志不得提交。
+该命令仍是显式互操作验收：它临时构建 `references/Xray-core`，使用已安装的 `VCore.UwpDemo.Dev` 示例 package，并在结束时停止测试 VPN 和删除临时文件。源配置不会被修改。真实配置、凭据和临时访问日志不得提交。
