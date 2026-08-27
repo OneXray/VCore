@@ -8,7 +8,7 @@ mod app {
             IFrameworkViewSource, IFrameworkViewSource_Impl,
         },
         UI::Core::CoreWindow,
-        Win32::System::WinRT::{RO_INIT_MULTITHREADED, RoInitialize},
+        Win32::System::WinRT::{RO_INIT_MULTITHREADED, RoInitialize, RoUninitialize},
         core::{Ref, Result, implement},
     };
 
@@ -50,7 +50,9 @@ mod app {
     pub fn run() -> Result<()> {
         unsafe { RoInitialize(RO_INIT_MULTITHREADED)? };
         let source: IFrameworkViewSource = ViewSource.into();
-        CoreApplication::Run(&source)
+        let result = CoreApplication::Run(&source);
+        unsafe { RoUninitialize() };
+        result
     }
 }
 
