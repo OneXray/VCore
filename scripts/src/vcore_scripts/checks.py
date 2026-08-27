@@ -13,6 +13,9 @@ CRATES_IO_SOURCES = {
     "registry+https://github.com/rust-lang/crates.io-index",
     "registry+https://index.crates.io/",
 }
+RUSTLS_GIT_SOURCE_PREFIX = (
+    "git+https://github.com/OneXray/rustls?branch=vcore/reality-0.23#"
+)
 
 _C_SOURCE = r"""#include "vcore.h"
 int main(void) {
@@ -83,7 +86,7 @@ def check_c_header() -> None:
         )
 
 
-def _tls_dependency_errors(metadata: dict[str, Any], core_dir: Path) -> list[str]:
+def _tls_dependency_errors(metadata: dict[str, Any]) -> list[str]:
     packages = metadata["packages"]
     nodes = metadata["resolve"]["nodes"]
     errors: list[str] = []
@@ -125,19 +128,14 @@ def _tls_dependency_errors(metadata: dict[str, Any], core_dir: Path) -> list[str
             errors.append(f"ring must come from crates.io; resolved source: {resolved}")
 
     if rustls is not None:
-        rustls_source = rustls.get("source")
-        if rustls_source is None:
-            expected = (core_dir.parent / "rustls" / "rustls" / "Cargo.toml").resolve()
-            actual = Path(rustls["manifest_path"]).resolve()
-            if actual != expected:
-                errors.append(
-                    "path-patched rustls must be the adjacent OneXray fork; "
-                    f"resolved manifest: {actual}"
-                )
-        elif "github.com/onexray/rustls" not in rustls_source.lower():
+        rustls_source = rustls.get("source") or ""
+        revision = rustls_source.removeprefix(RUSTLS_GIT_SOURCE_PREFIX)
+        if len(revision) != 40 or any(
+            character not in "0123456789abcdef" for character in revision
+        ):
             errors.append(
-                "rustls must come from the OneXray fork; "
-                f"resolved source: {rustls_source}"
+                "rustls must come from the vcore/reality-0.23 GitHub branch; "
+                f"resolved source: {rustls_source or 'path'}"
             )
 
     if tokio_rustls is not None:
@@ -201,7 +199,7 @@ def check_tls_dependencies() -> None:
         encoding="utf-8",
     )
     metadata = json.loads(result.stdout)
-    errors = _tls_dependency_errors(metadata, CORE_DIR)
+    errors = _tls_dependency_errors(metadata)
     if errors:
         raise RuntimeError(
             "\n".join(f"TLS dependency check failed: {error}" for error in errors)
@@ -210,8 +208,12 @@ def check_tls_dependencies() -> None:
     ring = next(
         package for package in metadata["packages"] if package["name"] == "ring"
     )
+    rustls = next(
+        package for package in metadata["packages"] if package["name"] == "rustls"
+    )
+    revision = rustls["source"].rsplit("#", 1)[1]
     print("TLS dependency check passed:")
-    print("- one OneXray rustls 0.23.43")
+    print(f"- one OneXray rustls 0.23.43 vcore/reality-0.23 @ {revision[:12]}")
     print("- one official tokio-rustls 0.26.4")
     print(f"- one registry ring {ring['version']} provider")
     print("- no Watfaq, AWS-LC, or second rustls version")

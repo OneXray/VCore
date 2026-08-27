@@ -113,9 +113,7 @@ windows-core = { version = "=0.62.2", optional = true }
 tempfile = "3"
 
 [patch.crates-io]
-# Development-only workspace override. Replace this with the immutable
-# OneXray/rustls revision before publishing the migration.
-rustls = { path = "../rustls/rustls" }
+rustls = { git = "https://github.com/OneXray/rustls", branch = "vcore/reality-0.23" }
 
 [profile.release]
 codegen-units = 1

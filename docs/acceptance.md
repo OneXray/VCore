@@ -113,12 +113,11 @@ Windows 路由必须保留两条 `/1`。在安装包环境中，单条 VPN `/0` 
 
 ## rustls REALITY 发布
 
-REALITY 线上向量、普通 TLS 回归、错误 key/short ID、HRR、并发和取消已有自动化覆盖。当前 `Cargo.toml` 仍通过本地 path patch 使用相邻 rustls fork，因此以下发布门禁尚未完成：
+REALITY 线上向量、普通 TLS 回归、错误 key/short ID、HRR、并发和取消已有自动化覆盖。`Cargo.toml` 已通过 GitHub 分支 `vcore/reality-0.23` 引用 fork，`Cargo.lock` 固定实际解析 revision。以下发布门禁仍需在正式发布环境完成：
 
-- 推送不可变 fork revision；
-- 用精确 Git `rev` 替换本地 path；
-- 更新并审查 `Cargo.lock`；
-- 从无相邻 rustls 目录的干净检出执行 locked tests 和三平台构建。
+- 从无相邻 rustls 目录的干净检出执行 locked tests；
+- 使用同一 lockfile 完成 Apple、Android 和 Windows 三平台构建；
+- 保存并复核 VCore revision、rustls revision、lockfile hash 和产物 hash。
 
 详细要求见 [rustls REALITY 依赖与发布要求](rustls-reality-release.md)。
 

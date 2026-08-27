@@ -919,6 +919,7 @@ dependencies = [
 [[package]]
 name = "rustls"
 version = "0.23.43"
+source = "git+https://github.com/OneXray/rustls?branch=vcore%2Freality-0.23#df261c84cbac4f708e63ac8644ce70daa90d771c"
 dependencies = [
  "once_cell",
  "ring",

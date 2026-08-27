@@ -1,6 +1,6 @@
 # rustls REALITY 依赖与发布要求
 
-VCore 的 REALITY 客户端依赖自有 rustls 0.23 fork。开发工作区当前通过 `[patch.crates-io]` 指向相邻的 `../rustls/rustls`；这种本地路径只适用于开发，不能作为发布依赖。
+VCore 的 REALITY 客户端依赖自有 rustls 0.23 fork。仓库通过 GitHub 分支 `vcore/reality-0.23` 引用该 fork，并由 `Cargo.lock` 固定实际解析的提交。
 
 ## 实现边界
 
@@ -15,23 +15,22 @@ fork 不创建线程、异步任务、连接池、全局映射或跨连接锁。
 
 普通 TLS 与 REALITY 必须使用不同的不可变 `ClientConfig`，不能在同一对象上热切换身份。线上协议见 [REALITY V1 客户端协议](reality-wire-protocol.md)。
 
-## 发布依赖
-
-发布前必须把本地 path patch 替换为远端不可变提交：
+## GitHub 分支依赖
 
 ```toml
-rustls = { git = "https://github.com/OneXray/rustls", rev = "<immutable-commit>", ... }
+[patch.crates-io]
+rustls = { git = "https://github.com/OneXray/rustls", branch = "vcore/reality-0.23" }
 ```
 
 要求：
 
-1. `rev` 指向已推送且不可移动的提交，不使用 branch、tag 浮动引用或本机路径；
-2. `Cargo.toml` 和 `Cargo.lock` 在同一提交中更新；
-3. 删除相邻 rustls 目录后，`cargo fetch --locked` 和后续构建仍能成功；
+1. 只使用上述 GitHub 分支，不使用本机路径或第二个 rustls source；
+2. `Cargo.toml` 和 `Cargo.lock` 在同一提交中更新，lockfile 必须包含实际解析的完整 Git revision；
+3. 没有相邻 rustls 目录时，`cargo fetch --locked` 和后续构建仍能成功；
 4. 只启用预期的 `ring` 提供方和 REALITY feature；
-5. 发布记录保存 VCore revision、rustls revision、lockfile hash 和产物 SHA-256。
+5. 发布记录保存 VCore revision、lockfile 中的 rustls revision、lockfile hash 和产物 SHA-256。
 
-当前仓库仍有本地 path patch，因此满足上述条件前不能把构建称为可从干净检出复现的发布构建。
+分支前移不会自动改变 locked 构建。升级必须显式更新 `Cargo.lock`、审查解析 revision，并在同一变更中重新执行验证门禁。
 
 ## 验证门禁
 
@@ -67,6 +66,6 @@ uv run --project scripts --locked vcore-scripts build windows --architecture arm
 2. 重新运行全部确定性线上向量；
 3. 审查 ClientHello、key share、证书验证器和 provider API 的变化；
 4. 重新执行平台构建和产品数据面；
-5. 发布新的不可变 revision 并更新 lockfile。
+5. 推送分支提交并更新、审查 lockfile 中的解析 revision。
 
-回退通过新的 VCore 提交改回上一个已验证 revision；已发布对象不得移动、删除或复用。VCore 不保留双 REALITY 实现或运行时降级开关。
+回退通过新的 VCore 提交恢复上一个已验证 lockfile revision。VCore 不保留双 REALITY 实现或运行时降级开关。

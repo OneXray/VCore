@@ -49,7 +49,7 @@ uv run --project scripts --locked ruff check scripts
 uv run --project scripts --locked ruff format --check scripts
 ```
 
-`c-header` 在 macOS 使用 `xcrun clang/clang++`，其他平台使用 `PATH` 中的 `clang/clang++`。`tls-dependencies` 直接读取 `cargo metadata`，验证唯一的 OneXray rustls 0.23.43、官方 tokio-rustls 0.26.4、registry ring，以及禁止的 Watfaq/AWS-LC 依赖。
+`c-header` 在 macOS 使用 `xcrun clang/clang++`，其他平台使用 `PATH` 中的 `clang/clang++`。`tls-dependencies` 直接读取 `cargo metadata`，验证唯一的 OneXray rustls 0.23.43 来自 GitHub `vcore/reality-0.23` 分支、官方 tokio-rustls 0.26.4、registry ring，以及禁止的 Watfaq/AWS-LC 依赖。
 
 ## Windows tun2socks demo
 

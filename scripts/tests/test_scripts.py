@@ -8,7 +8,11 @@ from unittest.mock import patch
 
 from vcore_scripts import cli
 from vcore_scripts.builds import EXPECTED_IDENTITY, _android_target, _require_identity
-from vcore_scripts.checks import CRATES_IO_SOURCES, _tls_dependency_errors
+from vcore_scripts.checks import (
+    CRATES_IO_SOURCES,
+    RUSTLS_GIT_SOURCE_PREFIX,
+    _tls_dependency_errors,
+)
 from vcore_scripts.tun2socks import derive_xray_config
 
 
@@ -36,56 +40,61 @@ class ScriptTest(unittest.TestCase):
                 _require_identity(artifact, "test")
 
     def test_tls_metadata_accepts_the_locked_graph(self):
-        with tempfile.TemporaryDirectory() as directory:
-            core = Path(directory) / "VCore"
-            rustls_manifest = core.parent / "rustls/rustls/Cargo.toml"
-            source = next(iter(CRATES_IO_SOURCES))
-            metadata = {
-                "packages": [
+        registry = next(iter(CRATES_IO_SOURCES))
+        metadata = {
+            "packages": [
+                {
+                    "id": "rustls-id",
+                    "name": "rustls",
+                    "version": "0.23.43",
+                    "source": RUSTLS_GIT_SOURCE_PREFIX + "a" * 40,
+                },
+                {
+                    "id": "tokio-rustls-id",
+                    "name": "tokio-rustls",
+                    "version": "0.26.4",
+                    "source": registry,
+                },
+                {
+                    "id": "ring-id",
+                    "name": "ring",
+                    "version": "0.17.14",
+                    "source": registry,
+                },
+            ],
+            "resolve": {
+                "nodes": [
                     {
                         "id": "rustls-id",
-                        "name": "rustls",
-                        "version": "0.23.43",
-                        "source": None,
-                        "manifest_path": str(rustls_manifest),
-                    },
-                    {
-                        "id": "tokio-rustls-id",
-                        "name": "tokio-rustls",
-                        "version": "0.26.4",
-                        "source": source,
-                    },
-                    {
-                        "id": "ring-id",
-                        "name": "ring",
-                        "version": "0.17.14",
-                        "source": source,
-                    },
-                ],
-                "resolve": {
-                    "nodes": [
-                        {
-                            "id": "rustls-id",
-                            "features": ["reality", "ring", "std", "tls12"],
-                        }
-                    ]
-                },
+                        "features": ["reality", "ring", "std", "tls12"],
+                    }
+                ]
+            },
+        }
+        self.assertEqual(_tls_dependency_errors(metadata), [])
+
+        metadata["packages"].append(
+            {
+                "id": "aws-id",
+                "name": "aws-lc-rs",
+                "version": "1.0.0",
+                "source": registry,
             }
-            self.assertEqual(_tls_dependency_errors(metadata, core), [])
-            metadata["packages"].append(
-                {
-                    "id": "aws-id",
-                    "name": "aws-lc-rs",
-                    "version": "1.0.0",
-                    "source": source,
-                }
+        )
+        self.assertTrue(
+            any(
+                "AWS-LC package is forbidden" in error
+                for error in _tls_dependency_errors(metadata)
             )
-            self.assertTrue(
-                any(
-                    "AWS-LC package is forbidden" in error
-                    for error in _tls_dependency_errors(metadata, core)
-                )
+        )
+
+        metadata["packages"][0]["source"] = None
+        self.assertTrue(
+            any(
+                "vcore/reality-0.23 GitHub branch" in error
+                for error in _tls_dependency_errors(metadata)
             )
+        )
 
     def test_tun2socks_config_moves_direct_sockopt(self):
         source = {

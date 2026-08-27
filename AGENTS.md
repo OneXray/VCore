@@ -15,7 +15,7 @@ Read the relevant document completely before changing that area:
 - AnyTLS: `docs/anytls.md`.
 - TUN traffic metrics: `docs/controller-api.md`.
 - GeoData: `docs/geodata.md`.
-- REALITY or the sibling rustls fork: `docs/reality-wire-protocol.md` and `docs/rustls-reality-release.md`.
+- REALITY or the GitHub rustls fork: `docs/reality-wire-protocol.md` and `docs/rustls-reality-release.md`.
 - Unix TUN fd ownership or packet I/O: `docs/tun-platform.md`.
 - Windows VPN/TUN, outbound binding, AppContainer packet buffers, or package lifecycle: `docs/windows-vpn.md`, `docs/windows-session-runtime.md`, and `docs/tun-platform.md`.
 - Build, validation, or interoperability tooling: `scripts/README.md` and the unified `vcore-scripts` interface.
