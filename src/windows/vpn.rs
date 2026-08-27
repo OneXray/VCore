@@ -56,14 +56,14 @@ use windows::{
 use windows_collections::IVectorView;
 use windows_core::{AgileReference, IUnknownImpl as _};
 
-use crate::{
-    platform::{TunIo, WindowsPacketAdapter, WindowsPacketStats},
-    windows_log,
-    windows_packet_channel::{
+use super::{
+    log,
+    packet_channel::{
         AddressBindingV4, AddressBindingV6, PacketCounters, PhysicalBinding, ProviderPacketSession,
     },
-    windows_profile::{WindowsNetworkSettings, WindowsProfileConfiguration},
+    profile::{WindowsNetworkSettings, WindowsProfileConfiguration},
 };
+use crate::platform::{TunIo, WindowsPacketAdapter, WindowsPacketStats};
 
 const CLASS_NAME: &str = "VCore.VpnBackgroundTask";
 const PACKET_QUEUE_CAPACITY: usize = 256;
@@ -1016,7 +1016,7 @@ fn windows_error(error: impl std::fmt::Display) -> Error {
 
 fn log(message: &str) {
     if let Ok(path) = local_folder() {
-        windows_log::append(&path, "provider", message);
+        log::append(&path, "provider", message);
     }
 }
 
@@ -1076,7 +1076,7 @@ mod tests {
     fn provider_assignments_use_profile_addresses() {
         let _winrt = WinRtGuard::enter();
         let digest = "0123456789abcdef".repeat(4);
-        let profile = crate::windows_profile::WindowsProfileConfiguration::parse(&format!(
+        let profile = WindowsProfileConfiguration::parse(&format!(
             r#"{{"version":2,"snapshotToken":"vcore-session-v2:{digest}","networkSettings":{{"ipv4Address":"192.168.8.1","ipv6Address":"fd00:8::2","dnsIpv4Address":"223.5.5.5","dnsIpv6Address":"2400:3200::1"}}}}"#
         ))
         .unwrap();

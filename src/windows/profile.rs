@@ -6,7 +6,7 @@ use windows::{
     core::{Error, Result},
 };
 
-use crate::windows_snapshot::SessionReference;
+use super::snapshot::SessionReference;
 
 const PROFILE_CONFIGURATION_VERSION: u32 = 2;
 const MAX_PROFILE_CONFIGURATION_BYTES: usize = 1024;

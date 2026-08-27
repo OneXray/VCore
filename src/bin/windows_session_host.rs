@@ -2,8 +2,8 @@
 
 #[cfg(windows)]
 fn main() {
-    if let Err(error) = vcore::windows_session::run() {
-        vcore::windows_session::log_startup_failure(&error);
+    if let Err(error) = vcore::windows::session::run() {
+        vcore::windows::session::log_startup_failure(&error);
     }
 }
 

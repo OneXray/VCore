@@ -13,7 +13,8 @@ use windows::{
     core::{Error, Result},
 };
 
-use crate::{config::MAX_CONFIG_BYTES, windows_managed_processes::SessionBackend};
+use super::managed_processes::SessionBackend;
+use crate::config::MAX_CONFIG_BYTES;
 
 pub(crate) const SESSION_DIRECTORY: &str = "vcore/windows/sessions";
 const SESSION_TOKEN_PREFIX: &str = "vcore-session-v2:";

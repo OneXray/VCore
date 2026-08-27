@@ -31,13 +31,13 @@ use windows::{
     core::{HSTRING, IUnknown, Interface as _},
 };
 
-use crate::{
-    config::Config,
-    windows_managed_processes::SessionBackend,
-    windows_packet_channel::remove_rendezvous,
-    windows_profile::{WindowsNetworkSettings, WindowsProfileConfiguration},
-    windows_snapshot::SessionReference,
+use super::{
+    managed_processes::SessionBackend,
+    packet_channel::remove_rendezvous,
+    profile::{WindowsNetworkSettings, WindowsProfileConfiguration},
+    snapshot::SessionReference,
 };
+use crate::config::Config;
 
 const BRIDGE_VERSION: u32 = 2;
 const MAX_REQUEST_BYTES: usize = 1024 * 1024;

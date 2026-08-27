@@ -22,6 +22,16 @@ use windows::{
     },
 };
 
+use super::{
+    log,
+    managed_processes::ManagedProcessSet,
+    packet_channel::{
+        ControlMessage, DATA_PIPE_READ_BUFFER_BYTES, MAX_PACKET_BATCH_PACKETS, PROTOCOL_VERSION,
+        PhysicalBinding, Rendezvous, read_control_async, read_packet_frame_async, read_rendezvous,
+        write_control_async, write_packet_batch_async,
+    },
+    snapshot::SessionReference,
+};
 use crate::{
     ResourceLimits,
     config::Config,
@@ -29,14 +39,6 @@ use crate::{
     geodata::GeoDataManager,
     platform::TunIo,
     runtime::{PreparedCore, RunningCore},
-    windows_log,
-    windows_managed_processes::ManagedProcessSet,
-    windows_packet_channel::{
-        ControlMessage, DATA_PIPE_READ_BUFFER_BYTES, MAX_PACKET_BATCH_PACKETS, PROTOCOL_VERSION,
-        PhysicalBinding, Rendezvous, read_control_async, read_packet_frame_async, read_rendezvous,
-        write_control_async, write_packet_batch_async,
-    },
-    windows_snapshot::SessionReference,
 };
 
 const PACKET_QUEUE_CAPACITY: usize = 256;
@@ -64,13 +66,13 @@ pub fn run() -> io::Result<()> {
     let _winrt = WinRtGuard::enter()?;
     let token = parse_args(std::env::args().skip(1))?;
     let (local_folder, installed_folder) = package_folders()?;
-    windows_log::append(&local_folder, "session", "Session Host starting");
+    log::append(&local_folder, "session", "Session Host starting");
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_io()
         .enable_time()
         .build()?;
     let result = runtime.block_on(run_async(&local_folder, &installed_folder, &token));
-    windows_log::append(
+    log::append(
         &local_folder,
         "session",
         if result.is_ok() {
@@ -85,7 +87,7 @@ pub fn run() -> io::Result<()> {
 #[doc(hidden)]
 pub fn log_startup_failure(_error: &io::Error) {
     if let Ok((local_folder, _)) = package_folders() {
-        windows_log::append(&local_folder, "session", "Session Host startup failed");
+        log::append(&local_folder, "session", "Session Host startup failed");
     }
 }
 
@@ -423,6 +425,7 @@ fn invalid_data(message: &'static str) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::windows::packet_channel::AddressBindingV4;
 
     const TOKEN: &str =
         "vcore-session-v2:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
@@ -453,7 +456,7 @@ mod tests {
             adapter_id: "adapter".to_owned(),
             profile_name: "Ethernet".to_owned(),
             network_names: vec![],
-            ipv4: Some(crate::windows_packet_channel::AddressBindingV4 {
+            ipv4: Some(AddressBindingV4 {
                 source: "192.0.2.10".parse().unwrap(),
                 interface_index: 10,
             }),

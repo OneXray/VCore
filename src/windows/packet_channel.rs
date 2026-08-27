@@ -30,7 +30,8 @@ use windows::Win32::{
     System::Threading::{GetCurrentProcess, OpenProcessToken},
 };
 
-use crate::{platform::TunIo, windows_snapshot::SessionReference};
+use super::snapshot::SessionReference;
+use crate::platform::TunIo;
 
 pub(crate) const PROTOCOL_VERSION: u32 = 1;
 pub(crate) const CONTROL_LEAF: &str = "VCore.Vpn.Control.v1";

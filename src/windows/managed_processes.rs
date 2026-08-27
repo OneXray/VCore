@@ -509,7 +509,7 @@ mod tests {
             .into_owned();
         let arguments = vec![
             "--exact".to_owned(),
-            "windows_managed_processes::tests::managed_process_fixture_waits".to_owned(),
+            "windows::managed_processes::tests::managed_process_fixture_waits".to_owned(),
             "--ignored".to_owned(),
             "--quiet".to_owned(),
         ];
@@ -544,7 +544,7 @@ mod tests {
                     .into_owned(),
                 arguments: vec![
                     "--exact".to_owned(),
-                    "windows_managed_processes::tests::managed_process_fixture_exits".to_owned(),
+                    "windows::managed_processes::tests::managed_process_fixture_exits".to_owned(),
                     "--ignored".to_owned(),
                     "--quiet".to_owned(),
                 ],
