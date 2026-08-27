@@ -275,13 +275,10 @@ async fn measure_one(
 ) -> Result<u64, InvokeFailure> {
     let config = MeasureConfig::parse_yaml(config_yaml.as_bytes()).map_err(InvokeFailure::from)?;
     drop(config_yaml);
-    let prepared = PreparedMeasurement::prepare_config(
-        config,
-        &SystemResolver,
-        ResourceLimits::for_runtime(false),
-    )
-    .await
-    .map_err(InvokeFailure::from)?;
+    let prepared =
+        PreparedMeasurement::prepare_config(config, &SystemResolver, ResourceLimits::default())
+            .await
+            .map_err(InvokeFailure::from)?;
     let runtime = prepared
         .into_runtime(Dialer::default())
         .map_err(InvokeFailure::from)?;

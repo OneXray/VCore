@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use tokio::time::{Instant, sleep};
 use windows::{
     Win32::{
-        Foundation::{CloseHandle, HANDLE, STILL_ACTIVE},
+        Foundation::{HANDLE, STILL_ACTIVE},
         System::{
             JobObjects::{
                 AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
@@ -26,7 +26,7 @@ use windows::{
             },
         },
     },
-    core::{PCWSTR, PWSTR},
+    core::{Owned, PCWSTR, PWSTR},
 };
 
 const MAX_PROCESSES: usize = 8;
@@ -155,10 +155,10 @@ impl ManagedProcessSet {
     }
 
     pub(crate) async fn terminate_and_wait(&mut self, timeout: Duration) -> io::Result<()> {
-        unsafe { TerminateJobObject(self.job.raw(), 1) }.map_err(io::Error::other)?;
+        unsafe { TerminateJobObject(raw_handle(&self.job), 1) }.map_err(io::Error::other)?;
         let deadline = Instant::now() + timeout;
         loop {
-            if active_processes(self.job.raw())? == 0
+            if active_processes(raw_handle(&self.job))? == 0
                 && self
                     .processes
                     .iter()
@@ -180,44 +180,33 @@ impl ManagedProcessSet {
 impl Drop for ManagedProcessSet {
     fn drop(&mut self) {
         unsafe {
-            _ = TerminateJobObject(self.job.raw(), 1);
+            _ = TerminateJobObject(raw_handle(&self.job), 1);
         }
     }
 }
 
-struct OwnedHandle(HANDLE);
+type OwnedHandle = Owned<HANDLE>;
 
-impl OwnedHandle {
-    fn new(handle: HANDLE) -> io::Result<Self> {
-        if handle.is_invalid() {
-            Err(io::Error::last_os_error())
-        } else {
-            Ok(Self(handle))
-        }
-    }
-
-    const fn raw(&self) -> HANDLE {
-        self.0
+fn owned_handle(handle: HANDLE) -> io::Result<OwnedHandle> {
+    if handle.is_invalid() {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(unsafe { Owned::new(handle) })
     }
 }
 
-impl Drop for OwnedHandle {
-    fn drop(&mut self) {
-        unsafe {
-            _ = CloseHandle(self.0);
-        }
-    }
+fn raw_handle(handle: &OwnedHandle) -> HANDLE {
+    **handle
 }
 
 fn create_kill_on_close_job() -> io::Result<OwnedHandle> {
-    let job = OwnedHandle::new(
-        unsafe { CreateJobObjectW(None, PCWSTR::null()) }.map_err(io::Error::other)?,
-    )?;
+    let job =
+        owned_handle(unsafe { CreateJobObjectW(None, PCWSTR::null()) }.map_err(io::Error::other)?)?;
     let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
     limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
     unsafe {
         SetInformationJobObject(
-            job.raw(),
+            raw_handle(&job),
             JobObjectExtendedLimitInformation,
             (&raw const limits).cast(),
             u32::try_from(size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>())
@@ -258,13 +247,13 @@ fn start_process(
     }
     .map_err(io::Error::other)?;
 
-    let child = OwnedHandle::new(information.hProcess)?;
-    let primary_thread = OwnedHandle::new(information.hThread)?;
-    if let Err(error) = unsafe { AssignProcessToJobObject(job.raw(), child.raw()) } {
+    let child = owned_handle(information.hProcess)?;
+    let primary_thread = owned_handle(information.hThread)?;
+    if let Err(error) = unsafe { AssignProcessToJobObject(raw_handle(job), raw_handle(&child)) } {
         terminate_suspended_process(&child);
         return Err(io::Error::other(error));
     }
-    if unsafe { ResumeThread(primary_thread.raw()) } == u32::MAX {
+    if unsafe { ResumeThread(raw_handle(&primary_thread)) } == u32::MAX {
         let error = io::Error::last_os_error();
         terminate_suspended_process(&child);
         return Err(error);
@@ -274,8 +263,8 @@ fn start_process(
 
 fn terminate_suspended_process(process: &OwnedHandle) {
     unsafe {
-        _ = TerminateProcess(process.raw(), 1);
-        _ = WaitForSingleObject(process.raw(), 5_000);
+        _ = TerminateProcess(raw_handle(process), 1);
+        _ = WaitForSingleObject(raw_handle(process), 5_000);
     }
 }
 
@@ -397,7 +386,7 @@ fn nul_terminated(value: &OsStr) -> io::Result<Vec<u16>> {
 
 fn process_is_running(process: &OwnedHandle) -> bool {
     let mut exit_code = 0u32;
-    unsafe { GetExitCodeProcess(process.raw(), &raw mut exit_code) }.is_ok()
+    unsafe { GetExitCodeProcess(raw_handle(process), &raw mut exit_code) }.is_ok()
         && exit_code == STILL_ACTIVE.0 as u32
 }
 

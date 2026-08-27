@@ -13,9 +13,6 @@ use std::{
     time::Duration,
 };
 
-#[cfg(test)]
-use std::io::Read;
-
 use serde::{Deserialize, Serialize};
 use tokio::{
     io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _, BufReader},
@@ -24,10 +21,13 @@ use tokio::{
     task::JoinSet,
     time::timeout,
 };
-use windows::Win32::{
-    Foundation::{CloseHandle, HANDLE},
-    Security::{Isolation::GetAppContainerNamedObjectPath, TOKEN_QUERY},
-    System::Threading::{GetCurrentProcess, OpenProcessToken},
+use windows::{
+    Win32::{
+        Foundation::HANDLE,
+        Security::{Isolation::GetAppContainerNamedObjectPath, TOKEN_QUERY},
+        System::Threading::{GetCurrentProcess, OpenProcessToken},
+    },
+    core::Owned,
 };
 
 use super::snapshot::SessionReference;
@@ -508,53 +508,20 @@ fn current_appcontainer_object_path() -> io::Result<String> {
     let mut token = HANDLE::default();
     unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) }
         .map_err(io::Error::other)?;
+    let token = unsafe { Owned::new(token) };
     let mut required = 0;
-    _ = unsafe { GetAppContainerNamedObjectPath(Some(token), None, None, &mut required) };
+    _ = unsafe { GetAppContainerNamedObjectPath(Some(*token), None, None, &mut required) };
     if required == 0 {
-        unsafe { _ = CloseHandle(token) };
         return Err(io::Error::other("AppContainer object path length is zero"));
     }
     let mut buffer = vec![0_u16; required as usize];
-    let result = unsafe {
-        GetAppContainerNamedObjectPath(Some(token), None, Some(&mut buffer), &mut required)
-    };
-    unsafe { _ = CloseHandle(token) };
-    result.map_err(io::Error::other)?;
+    unsafe { GetAppContainerNamedObjectPath(Some(*token), None, Some(&mut buffer), &mut required) }
+        .map_err(io::Error::other)?;
     let length = buffer
         .iter()
         .position(|unit| *unit == 0)
         .unwrap_or(buffer.len());
     String::from_utf16(&buffer[..length]).map_err(io::Error::other)
-}
-
-#[cfg(test)]
-pub(crate) fn write_control(writer: &mut impl Write, message: &ControlMessage) -> io::Result<()> {
-    message.validate()?;
-    let bytes = serde_json::to_vec(message).map_err(io::Error::other)?;
-    if bytes.len() > MAX_CONTROL_BYTES {
-        return Err(invalid_data(
-            "Windows control message exceeds its size limit",
-        ));
-    }
-    writer.write_all(&(bytes.len() as u32).to_be_bytes())?;
-    writer.write_all(&bytes)?;
-    writer.flush()
-}
-
-#[cfg(test)]
-pub(crate) fn read_control(reader: &mut impl Read) -> io::Result<ControlMessage> {
-    let mut header = [0; 4];
-    reader.read_exact(&mut header)?;
-    let length = u32::from_be_bytes(header) as usize;
-    if length == 0 || length > MAX_CONTROL_BYTES {
-        return Err(invalid_data("invalid Windows control message size"));
-    }
-    let mut bytes = vec![0; length];
-    reader.read_exact(&mut bytes)?;
-    let message: ControlMessage = serde_json::from_slice(&bytes)
-        .map_err(|_| invalid_data("invalid Windows control message"))?;
-    message.validate()?;
-    Ok(message)
 }
 
 pub(crate) async fn write_control_async(
@@ -588,31 +555,6 @@ pub(crate) async fn read_control_async(
         .map_err(|_| invalid_data("invalid Windows control message"))?;
     message.validate()?;
     Ok(message)
-}
-
-#[cfg(test)]
-pub(crate) fn write_packet_frame(writer: &mut impl Write, packet: &[u8]) -> io::Result<()> {
-    if packet.is_empty() || packet.len() > MAX_PACKET_BYTES {
-        return Err(invalid_data("invalid Windows packet frame size"));
-    }
-    let mut frame = [0_u8; MAX_PACKET_BYTES + 2];
-    frame[..2].copy_from_slice(&(packet.len() as u16).to_be_bytes());
-    frame[2..packet.len() + 2].copy_from_slice(packet);
-    writer.write_all(&frame[..packet.len() + 2])?;
-    writer.flush()
-}
-
-#[cfg(test)]
-pub(crate) fn read_packet_frame(reader: &mut impl Read) -> io::Result<Vec<u8>> {
-    let mut header = [0; 2];
-    reader.read_exact(&mut header)?;
-    let length = u16::from_be_bytes(header) as usize;
-    if !(1..=MAX_PACKET_BYTES).contains(&length) {
-        return Err(invalid_data("invalid Windows packet frame size"));
-    }
-    let mut packet = vec![0; length];
-    reader.read_exact(&mut packet)?;
-    Ok(packet)
 }
 
 pub(crate) async fn write_packet_batch_async(
@@ -688,7 +630,6 @@ fn invalid_data(message: &'static str) -> io::Error {
 #[cfg(test)]
 mod tests {
     use std::{
-        io::Cursor,
         pin::Pin,
         task::{Context, Poll},
     };
@@ -700,24 +641,6 @@ mod tests {
     const TOKEN: &str =
         "vcore-session-v2:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     const OBJECT_PATH: &str = "AppContainerNamedObjects\\S-1-15-2-3625493040-1926059196-1414268811-1331793124-1328616665-2242015017-1330142422";
-
-    #[derive(Default)]
-    struct CountingWriter {
-        bytes: Vec<u8>,
-        writes: usize,
-    }
-
-    impl Write for CountingWriter {
-        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-            self.writes += 1;
-            self.bytes.extend_from_slice(bytes);
-            Ok(bytes.len())
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
 
     #[derive(Default)]
     struct CountingAsyncWriter {
@@ -758,45 +681,34 @@ mod tests {
         }
     }
 
-    #[test]
-    fn control_messages_round_trip_through_the_bounded_wire_format() {
+    #[tokio::test]
+    async fn control_messages_round_trip_through_the_bounded_wire_format() {
         let expected = ControlMessage::ProviderHello {
             version: PROTOCOL_VERSION,
             snapshot_token: TOKEN.to_owned(),
             physical_binding: binding(),
         };
-        let mut wire = Vec::new();
-        write_control(&mut wire, &expected).unwrap();
-        assert_eq!(read_control(&mut Cursor::new(wire)).unwrap(), expected);
+        let mut wire = CountingAsyncWriter::default();
+        write_control_async(&mut wire, &expected).await.unwrap();
+        assert_eq!(
+            read_control_async(&mut wire.bytes.as_slice())
+                .await
+                .unwrap(),
+            expected
+        );
     }
 
-    #[test]
-    fn control_messages_reject_unknown_fields_and_versions() {
+    #[tokio::test]
+    async fn control_messages_reject_unknown_fields_and_versions() {
         for payload in [
             br#"{"type":"runtimeReady","version":1,"extra":true}"#.as_slice(),
             br#"{"type":"runtimeReady","version":2}"#.as_slice(),
         ] {
-            let mut wire = Vec::new();
+            let mut wire = Vec::with_capacity(payload.len() + 4);
             wire.extend_from_slice(&(payload.len() as u32).to_be_bytes());
             wire.extend_from_slice(payload);
-            assert!(read_control(&mut Cursor::new(wire)).is_err());
+            assert!(read_control_async(&mut wire.as_slice()).await.is_err());
         }
-    }
-
-    #[test]
-    fn packet_frames_preserve_boundaries_and_reject_invalid_lengths() {
-        let packet = vec![0x45; MAX_PACKET_BYTES];
-        let mut wire = CountingWriter::default();
-        write_packet_frame(&mut wire, &packet).unwrap();
-        assert_eq!(wire.writes, 1);
-        assert_eq!(
-            read_packet_frame(&mut Cursor::new(wire.bytes)).unwrap(),
-            packet
-        );
-
-        assert!(write_packet_frame(&mut Vec::new(), &[]).is_err());
-        assert!(write_packet_frame(&mut Vec::new(), &[0; MAX_PACKET_BYTES + 1]).is_err());
-        assert!(read_packet_frame(&mut Cursor::new([0, 0])).is_err());
     }
 
     #[tokio::test]
@@ -815,6 +727,11 @@ mod tests {
         for packet in packets {
             assert_eq!(read_packet_frame_async(&mut reader).await.unwrap(), packet);
         }
+        assert!(
+            read_packet_frame_async(&mut [0_u8, 0].as_slice())
+                .await
+                .is_err()
+        );
         assert!(
             write_packet_batch_async(&mut wire, &[], &mut buffer)
                 .await

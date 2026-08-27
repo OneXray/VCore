@@ -874,7 +874,7 @@ impl CoreController {
         }
 
         let prepared = (|| {
-            let limits = ResourceLimits::for_runtime(has_tun);
+            let limits = ResourceLimits::default();
             let geodata_manager = registry().geodata_manager()?;
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_io()

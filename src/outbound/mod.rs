@@ -57,8 +57,8 @@ impl VlessResourceLimits {
 #[cfg(feature = "outbound-anytls")]
 pub use anytls::{AnyTlsLifecycle, AnyTlsOutbound, AnyTlsStream, AnyTlsTlsConnector};
 pub use connector::{
-    ConnectedStream, ConnectorDispatcher, DatagramRequest, DispatcherConnector, EstablishContext,
-    OutboundConnector, UpstreamPath, server_destination,
+    ConnectedStream, ConnectorDispatcher, DatagramRequest, EstablishContext, OutboundConnector,
+    UpstreamPath, server_destination,
 };
 pub(crate) use connector::{
     MAX_OUTBOUND_DIAGNOSTIC_MESSAGE_BYTES, OutboundDiagnostic, capture_outbound_diagnostic,
@@ -480,13 +480,6 @@ impl VlessOutbound {
         })
     }
 
-    /// Overrides the transport mode for focused interoperability tests.
-    #[must_use]
-    pub fn with_xhttp_mode(mut self, config: XHttpConfig) -> Self {
-        self.xhttp = XHttpClient::new(config);
-        self
-    }
-
     async fn connect_transport(
         &self,
         session: StreamSession,
@@ -626,18 +619,6 @@ impl Dispatcher for VlessOutbound {
         )
         .await
     }
-}
-
-#[cfg(feature = "outbound-vless")]
-#[must_use]
-pub fn shared(outbound: VlessOutbound) -> Arc<dyn Dispatcher> {
-    Arc::new(outbound)
-}
-
-#[cfg(feature = "outbound-vless")]
-#[must_use]
-pub fn shared_connector(outbound: VlessOutbound) -> Arc<dyn OutboundConnector> {
-    Arc::new(outbound)
 }
 
 #[cfg(all(test, feature = "outbound-socks5", feature = "outbound-vless"))]

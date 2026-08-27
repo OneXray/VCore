@@ -1577,7 +1577,7 @@ rules:
                 config,
                 geodata_manager,
                 &FixedResolver,
-                ResourceLimits::tun(),
+                ResourceLimits::default(),
             )
             .await
             .unwrap();

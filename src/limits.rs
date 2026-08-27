@@ -64,35 +64,6 @@ impl Default for ResourceLimits {
 }
 
 impl ResourceLimits {
-    /// Workload profile used by every runtime containing a TUN inbound.
-    #[must_use]
-    pub const fn tun() -> Self {
-        Self {
-            packet_queue_capacity: 256,
-            event_queue_capacity: 128,
-            max_datagram_size: 65_535,
-            tun_max_datagram_size: 1_500,
-            tcp_buffer_per_direction: 32 * 1024,
-            dns_address_cache_entries: 256,
-            dns_redir_host_entries: 256,
-            tun_dns_ingress_queue_capacity: 128,
-            tun_dns_response_queue_capacity: 128,
-            tls_buffer_limit: 64 * 1024,
-            xhttp_send_buffer_size: 64 * 1024,
-            xhttp_upload_chunk_size: 64 * 1024,
-        }
-    }
-
-    #[must_use]
-    #[cfg_attr(not(feature = "ffi"), allow(dead_code))]
-    pub(crate) fn for_runtime(has_tun: bool) -> Self {
-        if has_tun {
-            Self::tun()
-        } else {
-            Self::default()
-        }
-    }
-
     pub fn validate(self) -> Result<Self> {
         for (name, value) in [
             ("packet_queue_capacity", self.packet_queue_capacity),
@@ -177,8 +148,8 @@ mod tests {
     }
 
     #[test]
-    fn tun_profile_keeps_only_queue_cache_and_per_object_boundaries() {
-        let limits = ResourceLimits::tun().validate().unwrap();
+    fn default_profile_keeps_queue_cache_and_per_object_boundaries() {
+        let limits = ResourceLimits::default();
         assert_eq!(limits.packet_queue_capacity, 256);
         assert_eq!(limits.event_queue_capacity, 128);
         assert_eq!(limits.max_datagram_size, 65_535);
@@ -191,25 +162,5 @@ mod tests {
         assert_eq!(limits.tls_buffer_limit, 64 * 1024);
         assert_eq!(limits.xhttp_send_buffer_size, 64 * 1024);
         assert_eq!(limits.xhttp_upload_chunk_size, 64 * 1024);
-    }
-
-    #[test]
-    fn generic_profile_keeps_the_existing_buffer_defaults() {
-        let limits = ResourceLimits::default();
-        assert_eq!(limits.max_datagram_size, 65_535);
-        assert_eq!(limits.tun_max_datagram_size, 1_500);
-        assert_eq!(limits.tcp_buffer_per_direction, 32 * 1024);
-        assert_eq!(limits.tls_buffer_limit, 64 * 1024);
-        assert_eq!(limits.xhttp_send_buffer_size, 64 * 1024);
-        assert_eq!(limits.xhttp_upload_chunk_size, 64 * 1024);
-    }
-
-    #[test]
-    fn runtime_selection_depends_only_on_tun_workload() {
-        assert_eq!(ResourceLimits::for_runtime(true), ResourceLimits::tun());
-        assert_eq!(
-            ResourceLimits::for_runtime(false),
-            ResourceLimits::default()
-        );
     }
 }

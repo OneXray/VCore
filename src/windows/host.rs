@@ -17,7 +17,7 @@ use windows::{
     },
     Storage::ApplicationData,
     Win32::{
-        Foundation::{CloseHandle, HANDLE},
+        Foundation::HANDLE,
         System::{
             Com::{CLSCTX_LOCAL_SERVER, CoCreateInstance},
             Threading::{
@@ -28,7 +28,7 @@ use windows::{
         },
         UI::Shell::{AO_NONE, ApplicationActivationManager, IApplicationActivationManager},
     },
-    core::{HSTRING, IUnknown, Interface as _},
+    core::{HSTRING, IUnknown, Interface as _, Owned},
 };
 
 use super::{
@@ -110,7 +110,7 @@ impl Drop for WinRtGuard {
 }
 
 struct SessionHostProcess {
-    handle: HANDLE,
+    handle: Owned<HANDLE>,
     terminate_on_drop: bool,
 }
 
@@ -133,7 +133,7 @@ impl SessionHostProcess {
             unsafe { OpenProcess(PROCESS_TERMINATE | PROCESS_SYNCHRONIZE, false, process_id) }
                 .map_err(display_error)?;
         Ok(Self {
-            handle,
+            handle: unsafe { Owned::new(handle) },
             terminate_on_drop: true,
         })
     }
@@ -147,12 +147,9 @@ impl Drop for SessionHostProcess {
     fn drop(&mut self) {
         if self.terminate_on_drop {
             unsafe {
-                _ = TerminateProcess(self.handle, 1);
-                _ = WaitForSingleObject(self.handle, 5_000);
+                _ = TerminateProcess(*self.handle, 1);
+                _ = WaitForSingleObject(*self.handle, 5_000);
             }
-        }
-        unsafe {
-            _ = CloseHandle(self.handle);
         }
     }
 }

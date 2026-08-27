@@ -351,9 +351,7 @@ def build_windows(architecture: str) -> None:
         "--target",
         target,
     ]
-    _run([*base, "--lib"], env=env)
-    _run([*base, "--bin", "vcore-windows-vpn-host"], env=env)
-    _run([*base, "--bin", "vcore-windows-session-host"], env=env)
+    _run([*base, "--lib", "--bins"], env=env)
 
     release = CORE_DIR / "target" / target / "release"
     output = CORE_DIR / "dist" / "windows" / architecture

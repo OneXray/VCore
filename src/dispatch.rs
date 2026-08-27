@@ -49,18 +49,6 @@ impl DispatchError {
     }
 
     #[must_use]
-    pub const fn socks5_reply(&self) -> u8 {
-        match self {
-            Self::NotAllowed => 0x02,
-            Self::NetworkUnreachable => 0x03,
-            Self::HostUnreachable => 0x04,
-            Self::ConnectionRefused => 0x05,
-            Self::TimedOut => 0x06,
-            Self::Other(_) => 0x01,
-        }
-    }
-
-    #[must_use]
     pub const fn http_status(&self) -> u16 {
         match self {
             Self::TimedOut => 504,
@@ -112,22 +100,13 @@ pub trait Dispatcher: Send + Sync {
 ///
 /// The wrapper never rejects or delays work. A TCP/UDP activity guard begins
 /// after establishment succeeds and remains attached to the returned object.
-pub struct SessionObservedDispatcher {
+struct SessionObservedDispatcher {
     inner: Arc<dyn Dispatcher>,
     resource_stats: RuntimeResourceStats,
 }
 
 impl SessionObservedDispatcher {
-    #[must_use]
-    pub fn new(inner: Arc<dyn Dispatcher>) -> Self {
-        Self::with_stats(inner, RuntimeResourceStats::new("session_observation"))
-    }
-
-    #[must_use]
-    pub(crate) fn with_stats(
-        inner: Arc<dyn Dispatcher>,
-        resource_stats: RuntimeResourceStats,
-    ) -> Self {
+    fn with_stats(inner: Arc<dyn Dispatcher>, resource_stats: RuntimeResourceStats) -> Self {
         Self {
             inner,
             resource_stats,
@@ -161,22 +140,13 @@ impl Dispatcher for SessionObservedDispatcher {
 ///
 /// Its guard exists only while the inner dispatcher is opening the backend.
 /// No semaphore or other admission state is involved.
-pub struct HandshakeObservedDispatcher {
+struct HandshakeObservedDispatcher {
     inner: Arc<dyn Dispatcher>,
     resource_stats: RuntimeResourceStats,
 }
 
 impl HandshakeObservedDispatcher {
-    #[must_use]
-    pub fn new(inner: Arc<dyn Dispatcher>) -> Self {
-        Self::with_stats(inner, RuntimeResourceStats::new("handshake_observation"))
-    }
-
-    #[must_use]
-    pub(crate) fn with_stats(
-        inner: Arc<dyn Dispatcher>,
-        resource_stats: RuntimeResourceStats,
-    ) -> Self {
+    fn with_stats(inner: Arc<dyn Dispatcher>, resource_stats: RuntimeResourceStats) -> Self {
         Self {
             inner,
             resource_stats,
@@ -201,21 +171,11 @@ impl Dispatcher for HandshakeObservedDispatcher {
 }
 
 #[must_use]
-pub fn observe_sessions(inner: Arc<dyn Dispatcher>) -> Arc<dyn Dispatcher> {
-    Arc::new(SessionObservedDispatcher::new(inner))
-}
-
-#[must_use]
 pub(crate) fn observe_sessions_with_stats(
     inner: Arc<dyn Dispatcher>,
     resource_stats: RuntimeResourceStats,
 ) -> Arc<dyn Dispatcher> {
     Arc::new(SessionObservedDispatcher::with_stats(inner, resource_stats))
-}
-
-#[must_use]
-pub fn observe_handshakes(inner: Arc<dyn Dispatcher>) -> Arc<dyn Dispatcher> {
-    Arc::new(HandshakeObservedDispatcher::new(inner))
 }
 
 #[must_use]

@@ -1,3 +1,7 @@
+[workspace]
+members = ["crates/vcore-netstack"]
+resolver = "3"
+
 [package]
 name = "vcore"
 version = "0.1.0"
@@ -48,14 +52,12 @@ arc-swap = "1"
 async-trait = "0.1"
 base64 = "0.22"
 bytes = "1"
-fs2 = "0.4"
 futures-util = "0.3"
 h2 = "0.4"
 http = "1"
 idna = "1.1"
 libc = "0.2"
 md-5 = { version = "0.10", optional = true }
-pin-project-lite = "0.2"
 rand = "0.9"
 regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "dfa-search", "syntax", "unicode"] }
 rustls = { version = "=0.23.43", default-features = false, features = ["ring", "std", "tls12"] }

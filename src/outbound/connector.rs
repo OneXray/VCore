@@ -121,8 +121,6 @@ fn diagnostic_stage(operation: &'static str) -> &'static str {
         "AnyTLS TLS handshake" => "anytls-tls",
         "AnyTLS authentication and session preface" => "anytls-session",
         "AnyTLS session open" => "anytls-stream",
-        "upstream dispatcher connect" => "upstream-connect",
-        "upstream dispatcher datagram setup" => "upstream-datagram",
         _ => "outbound",
     }
 }
@@ -209,11 +207,6 @@ impl EstablishContext {
         Self {
             deadline: Instant::now() + duration,
         }
-    }
-
-    #[must_use]
-    pub const fn with_deadline(deadline: Instant) -> Self {
-        Self { deadline }
     }
 
     #[must_use]
@@ -472,55 +465,6 @@ fn validate_prepared_endpoint(
     Ok(())
 }
 
-/// Adapts an existing dispatcher for use as an upstream connector.
-///
-/// This is primarily useful for tests and incremental runtime migration. A
-/// graph builder should prefer raw connectors so per-hop dispatcher wrappers
-/// do not duplicate session or handshake observations.
-pub struct DispatcherConnector {
-    inner: Arc<dyn Dispatcher>,
-}
-
-impl DispatcherConnector {
-    #[must_use]
-    pub fn new(inner: Arc<dyn Dispatcher>) -> Self {
-        Self { inner }
-    }
-}
-
-#[async_trait]
-impl OutboundConnector for DispatcherConnector {
-    async fn connect_stream(
-        &self,
-        session: StreamSession,
-        context: &EstablishContext,
-    ) -> Result<ConnectedStream, DispatchError> {
-        let effective_peer = session.destination.clone();
-        let io = context
-            .run(
-                "upstream dispatcher connect",
-                self.inner.connect_tcp(session),
-            )
-            .await?;
-        Ok(ConnectedStream { io, effective_peer })
-    }
-
-    async fn open_datagram(
-        &self,
-        request: DatagramRequest,
-        context: &EstablishContext,
-    ) -> Result<Box<dyn DatagramTransport>, DispatchError> {
-        let maximum = request.max_response_payload_size();
-        let session = request.session.with_max_response_payload_size(maximum);
-        context
-            .run(
-                "upstream dispatcher datagram setup",
-                self.inner.open_datagram(session),
-            )
-            .await
-    }
-}
-
 /// Adapts a connector back to the stable inbound/router dispatcher boundary.
 pub struct ConnectorDispatcher {
     inner: Arc<dyn OutboundConnector>,
@@ -571,43 +515,28 @@ impl Dispatcher for ConnectorDispatcher {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        future::pending,
-        sync::atomic::{AtomicU16, Ordering},
-    };
+    use std::future::pending;
 
     use super::*;
 
-    struct CapturingDispatcher {
-        maximum: Arc<AtomicU16>,
-    }
+    struct UnreachableConnector;
 
     #[async_trait]
-    impl Dispatcher for CapturingDispatcher {
-        async fn connect_tcp(&self, _session: StreamSession) -> Result<BoxStream, DispatchError> {
-            unreachable!("the datagram adapter test does not connect TCP")
+    impl OutboundConnector for UnreachableConnector {
+        async fn connect_stream(
+            &self,
+            _session: StreamSession,
+            _context: &EstablishContext,
+        ) -> Result<ConnectedStream, DispatchError> {
+            unreachable!()
         }
 
         async fn open_datagram(
             &self,
-            session: DatagramSession,
+            _request: DatagramRequest,
+            _context: &EstablishContext,
         ) -> Result<Box<dyn DatagramTransport>, DispatchError> {
-            self.maximum
-                .store(session.max_response_payload_size(), Ordering::Relaxed);
-            Ok(Box::new(EmptyDatagramTransport))
-        }
-    }
-
-    struct EmptyDatagramTransport;
-
-    #[async_trait]
-    impl DatagramTransport for EmptyDatagramTransport {
-        async fn send(&mut self, _datagram: crate::session::Datagram) -> Result<(), DispatchError> {
-            Ok(())
-        }
-
-        async fn receive(&mut self) -> Result<crate::session::Datagram, DispatchError> {
-            pending().await
+            unreachable!()
         }
     }
 
@@ -650,12 +579,8 @@ mod tests {
 
     #[tokio::test]
     async fn routed_udp_capability_does_not_open_the_raw_connector() {
-        let maximum = Arc::new(AtomicU16::new(0));
-        let connector: Arc<dyn OutboundConnector> =
-            Arc::new(DispatcherConnector::new(Arc::new(CapturingDispatcher {
-                maximum: maximum.clone(),
-            })));
-        let dispatcher = ConnectorDispatcher::with_udp_capability(connector, false);
+        let dispatcher =
+            ConnectorDispatcher::with_udp_capability(Arc::new(UnreachableConnector), false);
         let session = DatagramSession::new(
             crate::session::InboundKind::Tun,
             "127.0.0.1:10000".parse().unwrap(),
@@ -665,7 +590,6 @@ mod tests {
             dispatcher.open_datagram(session).await,
             Err(DispatchError::NotAllowed)
         ));
-        assert_eq!(maximum.load(Ordering::Relaxed), 0);
     }
 
     #[tokio::test]
@@ -673,7 +597,7 @@ mod tests {
         let context = EstablishContext::default();
         let raw = format!("握手失败\r\nInjected: yes {}", "界".repeat(100));
         let (result, diagnostic) = capture_outbound_diagnostic(context.run(
-            "upstream dispatcher connect",
+            "physical proxy-server connect",
             context.run_io("VLESS TLS/REALITY handshake", async move {
                 Err::<(), _>(io::Error::new(io::ErrorKind::InvalidData, raw))
             }),
@@ -708,25 +632,5 @@ mod tests {
         assert_eq!(diagnostic.stage(), "physical-connect");
         assert_eq!(diagnostic.kind(), "timed_out");
         assert_eq!(diagnostic.message(), "outbound setup deadline expired");
-    }
-
-    #[tokio::test]
-    async fn dispatcher_adapter_preserves_nested_datagram_budget() {
-        let maximum = Arc::new(AtomicU16::new(0));
-        let connector = DispatcherConnector::new(Arc::new(CapturingDispatcher {
-            maximum: maximum.clone(),
-        }));
-        let session = DatagramSession::new(
-            crate::session::InboundKind::Tun,
-            "127.0.0.1:10000".parse().unwrap(),
-        );
-        let request = DatagramRequest::new(session).with_max_response_payload_size(1_714);
-
-        let _transport =
-            OutboundConnector::open_datagram(&connector, request, &EstablishContext::default())
-                .await
-                .unwrap();
-
-        assert_eq!(maximum.load(Ordering::Relaxed), 1_714);
     }
 }

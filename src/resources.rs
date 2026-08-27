@@ -130,13 +130,6 @@ impl RuntimeResourceStats {
         }
     }
 
-    /// TUN spelling retained for call-site clarity. It has no admission or
-    /// high-water behavior beyond the same current/peak observation.
-    #[must_use]
-    pub(crate) fn begin_tun(&self, activity: ResourceActivity) -> ResourceActivityGuard {
-        self.begin(activity)
-    }
-
     pub(crate) fn singleflight_join(&self) {
         let joins = self
             .inner
@@ -336,7 +329,7 @@ mod tests {
         let stats = RuntimeResourceStats::new("test_runtime");
         let dns = stats.begin(ResourceActivity::DnsRequest);
         let tcp = stats.begin(ResourceActivity::TcpSession);
-        let udp = stats.begin_tun(ResourceActivity::UdpAssociation);
+        let udp = stats.begin(ResourceActivity::UdpAssociation);
         let handshake = stats.begin(ResourceActivity::Handshake);
         let singleflight = stats.begin(ResourceActivity::Singleflight);
         stats.singleflight_join();

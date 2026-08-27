@@ -424,7 +424,7 @@ async fn tcp_loop(
                     destination_port = destination.port(),
                     "TUN TCP session accepted"
                 );
-                let activity = resource_stats.begin_tun(ResourceActivity::TcpSession);
+                let activity = resource_stats.begin(ResourceActivity::TcpSession);
                 sessions.spawn(relay_tcp(
                     session_id,
                     stream,
@@ -848,7 +848,7 @@ async fn udp_loop(
                         last_activity: last_activity.clone(),
                     });
                     let activity =
-                        resource_stats.begin_tun(ResourceActivity::UdpAssociation);
+                        resource_stats.begin(ResourceActivity::UdpAssociation);
                     tasks.spawn(run_udp_association(
                         receiver,
                         activity,
@@ -2860,7 +2860,7 @@ mod tests {
 
     #[test]
     fn tun_dns_ingress_capacity_is_an_independent_queue_boundary() {
-        let tun = ResourceLimits::tun();
+        let tun = ResourceLimits::default();
         assert_eq!(tun_udp_ingress_queue_capacity(tun, false), 128);
         assert_eq!(tun_udp_ingress_queue_capacity(tun, true), 128);
         let altered = ResourceLimits {
@@ -2876,7 +2876,7 @@ mod tests {
 
     #[test]
     fn tun_netstack_keeps_queue_and_per_flow_bounds_without_a_flow_count_ceiling() {
-        let limits = ResourceLimits::tun();
+        let limits = ResourceLimits::default();
         let config = tun_netstack_config(limits, true, false);
 
         assert_eq!(config.tcp_accept_queue, limits.event_queue_capacity);

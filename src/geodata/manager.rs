@@ -1,5 +1,5 @@
 use std::{
-    fs::{self, File, OpenOptions},
+    fs::{self, File, OpenOptions, TryLockError},
     io::{self, Read, Write},
     net::IpAddr,
     path::{Path, PathBuf},
@@ -11,7 +11,6 @@ use std::{
 };
 
 use arc_swap::ArcSwap;
-use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -535,10 +534,10 @@ impl GeoDataManager {
     fn acquire_update_lock(&self) -> Result<File, GeoDataManagerError> {
         let lock_path = self.store_dir.join(UPDATE_LOCK_FILE);
         let lock_file = open_lock_file(&lock_path)?;
-        match lock_file.try_lock_exclusive() {
+        match lock_file.try_lock() {
             Ok(()) => Ok(lock_file),
-            Err(error) if lock_is_contended(&error) => Err(GeoDataManagerError::UpdateBusy),
-            Err(source) => Err(io_at(&lock_path, source)),
+            Err(TryLockError::WouldBlock) => Err(GeoDataManagerError::UpdateBusy),
+            Err(TryLockError::Error(source)) => Err(io_at(&lock_path, source)),
         }
     }
 
@@ -585,7 +584,7 @@ impl GeoDataManager {
             .truncate(false)
             .open(&lock_path)
             .map_err(|source| io_at(&lock_path, source))?;
-        if lock_file.try_lock_exclusive().is_err() {
+        if lock_file.try_lock().is_err() {
             return Ok(());
         }
         let mut state = read_state(&self.store_dir)?;
@@ -602,7 +601,7 @@ impl GeoDataManager {
             persist_state(&self.store_dir, &state)?;
             *lock(&self.state) = state;
         }
-        let _ = FileExt::unlock(&lock_file);
+        let _ = lock_file.unlock();
         Ok(())
     }
 
@@ -833,7 +832,7 @@ impl GeoUpdateSession {
             Ok(report) => {
                 self.completed = true;
                 let _ = fs::remove_dir_all(&self.staging_dir);
-                let _ = FileExt::unlock(&self.lock_file);
+                let _ = self.lock_file.unlock();
                 Ok(report)
             }
             Err(error) => self.finish_error(error),
@@ -852,7 +851,7 @@ impl GeoUpdateSession {
             .finish_not_modified(self.kind, self.source_url.clone(), etag)?;
         self.completed = true;
         let _ = fs::remove_dir_all(&self.staging_dir);
-        let _ = FileExt::unlock(&self.lock_file);
+        let _ = self.lock_file.unlock();
         Ok(())
     }
 
@@ -861,7 +860,7 @@ impl GeoUpdateSession {
         self.manager.finish_failure(self.kind, &message);
         self.completed = true;
         let cleanup = fs::remove_dir_all(&self.staging_dir);
-        let _ = FileExt::unlock(&self.lock_file);
+        let _ = self.lock_file.unlock();
         cleanup.map_err(|source| io_at(&self.staging_dir, source))
     }
 
@@ -916,7 +915,7 @@ impl GeoUpdateSession {
         self.manager.finish_failure(self.kind, &error.to_string());
         self.completed = true;
         let _ = fs::remove_dir_all(&self.staging_dir);
-        let _ = FileExt::unlock(&self.lock_file);
+        let _ = self.lock_file.unlock();
         Err(error)
     }
 }
@@ -939,7 +938,7 @@ impl Drop for GeoUpdateSession {
         self.manager
             .finish_failure(self.kind, "GeoData update was cancelled");
         let _ = fs::remove_dir_all(&self.staging_dir);
-        let _ = FileExt::unlock(&self.lock_file);
+        let _ = self.lock_file.unlock();
     }
 }
 
@@ -1113,14 +1112,6 @@ fn asset_matches_hash(path: &Path, expected: &str) -> bool {
     hex_digest(&digest.finalize().into()) == expected
 }
 
-fn lock_is_contended(error: &io::Error) -> bool {
-    let expected = fs2::lock_contended_error();
-    match (error.raw_os_error(), expected.raw_os_error()) {
-        (Some(actual), Some(expected)) => actual == expected,
-        _ => error.kind() == expected.kind(),
-    }
-}
-
 fn open_lock_file(path: &Path) -> Result<File, GeoDataManagerError> {
     OpenOptions::new()
         .read(true)
@@ -1191,9 +1182,9 @@ fn read_initial_state(store_dir: &Path) -> Result<PersistentState, GeoDataManage
                 .truncate(false)
                 .open(&lock_path)
                 .map_err(|source| io_at(&lock_path, source))?;
-            match lock_file.try_lock_exclusive() {
+            match lock_file.try_lock() {
                 Ok(()) => {}
-                Err(source) if lock_is_contended(&source) => {
+                Err(TryLockError::WouldBlock) => {
                     tracing::warn!(
                         error = %error,
                         "ignoring invalid GeoData state while another process owns the update lock"
@@ -1203,7 +1194,7 @@ fn read_initial_state(store_dir: &Path) -> Result<PersistentState, GeoDataManage
                         ..PersistentState::default()
                     });
                 }
-                Err(source) => return Err(io_at(&lock_path, source)),
+                Err(TryLockError::Error(source)) => return Err(io_at(&lock_path, source)),
             }
 
             // Re-read under the lock in case another process repaired the
@@ -1224,7 +1215,7 @@ fn read_initial_state(store_dir: &Path) -> Result<PersistentState, GeoDataManage
                 }
                 Err(other) => Err(other),
             };
-            let _ = FileExt::unlock(&lock_file);
+            let _ = lock_file.unlock();
             recovered
         }
         Err(error) => Err(error),

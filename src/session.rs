@@ -154,12 +154,6 @@ impl DatagramSession {
     pub(crate) const fn max_response_payload_size(&self) -> u16 {
         self.max_response_payload_size
     }
-
-    #[must_use]
-    pub(crate) const fn with_max_response_payload_size(mut self, maximum: u16) -> Self {
-        self.max_response_payload_size = maximum;
-        self
-    }
 }
 
 /// One datagram crossing the dispatcher boundary.

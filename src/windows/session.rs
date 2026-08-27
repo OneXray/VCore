@@ -282,13 +282,9 @@ async fn start_vcore(
         Duration::from_secs(24 * 60 * 60),
     )
     .map_err(io::Error::other)?;
-    let prepared = PreparedCore::prepare_config(
-        config,
-        geodata,
-        &SystemResolver,
-        ResourceLimits::for_runtime(true),
-    )
-    .await?;
+    let prepared =
+        PreparedCore::prepare_config(config, geodata, &SystemResolver, ResourceLimits::default())
+            .await?;
 
     let wake = Arc::new(Notify::new());
     let observed = Arc::clone(&wake);

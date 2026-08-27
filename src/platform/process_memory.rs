@@ -93,8 +93,8 @@ impl MemoryTelemetryPolicy {
         }
     }
 
-    fn sample(&self, provider: &impl SnapshotProvider) -> TelemetryObservation {
-        match provider.snapshot() {
+    fn sample(&self, snapshot: io::Result<ProcessMemorySnapshot>) -> TelemetryObservation {
+        match snapshot {
             Ok(snapshot) => {
                 let crossed = THRESHOLDS
                     .iter()
@@ -116,18 +116,6 @@ impl MemoryTelemetryPolicy {
     }
 }
 
-trait SnapshotProvider {
-    fn snapshot(&self) -> io::Result<ProcessMemorySnapshot>;
-}
-
-struct MachSnapshotProvider;
-
-impl SnapshotProvider for MachSnapshotProvider {
-    fn snapshot(&self) -> io::Result<ProcessMemorySnapshot> {
-        snapshot()
-    }
-}
-
 enum TelemetryObservation {
     Snapshot {
         snapshot: ProcessMemorySnapshot,
@@ -142,7 +130,7 @@ enum TelemetryObservation {
 /// Samples process memory for diagnostics only. Neither measurement failure nor
 /// any observed footprint can affect the caller's lifecycle result.
 pub(crate) fn observe(stage: &'static str) {
-    match TELEMETRY_POLICY.sample(&MachSnapshotProvider) {
+    match TELEMETRY_POLICY.sample(snapshot()) {
         TelemetryObservation::Snapshot {
             snapshot,
             newly_crossed,
@@ -237,35 +225,9 @@ pub(crate) fn relieve_allocator_pressure() {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::VecDeque,
-        sync::{Arc, Mutex},
-        thread,
-    };
+    use std::{sync::Arc, thread};
 
     use super::*;
-
-    struct SequenceProvider {
-        results: Mutex<VecDeque<io::Result<ProcessMemorySnapshot>>>,
-    }
-
-    impl SequenceProvider {
-        fn new(results: impl IntoIterator<Item = io::Result<ProcessMemorySnapshot>>) -> Self {
-            Self {
-                results: Mutex::new(results.into_iter().collect()),
-            }
-        }
-    }
-
-    impl SnapshotProvider for SequenceProvider {
-        fn snapshot(&self) -> io::Result<ProcessMemorySnapshot> {
-            self.results
-                .lock()
-                .unwrap()
-                .pop_front()
-                .expect("test provider has another result")
-        }
-    }
 
     fn snapshot_at(current: u64, lifetime_peak: u64) -> io::Result<ProcessMemorySnapshot> {
         Ok(ProcessMemorySnapshot {
@@ -274,92 +236,65 @@ mod tests {
         })
     }
 
-    #[test]
-    fn thresholds_use_current_and_are_reported_only_once() {
-        let policy = MemoryTelemetryPolicy::new();
-        let provider = SequenceProvider::new([
-            snapshot_at(35 * 1024 * 1024 - 1, 100 * 1024 * 1024),
-            snapshot_at(35 * 1024 * 1024, 100 * 1024 * 1024),
-            snapshot_at(46 * 1024 * 1024, 100 * 1024 * 1024),
-            snapshot_at(46 * 1024 * 1024, 101 * 1024 * 1024),
-        ]);
-
-        match policy.sample(&provider) {
+    fn sampled(
+        policy: &MemoryTelemetryPolicy,
+        current: u64,
+        lifetime_peak: u64,
+    ) -> (ProcessMemorySnapshot, u8) {
+        match policy.sample(snapshot_at(current, lifetime_peak)) {
             TelemetryObservation::Snapshot {
                 snapshot,
                 newly_crossed,
-            } => {
-                assert_eq!(snapshot.lifetime_peak_phys_footprint, 100 * 1024 * 1024);
-                assert_eq!(newly_crossed, 0);
-            }
-            TelemetryObservation::MeasurementFailed { .. } => panic!("unexpected failure"),
-        }
-        match policy.sample(&provider) {
-            TelemetryObservation::Snapshot { newly_crossed, .. } => {
-                assert_eq!(newly_crossed, 1 << 0);
-            }
-            TelemetryObservation::MeasurementFailed { .. } => panic!("unexpected failure"),
-        }
-        match policy.sample(&provider) {
-            TelemetryObservation::Snapshot { newly_crossed, .. } => {
-                assert_eq!(newly_crossed, (1 << 1) | (1 << 2));
-            }
-            TelemetryObservation::MeasurementFailed { .. } => panic!("unexpected failure"),
-        }
-        match policy.sample(&provider) {
-            TelemetryObservation::Snapshot { newly_crossed, .. } => {
-                assert_eq!(newly_crossed, 0);
-            }
+            } => (snapshot, newly_crossed),
             TelemetryObservation::MeasurementFailed { .. } => panic!("unexpected failure"),
         }
     }
 
     #[test]
+    fn thresholds_use_current_and_are_reported_only_once() {
+        let policy = MemoryTelemetryPolicy::new();
+        let (snapshot, crossed) = sampled(&policy, 35 * 1024 * 1024 - 1, 100 * 1024 * 1024);
+        assert_eq!(snapshot.lifetime_peak_phys_footprint, 100 * 1024 * 1024);
+        assert_eq!(crossed, 0);
+        assert_eq!(
+            sampled(&policy, 35 * 1024 * 1024, 100 * 1024 * 1024).1,
+            1 << 0
+        );
+        assert_eq!(
+            sampled(&policy, 46 * 1024 * 1024, 100 * 1024 * 1024).1,
+            (1 << 1) | (1 << 2)
+        );
+        assert_eq!(sampled(&policy, 46 * 1024 * 1024, 101 * 1024 * 1024).1, 0);
+    }
+
+    #[test]
     fn measurement_failure_is_non_fatal_and_warns_only_once() {
         let policy = MemoryTelemetryPolicy::new();
-        let provider = SequenceProvider::new([
-            Err(io::Error::other("injected failure one")),
-            Err(io::Error::other("injected failure two")),
-            snapshot_at(1, 2),
-        ]);
-
-        match policy.sample(&provider) {
-            TelemetryObservation::MeasurementFailed { error, first } => {
-                assert!(first);
-                assert_eq!(error.to_string(), "injected failure one");
+        for (index, message) in ["injected failure one", "injected failure two"]
+            .into_iter()
+            .enumerate()
+        {
+            match policy.sample(Err(io::Error::other(message))) {
+                TelemetryObservation::MeasurementFailed { error, first } => {
+                    assert_eq!(first, index == 0);
+                    assert_eq!(error.to_string(), message);
+                }
+                TelemetryObservation::Snapshot { .. } => panic!("unexpected snapshot"),
             }
-            TelemetryObservation::Snapshot { .. } => panic!("unexpected snapshot"),
-        }
-        match policy.sample(&provider) {
-            TelemetryObservation::MeasurementFailed { error, first } => {
-                assert!(!first);
-                assert_eq!(error.to_string(), "injected failure two");
-            }
-            TelemetryObservation::Snapshot { .. } => panic!("unexpected snapshot"),
         }
         assert!(matches!(
-            policy.sample(&provider),
+            policy.sample(snapshot_at(1, 2)),
             TelemetryObservation::Snapshot { .. }
         ));
     }
 
     #[test]
     fn concurrent_samples_claim_each_threshold_once() {
-        struct FixedProvider;
-        impl SnapshotProvider for FixedProvider {
-            fn snapshot(&self) -> io::Result<ProcessMemorySnapshot> {
-                snapshot_at(46 * 1024 * 1024, 50 * 1024 * 1024)
-            }
-        }
-
         let policy = Arc::new(MemoryTelemetryPolicy::new());
         let newly_crossed: u8 = (0..8)
             .map(|_| {
                 let policy = policy.clone();
-                thread::spawn(move || match policy.sample(&FixedProvider) {
-                    TelemetryObservation::Snapshot { newly_crossed, .. } => newly_crossed,
-                    TelemetryObservation::MeasurementFailed { .. } => 0,
-                })
+                thread::spawn(move || sampled(&policy, 46 * 1024 * 1024, 50 * 1024 * 1024).1)
             })
             .map(|thread| thread.join().unwrap())
             .fold(0, |mask, crossed| {
