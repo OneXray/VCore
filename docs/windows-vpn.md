@@ -9,7 +9,7 @@ Windows 数据面只使用官方 `Windows.Networking.Vpn` 和 `windows-rs`，不
 - 分发形式：具有 package identity 的 MSIX。
 - 前台：调用 Windows 桥接接口的完全信任宿主。
 - Provider：同 package family 的 AppContainer 应用。
-- Session Host：同 package 中隐藏的完全信任应用，每个 VPN 会话一个进程。
+- Session Host：同 package 中隐藏的完全信任应用，每个 VPN 会话一个进程，可选拥有同包 session backend。
 - Windows 依赖：`windows = 0.62.2`。
 - Manifest：包含 `networkingVpnProvider` 和 `runFullTrust`，不配置产品级 loopback exemption。
 
@@ -88,7 +88,7 @@ IPv6: ::/1, 8000::/1
 
 不能把 IPv4 两条 `/1` 合并为 `/0`。Windows 包环境中的验证表明，VPN `/0` 会使按产品要求绑定物理源地址和接口索引的外层 socket 返回 `WSAENETUNREACH`，而两条 `/1` 可以保持物理出口。
 
-前台宿主在 `startVpn` payload 中提供当前会话的 TUN IPv4/IPv6 和 DNS IPv4/IPv6。桥接验证后把地址与快照令牌写入 profile custom configuration，Provider 再传给 `StartWithMainTransport`。这些字段不写入用户 RAW YAML。
+前台宿主在 `startVpn` payload 中提供当前会话的 TUN IPv4/IPv6 和 DNS IPv4/IPv6。桥接验证后把地址与 Session token 写入 profile custom configuration，Provider 再传给 `StartWithMainTransport`。这些字段不写入用户 RAW YAML。
 
 Provider 为后缀 `.` 安装外部 DNS 地址：
 
@@ -130,7 +130,15 @@ Provider 是物理网络状态的唯一权威，并订阅 `NetworkStatusChanged`
 - Session Host 使用当前 Windows session ID 构造限定路径并连接；
 - 前台宿主退出不停止 Provider 或 Session Host，重新启动后从系统 profile 恢复状态。
 
-会合记录只包含协议版本、快照令牌、相对对象路径和固定管道名称，不包含 YAML、secret、PID、物理绑定或任意文件路径。Provider 是唯一发布者和清理者。
+会合记录只包含协议版本、Session token、相对对象路径和固定管道名称，不包含 YAML、backend 描述、参数、secret、PID、物理绑定或任意文件路径。Provider 是唯一发布者和清理者。
+
+## 可选 session backend
+
+`startVpn` 可以携带一个只描述进程的 `sessionBackend`。它包含 `1..=8` 个有序项目，每项只有 package-relative `.exe` 路径和 argv 数组。Bridge 把该描述与 VCore YAML 一同发布为 `vcore-session-v2:` Session Snapshot；路径或参数变化会改变 token，活动会话不能热换。
+
+Session Host 为全部进程创建一个设置了 kill-on-close 的 Job Object，使用 suspended create 在进程执行前完成 Job assignment。任一进程退出都会停止 VCore、清理同 Job 进程树并让 Provider 失败关闭；显式 Stop 在 `Stopped` 前完成同样清理。前台宿主退出不影响它们。
+
+第一版只监督进程存活，不包含 port、UDP、协议 readiness、heartbeat、restart、environment 或 working directory。进程仍存活时，本地 SOCKS 或其他业务流失败只影响当前流。
 
 ## 安装包与 profile
 
@@ -147,8 +155,9 @@ vcore-windows-session-host.exe
 - Session Host 不显示在应用列表，也不注册 StartupTask 或 URI；
 - Provider activation class 来自 `vcore.dll`；
 - 同一 package 只维护一个 `VCore` VPN profile；
-- custom configuration 是最大 1 KiB 的严格 JSON，只含修订版 1、快照令牌和四个网络地址；
-- 活动快照或网络地址不同时必须先显式 Stop，不能热切换；
+- custom configuration 是最大 1 KiB 的严格 JSON，只含修订版 2、Session token 和四个网络地址；
+- Session Snapshot 是 `LocalState/vcore/windows/sessions/<sha256>.json`，覆盖 YAML、可选进程顺序、路径和参数；
+- 活动 Session token 或网络地址不同时必须先显式 Stop，不能热切换；
 - 安装包更新只能在 VPN 已断开时进行，并要求版本递增。
 
 ## 失败关闭
@@ -157,10 +166,11 @@ vcore-windows-session-host.exe
 | --- | --- |
 | 前台宿主退出 | VPN 和 Session Host 继续运行 |
 | Provider 退出 | Windows 清理 VPN，Session Host 因 EOF 退出 |
-| Session Host 退出 | Provider 触发 channel Stop |
+| Session Host 退出 | Job 清理受管进程，Provider 触发 channel Stop |
 | 控制或数据管道非法/EOF | 停止当前会话 |
 | 物理网络变化 | 消抖后停止当前会话 |
-| 外部回环 SOCKS 流失败 | 只失败当前流 |
+| 受管进程退出 | 清理同 Job 进程并停止当前 VPN |
+| 本地 SOCKS 流失败且服务进程仍存活 | 只失败当前流 |
 | 显式 Stop | 有界确认后清理路由、记录、Controller 和会话进程 |
 | 启动失败 | 终止本次精确 Session Host 进程并收敛为 Disconnected |
 

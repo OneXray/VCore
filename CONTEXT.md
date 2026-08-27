@@ -13,8 +13,16 @@ The VCore runtime serving one active Windows tunnel session inside the Windows s
 _Avoid_: Foreground runtime, provider runtime, external core
 
 **Windows session host**:
-The hidden packaged full-trust Application that owns the Windows session runtime independently of the foreground host.
+The hidden packaged full-trust Application that owns one Windows session runtime and its optional Windows session backend independently of the foreground host.
 _Avoid_: Foreground process, provider host, external-core host
+
+**Windows session backend**:
+The optional ordered set of package-local processes whose lifetime is owned by one Windows session host. VCore supervises process liveness but does not interpret their arguments, files, ports, or protocols.
+_Avoid_: External core, process service, plugin
+
+**Windows managed session process**:
+One ordinary-user child in a Windows session backend. Every managed process is critical to its VPN session and runs inside the Session Host-owned Job Object.
+_Avoid_: Daemon, Windows service, helper PID
 
 **Windows provider host**:
 The minimal AppContainer executable that supplies a process for Windows to activate the Windows VPN provider.
@@ -41,5 +49,5 @@ The current rate and session totals for raw-IP bytes crossing a VCore TUN bounda
 _Avoid_: Proxy traffic, transport traffic, per-node traffic
 
 **Local SOCKS5 outbound**:
-A normal VCore SOCKS5 outbound whose loopback server is owned and managed outside VCore. A `socks5://` URI describes the endpoint but is not a second configuration format.
+A normal VCore SOCKS5 outbound to a loopback server. The server may be managed outside VCore or happen to run in a Windows session backend; SOCKS5 readiness and protocol health remain outside the backend contract.
 _Avoid_: Managed core, child core, URI configuration

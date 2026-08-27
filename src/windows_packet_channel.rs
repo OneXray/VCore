@@ -30,7 +30,7 @@ use windows::Win32::{
     System::Threading::{GetCurrentProcess, OpenProcessToken},
 };
 
-use crate::{platform::TunIo, windows_snapshot::SnapshotReference};
+use crate::{platform::TunIo, windows_snapshot::SessionReference};
 
 pub(crate) const PROTOCOL_VERSION: u32 = 1;
 pub(crate) const CONTROL_LEAF: &str = "VCore.Vpn.Control.v1";
@@ -147,7 +147,7 @@ impl ControlMessage {
         match self {
             Self::SessionHello { snapshot_token, .. }
             | Self::ProviderHello { snapshot_token, .. } => {
-                SnapshotReference::parse(snapshot_token).map_err(io::Error::other)?;
+                SessionReference::parse(snapshot_token).map_err(io::Error::other)?;
             }
             _ => {}
         }
@@ -234,7 +234,7 @@ impl Rendezvous {
         {
             return Err(invalid_data("invalid Windows rendezvous"));
         }
-        SnapshotReference::parse(&self.snapshot_token).map_err(io::Error::other)?;
+        SessionReference::parse(&self.snapshot_token).map_err(io::Error::other)?;
         Ok(())
     }
 }
@@ -696,7 +696,8 @@ mod tests {
 
     use super::*;
 
-    const TOKEN: &str = "vcore-v1:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    const TOKEN: &str =
+        "vcore-session-v2:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     const OBJECT_PATH: &str = "AppContainerNamedObjects\\S-1-15-2-3625493040-1926059196-1414268811-1331793124-1328616665-2242015017-1330142422";
 
     #[derive(Default)]

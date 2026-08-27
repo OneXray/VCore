@@ -14,6 +14,7 @@ use tokio::{
     time::{Instant, sleep},
 };
 use windows::{
+    ApplicationModel::Package,
     Storage::ApplicationData,
     Win32::System::{
         RemoteDesktop::ProcessIdToSessionId,
@@ -29,16 +30,18 @@ use crate::{
     platform::TunIo,
     runtime::{PreparedCore, RunningCore},
     windows_log,
+    windows_managed_processes::ManagedProcessSet,
     windows_packet_channel::{
         ControlMessage, DATA_PIPE_READ_BUFFER_BYTES, MAX_PACKET_BATCH_PACKETS, PROTOCOL_VERSION,
         PhysicalBinding, Rendezvous, read_control_async, read_packet_frame_async, read_rendezvous,
         write_control_async, write_packet_batch_async,
     },
-    windows_snapshot::SnapshotReference,
+    windows_snapshot::SessionReference,
 };
 
 const PACKET_QUEUE_CAPACITY: usize = 256;
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(15);
+const PROCESS_STOP_TIMEOUT: Duration = Duration::from_secs(2);
 
 struct WinRtGuard;
 
@@ -60,13 +63,13 @@ impl Drop for WinRtGuard {
 pub fn run() -> io::Result<()> {
     let _winrt = WinRtGuard::enter()?;
     let token = parse_args(std::env::args().skip(1))?;
-    let local_folder = local_folder()?;
+    let (local_folder, installed_folder) = package_folders()?;
     windows_log::append(&local_folder, "session", "Session Host starting");
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_io()
         .enable_time()
         .build()?;
-    let result = runtime.block_on(run_async(&local_folder, &token));
+    let result = runtime.block_on(run_async(&local_folder, &installed_folder, &token));
     windows_log::append(
         &local_folder,
         "session",
@@ -81,7 +84,7 @@ pub fn run() -> io::Result<()> {
 
 #[doc(hidden)]
 pub fn log_startup_failure(_error: &io::Error) {
-    if let Ok(local_folder) = local_folder() {
+    if let Ok((local_folder, _)) = package_folders() {
         windows_log::append(&local_folder, "session", "Session Host startup failed");
     }
 }
@@ -94,17 +97,17 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> io::Result<String> {
             "invalid Session Host arguments",
         ));
     };
-    if flag != "--snapshot-token" {
+    if flag != "--session-token" {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "invalid Session Host arguments",
         ));
     }
-    SnapshotReference::parse(token).map_err(io::Error::other)?;
+    SessionReference::parse(token).map_err(io::Error::other)?;
     Ok(token.clone())
 }
 
-async fn run_async(local_folder: &Path, token: &str) -> io::Result<()> {
+async fn run_async(local_folder: &Path, installed_folder: &Path, token: &str) -> io::Result<()> {
     let rendezvous = wait_for_rendezvous(local_folder, token).await?;
     let session_id = current_session_id()?;
     let (control_name, data_name) = rendezvous.qualified_names(session_id)?;
@@ -130,8 +133,8 @@ async fn run_async(local_folder: &Path, token: &str) -> io::Result<()> {
         _ => return Err(invalid_data("invalid Provider handshake")),
     };
 
-    let started = start_vcore(local_folder, token, binding, data).await;
-    let (running, mut data_tasks) = match started {
+    let started = start_session(local_folder, installed_folder, token, binding, data).await;
+    let (running, mut data_tasks, mut managed_processes) = match started {
         Ok(started) => started,
         Err(error) => {
             _ = write_control_async(
@@ -172,12 +175,27 @@ async fn run_async(local_folder: &Path, token: &str) -> io::Result<()> {
                     Some(Ok(Err(error))) => Err(error),
                     Some(Err(error)) => Err(io::Error::other(error)),
                     None => Err(io::Error::new(io::ErrorKind::UnexpectedEof, "packet tasks exited")),
+                },
+                process = wait_for_managed_process_exit(managed_processes.as_ref()) => {
+                    process.and_then(|()| Err(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "managed Windows session process exited",
+                    )))
                 }
             }
         })
         .await;
     data_tasks.abort_all();
     while data_tasks.join_next().await.is_some() {}
+    let process_stop = match managed_processes.as_mut() {
+        Some(processes) => processes.terminate_and_wait(PROCESS_STOP_TIMEOUT).await,
+        None => Ok(()),
+    };
+    let result = match (result, process_stop) {
+        (Err(error), _) => Err(error),
+        (Ok(()), Err(error)) => Err(error),
+        (Ok(()), Ok(())) => Ok(()),
+    };
 
     match (result, stopped_counters) {
         (Ok(()), Some(packet_counters)) => {
@@ -206,17 +224,56 @@ async fn run_async(local_folder: &Path, token: &str) -> io::Result<()> {
     }
 }
 
-async fn start_vcore(
+async fn start_session(
     local_folder: &Path,
+    installed_folder: &Path,
     token: &str,
     binding: PhysicalBinding,
     data: NamedPipeClient,
-) -> io::Result<(RunningCore, JoinSet<io::Result<()>>)> {
-    let config_yaml = SnapshotReference::parse(token)
+) -> io::Result<(
+    RunningCore,
+    JoinSet<io::Result<()>>,
+    Option<ManagedProcessSet>,
+)> {
+    let snapshot = SessionReference::parse(token)
         .map_err(io::Error::other)?
-        .read_yaml(local_folder)
+        .read(local_folder, installed_folder)
         .map_err(io::Error::other)?;
-    let config = Config::parse_yaml(&config_yaml)
+    let mut managed_processes = snapshot
+        .session_backend()
+        .map(|backend| ManagedProcessSet::start(installed_folder, backend))
+        .transpose()?;
+    let started = start_vcore(local_folder, snapshot.config_yaml(), binding, data).await;
+    let (running, mut data_tasks) = match started {
+        Ok(started) => started,
+        Err(error) => {
+            if let Some(processes) = managed_processes.as_mut() {
+                _ = processes.terminate_and_wait(PROCESS_STOP_TIMEOUT).await;
+            }
+            return Err(error);
+        }
+    };
+    if let Some(processes) = managed_processes.as_ref()
+        && let Err(error) = processes.ensure_running()
+    {
+        _ = running.stop().await;
+        data_tasks.abort_all();
+        while data_tasks.join_next().await.is_some() {}
+        if let Some(processes) = managed_processes.as_mut() {
+            _ = processes.terminate_and_wait(PROCESS_STOP_TIMEOUT).await;
+        }
+        return Err(error);
+    }
+    Ok((running, data_tasks, managed_processes))
+}
+
+async fn start_vcore(
+    local_folder: &Path,
+    config_yaml: &str,
+    binding: PhysicalBinding,
+    data: NamedPipeClient,
+) -> io::Result<(RunningCore, JoinSet<io::Result<()>>)> {
+    let config = Config::parse_yaml(config_yaml.as_bytes())
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
     let geodata = GeoDataManager::open(
         local_folder.join("vcore/geodata"),
@@ -330,12 +387,26 @@ fn current_session_id() -> io::Result<u32> {
     Ok(session_id)
 }
 
-fn local_folder() -> io::Result<PathBuf> {
-    let path = ApplicationData::Current()
+fn package_folders() -> io::Result<(PathBuf, PathBuf)> {
+    let local = ApplicationData::Current()
         .and_then(|data| data.LocalFolder())
         .and_then(|folder| folder.Path())
         .map_err(io::Error::other)?;
-    Ok(PathBuf::from(path.to_string()))
+    let installed = Package::Current()
+        .and_then(|package| package.InstalledLocation())
+        .and_then(|folder| folder.Path())
+        .map_err(io::Error::other)?;
+    Ok((
+        PathBuf::from(local.to_string()),
+        PathBuf::from(installed.to_string()),
+    ))
+}
+
+async fn wait_for_managed_process_exit(processes: Option<&ManagedProcessSet>) -> io::Result<()> {
+    match processes {
+        Some(processes) => processes.wait_for_any_exit().await,
+        None => std::future::pending().await,
+    }
 }
 
 fn is_pipe_closed(error: &io::Error) -> bool {
@@ -353,12 +424,13 @@ fn invalid_data(message: &'static str) -> io::Error {
 mod tests {
     use super::*;
 
-    const TOKEN: &str = "vcore-v1:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    const TOKEN: &str =
+        "vcore-session-v2:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
     #[test]
     fn session_host_accepts_only_one_canonical_snapshot_argument() {
         assert_eq!(
-            parse_args(["--snapshot-token".to_owned(), TOKEN.to_owned()]).unwrap(),
+            parse_args(["--session-token".to_owned(), TOKEN.to_owned()]).unwrap(),
             TOKEN
         );
         for args in [
@@ -366,7 +438,7 @@ mod tests {
             vec![TOKEN.to_owned()],
             vec!["--config".to_owned(), TOKEN.to_owned()],
             vec![
-                "--snapshot-token".to_owned(),
+                "--session-token".to_owned(),
                 TOKEN.to_owned(),
                 "extra".to_owned(),
             ],

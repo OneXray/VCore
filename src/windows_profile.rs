@@ -6,9 +6,9 @@ use windows::{
     core::{Error, Result},
 };
 
-use crate::windows_snapshot::SnapshotReference;
+use crate::windows_snapshot::SessionReference;
 
-const PROFILE_CONFIGURATION_VERSION: u32 = 1;
+const PROFILE_CONFIGURATION_VERSION: u32 = 2;
 const MAX_PROFILE_CONFIGURATION_BYTES: usize = 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -87,7 +87,7 @@ pub(crate) struct WindowsProfileConfiguration {
 
 impl WindowsProfileConfiguration {
     pub(crate) fn new(
-        snapshot: &SnapshotReference,
+        snapshot: &SessionReference,
         network_settings: WindowsNetworkSettings,
     ) -> Self {
         Self {
@@ -104,7 +104,7 @@ impl WindowsProfileConfiguration {
         let configuration: Self =
             serde_json::from_str(value).map_err(|_| invalid_profile_configuration())?;
         if configuration.version != PROFILE_CONFIGURATION_VERSION
-            || SnapshotReference::parse(&configuration.snapshot_token).is_err()
+            || SessionReference::parse(&configuration.snapshot_token).is_err()
         {
             return Err(invalid_profile_configuration());
         }
@@ -119,8 +119,8 @@ impl WindowsProfileConfiguration {
         &self.snapshot_token
     }
 
-    pub(crate) fn snapshot_reference(&self) -> Result<SnapshotReference> {
-        SnapshotReference::parse(&self.snapshot_token)
+    pub(crate) fn session_reference(&self) -> Result<SessionReference> {
+        SessionReference::parse(&self.snapshot_token)
     }
 
     pub(crate) fn network_settings(&self) -> &WindowsNetworkSettings {
@@ -154,7 +154,7 @@ mod tests {
     fn valid_json() -> String {
         let digest = "0123456789abcdef".repeat(4);
         format!(
-            r#"{{"version":1,"snapshotToken":"vcore-v1:{digest}","networkSettings":{{"ipv4Address":"192.168.8.1","ipv6Address":"fd00:8::2","dnsIpv4Address":"223.5.5.5","dnsIpv6Address":"2400:3200::1"}}}}"#
+            r#"{{"version":2,"snapshotToken":"vcore-session-v2:{digest}","networkSettings":{{"ipv4Address":"192.168.8.1","ipv6Address":"fd00:8::2","dnsIpv4Address":"223.5.5.5","dnsIpv6Address":"2400:3200::1"}}}}"#
         )
     }
 
@@ -165,7 +165,7 @@ mod tests {
 
         assert_eq!(
             configuration.snapshot_token(),
-            format!("vcore-v1:{}", "0123456789abcdef".repeat(4))
+            format!("vcore-session-v2:{}", "0123456789abcdef".repeat(4))
         );
         assert_eq!(
             configuration.network_settings().ipv4_address().to_string(),
@@ -199,7 +199,7 @@ mod tests {
     fn profile_configuration_rejects_unknown_or_unsafe_network_settings() {
         let valid = valid_json();
         for invalid in [
-            valid.replace(r#""version":1"#, r#""version":2"#),
+            valid.replace(r#""version":2"#, r#""version":1"#),
             valid.replace(r#""snapshotToken""#, r#""unknown":true,"snapshotToken""#),
             valid.replace(
                 r#""ipv4Address":"192.168.8.1""#,

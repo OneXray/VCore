@@ -89,7 +89,7 @@ def invoke_bridge(
     command = temp / "bridge.cmd"
     request.write_text(
         json.dumps(
-            {"bridgeVersion": 1, "method": method, "payload": payload},
+            {"bridgeVersion": 2, "method": method, "payload": payload},
             separators=(",", ":"),
         ),
         encoding="utf-8",

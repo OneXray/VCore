@@ -26,7 +26,7 @@ vcore-windows-vpn-host.exe + vcore.dll（AppContainer Provider）
 
 | 文件 | 用途 |
 | --- | --- |
-| `demo.cpp` | 最小完全信任宿主；读取 YAML，调用 revision-1 Windows bridge |
+| `demo.cpp` | 最小完全信任宿主；读取 YAML，调用 revision-2 Windows bridge |
 | `demo.yaml` | 无真实凭据的生命周期示例；把流量交给 `127.0.0.1:1080` SOCKS5 |
 | `AppxManifest.xml.in` | 完整最小 MSIX manifest，包括 Provider、Session Host 和受限能力 |
 | `build.ps1` | 构建三项 VCore 产物、编译 demo、打包、签名并可选安装 |
@@ -127,7 +127,7 @@ if (response != nullptr) {
 约束：
 
 - 请求是 NUL 结尾 UTF-8 JSON，最大 1 MiB；
-- revision 固定为 `bridgeVersion: 1`；
+- revision 固定为 `bridgeVersion: 2`；
 - DTO 严格拒绝未知字段；
 - 返回内存必须由同一份 `vcore.dll` 的 `VCoreFree` 释放；
 - 桥接命令不能重叠；真实前台应在单进程内串行调用，本命令行 demo 额外用 session-local named mutex 串行化多个 alias 进程；
@@ -140,7 +140,7 @@ if (response != nullptr) {
 | --- | --- | --- |
 | `getEnvironment` | `{}` | 验证 package identity，返回 PFN 和 LocalState 路径 |
 | `getVpnStatus` | `{}` | 查询同包唯一 profile |
-| `startVpn` | `configYaml` + `networkSettings` | 发布快照并连接 |
+| `startVpn` | `configYaml` + `networkSettings` + 可选 `sessionBackend` | 发布 Session Snapshot 并连接 |
 | `stopVpn` | `{}` | 断开当前 profile |
 
 桥接还提供 `getStartupTaskStatus` 和 `setStartupTaskEnabled`。本 demo 故意不声明 StartupTask，避免登录时启动一个无 UI 的命令行工具；产品需要该能力时，再声明 `xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"`、把 `desktop` 加入 `IgnorableNamespaces`，并在前台 `<Application>` 下增加：
@@ -161,7 +161,7 @@ if (response != nullptr) {
 
 ```json
 {
-  "bridgeVersion": 1,
+  "bridgeVersion": 2,
   "method": "startVpn",
   "payload": {
     "configYaml": "tun:\n  enable: true\n...",
@@ -183,7 +183,9 @@ if (response != nullptr) {
 - 配置内容或任一地址变化时，活动会话不会 hot-swap，必须先 `stopVpn`；
 - 完全相同的配置和地址重复 `startVpn` 是幂等查询，不创建第二个 Session Host。
 
-VCore 会校验 YAML、发布内容寻址快照，并只把快照令牌和四个地址写入最大 1 KiB 的 profile custom configuration。调用方不要自行创建另一个 `VpnPlugInProfile` 或维护第二份快照。
+VCore 会校验 YAML、发布 `vcore-session-v2:` 内容寻址 Session Snapshot，并只把 token 和四个地址写入最大 1 KiB 的 profile custom configuration。调用方不要自行创建另一个 `VpnPlugInProfile` 或维护第二份 Snapshot。
+
+需要让 Session Host 同会话监督 package-local 进程时，可以额外提交 `sessionBackend.processes`；每项只有 `executableRelativePath` 和 `arguments`。第一版不管理端口、UDP、readiness 或进程业务配置，完整契约见 [Windows 会话运行时](../../docs/windows-session-runtime.md)。本 demo 不携带 backend。
 
 ## Manifest 契约
 

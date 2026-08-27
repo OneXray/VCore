@@ -34,7 +34,7 @@ char *VCoreInvoke(const char *request_json);
 void VCoreFree(char *response);
 ```
 
-Windows 安装包另提供 revision-1 host bridge：
+Windows 安装包另提供 revision-2 host bridge，负责 profile、Session Snapshot 和可选 session backend：
 
 ```c
 char *VCoreWindowsVpnInvoke(const char *request_json);

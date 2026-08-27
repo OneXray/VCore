@@ -6,7 +6,7 @@ use std::{
     sync::{Mutex, TryLockError},
 };
 
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
 use windows::{
     ApplicationModel::{Package, StartupTask, StartupTaskState},
@@ -33,12 +33,13 @@ use windows::{
 
 use crate::{
     config::Config,
+    windows_managed_processes::SessionBackend,
     windows_packet_channel::remove_rendezvous,
     windows_profile::{WindowsNetworkSettings, WindowsProfileConfiguration},
-    windows_snapshot::SnapshotReference,
+    windows_snapshot::SessionReference,
 };
 
-const BRIDGE_VERSION: u32 = 1;
+const BRIDGE_VERSION: u32 = 2;
 const MAX_REQUEST_BYTES: usize = 1024 * 1024;
 const MAX_ERROR_BYTES: usize = 4096;
 const PROFILE_NAME: &str = "VCore";
@@ -62,6 +63,17 @@ struct EmptyPayload {}
 struct StartPayload {
     config_yaml: String,
     network_settings: WindowsNetworkSettings,
+    #[serde(default, deserialize_with = "deserialize_session_backend")]
+    session_backend: Option<SessionBackend>,
+}
+
+fn deserialize_session_backend<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<SessionBackend>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    SessionBackend::deserialize(deserializer).map(Some)
 }
 
 #[derive(Deserialize)]
@@ -73,6 +85,7 @@ struct SetStartupTaskPayload {
 struct PackageEnvironment {
     family_name: String,
     local_folder: PathBuf,
+    installed_folder: PathBuf,
 }
 
 struct ProfileMatch {
@@ -102,7 +115,7 @@ struct SessionHostProcess {
 }
 
 impl SessionHostProcess {
-    fn launch(family_name: &str, snapshot_token: &str) -> Result<Self, String> {
+    fn launch(family_name: &str, session_token: &str) -> Result<Self, String> {
         let manager: IApplicationActivationManager = unsafe {
             CoCreateInstance(
                 &ApplicationActivationManager,
@@ -112,7 +125,7 @@ impl SessionHostProcess {
         }
         .map_err(display_error)?;
         let app_user_model_id: HSTRING = format!("{family_name}!SessionHost").into();
-        let arguments: HSTRING = format!("--snapshot-token {snapshot_token}").into();
+        let arguments: HSTRING = format!("--session-token {session_token}").into();
         let process_id =
             unsafe { manager.ActivateApplication(&app_user_model_id, &arguments, AO_NONE) }
                 .map_err(display_error)?;
@@ -217,18 +230,26 @@ fn get_vpn_status() -> Result<Value, String> {
 }
 
 fn start_vpn(payload: StartPayload) -> Result<Value, String> {
-    let config = Config::parse_yaml(payload.config_yaml.as_bytes())
+    let StartPayload {
+        config_yaml,
+        network_settings,
+        session_backend,
+    } = payload;
+    let config = Config::parse_yaml(config_yaml.as_bytes())
         .map_err(|_| "invalid VCore configuration".to_owned())?;
     if !config.tun.enable {
         return Err("Windows VPN configuration must enable TUN".to_owned());
     }
 
     let environment = package_environment()?;
-    let snapshot =
-        SnapshotReference::publish(&environment.local_folder, payload.config_yaml.as_bytes())
-            .map_err(display_error)?;
-    let profile_configuration =
-        WindowsProfileConfiguration::new(&snapshot, payload.network_settings);
+    let snapshot = SessionReference::publish(
+        &environment.local_folder,
+        &environment.installed_folder,
+        config_yaml,
+        session_backend,
+    )
+    .map_err(display_error)?;
+    let profile_configuration = WindowsProfileConfiguration::new(&snapshot, network_settings);
     let profile_configuration_json = profile_configuration.to_json().map_err(display_error)?;
     let token = snapshot.token();
     let agent = VpnManagementAgent::new().map_err(display_error)?;
@@ -260,7 +281,7 @@ fn start_vpn(payload: StartPayload) -> Result<Value, String> {
         .as_ref()
         .and_then(|existing| existing.profile.CustomConfiguration().ok())
         .and_then(|value| WindowsProfileConfiguration::parse(&value.to_string()).ok())
-        .and_then(|configuration| configuration.snapshot_reference().ok());
+        .and_then(|configuration| configuration.session_reference().ok());
     let profile = existing
         .as_ref()
         .map_or_else(VpnPlugInProfile::new, |existing| {
@@ -371,6 +392,10 @@ fn set_startup_task_enabled(payload: SetStartupTaskPayload) -> Result<Value, Str
 fn package_environment() -> Result<PackageEnvironment, String> {
     let package =
         Package::Current().map_err(|_| "Windows package identity is required".to_owned())?;
+    let installed_folder = package
+        .InstalledLocation()
+        .and_then(|folder| folder.Path())
+        .map_err(display_error)?;
     let family_name = package
         .Id()
         .and_then(|id| id.FamilyName())
@@ -383,6 +408,7 @@ fn package_environment() -> Result<PackageEnvironment, String> {
     Ok(PackageEnvironment {
         family_name,
         local_folder: PathBuf::from(local_folder.to_string()),
+        installed_folder: PathBuf::from(installed_folder.to_string()),
     })
 }
 
@@ -537,7 +563,7 @@ mod tests {
     #[test]
     fn rejects_unknown_bridge_versions_before_touching_winrt() {
         assert_eq!(
-            invoke(r#"{"bridgeVersion":2,"method":"getEnvironment","payload":{}}"#),
+            invoke(r#"{"bridgeVersion":3,"method":"getEnvironment","payload":{}}"#),
             json!({
                 "success": false,
                 "data": null,
@@ -588,9 +614,57 @@ mod tests {
     }
 
     #[test]
+    fn start_payload_accepts_only_process_fields_in_session_backend() {
+        let network_settings = json!({
+            "ipv4Address": "192.168.8.1",
+            "ipv6Address": "fd00:8::2",
+            "dnsIpv4Address": "223.5.5.5",
+            "dnsIpv6Address": "2400:3200::1"
+        });
+        let payload: StartPayload = decode_payload(json!({
+            "configYaml": "tun:\n  enable: true\n",
+            "networkSettings": network_settings.clone(),
+            "sessionBackend": {
+                "processes": [{
+                    "executableRelativePath": "bin\\proxy.exe",
+                    "arguments": ["run", "--mode", "vpn"]
+                }]
+            }
+        }))
+        .unwrap();
+        assert!(payload.session_backend.is_some());
+        assert!(
+            decode_payload::<StartPayload>(json!({
+                "configYaml": "tun:\n  enable: true\n",
+                "networkSettings": network_settings.clone(),
+                "sessionBackend": null
+            }))
+            .is_err()
+        );
+
+        for field in ["port", "udp", "readiness", "restart"] {
+            assert!(
+                decode_payload::<StartPayload>(json!({
+                    "configYaml": "tun:\n  enable: true\n",
+                    "networkSettings": network_settings.clone(),
+                    "sessionBackend": {
+                        "processes": [{
+                            "executableRelativePath": "bin\\proxy.exe",
+                            "arguments": []
+                        }],
+                        (field): true
+                    }
+                }))
+                .is_err(),
+                "accepted {field}"
+            );
+        }
+    }
+
+    #[test]
     fn rejects_unknown_methods_without_exposing_profile_crud() {
         assert_eq!(
-            invoke(r#"{"bridgeVersion":1,"method":"deleteProfile","payload":{}}"#),
+            invoke(r#"{"bridgeVersion":2,"method":"deleteProfile","payload":{}}"#),
             json!({
                 "success": false,
                 "data": null,

@@ -50,6 +50,8 @@ mod windows_host;
 #[cfg(all(windows, feature = "ffi"))]
 mod windows_log;
 #[cfg(all(windows, feature = "ffi"))]
+mod windows_managed_processes;
+#[cfg(all(windows, feature = "ffi"))]
 mod windows_packet_channel;
 #[cfg(all(windows, feature = "ffi"))]
 mod windows_profile;

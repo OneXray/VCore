@@ -313,10 +313,10 @@ ProtectFd(fd) -> bool
 
 ## Windows 安装包桥接
 
-`VCoreWindowsVpnInvoke` 使用独立的桥接修订版 1：
+`VCoreWindowsVpnInvoke` 使用独立的桥接修订版 2：
 
 ```json
-{"bridgeVersion":1,"method":"getVpnStatus","payload":{}}
+{"bridgeVersion":2,"method":"getVpnStatus","payload":{}}
 ```
 
 只接受六个方法：
@@ -338,11 +338,23 @@ ProtectFd(fd) -> bool
     "ipv6Address": "fd00::2",
     "dnsIpv4Address": "8.8.8.8",
     "dnsIpv6Address": "2001:4860:4860::8888"
+  },
+  "sessionBackend": {
+    "processes": [
+      {
+        "executableRelativePath": "bin\\proxy-core.exe",
+        "arguments": ["run", "--mode", "vpn"]
+      }
+    ]
   }
 }
 ```
 
-桥接请求最大 1 MiB。它负责安装包身份、单一 VPN profile、不可变快照、Session Host 激活和系统 VPN 状态；不公开 profile CRUD、内部文件路径、PID、管道名称或快照维护。数据包、Controller 查询和业务生命周期不经过该 JSON 桥接。
+`sessionBackend` 可以省略。存在时包含 `1..=8` 个有序关键进程；每项只有 package installed location 内的规范 `.exe` 相对路径和有界 argv 数组。同一可执行文件可出现多次。第一版不接受 port、UDP、readiness、restart、environment、working directory 或 raw command line；任一进程退出都会使当前 VPN 会话失败关闭。
+
+桥接把 YAML、进程顺序、路径和参数发布为 `vcore-session-v2:<sha256>` Session Snapshot。参数引用的文件由调用方保持存在且不可变，VCore 不读取或摘要其内容。`getVpnStatus.data.snapshotToken` 返回该完整 Session token。
+
+桥接请求最大 1 MiB。它负责安装包身份、单一 VPN profile、不可变 Session Snapshot、Session Host 激活和系统 VPN 状态；不公开 profile CRUD、内部文件路径、backend 描述、参数、PID、管道名称或 Snapshot 维护。数据包、Controller 查询和业务生命周期不经过该 JSON 桥接。
 
 ## 编码与安全边界
 

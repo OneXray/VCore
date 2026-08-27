@@ -24,7 +24,7 @@
 - 规则、GeoData、HTTP/TLS/QUIC 嗅探；
 - ICMPv4/ICMPv6 Echo、校验和、分片、MTU 和队列满；
 - Apple/Android TUN 帧格式、文件描述符副本和关闭所有权；
-- Windows 控制/数据协议、快照、会合记录、包队列、批量写入和物理网络绑定；
+- Windows 控制/数据协议、Session Snapshot v2、会合记录、包队列、批量写入、物理网络绑定和 Job Object 多进程监督；
 - Controller 鉴权、速率和累计流量语义。
 
 常用命令：
@@ -95,6 +95,8 @@ bash tests/run_anytls_interop.sh
 - 非回环 socket 的物理源地址与接口索引绑定；
 - Controller、外部回环 SOCKS5 和前台宿主退出后的会话延续；
 - Provider/Session Host 退出、管道错误和网络变化时的失败关闭；
+- `sessionBackend` 同时启动两个 package-local 进程并传递不同 argv；调用桥接的完全信任进程退出后会话继续，外部探针通过两个独立回环监听器确认参数生效；
+- 任一受管进程退出和 Session Host 强制退出都会清理完整 backend 并断开 VPN，显式 Stop 在 Session Host 和 backend 退出后清理路由；
 - 快速重连、持续压力、零队列丢弃和显式 Stop 清理；
 - 断开状态下的安装包原位升级和签名校验。
 
@@ -109,7 +111,8 @@ Windows 路由必须保留两条 `/1`。在安装包环境中，单条 VPN `/0` 
 - WACK；
 - Partner Center identity、publisher 和受限能力审批；
 - ARM64/x64 Store bundle 与提交；
-- 多用户和远程会话矩阵。
+- 多用户和远程会话矩阵；
+- native x64 和正式宿主 UI 路径下的 `sessionBackend` 回归。
 
 ## rustls REALITY 发布
 

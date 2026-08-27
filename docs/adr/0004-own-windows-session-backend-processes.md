@@ -1,0 +1,3 @@
+# Let the Windows Session Host own optional session backend processes
+
+A foreground host may need package-local processes to remain alive for the same lifetime as a Windows VPN session, while the foreground itself may exit. The per-session full-trust Session Host therefore owns an optional ordered process set in one kill-on-close Job Object; every process is critical, and any exit fails the VPN session closed. VCore accepts only package-relative executables and bounded argv arrays, while process files, ports, protocol readiness, restart policy, and business configuration remain the caller's responsibility so the bridge does not become a general process orchestrator.

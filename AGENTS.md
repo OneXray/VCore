@@ -29,7 +29,7 @@ Read the relevant document completely before changing that area:
 - `src/platform/` contains platform adapters. Keep Windows callback semantics here instead of simulating a Unix fd.
 - `src/dialer.rs` is the shared physical TCP/UDP socket seam. Fix socket protection or Windows `(source IP, interface index)` binding once here rather than in each outbound.
 - `crates/vcore-netstack` is platform-independent raw-IP state and must not depend on WinRT, JNI, Swift, or host UI frameworks.
-- Core runtime lifecycle does not infer App, extension, service, or daemon roles and does not implement cross-process state or IPC. The Windows-only host Invoke is the explicit package integration seam for foreground profile/status/snapshot/StartupTask operations; provider runtime state remains process-local.
+- Core runtime lifecycle does not infer App, extension, service, or daemon roles and does not implement cross-process state or IPC. The Windows-only host Invoke is the explicit package integration seam for profile/status/Session Snapshot/StartupTask operations and an optional bounded `sessionBackend`; its Session Host owns backend process liveness without interpreting arguments, files, ports, or protocols. Provider runtime state remains process-local.
 
 # Development Rules
 
