@@ -1,9 +1,6 @@
 #![cfg_attr(not(feature = "ffi"), allow(dead_code))]
 
-use std::{future::Future, io, sync::Arc, time::Duration};
-
-#[cfg(feature = "inbound-http")]
-use std::net::SocketAddr;
+use std::{future::Future, io, net::SocketAddr, sync::Arc, time::Duration};
 
 use futures_util::future::{join_all, select_all};
 use tokio::task::JoinHandle;
@@ -184,7 +181,7 @@ impl PreparedCore {
             .validate()
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
         let (rules, geodata_registration) = prepare_routing(&mut config, &geodata_manager)?;
-        let endpoints = prepare_proxy_endpoints(&config.proxies, resolver).await?;
+        let endpoints = prepare_proxy_endpoints(&config.proxies, resolver, config.ipv6).await?;
         let traffic_stats = config
             .tun
             .enable
@@ -259,6 +256,7 @@ impl PreparedCore {
     }
 
     fn build_dispatcher(&self, dialer: Dialer) -> io::Result<BuiltRuntimeParts> {
+        let dialer = dialer.with_ipv6(self.config.ipv6);
         let handshake_stats = RuntimeResourceStats::new("runtime_handshake_observation");
         let proxy_graph = self.build_proxy_graph(dialer.clone())?;
         let geodata_proxy = proxy_graph
@@ -289,10 +287,11 @@ impl PreparedCore {
                 redir_host_entries,
             ))
         });
-        let router: Arc<dyn Dispatcher> = Arc::new(RoutingDispatcher::new(
+        let router: Arc<dyn Dispatcher> = Arc::new(RoutingDispatcher::new_with_ipv6(
             proxies,
             direct,
             dns.clone(),
+            self.config.ipv6,
             rules,
             geo_matcher,
         ));
@@ -398,6 +397,7 @@ impl PreparedCore {
             self.limits,
             dispatcher.clone(),
             dns,
+            self.config.ipv6,
             true,
             sniffer,
             traffic_stats.clone(),
@@ -426,7 +426,7 @@ impl PreparedMeasurement {
         limits
             .validate()
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
-        let endpoints = prepare_proxy_endpoints(&config.proxies, resolver).await?;
+        let endpoints = prepare_proxy_endpoints(&config.proxies, resolver, true).await?;
         Ok(Self {
             config,
             endpoints,
@@ -663,6 +663,7 @@ fn build_proxy_graph(
 async fn prepare_proxy_endpoints(
     proxies: &[ProxyConfig],
     resolver: &dyn Resolver,
+    ipv6: bool,
 ) -> io::Result<Vec<PreparedProxyEndpoints>> {
     let lookups = proxies
         .iter()
@@ -692,6 +693,10 @@ async fn prepare_proxy_endpoints(
                 }
                 None => (resolver.resolve(upload_address, upload_port).await?, None),
             };
+            let upload = restrict_endpoint_addresses(upload, ipv6)?;
+            let download = download
+                .map(|endpoint| restrict_endpoint_addresses(endpoint, ipv6))
+                .transpose()?;
             Ok::<_, io::Error>((
                 index,
                 PreparedProxyEndpoints {
@@ -709,6 +714,23 @@ async fn prepare_proxy_endpoints(
         endpoints[index] = endpoint;
     }
     Ok(endpoints)
+}
+
+fn restrict_endpoint_addresses(
+    mut endpoint: ResolvedEndpoint,
+    ipv6: bool,
+) -> io::Result<ResolvedEndpoint> {
+    if ipv6 {
+        return Ok(endpoint);
+    }
+    endpoint.addresses.retain(SocketAddr::is_ipv4);
+    if endpoint.addresses.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "proxy server did not resolve to a permitted address",
+        ));
+    }
+    Ok(endpoint)
 }
 
 #[cfg(any(feature = "outbound-anytls", feature = "outbound-vless"))]
@@ -1057,6 +1079,32 @@ proxies:
 rules:
   - MATCH,proxy
 "#;
+
+    #[test]
+    fn disabled_ipv6_filters_proxy_bootstrap_addresses() {
+        let endpoint = ResolvedEndpoint {
+            logical_host: "proxy.example".to_owned(),
+            port: 443,
+            addresses: vec![
+                "[2001:db8::1]:443".parse().unwrap(),
+                "192.0.2.1:443".parse().unwrap(),
+            ],
+        };
+        let filtered = restrict_endpoint_addresses(endpoint, false).unwrap();
+        assert_eq!(filtered.addresses, vec!["192.0.2.1:443".parse().unwrap()]);
+
+        let ipv6_only = ResolvedEndpoint {
+            logical_host: "proxy.example".to_owned(),
+            port: 443,
+            addresses: vec!["[2001:db8::1]:443".parse().unwrap()],
+        };
+        assert_eq!(
+            restrict_endpoint_addresses(ipv6_only, false)
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::NotFound
+        );
+    }
 
     fn config_with_rules(rules: &str) -> String {
         CONFIG.replacen("rules:\n  - MATCH,proxy\n", rules, 1)

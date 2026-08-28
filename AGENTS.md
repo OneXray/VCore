@@ -1,6 +1,6 @@
 # Project Overview
 
-VCore is a standalone Rust proxy core. The current public contract is Invoke API v5 with internal schema revision 11. Runtime configuration uses the strict schema documented in `docs/config.yaml` and is passed inline as `configYaml` / `configYamls`; YAML contains neither `configVersion` nor `default-proxy`. Public lifecycle state is runtime-local and single-instance.
+VCore is a standalone Rust proxy core. The current public contract is Invoke API v5 with internal schema revision 12. Runtime configuration uses the strict schema documented in `docs/config.yaml` and is passed inline as `configYaml` / `configYamls`; YAML contains neither `configVersion` nor `default-proxy`. Public lifecycle state is runtime-local and single-instance.
 
 Apple and Android use host-owned TUN fds through the Unix `rust-tun` adapter. Windows uses `windows-rs` / `Windows.Networking.Vpn`; the packaged ARM64 foreground, AppContainer provider, per-session full-trust runtime, lifecycle, pressure, and packet-channel gates pass on Windows 11. Windows 10, native x64, physical IPv6, WACK, and Store publishing remain release gates. Linux remains unsupported.
 

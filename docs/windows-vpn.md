@@ -88,9 +88,11 @@ IPv4: 0.0.0.0/1, 128.0.0.0/1
 IPv6: ::/1, 8000::/1
 ```
 
+顶层 `ipv6` 默认为 `true`。设为 `false` 时，Provider 只安装 IPv4 `/1` 路由，只分配 IPv4 TUN 地址，并且只向 Windows 注册 IPv4 DNS；不会安装或分配任何 IPv6 项。
+
 不能把 IPv4 两条 `/1` 合并为 `/0`。Windows 包环境中的验证表明，VPN `/0` 会使按产品要求绑定物理源地址和接口索引的外层 socket 返回 `WSAENETUNREACH`，而两条 `/1` 可以保持物理出口。
 
-前台宿主在 `startVpn` payload 中提供当前会话的 TUN IPv4/IPv6 和 DNS IPv4/IPv6。桥接验证后把地址与 Session token 写入 profile custom configuration，Provider 再传给 `StartWithMainTransport`。这些字段不写入用户 RAW YAML。
+前台宿主在 `startVpn` payload 中提供当前会话的 TUN IPv4/IPv6 和 DNS IPv4/IPv6。四个地址始终严格必填并经过验证；即使顶层 `ipv6: false`，两个 IPv6 值仍保留在桥接契约中，但 Provider 不使用。桥接把地址、顶层 IPv6 开关与 Session token 写入 profile custom configuration，Provider 再按开关传给 `StartWithMainTransport`。这些字段不写入用户 RAW YAML。
 
 Provider 为后缀 `.` 安装外部 DNS 地址：
 
@@ -157,9 +159,9 @@ vcore-windows-session-host.exe
 - Session Host 不显示在应用列表，也不注册 StartupTask 或 URI；
 - Provider activation class 来自 `vcore.dll`；
 - 同一 package 只维护一个 `VCore` VPN profile；
-- custom configuration 是最大 1 KiB 的严格 JSON，只含修订版 2、Session token 和四个网络地址；
+- custom configuration 是最大 1 KiB 的严格 JSON，只含修订版 3、Session token、顶层 IPv6 开关和四个网络地址；
 - Session Snapshot 是 `LocalState/vcore/windows/sessions/<sha256>.json`，覆盖 YAML、可选进程顺序、路径和参数；
-- 活动 Session token 或网络地址不同时必须先显式 Stop，不能热切换；
+- 活动 Session token、IPv6 开关或网络地址不同时必须先显式 Stop，不能热切换；
 - 安装包更新只能在 VPN 已断开时进行，并要求版本递增。
 
 ## 失败关闭

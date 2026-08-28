@@ -8,7 +8,7 @@ use windows::{
 
 use super::snapshot::SessionReference;
 
-const PROFILE_CONFIGURATION_VERSION: u32 = 2;
+const PROFILE_CONFIGURATION_VERSION: u32 = 3;
 const MAX_PROFILE_CONFIGURATION_BYTES: usize = 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -82,17 +82,20 @@ impl WindowsNetworkSettings {
 pub(crate) struct WindowsProfileConfiguration {
     version: u32,
     snapshot_token: String,
+    ipv6: bool,
     network_settings: WindowsNetworkSettings,
 }
 
 impl WindowsProfileConfiguration {
     pub(crate) fn new(
         snapshot: &SessionReference,
+        ipv6: bool,
         network_settings: WindowsNetworkSettings,
     ) -> Self {
         Self {
             version: PROFILE_CONFIGURATION_VERSION,
             snapshot_token: snapshot.token(),
+            ipv6,
             network_settings,
         }
     }
@@ -121,6 +124,10 @@ impl WindowsProfileConfiguration {
 
     pub(crate) fn session_reference(&self) -> Result<SessionReference> {
         SessionReference::parse(&self.snapshot_token)
+    }
+
+    pub(crate) fn ipv6_enabled(&self) -> bool {
+        self.ipv6
     }
 
     pub(crate) fn network_settings(&self) -> &WindowsNetworkSettings {
@@ -154,7 +161,7 @@ mod tests {
     fn valid_json() -> String {
         let digest = "0123456789abcdef".repeat(4);
         format!(
-            r#"{{"version":2,"snapshotToken":"vcore-session-v2:{digest}","networkSettings":{{"ipv4Address":"192.168.8.1","ipv6Address":"fd00:8::2","dnsIpv4Address":"223.5.5.5","dnsIpv6Address":"2400:3200::1"}}}}"#
+            r#"{{"version":3,"snapshotToken":"vcore-session-v2:{digest}","ipv6":true,"networkSettings":{{"ipv4Address":"192.168.8.1","ipv6Address":"fd00:8::2","dnsIpv4Address":"223.5.5.5","dnsIpv6Address":"2400:3200::1"}}}}"#
         )
     }
 
@@ -167,6 +174,7 @@ mod tests {
             configuration.snapshot_token(),
             format!("vcore-session-v2:{}", "0123456789abcdef".repeat(4))
         );
+        assert!(configuration.ipv6_enabled());
         assert_eq!(
             configuration.network_settings().ipv4_address().to_string(),
             "192.168.8.1"
@@ -199,7 +207,9 @@ mod tests {
     fn profile_configuration_rejects_unknown_or_unsafe_network_settings() {
         let valid = valid_json();
         for invalid in [
-            valid.replace(r#""version":2"#, r#""version":1"#),
+            valid.replace(r#""version":3"#, r#""version":2"#),
+            valid.replace(r#","ipv6":true"#, ""),
+            valid.replace(r#""ipv6":true"#, r#""ipv6":"true""#),
             valid.replace(r#""snapshotToken""#, r#""unknown":true,"snapshotToken""#),
             valid.replace(
                 r#""ipv4Address":"192.168.8.1""#,
@@ -220,6 +230,24 @@ mod tests {
         assert!(
             WindowsProfileConfiguration::parse(&"x".repeat(MAX_PROFILE_CONFIGURATION_BYTES + 1))
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn profile_configuration_round_trips_disabled_ipv6() {
+        let json = valid_json().replace(r#""ipv6":true"#, r#""ipv6":false"#);
+        let configuration = WindowsProfileConfiguration::parse(&json).unwrap();
+
+        assert!(!configuration.ipv6_enabled());
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&configuration.to_json().unwrap()).unwrap(),
+            serde_json::from_str::<serde_json::Value>(&json).unwrap()
+        );
+        assert!(
+            WindowsProfileConfiguration::parse(
+                &json.replace(r#""ipv6Address":"fd00:8::2""#, r#""ipv6Address":"::""#)
+            )
+            .is_err()
         );
     }
 }

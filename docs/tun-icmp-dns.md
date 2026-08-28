@@ -2,6 +2,8 @@
 
 VCore 在 TUN netstack 内回答受支持的 ICMP Echo Request。启用运行时 DNS 后，TUN TCP/UDP 53、选路惰性解析和内部查询共享同一套有界 DNS 实现。
 
+顶层 `ipv6: false` 时，IPv6 原始包会在进入 netstack 前被丢弃，因此不会触发 ICMPv6 回应或 IPv6 上的 DNS/业务流量；运行时 DNS 的有效 IPv6 能力同时要求顶层 `ipv6` 和 `dns.ipv6` 为 `true`。
+
 ## ICMP Echo
 
 | 地址族 | 请求 | 响应 |
@@ -37,7 +39,7 @@ UDP 读取器只做有界 wire 分类和任务提交，不同步等待上游。�
 | 查询 | 处理 |
 | --- | --- |
 | IN/A | 类型化解析和缓存，可生成 TUN 域名提示 |
-| IN/AAAA | 类型化解析和缓存；`ipv6: false` 时本地返回 NODATA |
+| IN/AAAA | 类型化解析和缓存；有效 IPv6 能力关闭时本地返回 NODATA |
 | 其他合法 IN qtype | 原始 wire 转发和缓存，不生成域名提示 |
 
 SVCB、HTTPS、TXT、PTR、MX、SRV、NS、SOA、DNSSEC 和未知 16 位 qtype 都可按原始查询转发。A/AAAA 响应中的可达 CNAME 链继续执行严格地址和 TTL 校验。
@@ -61,6 +63,7 @@ dns:
 
 - 主 nameserver 必须有 1–4 项。
 - 只接受裸 IPv4/IPv6、`udp://IP[:port]` 和 `tcp://IP[:port]`。
+- `dns.ipv6: false` 不限制 IPv6 nameserver；顶层 `ipv6: false` 会阻止通过 DIRECT（含 `RULES` 选中 DIRECT）的 IPv6 nameserver 在本机物理建链，并继续当前组的故障转移。
 - Endpoint 必须是 IP 字面量，不支持 hostname、system 或 DHCP resolver。
 - 无 fragment 时固定使用 DIRECT。
 - Fragment 只接受 `DIRECT`、`RULES` 或实际代理名。

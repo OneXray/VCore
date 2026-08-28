@@ -246,7 +246,8 @@ fn start_vpn(payload: StartPayload) -> Result<Value, String> {
         session_backend,
     )
     .map_err(display_error)?;
-    let profile_configuration = WindowsProfileConfiguration::new(&snapshot, network_settings);
+    let profile_configuration =
+        WindowsProfileConfiguration::new(&snapshot, config.ipv6, network_settings);
     let profile_configuration_json = profile_configuration.to_json().map_err(display_error)?;
     let token = snapshot.token();
     let agent = VpnManagementAgent::new().map_err(display_error)?;

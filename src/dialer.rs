@@ -261,6 +261,7 @@ pub struct Dialer {
     source_binding: Option<SourceBinding>,
     #[cfg(all(windows, feature = "ffi"))]
     interface_binding: Option<InterfaceBinding>,
+    ipv6: bool,
     connect_timeout: Duration,
 }
 
@@ -273,6 +274,7 @@ impl std::fmt::Debug for Dialer {
         #[cfg(all(windows, feature = "ffi"))]
         debug.field("interface_binding", &self.interface_binding);
         debug
+            .field("ipv6", &self.ipv6)
             .field("connect_timeout", &self.connect_timeout)
             .finish()
     }
@@ -285,12 +287,19 @@ impl Default for Dialer {
             source_binding: None,
             #[cfg(all(windows, feature = "ffi"))]
             interface_binding: None,
+            ipv6: true,
             connect_timeout: Duration::from_secs(10),
         }
     }
 }
 
 impl Dialer {
+    #[must_use]
+    pub(crate) const fn with_ipv6(mut self, ipv6: bool) -> Self {
+        self.ipv6 = ipv6;
+        self
+    }
+
     #[must_use]
     pub fn with_protector(mut self, protector: Arc<dyn SocketProtector>) -> Self {
         self.protector = Some(protector);
@@ -337,13 +346,23 @@ impl Dialer {
     pub async fn connect(&self, endpoint: &ResolvedEndpoint) -> io::Result<tokio::net::TcpStream> {
         let mut last_error = None;
         for address in &endpoint.addresses {
+            if !self.ipv6 && address.is_ipv6() {
+                continue;
+            }
             match self.connect_one(*address).await {
                 Ok(stream) => return Ok(stream),
                 Err(error) => last_error = Some(error),
             }
         }
         Err(last_error.unwrap_or_else(|| {
-            io::Error::new(io::ErrorKind::NotFound, "endpoint has no addresses")
+            if endpoint.addresses.is_empty() {
+                io::Error::new(io::ErrorKind::NotFound, "endpoint has no addresses")
+            } else {
+                io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "endpoint has no permitted addresses",
+                )
+            }
         }))
     }
 
@@ -356,6 +375,7 @@ impl Dialer {
     /// Creates a direct UDP socket for one destination and applies the
     /// platform protect or binding policy before exposing it to the caller.
     pub async fn bind_udp_for(&self, destination: SocketAddr) -> io::Result<UdpSocket> {
+        self.require_permitted(destination)?;
         let ipv6 = destination.is_ipv6();
         let bind_address = self
             .source_address_for(destination)?
@@ -474,6 +494,7 @@ impl Dialer {
     }
 
     async fn connect_one(&self, address: SocketAddr) -> io::Result<tokio::net::TcpStream> {
+        self.require_permitted(address)?;
         let ipv6 = address.is_ipv6();
         let socket = if ipv6 {
             TcpSocket::new_v6()?
@@ -501,6 +522,16 @@ impl Dialer {
             .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "connect timed out"))??;
         stream.set_nodelay(true)?;
         Ok(stream)
+    }
+
+    fn require_permitted(&self, address: SocketAddr) -> io::Result<()> {
+        if !self.ipv6 && address.is_ipv6() {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "IPv6 is disabled",
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -609,6 +640,30 @@ mod tests {
                 .unwrap_err()
                 .kind(),
             io::ErrorKind::InvalidInput
+        );
+    }
+
+    #[tokio::test]
+    async fn disabled_ipv6_rejects_all_physical_socket_paths() {
+        let dialer = Dialer::default().with_ipv6(false);
+        let address = SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 9);
+        let endpoint = ResolvedEndpoint {
+            logical_host: "localhost".to_owned(),
+            port: address.port(),
+            addresses: vec![address],
+        };
+
+        assert_eq!(
+            dialer.connect(&endpoint).await.unwrap_err().kind(),
+            io::ErrorKind::PermissionDenied
+        );
+        assert_eq!(
+            dialer.connect_address(address).await.unwrap_err().kind(),
+            io::ErrorKind::PermissionDenied
+        );
+        assert_eq!(
+            dialer.bind_udp_for(address).await.unwrap_err().kind(),
+            io::ErrorKind::PermissionDenied
         );
     }
 

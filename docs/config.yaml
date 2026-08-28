@@ -1,10 +1,15 @@
-# VCore 配置修订版 11 的完整示例。
+# VCore 配置修订版 12 的完整示例。
 #
-# `version.configVersion` 返回的 11 是二进制报告值，不是 YAML 字段。配置只接受
+# `version.configVersion` 返回的 12 是二进制报告值，不是 YAML 字段。配置只接受
 # 本文列出的结构；未知字段、anchor、alias 和自定义 tag 都会失败。
 #
 # 宿主先通过 Invoke API v5 调用 initialize({dataDir})，再通过 configYaml 内联
 # 传入配置。GeoData 固定由 VCore 管理在 dataDir/geodata 中。
+
+# IPv6 数据面总开关，省略时默认为 true。false 时拒绝 IPv6 字面量业务目标、过滤
+# 本地解析和代理根节点的 IPv6 地址、禁止 IPv6 物理 socket，并在 TUN 入口丢弃
+# IPv6 包。dns.ipv6 只有与本项同时为 true 时才生效。
+ipv6: true
 
 # GeoData 下载配置可省略；出现时三项必须齐全。URL 必须是以域名为主机、无
 # userinfo/fragment 的绝对 HTTPS URL，更新周期固定为 24 小时。validateConfig 和
@@ -133,7 +138,8 @@ proxies:
     sni: anytls.example.com
     udp: true
 
-# 运行时 DNS 可省略；enable: true 时主 nameserver 必须有 1–4 项。nameserver
+# 运行时 DNS 可省略；enable: true 时主 nameserver 必须有 1–4 项。ipv6 省略时
+# 默认为 true；false 时直接 AAAA 查询返回空结果，域名解析不查询 AAAA。nameserver
 # 只接受裸 IP、udp://IP[:port] 或 tcp://IP[:port]。没有 fragment 时固定 DIRECT；
 # fragment 只接受 DIRECT、RULES 或实际代理名。`PROXY`/`#PROXY` 没有默认出口
 # 含义，只有存在同名代理时才有效。nameserver-policy 按顺序匹配

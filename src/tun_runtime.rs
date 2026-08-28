@@ -93,18 +93,20 @@ pub(crate) struct TunRuntime {
     limits: ResourceLimits,
     dispatcher: Arc<dyn Dispatcher>,
     dns: Option<Arc<RuntimeDns>>,
+    ipv6: bool,
     fake_icmp_echo: bool,
     sniffer: Option<Arc<SnifferConfig>>,
     traffic_stats: Arc<TunTrafficStats>,
 }
 
 impl TunRuntime {
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(crate) fn new(
         tun: TunIo,
         limits: ResourceLimits,
         dispatcher: Arc<dyn Dispatcher>,
         dns: Option<Arc<RuntimeDns>>,
+        ipv6: bool,
         fake_icmp_echo: bool,
         sniffer: Option<Arc<SnifferConfig>>,
     ) -> io::Result<Self> {
@@ -113,17 +115,20 @@ impl TunRuntime {
             limits,
             dispatcher,
             dns,
+            ipv6,
             fake_icmp_echo,
             sniffer,
             Arc::new(TunTrafficStats::default()),
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new_with_stats(
         tun: TunIo,
         limits: ResourceLimits,
         dispatcher: Arc<dyn Dispatcher>,
         dns: Option<Arc<RuntimeDns>>,
+        ipv6: bool,
         fake_icmp_echo: bool,
         sniffer: Option<Arc<SnifferConfig>>,
         traffic_stats: Arc<TunTrafficStats>,
@@ -142,6 +147,7 @@ impl TunRuntime {
             limits,
             dispatcher,
             dns,
+            ipv6,
             fake_icmp_echo,
             sniffer,
             traffic_stats,
@@ -157,6 +163,7 @@ impl TunRuntime {
             event_queue = self.limits.event_queue_capacity,
             udp_ingress_queue = config.udp_queue,
             dns_hijack = self.dns.is_some(),
+            ipv6 = self.ipv6,
             fake_icmp_echo = self.fake_icmp_echo,
             domain_sniffing = self.sniffer.is_some(),
             "TUN runtime starting"
@@ -180,6 +187,7 @@ impl TunRuntime {
         tasks.spawn(tun_read_loop(
             self.tun.clone(),
             parts.packet_sink,
+            self.ipv6,
             self.limits.packet_queue_capacity,
             resource_stats.clone(),
             self.traffic_stats.clone(),
@@ -289,9 +297,14 @@ fn packet_ip_version(packet: &[u8]) -> u8 {
     packet.first().map_or(0, |byte| byte >> 4)
 }
 
+fn tun_ingress_allowed(ipv6: bool, packet: &[u8]) -> bool {
+    ipv6 || packet_ip_version(packet) != 6
+}
+
 async fn tun_read_loop(
     tun: Arc<TunIo>,
     packet_sink: PacketSink,
+    ipv6: bool,
     packet_queue_limit: usize,
     resource_stats: RuntimeResourceStats,
     traffic_stats: Arc<TunTrafficStats>,
@@ -323,6 +336,9 @@ async fn tun_read_loop(
                 "TUN received first packet"
             );
             first_read_logged = true;
+        }
+        if !tun_ingress_allowed(ipv6, &packet) {
+            continue;
         }
         let raw = Packet::new(Bytes::copy_from_slice(&packet));
         tokio::select! {
@@ -1834,6 +1850,14 @@ mod tests {
             "tun_netstack_stats_periodic"
         );
         assert_eq!(TUN_NETSTACK_STATS_FINAL_EVENT, "tun_netstack_stats_final");
+    }
+
+    #[test]
+    fn ipv6_ingress_policy_drops_only_ipv6_when_disabled() {
+        assert!(!tun_ingress_allowed(false, &[0x60]));
+        assert!(tun_ingress_allowed(false, &[0x45]));
+        assert!(tun_ingress_allowed(false, &[]));
+        assert!(tun_ingress_allowed(true, &[0x60]));
     }
 
     #[test]
@@ -3368,6 +3392,7 @@ mod tests {
             limits,
             dispatcher.clone(),
             None,
+            true,
             false,
             Some(test_sniffer(
                 &[PortRange {
@@ -3513,6 +3538,7 @@ mod tests {
             limits,
             dispatcher.clone(),
             None,
+            true,
             false,
             Some(test_sniffer(
                 &[],
@@ -3603,6 +3629,7 @@ mod tests {
             limits,
             dispatcher.clone(),
             Some(dns),
+            true,
             false,
             Some(test_sniffer(&[], &[], &[PortRange { start: 53, end: 53 }])),
         )
@@ -3820,8 +3847,16 @@ mod tests {
             tun_max_datagram_size: TUN_MTU,
             ..ResourceLimits::default()
         };
-        let runtime =
-            TunRuntime::new(tun, limits, dispatcher.clone(), Some(dns), false, None).unwrap();
+        let runtime = TunRuntime::new(
+            tun,
+            limits,
+            dispatcher.clone(),
+            Some(dns),
+            true,
+            false,
+            None,
+        )
+        .unwrap();
         let cancellation = CancellationToken::new();
         let task = tokio::spawn(runtime.run(cancellation.clone()));
         let requested_server: SocketAddr = "198.51.100.20:53".parse().unwrap();
@@ -3944,6 +3979,7 @@ mod tests {
             ResourceLimits::default(),
             dispatcher,
             None,
+            true,
             false,
             None,
         )
@@ -3994,7 +4030,7 @@ mod tests {
             tun_max_datagram_size: TUN_MTU,
             ..ResourceLimits::default()
         };
-        let runtime = TunRuntime::new(tun, limits, dispatcher, None, false, None).unwrap();
+        let runtime = TunRuntime::new(tun, limits, dispatcher, None, true, false, None).unwrap();
         let cancellation = CancellationToken::new();
         let task = tokio::spawn(runtime.run(cancellation.clone()));
         let destination: SocketAddr = "198.51.100.20:443".parse().unwrap();
@@ -4115,7 +4151,7 @@ mod tests {
             tun_max_datagram_size: TUN_MTU,
             ..ResourceLimits::default()
         };
-        let runtime = TunRuntime::new(tun, limits, dispatcher, None, false, None).unwrap();
+        let runtime = TunRuntime::new(tun, limits, dispatcher, None, true, false, None).unwrap();
         let cancellation = CancellationToken::new();
         let task = tokio::spawn(runtime.run(cancellation.clone()));
 

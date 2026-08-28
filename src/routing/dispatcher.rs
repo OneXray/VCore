@@ -113,6 +113,7 @@ pub struct RoutingDispatcher {
     proxies: ProxyDispatchers,
     direct: Arc<dyn Dispatcher>,
     dns: Option<Arc<dyn RoutingDns>>,
+    ipv6: bool,
     rules: Arc<RuleSet>,
     geo_matcher: Arc<dyn GeoMatcher>,
 }
@@ -126,10 +127,23 @@ impl RoutingDispatcher {
         rules: RuleSet,
         geo_matcher: Arc<dyn GeoMatcher>,
     ) -> Self {
+        Self::new_with_ipv6(proxies, direct, dns, true, rules, geo_matcher)
+    }
+
+    #[must_use]
+    pub(crate) fn new_with_ipv6(
+        proxies: ProxyDispatchers,
+        direct: Arc<dyn Dispatcher>,
+        dns: Option<Arc<RuntimeDns>>,
+        ipv6: bool,
+        rules: RuleSet,
+        geo_matcher: Arc<dyn GeoMatcher>,
+    ) -> Self {
         Self {
             proxies,
             direct,
             dns: dns.map(|dns| dns as Arc<dyn RoutingDns>),
+            ipv6,
             rules: Arc::new(rules),
             geo_matcher,
         }
@@ -140,6 +154,7 @@ impl RoutingDispatcher {
         proxy: Arc<dyn Dispatcher>,
         direct: Arc<dyn Dispatcher>,
         dns: Option<Arc<dyn RoutingDns>>,
+        ipv6: bool,
         rules: RuleSet,
         geo_matcher: Arc<dyn GeoMatcher>,
     ) -> Self {
@@ -148,9 +163,25 @@ impl RoutingDispatcher {
                 .expect("test proxy registry contains one entry"),
             direct,
             dns,
+            ipv6,
             rules: Arc::new(rules),
             geo_matcher,
         }
+    }
+
+    fn ensure_destination_allowed(&self, destination: &Destination) -> Result<(), DispatchError> {
+        if !self.ipv6 && matches!(destination, Destination::Ip(address) if address.is_ipv6()) {
+            return Err(DispatchError::NetworkUnreachable);
+        }
+        Ok(())
+    }
+
+    async fn resolve_addresses(&self, dns: &Arc<dyn RoutingDns>, host: &str) -> Vec<IpAddr> {
+        let mut addresses = dns.resolve(host).await.unwrap_or_default();
+        if !self.ipv6 {
+            addresses.retain(IpAddr::is_ipv4);
+        }
+        addresses
     }
 
     async fn route(
@@ -160,6 +191,7 @@ impl RoutingDispatcher {
         destination: &Destination,
         sniffed_domain: Option<&str>,
     ) -> Result<RouteDecision, DispatchError> {
+        self.ensure_destination_allowed(destination)?;
         let accepts_domain_hint = inbound == InboundKind::Tun && self.rules.uses_domain_routing();
         let sniffed_domain = accepts_domain_hint.then_some(sniffed_domain).flatten();
         let dns_domain_hint = match (accepts_domain_hint, destination, &self.dns, sniffed_domain) {
@@ -179,10 +211,10 @@ impl RoutingDispatcher {
         {
             RuleEvaluation::NeedsIpResolution { rule_index } => {
                 let addresses = match (destination, &self.dns) {
-                    (Destination::Domain { host, .. }, Some(dns)) => dns
-                        .resolve(context.domain().unwrap_or(host))
-                        .await
-                        .unwrap_or_default(),
+                    (Destination::Domain { host, .. }, Some(dns)) => {
+                        self.resolve_addresses(dns, context.domain().unwrap_or(host))
+                            .await
+                    }
                     _ => Vec::new(),
                 };
                 resolved = Some(addresses);
@@ -222,10 +254,10 @@ impl RoutingDispatcher {
                 addresses
             } else {
                 resolved = Some(match &self.dns {
-                    Some(dns) => dns
-                        .resolve(context.domain().unwrap_or(host))
-                        .await
-                        .unwrap_or_default(),
+                    Some(dns) => {
+                        self.resolve_addresses(dns, context.domain().unwrap_or(host))
+                            .await
+                    }
                     None => Vec::new(),
                 });
                 resolved.as_deref().unwrap_or_default()
@@ -363,6 +395,7 @@ fn preferred_address(addresses: &[IpAddr]) -> Option<IpAddr> {
 #[async_trait]
 impl Dispatcher for RoutingDispatcher {
     async fn connect_tcp(&self, mut session: StreamSession) -> Result<BoxStream, DispatchError> {
+        self.ensure_destination_allowed(&session.destination)?;
         if session.inbound == InboundKind::Tun
             && session.destination.port() == 53
             && let Some(dns) = &self.dns
@@ -409,6 +442,7 @@ impl RoutingDispatcher {
             proxies: self.proxies.clone(),
             direct: self.direct.clone(),
             dns: self.dns.clone(),
+            ipv6: self.ipv6,
             rules: self.rules.clone(),
             geo_matcher: self.geo_matcher.clone(),
         }
@@ -742,10 +776,21 @@ mod tests {
         dns: Option<Arc<dyn RoutingDns>>,
         rules: Vec<RuleSpec>,
     ) -> RoutingDispatcher {
+        dispatcher_with_ipv6(proxy, direct, dns, true, rules)
+    }
+
+    fn dispatcher_with_ipv6(
+        proxy: Arc<RecordingDispatcher>,
+        direct: Arc<RecordingDispatcher>,
+        dns: Option<Arc<dyn RoutingDns>>,
+        ipv6: bool,
+        rules: Vec<RuleSpec>,
+    ) -> RoutingDispatcher {
         RoutingDispatcher::with_dns_service(
             proxy,
             direct,
             dns,
+            ipv6,
             RuleSet::compile(rules).unwrap(),
             Arc::new(EmptyGeoMatcher),
         )
@@ -854,6 +899,136 @@ mod tests {
 
         assert_eq!(direct.tcp_sessions.lock().unwrap().len(), 1);
         assert_eq!(proxy.tcp_sessions.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn ipv6_disabled_rejects_literal_tcp_and_udp_before_dispatch() {
+        let proxy = Arc::new(RecordingDispatcher::default());
+        let direct = Arc::new(RecordingDispatcher::default());
+        let dns = Arc::new(MockDns::new(Vec::new()));
+        let router = dispatcher_with_ipv6(
+            proxy.clone(),
+            direct.clone(),
+            Some(dns.clone()),
+            false,
+            vec![
+                rule(
+                    RuleKind::DstPorts(vec![PortRange { start: 80, end: 80 }]),
+                    RuleAction::Direct,
+                ),
+                rule(
+                    RuleKind::Match,
+                    RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap()),
+                ),
+            ],
+        );
+
+        assert!(matches!(
+            router
+                .connect_tcp(stream(
+                    "[2001:db8::1]:443".parse().unwrap(),
+                    InboundKind::Http,
+                ))
+                .await,
+            Err(DispatchError::NetworkUnreachable)
+        ));
+        assert!(matches!(
+            router
+                .connect_tcp(stream(
+                    "[2001:db8::53]:53".parse().unwrap(),
+                    InboundKind::Tun,
+                ))
+                .await,
+            Err(DispatchError::NetworkUnreachable)
+        ));
+        let mut udp = router
+            .open_datagram(association(InboundKind::Http))
+            .await
+            .unwrap();
+        assert!(matches!(
+            udp.send(datagram("[2001:db8::1]:80".parse().unwrap(), b"blocked",))
+                .await,
+            Err(DispatchError::NetworkUnreachable)
+        ));
+
+        assert!(proxy.tcp_sessions.lock().unwrap().is_empty());
+        assert!(direct.tcp_sessions.lock().unwrap().is_empty());
+        assert!(proxy.datagrams.lock().unwrap().is_empty());
+        assert!(direct.datagrams.lock().unwrap().is_empty());
+        assert_eq!(dns.exchange_calls.load(Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test]
+    async fn ipv6_disabled_requires_an_ipv4_result_for_direct_domains() {
+        let proxy = Arc::new(RecordingDispatcher::default());
+        let direct = Arc::new(RecordingDispatcher::default());
+        let dns = Arc::new(MockDns::new(vec![IpAddr::V6(
+            "2001:db8::7".parse::<Ipv6Addr>().unwrap(),
+        )]));
+        let router = dispatcher_with_ipv6(
+            proxy.clone(),
+            direct.clone(),
+            Some(dns.clone()),
+            false,
+            vec![rule(RuleKind::Match, RuleAction::Direct)],
+        );
+
+        assert!(matches!(
+            router
+                .connect_tcp(StreamSession {
+                    inbound: InboundKind::Http,
+                    source: "127.0.0.1:10000".parse().unwrap(),
+                    destination: Destination::domain("example.com", 443).unwrap(),
+                    sniffed_domain: None,
+                })
+                .await,
+            Err(DispatchError::HostUnreachable)
+        ));
+        assert_eq!(dns.resolve_calls.load(Ordering::Relaxed), 1);
+        assert!(proxy.tcp_sessions.lock().unwrap().is_empty());
+        assert!(direct.tcp_sessions.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn ipv6_disabled_empty_resolution_still_falls_through_to_proxy() {
+        let proxy = Arc::new(RecordingDispatcher::default());
+        let direct = Arc::new(RecordingDispatcher::default());
+        let dns = Arc::new(MockDns::new(vec![IpAddr::V6(
+            "2001:db8::7".parse::<Ipv6Addr>().unwrap(),
+        )]));
+        let router = dispatcher_with_ipv6(
+            proxy.clone(),
+            direct.clone(),
+            Some(dns.clone()),
+            false,
+            vec![
+                rule(
+                    RuleKind::IpCidr(IpCidr {
+                        network: IpAddr::V4(Ipv4Addr::new(192, 0, 2, 0)),
+                        prefix_len: 24,
+                    }),
+                    RuleAction::Direct,
+                ),
+                rule(
+                    RuleKind::Match,
+                    RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap()),
+                ),
+            ],
+        );
+
+        router
+            .connect_tcp(StreamSession {
+                inbound: InboundKind::Http,
+                source: "127.0.0.1:10000".parse().unwrap(),
+                destination: Destination::domain("example.com", 443).unwrap(),
+                sniffed_domain: None,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(dns.resolve_calls.load(Ordering::Relaxed), 1);
+        assert_eq!(proxy.tcp_sessions.lock().unwrap().len(), 1);
+        assert!(direct.tcp_sessions.lock().unwrap().is_empty());
     }
 
     #[tokio::test]
