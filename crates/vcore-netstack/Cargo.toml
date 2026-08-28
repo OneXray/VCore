@@ -1,0 +1,33 @@
+[package]
+name = "vcore-netstack"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "MIT"
+description = "Bounded userspace IPv4/IPv6 TCP and UDP netstack for VCore"
+
+[dependencies]
+bytes = "1"
+futures-util = "0.3"
+smoltcp = { version = "0.13", default-features = false, features = [
+    "std",
+    "medium-ip",
+    "auto-icmp-echo-reply",
+    "proto-ipv4",
+    "proto-ipv6",
+    "socket-tcp",
+    "socket-tcp-cubic",
+] }
+thiserror = "2"
+tokio = { version = "1", features = ["io-util", "macros", "rt", "sync", "time"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["io-util", "macros", "rt-multi-thread", "sync", "time"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"
+pedantic = "warn"
