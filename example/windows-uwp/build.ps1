@@ -1,6 +1,4 @@
 param(
-    [ValidateSet('arm64', 'x64')]
-    [string] $Architecture = 'arm64',
     [string] $IdentityName = 'VCore.UwpDemo.Dev',
     [Parameter(Mandatory = $true)]
     [string] $Publisher,
@@ -16,6 +14,13 @@ param(
 $ErrorActionPreference = 'Stop'
 $example = $PSScriptRoot
 $root = Split-Path (Split-Path $example -Parent) -Parent
+$nativeArchitecture = (Get-ItemProperty `
+    'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment' `
+    -Name PROCESSOR_ARCHITECTURE).PROCESSOR_ARCHITECTURE.ToLowerInvariant()
+$Architecture = if ($nativeArchitecture -eq 'amd64') { 'x64' } else { $nativeArchitecture }
+if ($Architecture -notin @('arm64', 'x64')) {
+    throw "unsupported native Windows processor architecture: $nativeArchitecture"
+}
 if ($Version -notmatch '^\d+\.\d+\.\d+\.\d+$') {
     throw 'Version must contain four numeric components'
 }
@@ -43,7 +48,7 @@ try {
     $vcTarget = if ($Architecture -eq 'arm64') { 'amd64_arm64' } else { 'amd64' }
 
     if (-not $SkipVCoreBuild) {
-        & uv run --project (Join-Path $root 'scripts') --locked vcore-scripts build windows --architecture $Architecture
+        & uv run --project (Join-Path $root 'scripts') --locked vcore-scripts build windows
         if ($LASTEXITCODE) { throw "VCore build failed: $LASTEXITCODE" }
     }
     foreach ($artifact in @('vcore.dll', 'vcore-windows-vpn-host.exe', 'vcore-windows-session-host.exe')) {

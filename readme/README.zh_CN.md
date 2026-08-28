@@ -136,7 +136,7 @@ uv run --project scripts --locked ruff format --check scripts
 ```bash
 uv run --project scripts --locked vcore-scripts build apple
 uv run --project scripts --locked vcore-scripts build android
-uv run --project scripts --locked vcore-scripts build windows --architecture arm64
+uv run --project scripts --locked vcore-scripts build windows
 ```
 
 当前有效的验证范围与仍延期的物理设备、Windows 发布矩阵见 [`docs/acceptance.md`](../docs/acceptance.md)。

@@ -136,7 +136,7 @@ Platform artifacts (see [`scripts/README.md`](scripts/README.md) for complete co
 ```bash
 uv run --project scripts --locked vcore-scripts build apple
 uv run --project scripts --locked vcore-scripts build android
-uv run --project scripts --locked vcore-scripts build windows --architecture arm64
+uv run --project scripts --locked vcore-scripts build windows
 ```
 
 See [`docs/acceptance.md`](docs/acceptance.md) for the current validated scope and deferred physical-device and Windows release gates.
