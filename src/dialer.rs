@@ -212,7 +212,14 @@ impl Resolver for SystemResolver {
         let mut addresses = if let Ok(ip) = host.parse::<IpAddr>() {
             vec![SocketAddr::new(ip, port)]
         } else {
-            dns_worker_pool().resolve(host, port).await?
+            let addresses = dns_worker_pool().resolve(host, port).await?;
+            if addresses.iter().any(|address| address.ip().is_loopback()) {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "proxy server hostname resolved to a loopback address",
+                ));
+            }
+            addresses
         };
         addresses.sort_unstable();
         addresses.dedup();
@@ -624,7 +631,7 @@ mod tests {
 
     #[cfg(all(windows, feature = "ffi"))]
     #[tokio::test]
-    async fn windows_physical_binding_exempts_resolved_loopback_tcp_and_udp() {
+    async fn windows_physical_binding_exempts_explicit_loopback_tcp_and_udp() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let dialer = Dialer::default().with_windows_interface(
             Some((Ipv4Addr::new(192, 0, 2, 10), NonZeroU32::new(10).unwrap())),
@@ -699,23 +706,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn literal_addresses_do_not_require_dns() {
-        let endpoint = SystemResolver.resolve("127.0.0.1", 443).await.unwrap();
-        assert_eq!(endpoint.addresses, ["127.0.0.1:443".parse().unwrap()]);
+    async fn literal_loopback_addresses_do_not_require_dns() {
+        for host in ["127.0.0.1", "127.0.0.2", "::1"] {
+            let endpoint = SystemResolver.resolve(host, 443).await.unwrap();
+            assert_eq!(endpoint.logical_host, host);
+            assert_eq!(endpoint.addresses.len(), 1);
+            assert!(endpoint.addresses[0].ip().is_loopback());
+        }
     }
 
     #[tokio::test]
-    async fn hostnames_use_the_runtime_shared_dns_worker_pool() {
+    async fn hostnames_resolving_to_loopback_fail_closed() {
         for _ in 0..2 {
-            let endpoint = SystemResolver.resolve("localhost", 443).await.unwrap();
-            assert!(!endpoint.addresses.is_empty());
-            assert!(endpoint.addresses.len() <= MAX_RESOLVED_ADDRESSES);
-            assert!(
-                endpoint
-                    .addresses
-                    .iter()
-                    .all(|address| address.port() == 443)
-            );
+            let error = SystemResolver.resolve("localhost", 443).await.unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
         }
         assert!(std::ptr::eq(dns_worker_pool(), dns_worker_pool()));
     }
