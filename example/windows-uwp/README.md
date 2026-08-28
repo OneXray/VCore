@@ -37,7 +37,7 @@ vcore-windows-vpn-host.exe + vcore.dll（AppContainer Provider）
 
 - Windows 10 20H2 build 19042 或更新版本；
 - `uv`、Visual Studio C++ 工具和 Windows 10/11 SDK；
-- Rust Windows MSVC target：`aarch64-pc-windows-msvc` 或 `x86_64-pc-windows-msvc`；
+- 与当前处理器对应的 Rust Windows MSVC target：`aarch64-pc-windows-msvc` 或 `x86_64-pc-windows-msvc`；
 - 可用于目标 `Publisher` 的代码签名证书，并已由测试设备信任；
 - 旁加载需要开发者模式或组织允许的安装策略；
 - Store 发布需要正式 package identity、publisher、`networkingVpnProvider` 与 `runFullTrust` 审批。
@@ -50,7 +50,6 @@ vcore-windows-vpn-host.exe + vcore.dll（AppContainer Provider）
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File example/windows-uwp/build.ps1 `
-  -Architecture arm64 `
   -Version 1.0.0.0 `
   -PfxPath C:\path\to\development.pfx `
   -PfxPassword '<password>' `
@@ -58,19 +57,7 @@ powershell -ExecutionPolicy Bypass -File example/windows-uwp/build.ps1 `
   -Install
 ```
 
-x64 使用：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File example/windows-uwp/build.ps1 `
-  -Architecture x64 `
-  -Version 1.0.0.0 `
-  -PfxPath C:\path\to\development.pfx `
-  -PfxPassword '<password>' `
-  -Publisher 'CN=Development Publisher' `
-  -Install
-```
-
-脚本默认通过 `uv run --project scripts --locked vcore-scripts build windows` 构建 VCore。已经生成当前架构产物时可以加 `-SkipVCoreBuild`。输出位于：
+脚本从 Windows 系统注册表自动选择原生 ARM64 或 x64 架构，不接受架构参数。默认通过 `uv run --project scripts --locked vcore-scripts build windows` 构建 VCore；已经生成当前架构产物时可以加 `-SkipVCoreBuild`。输出位于：
 
 ```text
 dist/windows-uwp-demo/VCore.UwpDemo.Dev_<version>_<arch>.msix

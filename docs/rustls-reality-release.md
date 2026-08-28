@@ -45,7 +45,7 @@ uv run --project scripts --locked vcore-scripts check c-header
 uv run --project scripts --locked vcore-scripts check tls-dependencies
 uv run --project scripts --locked vcore-scripts build apple
 uv run --project scripts --locked vcore-scripts build android
-uv run --project scripts --locked vcore-scripts build windows --architecture arm64
+uv run --project scripts --locked vcore-scripts build windows
 ```
 
 同时验证：

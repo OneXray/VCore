@@ -136,7 +136,7 @@ uv run --project scripts --locked ruff format --check scripts
 ```bash
 uv run --project scripts --locked vcore-scripts build apple
 uv run --project scripts --locked vcore-scripts build android
-uv run --project scripts --locked vcore-scripts build windows --architecture arm64
+uv run --project scripts --locked vcore-scripts build windows
 ```
 
 Текущая подтверждённая область проверки и отложенные release gates для физических устройств и Windows перечислены в [`docs/acceptance.md`](../docs/acceptance.md).

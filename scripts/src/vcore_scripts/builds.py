@@ -282,6 +282,22 @@ def build_apple() -> None:
     print(output)
 
 
+def _windows_architecture() -> str:
+    import winreg
+
+    with winreg.OpenKey(
+        winreg.HKEY_LOCAL_MACHINE,
+        r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment",
+    ) as key:
+        processor = str(winreg.QueryValueEx(key, "PROCESSOR_ARCHITECTURE")[0]).lower()
+    try:
+        return {"amd64": "x64", "arm64": "arm64"}[processor]
+    except KeyError as error:
+        raise RuntimeError(
+            f"unsupported native Windows processor architecture: {processor}"
+        ) from error
+
+
 def _windows_msvc_environment(architecture: str) -> dict[str, str]:
     program_files = os.environ.get("PROGRAMFILES(X86)")
     if not program_files:
@@ -332,9 +348,10 @@ def _windows_msvc_environment(architecture: str) -> dict[str, str]:
     return env
 
 
-def build_windows(architecture: str) -> None:
+def build_windows() -> None:
     if os.name != "nt":
         raise RuntimeError("Windows artifacts must be built on Windows")
+    architecture = _windows_architecture()
     targets = {
         "arm64": "aarch64-pc-windows-msvc",
         "x64": "x86_64-pc-windows-msvc",

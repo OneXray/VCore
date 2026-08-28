@@ -22,8 +22,7 @@ def _parser() -> argparse.ArgumentParser:
     platforms = build.add_subparsers(dest="platform", required=True)
     platforms.add_parser("apple", help="build LibVCore.xcframework on macOS")
     platforms.add_parser("android", help="build Android libvcore.so artifacts")
-    windows = platforms.add_parser("windows", help="build packaged Windows artifacts")
-    windows.add_argument("--architecture", choices=("arm64", "x64"), default="arm64")
+    platforms.add_parser("windows", help="build packaged Windows artifacts")
 
     check = commands.add_parser("check", help="run repository checks")
     checks = check.add_subparsers(dest="check", required=True)
@@ -48,7 +47,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             elif args.platform == "android":
                 build_android()
             else:
-                build_windows(args.architecture)
+                build_windows()
         elif args.command == "check":
             if args.check == "c-header":
                 check_c_header()

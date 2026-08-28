@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from vcore_scripts import builds, cli
 from vcore_scripts.builds import EXPECTED_IDENTITY, _android_target, _require_identity
@@ -18,10 +18,26 @@ from vcore_scripts.tun2socks import derive_xray_config
 
 
 class ScriptTest(unittest.TestCase):
-    def test_cli_dispatches_windows_architecture(self):
+    def test_cli_dispatches_windows_build_without_architecture(self):
         with patch("vcore_scripts.cli.build_windows") as build:
-            self.assertEqual(cli.main(["build", "windows", "--architecture", "x64"]), 0)
-        build.assert_called_once_with("x64")
+            self.assertEqual(cli.main(["build", "windows"]), 0)
+        build.assert_called_once_with()
+
+    def test_windows_architecture_uses_native_processor_registry(self):
+        key = object()
+        for native, expected in (("AMD64", "x64"), ("ARM64", "arm64")):
+            with self.subTest(native=native):
+                registry = SimpleNamespace(
+                    HKEY_LOCAL_MACHINE=object(),
+                    OpenKey=MagicMock(),
+                    QueryValueEx=MagicMock(return_value=(native, None)),
+                )
+                registry.OpenKey.return_value.__enter__.return_value = key
+                with patch.dict("sys.modules", {"winreg": registry}):
+                    self.assertEqual(builds._windows_architecture(), expected)
+                registry.QueryValueEx.assert_called_once_with(
+                    key, "PROCESSOR_ARCHITECTURE"
+                )
 
     def test_android_target_mapping_is_strict(self):
         self.assertEqual(
@@ -55,10 +71,11 @@ class ScriptTest(unittest.TestCase):
             with (
                 patch.object(builds, "CORE_DIR", root),
                 patch.object(builds, "os", SimpleNamespace(name="nt")),
+                patch.object(builds, "_windows_architecture", return_value="arm64"),
                 patch.object(builds, "_windows_msvc_environment", return_value={}),
                 patch.object(builds, "_run") as run,
             ):
-                builds.build_windows("arm64")
+                builds.build_windows()
                 self.assertEqual(
                     run.call_args_list[1].args[0],
                     [
@@ -77,7 +94,7 @@ class ScriptTest(unittest.TestCase):
                 )
                 (release / "vcore.dll").write_bytes(b"wrong")
                 with self.assertRaisesRegex(RuntimeError, "incompatible Rust identity"):
-                    builds.build_windows("arm64")
+                    builds.build_windows()
 
     def test_tls_metadata_accepts_the_locked_graph(self):
         registry = next(iter(CRATES_IO_SOURCES))
