@@ -121,7 +121,7 @@ TCP sessions, ordinary UDP associations, half-open connections, outbound handsha
 ```bash
 cargo fmt --all -- --check
 cargo test --all-features --all-targets
-cargo clippy --locked --all-features --lib --bins -- -D warnings -A clippy::chunks-exact-to-as-chunks -A clippy::map-or-identity
+cargo clippy --locked --all-features --lib --bins -- -D warnings
 cargo test --manifest-path crates/vcore-netstack/Cargo.toml --all-targets
 cargo clippy --manifest-path crates/vcore-netstack/Cargo.toml --all-targets -- -D warnings
 uv run --project scripts --locked vcore-scripts check c-header
@@ -139,16 +139,16 @@ uv run --project scripts --locked vcore-scripts build android
 uv run --project scripts --locked vcore-scripts build windows --architecture arm64
 ```
 
-See [`docs/acceptance.md`](docs/acceptance.md) for executed results and deferred physical-device and Windows release gates.
+See [`docs/acceptance.md`](docs/acceptance.md) for the current validated scope and deferred physical-device and Windows release gates.
 
 ## Credits
 
-VCore builds on implementation foundations, architectural references, and interoperability work from:
+VCore's dependencies, maintained forks, public API/protocol references, architectural references, and interoperability counterparts include:
 
 - [smoltcp](https://github.com/smoltcp-rs/smoltcp), [clash-rs](https://github.com/Watfaq/clash-rs), and [netstack-smoltcp](https://github.com/automesh-network/netstack-smoltcp): userspace IP stacks and TUN netstacks.
 - [windows-rs](https://github.com/microsoft/windows-rs), [UWP VPN Plugin Sample](https://github.com/microsoft/UwpVpnPluginSample), [wireguard-uwp-rs](https://github.com/luqmana/wireguard-uwp-rs), [Maple](https://github.com/YtFlow/Maple), and [YtFlowCore](https://github.com/YtFlow/YtFlowCore): Windows VPN, WinRT activation, and packet flow.
 - [Xray-core](https://github.com/XTLS/Xray-core), [Mihomo](https://github.com/MetaCubeX/mihomo), and [Leaf](https://github.com/eycorsican/leaf): proxy protocols, routing, TUN architecture, and interoperability references.
-- [rustls](https://github.com/rustls/rustls): the TLS implementation and foundation of the VCore REALITY fork.
+- [rustls](https://github.com/rustls/rustls): the TLS dependency and upstream of the maintained VCore REALITY fork.
 
 ## License
 

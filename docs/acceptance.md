@@ -4,7 +4,7 @@
 
 ## 证据规则
 
-- 通过结论必须说明环境、命令、结果和适用范围。
+- 通过结论必须在对应 PR、发布记录或验收记录中说明环境、命令、结果和适用范围；本矩阵只记录当前有效边界。
 - 主机单元测试和集成测试不能证明物理 TUN 或安装包边界。
 - 交叉编译不能证明目标设备可运行。
 - 模拟 IPv6 不能替代真实物理 IPv6。
@@ -32,9 +32,7 @@
 ```bash
 cargo fmt --all -- --check
 cargo test --locked --all-features --all-targets
-cargo clippy --locked --all-features --lib --bins -- -D warnings \
-  -A clippy::chunks-exact-to-as-chunks \
-  -A clippy::map-or-identity
+cargo clippy --locked --all-features --lib --bins -- -D warnings
 cargo test --manifest-path crates/vcore-netstack/Cargo.toml --all-targets
 cargo clippy --manifest-path crates/vcore-netstack/Cargo.toml --all-targets -- -D warnings
 uv run --project scripts --locked vcore-scripts check c-header

@@ -35,12 +35,12 @@ Read the relevant document completely before changing that area:
 
 1. Keep the latest-only schema strict. Reject unknown and obsolete fields instead of adding compatibility branches or silent migration.
 2. Preserve bounded queues, packet/buffer/parser limits, cancellation, and synchronous stop barriers. Do not turn UDP callback paths into blocking waits.
-3. Keep secrets, UUIDs, destinations, DNS questions, and full config/request bodies out of logs and errors.
+3. Keep secrets, UUIDs, DNS questions, full config/request bodies, and runtime traffic destinations out of logs and errors. Configuration-service endpoints may appear only as a bounded, sanitized origin or source index when operational diagnosis requires it; never log userinfo, query, fragment, private addresses, or redirect targets.
 4. Platform trust boundaries fail closed. Android protect failure, Windows physical-interface loss, invalid packet-buffer ownership, or unsupported target startup must not fall back to an unprotected socket.
-5. Windows uses official `Windows.Networking.Vpn` through `windows-rs`. `VpnPacketBuffer` bytes are copied within callbacks and every framework buffer is returned according to WinRT ownership rules. Network changes stop the first release; they do not silently rebind or reconnect.
+5. Windows uses official `Windows.Networking.Vpn` through `windows-rs`. `VpnPacketBuffer` bytes are copied within callbacks. After acquiring a framework buffer, return it to Windows before propagating any later local error; a return-API failure propagates the platform error and fails closed. Every framework buffer is returned exactly once. Network changes stop the first release; they do not silently rebind or reconnect.
 6. Reuse the existing raw-IP netstack and outbound graph. Add no second Windows proxy core, Wintun path, per-protocol socket factory, or fake fd layer.
 7. Keep optional protocol/platform code feature- and target-gated. Default non-TUN builds must continue to compile.
-8. Before copying, translating, linking, or distributing third-party code, add the actual upstream project to the root `README.md` Credits section and preserve its applicable license terms.
+8. When copying or modifying third-party source, record the upstream project and preserve all applicable license terms. Audit linked dependencies against the resolved release graph. Do not describe independent rewrites, protocol interoperability, or architectural references as derived source without evidence; Credits provide context and attribution, not a substitute for release license review.
 9. Keep code, documentation, package identifiers, examples, and signing inputs host-neutral; application-specific names and credentials belong in downstream integrations.
 
 # Validation
@@ -50,7 +50,7 @@ Choose the smallest relevant set, then expand for shared contracts:
 ```shell
 cargo fmt --all -- --check
 cargo test --all-features --all-targets
-cargo clippy --locked --all-features --lib --bins -- -D warnings -A clippy::chunks-exact-to-as-chunks -A clippy::map-or-identity
+cargo clippy --locked --all-features --lib --bins -- -D warnings
 cargo test --manifest-path crates/vcore-netstack/Cargo.toml --all-targets
 cargo clippy --manifest-path crates/vcore-netstack/Cargo.toml --all-targets -- -D warnings
 uv run --project scripts --locked vcore-scripts check c-header

@@ -17,6 +17,7 @@ void VCoreFree(char *response);
 - 非法输入、未知方法、状态错误和 panic 返回合法失败 JSON；只有灾难性分配失败可以返回 `NULL`。
 - 请求正文、响应正文、完整配置、UUID、密钥、short ID 和凭据不得写入日志。
 - `VCoreWindowsVpnInvoke` 是 Windows 安装包桥接接口，不属于业务 API v5。
+- `VCoreWindowsVpnInvoke` 当前在调用线程上初始化 MTA；调用线程必须尚未初始化 COM，或已经是 MTA。STA/ASTA 调用不受支持。
 
 ## 请求与响应
 

@@ -1,5 +1,6 @@
 use std::{
     fs::{self, OpenOptions},
+    future::Future,
     io::{self, Write},
     net::{Ipv4Addr, Ipv6Addr},
     os::windows::fs::MetadataExt as _,
@@ -355,34 +356,26 @@ async fn run_provider_session(
     publish_rendezvous(local_folder, &rendezvous)?;
     let _cleanup = RendezvousCleanup(local_folder);
 
-    timeout(SESSION_START_TIMEOUT, async {
-        tokio::try_join!(control.connect(), data.connect())
-    })
-    .await
-    .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "Session Host did not connect"))??;
-    remove_rendezvous(local_folder)?;
+    let mut stop = stop;
+    let startup_future = async move {
+        tokio::try_join!(control.connect(), data.connect())?;
+        remove_rendezvous(local_folder)?;
 
-    let (mut control_read, mut control_write) = tokio::io::split(control);
-    match read_control_async(&mut control_read).await? {
-        ControlMessage::SessionHello { snapshot_token, .. } if snapshot_token == token => {}
-        _ => return Err(invalid_data("invalid Session Host handshake")),
-    }
-    write_control_async(
-        &mut control_write,
-        &ControlMessage::ProviderHello {
-            version: PROTOCOL_VERSION,
-            snapshot_token: token.to_owned(),
+        let (mut control_read, mut control_write) = tokio::io::split(control);
+        complete_provider_handshake(
+            &mut control_read,
+            &mut control_write,
+            token,
             physical_binding,
-        },
-    )
-    .await?;
-    match read_control_async(&mut control_read).await? {
-        ControlMessage::RuntimeReady { .. } => {}
-        ControlMessage::RuntimeFailed { .. } => {
-            return Err(io::Error::other("Session Host runtime failed to start"));
-        }
-        _ => return Err(invalid_data("invalid Session Host startup response")),
-    }
+        )
+        .await?;
+        Ok((control_read, control_write, data))
+    };
+    let Some((mut control_read, mut control_write, data)) =
+        wait_for_provider_startup(&mut stop, startup_future, SESSION_START_TIMEOUT).await?
+    else {
+        return Ok(());
+    };
 
     let tun = Arc::new(tun);
     let (data_read, mut data_write) = tokio::io::split(data);
@@ -462,6 +455,47 @@ async fn run_provider_session(
     data_tasks.abort_all();
     while data_tasks.join_next().await.is_some() {}
     result
+}
+
+async fn wait_for_provider_startup<T>(
+    stop: &mut oneshot::Receiver<PacketCounters>,
+    startup: impl Future<Output = io::Result<T>>,
+    timeout_duration: Duration,
+) -> io::Result<Option<T>> {
+    tokio::select! {
+        _ = stop => Ok(None),
+        result = timeout(timeout_duration, startup) => result
+            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "Session Host startup timed out"))?
+            .map(Some),
+    }
+}
+
+async fn complete_provider_handshake(
+    control_read: &mut (impl AsyncRead + Unpin),
+    control_write: &mut (impl AsyncWrite + Unpin),
+    token: &str,
+    physical_binding: PhysicalBinding,
+) -> io::Result<()> {
+    match read_control_async(control_read).await? {
+        ControlMessage::SessionHello { snapshot_token, .. } if snapshot_token == token => {}
+        _ => return Err(invalid_data("invalid Session Host handshake")),
+    }
+    write_control_async(
+        control_write,
+        &ControlMessage::ProviderHello {
+            version: PROTOCOL_VERSION,
+            snapshot_token: token.to_owned(),
+            physical_binding,
+        },
+    )
+    .await?;
+    match read_control_async(control_read).await? {
+        ControlMessage::RuntimeReady { .. } => Ok(()),
+        ControlMessage::RuntimeFailed { .. } => {
+            Err(io::Error::other("Session Host runtime failed to start"))
+        }
+        _ => Err(invalid_data("invalid Session Host startup response")),
+    }
 }
 
 struct RendezvousCleanup<'a>(&'a Path);
@@ -709,6 +743,49 @@ mod tests {
             wire.extend_from_slice(payload);
             assert!(read_control_async(&mut wire.as_slice()).await.is_err());
         }
+    }
+
+    #[tokio::test]
+    async fn stop_interrupts_a_stalled_provider_handshake() {
+        let (provider, mut host) = tokio::io::duplex(4096);
+        let (mut control_read, mut control_write) = tokio::io::split(provider);
+        let (stop_tx, mut stop_rx) = oneshot::channel();
+        let host = tokio::spawn(async move {
+            write_control_async(
+                &mut host,
+                &ControlMessage::SessionHello {
+                    version: PROTOCOL_VERSION,
+                    snapshot_token: TOKEN.to_owned(),
+                },
+            )
+            .await
+            .unwrap();
+            assert!(matches!(
+                read_control_async(&mut host).await.unwrap(),
+                ControlMessage::ProviderHello { .. }
+            ));
+            stop_tx.send(PacketCounters::default()).unwrap();
+        });
+
+        let outcome = timeout(
+            Duration::from_secs(1),
+            wait_for_provider_startup(
+                &mut stop_rx,
+                complete_provider_handshake(
+                    &mut control_read,
+                    &mut control_write,
+                    TOKEN,
+                    binding(),
+                ),
+                Duration::from_secs(5),
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+        assert!(outcome.is_none());
+        host.await.unwrap();
     }
 
     #[tokio::test]

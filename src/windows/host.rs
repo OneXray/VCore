@@ -17,7 +17,7 @@ use windows::{
     },
     Storage::ApplicationData,
     Win32::{
-        Foundation::HANDLE,
+        Foundation::{E_NOINTERFACE, HANDLE},
         System::{
             Com::{CLSCTX_LOCAL_SERVER, CoCreateInstance},
             Threading::{
@@ -28,7 +28,7 @@ use windows::{
         },
         UI::Shell::{AO_NONE, ApplicationActivationManager, IApplicationActivationManager},
     },
-    core::{HSTRING, IUnknown, Interface as _, Owned},
+    core::{HSTRING, IUnknown, Interface as _, Owned, Result as WindowsResult},
 };
 
 use super::{
@@ -420,7 +420,9 @@ fn find_profile(
     let mut found = None;
     for index in 0..profiles.Size().map_err(display_error)? {
         let profile: IVpnProfile = profiles.GetAt(index).map_err(display_error)?;
-        let plugin: VpnPlugInProfile = profile.cast().map_err(display_error)?;
+        let Some(plugin) = plugin_profile(profile.cast())? else {
+            continue;
+        };
         if plugin.VpnPluginPackageFamilyName().map_err(display_error)? != family_name {
             continue;
         }
@@ -440,6 +442,16 @@ fn find_profile(
         });
     }
     Ok(found)
+}
+
+fn plugin_profile(
+    cast: WindowsResult<VpnPlugInProfile>,
+) -> Result<Option<VpnPlugInProfile>, String> {
+    match cast {
+        Ok(plugin) => Ok(Some(plugin)),
+        Err(error) if error.code() == E_NOINTERFACE => Ok(None),
+        Err(error) => Err(display_error(error)),
+    }
 }
 
 fn configure_profile(
@@ -667,6 +679,23 @@ mod tests {
                 "data": null,
                 "error": "unknown Windows bridge method"
             })
+        );
+    }
+
+    #[test]
+    fn plugin_profile_skips_only_no_interface() {
+        use windows::core::Error as WindowsError;
+
+        assert!(
+            plugin_profile(Err(WindowsError::from_hresult(E_NOINTERFACE)))
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            plugin_profile(Err(WindowsError::from_hresult(
+                windows::Win32::Foundation::E_FAIL,
+            )))
+            .is_err()
         );
     }
 }

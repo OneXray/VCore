@@ -1286,15 +1286,15 @@ impl RuntimeDns {
                         event = "runtime_dns_attempt_timeout",
                         "runtime DNS nameserver attempt timed out"
                     );
-                    last_error = format!("{nameserver}: nameserver attempt timed out").into();
+                    last_error = format!("nameserver {nameserver_index} attempt timed out").into();
                 }
                 Ok(Err(error)) => {
                     tracing::debug!(
                         nameserver_index,
-                        error = %error,
+                        error_kind = error.category(),
                         "runtime DNS nameserver attempt failed"
                     );
-                    last_error = format!("{nameserver}: {error}").into();
+                    last_error = error.summary(nameserver_index);
                 }
                 Ok(Ok((_response, parsed_response)))
                     if matches!(parsed_response.rcode, RCODE_SERVFAIL | RCODE_REFUSED) =>
@@ -1305,7 +1305,7 @@ impl RuntimeDns {
                         "runtime DNS nameserver returned a retryable response"
                     );
                     last_error = format!(
-                        "{nameserver}: retryable response code {}",
+                        "nameserver {nameserver_index} returned retryable response code {}",
                         parsed_response.rcode
                     )
                     .into();
@@ -1351,15 +1351,15 @@ impl RuntimeDns {
                         event = "runtime_dns_attempt_timeout",
                         "runtime DNS opaque nameserver attempt timed out"
                     );
-                    last_error = format!("{nameserver}: nameserver attempt timed out").into();
+                    last_error = format!("nameserver {nameserver_index} attempt timed out").into();
                 }
                 Ok(Err(error)) => {
                     tracing::debug!(
                         nameserver_index,
-                        error = %error,
+                        error_kind = error.category(),
                         "runtime DNS opaque nameserver attempt failed"
                     );
-                    last_error = format!("{nameserver}: {error}").into();
+                    last_error = error.summary(nameserver_index);
                 }
                 Ok(Ok(response))
                     if response.rcode() == u16::from(RCODE_SERVFAIL)
@@ -1370,9 +1370,11 @@ impl RuntimeDns {
                         rcode = response.rcode(),
                         "runtime DNS opaque nameserver returned a retryable response"
                     );
-                    last_error =
-                        format!("{nameserver}: retryable response code {}", response.rcode())
-                            .into();
+                    last_error = format!(
+                        "nameserver {nameserver_index} returned retryable response code {}",
+                        response.rcode()
+                    )
+                    .into();
                 }
                 Ok(Ok(response)) => return Ok(response),
             }
@@ -1720,6 +1722,23 @@ enum AttemptError {
     TooManyIgnoredUdpResponses,
     #[error("DNS response exceeds 4096 bytes")]
     MessageTooLarge,
+}
+
+impl AttemptError {
+    fn category(&self) -> &'static str {
+        match self {
+            Self::Dispatch(_) => "dispatcher",
+            Self::Io(_) => "I/O",
+            Self::InvalidResponse(_) => "invalid response",
+            Self::ResponseMismatch => "response mismatch",
+            Self::TooManyIgnoredUdpResponses => "too many unrelated responses",
+            Self::MessageTooLarge => "response too large",
+        }
+    }
+
+    fn summary(&self, nameserver_index: usize) -> Box<str> {
+        format!("nameserver {nameserver_index} failed: {}", self.category()).into()
+    }
 }
 
 fn udp_response_matches_query(query: &DnsMessage, response: &[u8]) -> Result<bool, AttemptError> {
@@ -3484,6 +3503,14 @@ mod tests {
                 .rcode(),
             u16::from(RCODE_SERVFAIL)
         );
+    }
+
+    #[test]
+    fn nameserver_failure_summary_does_not_expose_error_details() {
+        let error = AttemptError::Dispatch(DispatchError::Other(
+            "sentinel-token at 198.51.100.77:53".to_owned(),
+        ));
+        assert_eq!(error.summary(3).as_ref(), "nameserver 3 failed: dispatcher");
     }
 
     #[tokio::test]

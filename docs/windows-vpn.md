@@ -15,6 +15,8 @@ Windows 数据面只使用官方 `Windows.Networking.Vpn` 和 `windows-rs`，不
 
 未安装的普通桌面进程没有 package identity，Windows VPN 桥接会失败关闭。
 
+`VCoreWindowsVpnInvoke` 当前在调用线程上初始化 MTA。调用线程必须尚未初始化 COM，或已经是 MTA；STA/ASTA 调用不受支持。
+
 ## `IVpnPlugIn` 回调
 
 Provider 实现：
@@ -31,7 +33,7 @@ Provider 实现：
 
 - 回调内把 `IBuffer` 内容复制到 VCore 持有的内存；
 - 不在回调之后保存裸 slice、`VpnPacketBuffer` 或系统列表；
-- 每个系统缓冲区只归还一次；Provider 申请的缓冲区在成功、丢弃和错误路径都必须归还；
+- 每个系统缓冲区只归还一次；成功取得缓冲区后，任何后续本地错误都必须先归还缓冲区再传播；归还 API 自身失败时传播平台错误并失败关闭；
 - 队列满时只丢当前包并计数，不能阻塞 Windows 回调。
 
 ## 原始 IP 数据面

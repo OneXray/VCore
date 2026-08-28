@@ -164,10 +164,7 @@ impl GeoDataUpdateService {
                 Ok(UpdateAttempt::Completed)
             }
             Ok(GeoDataDownloadOutcome::Downloaded {
-                etag,
-                sha256,
-                size,
-                final_url,
+                etag, sha256, size, ..
             }) => {
                 let report = session
                     .commit(etag, sha256, size)
@@ -175,7 +172,6 @@ impl GeoDataUpdateService {
                 tracing::info!(
                     geodata_kind = %kind,
                     bytes = size,
-                    url = final_url,
                     active_registration = report.active_registration,
                     "VCore GeoData downloaded and hot-activated"
                 );

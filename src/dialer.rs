@@ -505,6 +505,7 @@ fn wildcard_address(ipv6: bool) -> SocketAddr {
     }
 }
 
+#[cfg(all(windows, feature = "ffi"))]
 fn loopback_address(ipv6: bool) -> SocketAddr {
     if ipv6 {
         SocketAddr::from((Ipv6Addr::LOCALHOST, 0))
@@ -560,10 +561,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn source_ip_binds_tcp_and_udp() {
+    async fn source_ip_is_selected_and_binds_tcp_and_udp() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let source = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2));
+        let source = IpAddr::V4(Ipv4Addr::LOCALHOST);
         let dialer = Dialer::default().with_source_ip(source);
+        assert_eq!(
+            dialer
+                .source_address_for(listener.local_addr().unwrap())
+                .unwrap(),
+            Some(SocketAddr::new(source, 0))
+        );
 
         let stream = dialer
             .connect_address(listener.local_addr().unwrap())

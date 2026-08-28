@@ -27,8 +27,8 @@ use windows::{
         Sockets::DatagramSocket,
         Vpn::{
             IVpnPlugIn, IVpnPlugIn_Impl, VpnChannel, VpnDomainNameAssignment, VpnDomainNameInfo,
-            VpnDomainNameType, VpnInterfaceId, VpnPacketBuffer, VpnPacketBufferList, VpnRoute,
-            VpnRouteAssignment,
+            VpnDomainNameType, VpnInterfaceId, VpnPacketBuffer, VpnPacketBufferList,
+            VpnPacketBufferStatus, VpnRoute, VpnRouteAssignment,
         },
     },
     Storage::{
@@ -595,6 +595,29 @@ impl VpnProvider {
             write_dummy(&wake_output.resolve().map_err(io::Error::other)?).map_err(io::Error::other)
         });
         let (fail_closed, fail_closed_handle) = FailClosedStop::start(channel, physical.clone())?;
+
+        {
+            let mut state = self.lock_state()?;
+            state.transport = Some(transport.clone());
+            state.back_transport = Some(back_transport);
+            state.packets = Some(packets);
+            state.fail_closed = Some(fail_closed);
+        }
+
+        let network_stop = fail_closed_handle.clone();
+        let handler = NetworkStatusChangedEventHandler::new(move |_| {
+            network_stop.network_changed();
+            Ok(())
+        });
+        let network_status_token = NetworkInformation::NetworkStatusChanged(&handler)?;
+        self.lock_state()?.network_status_token = Some(network_status_token);
+        if !physical.is_available()? {
+            return Err(Error::new(
+                E_FAIL,
+                "physical network changed during VPN startup",
+            ));
+        }
+
         let unexpected_stop = fail_closed_handle.clone();
         let session = ProviderPacketSession::start(
             local_folder,
@@ -605,14 +628,7 @@ impl VpnProvider {
         )
         .map_err(windows_error)?;
 
-        {
-            let mut state = self.lock_state()?;
-            state.transport = Some(transport.clone());
-            state.back_transport = Some(back_transport);
-            state.packets = Some(packets);
-            state.session = Some(session);
-            state.fail_closed = Some(fail_closed);
-        }
+        self.lock_state()?.session = Some(session);
 
         channel.StartWithMainTransport(
             &assigned_ipv4,
@@ -626,13 +642,6 @@ impl VpnProvider {
             &transport,
         )?;
 
-        let network_stop = fail_closed_handle.clone();
-        let handler = NetworkStatusChangedEventHandler::new(move |_| {
-            network_stop.network_changed();
-            Ok(())
-        });
-        let token = NetworkInformation::NetworkStatusChanged(&handler)?;
-        self.lock_state()?.network_status_token = Some(token);
         fail_closed_handle.arm();
 
         log(&format!(
@@ -831,8 +840,17 @@ impl IVpnPlugIn_Impl for VpnProvider_Impl {
             };
             while let Some(bytes) = adapter.pop_egress() {
                 let packet = channel.GetVpnReceivePacketBuffer()?;
-                write_buffer(&packet.Buffer()?, &bytes)?;
+                let filled = packet
+                    .Buffer()
+                    .and_then(|buffer| write_buffer(&buffer, &bytes));
+                let status = if filled.is_err() {
+                    packet.SetStatus(VpnPacketBufferStatus::InvalidBufferSize)
+                } else {
+                    Ok(())
+                };
                 packets.Append(&packet)?;
+                status?;
+                filled?;
                 let first = {
                     let mut state = self.lock_state()?;
                     state.decapsulated = state.decapsulated.saturating_add(1);

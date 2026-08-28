@@ -121,7 +121,7 @@ TCP session、普通 UDP association、half-open、outbound handshake 和 active
 ```bash
 cargo fmt --all -- --check
 cargo test --all-features --all-targets
-cargo clippy --locked --all-features --lib --bins -- -D warnings -A clippy::chunks-exact-to-as-chunks -A clippy::map-or-identity
+cargo clippy --locked --all-features --lib --bins -- -D warnings
 cargo test --manifest-path crates/vcore-netstack/Cargo.toml --all-targets
 cargo clippy --manifest-path crates/vcore-netstack/Cargo.toml --all-targets -- -D warnings
 uv run --project scripts --locked vcore-scripts check c-header
@@ -139,16 +139,16 @@ uv run --project scripts --locked vcore-scripts build android
 uv run --project scripts --locked vcore-scripts build windows --architecture arm64
 ```
 
-执行结果与仍延期的物理设备、Windows 发布矩阵见 [`docs/acceptance.md`](../docs/acceptance.md)。
+当前有效的验证范围与仍延期的物理设备、Windows 发布矩阵见 [`docs/acceptance.md`](../docs/acceptance.md)。
 
 ## Credits
 
-感谢以下开源项目为 VCore 提供实现基础、架构参考与互操作验证：
+VCore 的依赖、维护中的 fork、公开 API/协议参考、架构参考与互操作对象包括：
 
 - [smoltcp](https://github.com/smoltcp-rs/smoltcp)、[clash-rs](https://github.com/Watfaq/clash-rs) 与 [netstack-smoltcp](https://github.com/automesh-network/netstack-smoltcp)：用户态 IP stack 与 TUN netstack。
 - [windows-rs](https://github.com/microsoft/windows-rs)、[UWP VPN Plugin Sample](https://github.com/microsoft/UwpVpnPluginSample)、[wireguard-uwp-rs](https://github.com/luqmana/wireguard-uwp-rs)、[Maple](https://github.com/YtFlow/Maple) 与 [YtFlowCore](https://github.com/YtFlow/YtFlowCore)：Windows VPN、WinRT activation 与 packet flow。
 - [Xray-core](https://github.com/XTLS/Xray-core)、[Mihomo](https://github.com/MetaCubeX/mihomo) 与 [Leaf](https://github.com/eycorsican/leaf)：代理协议、路由、TUN 架构与互操作参考。
-- [rustls](https://github.com/rustls/rustls)：TLS 实现与 VCore REALITY fork 的基础。
+- [rustls](https://github.com/rustls/rustls)：TLS 依赖与 VCore 维护的 REALITY fork 上游。
 
 ## License
 

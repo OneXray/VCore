@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use tokio::time::{Instant, sleep};
 use windows::{
     Win32::{
-        Foundation::{HANDLE, STILL_ACTIVE},
+        Foundation::{HANDLE, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT},
         System::{
             JobObjects::{
                 AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
@@ -20,9 +20,8 @@ use windows::{
                 QueryInformationJobObject, SetInformationJobObject, TerminateJobObject,
             },
             Threading::{
-                CREATE_NO_WINDOW, CREATE_SUSPENDED, CreateProcessW, GetExitCodeProcess,
-                PROCESS_INFORMATION, ResumeThread, STARTUPINFOW, TerminateProcess,
-                WaitForSingleObject,
+                CREATE_NO_WINDOW, CREATE_SUSPENDED, CreateProcessW, PROCESS_INFORMATION,
+                ResumeThread, STARTUPINFOW, TerminateProcess, WaitForSingleObject,
             },
         },
     },
@@ -129,26 +128,25 @@ impl ManagedProcessSet {
     }
 
     pub(crate) fn ensure_running(&self) -> io::Result<()> {
-        if self.processes.iter().all(process_is_running) {
-            Ok(())
-        } else {
-            Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                "managed Windows session process exited",
-            ))
+        for process in &self.processes {
+            if !process_is_running(process)? {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "managed Windows session process exited",
+                ));
+            }
         }
+        Ok(())
     }
 
     pub(crate) async fn wait_for_any_exit(&self) -> io::Result<()> {
         // ponytail: eight handles make bounded polling cheaper than a callback/IOCP seam;
         // replace with registered waits only if process count or exit latency changes.
         loop {
-            if self
-                .processes
-                .iter()
-                .any(|process| !process_is_running(process))
-            {
-                return Ok(());
+            for process in &self.processes {
+                if !process_is_running(process)? {
+                    return Ok(());
+                }
             }
             sleep(PROCESS_POLL_INTERVAL).await;
         }
@@ -158,12 +156,11 @@ impl ManagedProcessSet {
         unsafe { TerminateJobObject(raw_handle(&self.job), 1) }.map_err(io::Error::other)?;
         let deadline = Instant::now() + timeout;
         loop {
-            if active_processes(raw_handle(&self.job))? == 0
-                && self
-                    .processes
-                    .iter()
-                    .all(|process| !process_is_running(process))
-            {
+            let mut all_exited = true;
+            for process in &self.processes {
+                all_exited &= !process_is_running(process)?;
+            }
+            if active_processes(raw_handle(&self.job))? == 0 && all_exited {
                 return Ok(());
             }
             if Instant::now() >= deadline {
@@ -384,10 +381,16 @@ fn nul_terminated(value: &OsStr) -> io::Result<Vec<u16>> {
     Ok(value)
 }
 
-fn process_is_running(process: &OwnedHandle) -> bool {
-    let mut exit_code = 0u32;
-    unsafe { GetExitCodeProcess(raw_handle(process), &raw mut exit_code) }.is_ok()
-        && exit_code == STILL_ACTIVE.0 as u32
+fn process_is_running(process: &OwnedHandle) -> io::Result<bool> {
+    match unsafe { WaitForSingleObject(raw_handle(process), 0) } {
+        WAIT_TIMEOUT => Ok(true),
+        WAIT_OBJECT_0 => Ok(false),
+        WAIT_FAILED => Err(io::Error::last_os_error()),
+        status => Err(io::Error::other(format!(
+            "unexpected process wait status {}",
+            status.0
+        ))),
+    }
 }
 
 fn active_processes(job: HANDLE) -> io::Result<u32> {
@@ -521,7 +524,7 @@ mod tests {
     }
 
     #[test]
-    fn job_observes_a_managed_process_exit() {
+    fn job_observes_managed_process_exit_code_259() {
         let executable = std::env::current_exe().unwrap();
         let install_root = executable.parent().unwrap();
         let backend = SessionBackend {
@@ -533,7 +536,8 @@ mod tests {
                     .into_owned(),
                 arguments: vec![
                     "--exact".to_owned(),
-                    "windows::managed_processes::tests::managed_process_fixture_exits".to_owned(),
+                    "windows::managed_processes::tests::managed_process_fixture_exits_259"
+                        .to_owned(),
                     "--ignored".to_owned(),
                     "--quiet".to_owned(),
                 ],
@@ -564,8 +568,9 @@ mod tests {
 
     #[test]
     #[ignore = "managed process fixture"]
-    fn managed_process_fixture_exits() {
+    fn managed_process_fixture_exits_259() {
         std::thread::sleep(Duration::from_millis(250));
+        std::process::exit(259);
     }
 
     fn parse_command_line(command_line: &[u16]) -> Vec<OsString> {

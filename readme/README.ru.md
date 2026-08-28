@@ -121,7 +121,7 @@ TCP sessions, обычные UDP associations, half-open connections, outbound h
 ```bash
 cargo fmt --all -- --check
 cargo test --all-features --all-targets
-cargo clippy --locked --all-features --lib --bins -- -D warnings -A clippy::chunks-exact-to-as-chunks -A clippy::map-or-identity
+cargo clippy --locked --all-features --lib --bins -- -D warnings
 cargo test --manifest-path crates/vcore-netstack/Cargo.toml --all-targets
 cargo clippy --manifest-path crates/vcore-netstack/Cargo.toml --all-targets -- -D warnings
 uv run --project scripts --locked vcore-scripts check c-header
@@ -139,16 +139,16 @@ uv run --project scripts --locked vcore-scripts build android
 uv run --project scripts --locked vcore-scripts build windows --architecture arm64
 ```
 
-Выполненные проверки и отложенные release gates для физических устройств и Windows перечислены в [`docs/acceptance.md`](../docs/acceptance.md).
+Текущая подтверждённая область проверки и отложенные release gates для физических устройств и Windows перечислены в [`docs/acceptance.md`](../docs/acceptance.md).
 
 ## Credits
 
-VCore использует реализационные основы, архитектурные решения и результаты interoperability следующих проектов:
+К зависимостям VCore, сопровождаемым forks, справочным материалам по открытым API/протоколам, архитектурным ориентирам и объектам interoperability относятся:
 
 - [smoltcp](https://github.com/smoltcp-rs/smoltcp), [clash-rs](https://github.com/Watfaq/clash-rs) и [netstack-smoltcp](https://github.com/automesh-network/netstack-smoltcp): userspace IP stacks и TUN netstacks.
 - [windows-rs](https://github.com/microsoft/windows-rs), [UWP VPN Plugin Sample](https://github.com/microsoft/UwpVpnPluginSample), [wireguard-uwp-rs](https://github.com/luqmana/wireguard-uwp-rs), [Maple](https://github.com/YtFlow/Maple) и [YtFlowCore](https://github.com/YtFlow/YtFlowCore): Windows VPN, активация WinRT и packet flow.
 - [Xray-core](https://github.com/XTLS/Xray-core), [Mihomo](https://github.com/MetaCubeX/mihomo) и [Leaf](https://github.com/eycorsican/leaf): прокси-протоколы, маршрутизация, архитектура TUN и interoperability references.
-- [rustls](https://github.com/rustls/rustls): реализация TLS и основа VCore REALITY fork.
+- [rustls](https://github.com/rustls/rustls): TLS-зависимость и upstream сопровождаемого VCore REALITY fork.
 
 ## Лицензия
 

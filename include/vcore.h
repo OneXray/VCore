@@ -18,7 +18,8 @@ char *VCoreInvoke(const char *request_json);
  * environment, VPN profile lifecycle, immutable Session Snapshot publication,
  * optional session backend processes, and StartupTask operations. The response
  * has the same allocation ownership as VCoreInvoke and must be released with
- * VCoreFree.
+ * VCoreFree. The calling thread must either have no COM apartment initialized
+ * or already be initialized as MTA; STA and ASTA callers are unsupported.
  */
 #ifdef _WIN32
 char *VCoreWindowsVpnInvoke(const char *request_json);
