@@ -48,7 +48,12 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-"$XRAY_BIN" version | sed -n '1,2p'
+if ! command -v "$XRAY_BIN" >/dev/null 2>&1; then
+  echo "Xray is required; set XRAY_BIN to its executable" >&2
+  exit 2
+fi
+"$XRAY_BIN" version >"$TMP_DIR/xray-version.txt"
+sed -n '1,2p' "$TMP_DIR/xray-version.txt"
 "$OPENSSL" version
 
 "$OPENSSL" req -x509 -newkey rsa:2048 -sha256 -nodes -days 1 \

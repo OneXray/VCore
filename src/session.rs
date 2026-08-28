@@ -204,7 +204,7 @@ mod tests {
             XUDP_MAX_RESPONSE_PAYLOAD_SIZE
         );
         assert_eq!(
-            DatagramSession::new(InboundKind::Http, source).max_response_payload_size(),
+            DatagramSession::new(InboundKind::InternalMeasure, source).max_response_payload_size(),
             XUDP_MAX_RESPONSE_PAYLOAD_SIZE
         );
         assert_eq!(

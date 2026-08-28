@@ -25,11 +25,27 @@ if ! command -v python3 >/dev/null 2>&1; then
   echo "Python 3 is required to reserve a local interoperability port" >&2
   exit 2
 fi
+if ! command -v git >/dev/null 2>&1; then
+  echo "Git is required to identify the anytls-go reference revision" >&2
+  exit 2
+fi
 if [ ! -f "$REFERENCE_DIR/go.mod" ] || [ ! -d "$REFERENCE_DIR/cmd/server" ]; then
   echo "anytls-go reference checkout was not found at $REFERENCE_DIR" >&2
   echo "Set ANYTLS_GO_DIR to its local checkout" >&2
   exit 2
 fi
+REFERENCE_PREFIX=$(git -C "$REFERENCE_DIR" rev-parse --show-prefix 2>/dev/null) || {
+  echo "anytls-go reference is not a Git checkout: $REFERENCE_DIR" >&2
+  exit 2
+}
+if [ -n "$REFERENCE_PREFIX" ]; then
+  echo "anytls-go reference must be the root of its Git checkout: $REFERENCE_DIR" >&2
+  exit 2
+fi
+REFERENCE_REVISION=$(git -C "$REFERENCE_DIR" rev-parse --verify HEAD 2>/dev/null) || {
+  echo "anytls-go reference revision is unavailable: $REFERENCE_DIR" >&2
+  exit 2
+}
 
 if [ -n "${ANYTLS_INTEROP_PORT:-}" ]; then
   PORT=$ANYTLS_INTEROP_PORT
@@ -38,8 +54,7 @@ else
 fi
 ADDRESS="127.0.0.1:$PORT"
 
-printf 'anytls-go revision: '
-git -C "$REFERENCE_DIR" rev-parse --short HEAD
+printf 'anytls-go revision: %s\n' "$REFERENCE_REVISION"
 go version
 
 (
