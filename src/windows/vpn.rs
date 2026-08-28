@@ -586,9 +586,11 @@ impl VpnProvider {
             .join()?;
         let output = back_transport.OutputStream()?;
 
-        let routes = vpn_routes()?;
-        let (assigned_ipv4, assigned_ipv6) = vpn_client_addresses(profile.network_settings())?;
-        let dns = vpn_dns_assignment(profile.network_settings())?;
+        let ipv6 = profile.ipv6_enabled();
+        let routes = vpn_routes(ipv6)?;
+        let (assigned_ipv4, assigned_ipv6) =
+            vpn_client_addresses(profile.network_settings(), ipv6)?;
+        let dns = vpn_dns_assignment(profile.network_settings(), ipv6)?;
 
         let wake_output = AgileReference::new(&output)?;
         let (tun, packets) = TunIo::new(PACKET_QUEUE_CAPACITY, move || {
@@ -926,7 +928,7 @@ extern "system" fn DllGetActivationFactory(
     .unwrap_or(E_FAIL)
 }
 
-fn vpn_routes() -> Result<VpnRouteAssignment> {
+fn vpn_routes(ipv6: bool) -> Result<VpnRouteAssignment> {
     let routes = VpnRouteAssignment::new()?;
     routes.SetExcludeLocalSubnets(true)?;
     for network in ["0.0.0.0", "128.0.0.0"] {
@@ -937,39 +939,50 @@ fn vpn_routes() -> Result<VpnRouteAssignment> {
                 1,
             )?)?;
     }
-    for network in ["::", "8000::"] {
-        routes
-            .Ipv6InclusionRoutes()?
-            .Append(&VpnRoute::CreateVpnRoute(
-                &HostName::CreateHostName(&network.into())?,
-                1,
-            )?)?;
+    if ipv6 {
+        for network in ["::", "8000::"] {
+            routes
+                .Ipv6InclusionRoutes()?
+                .Append(&VpnRoute::CreateVpnRoute(
+                    &HostName::CreateHostName(&network.into())?,
+                    1,
+                )?)?;
+        }
     }
     Ok(routes)
 }
 
 fn vpn_client_addresses(
     settings: &WindowsNetworkSettings,
+    ipv6: bool,
 ) -> Result<(IVectorView<HostName>, IVectorView<HostName>)> {
     Ok((
         IVectorView::from(vec![Some(HostName::CreateHostName(
             &settings.ipv4_address().to_string().into(),
         )?)]),
-        IVectorView::from(vec![Some(HostName::CreateHostName(
-            &settings.ipv6_address().to_string().into(),
-        )?)]),
+        IVectorView::from(if ipv6 {
+            vec![Some(HostName::CreateHostName(
+                &settings.ipv6_address().to_string().into(),
+            )?)]
+        } else {
+            Vec::new()
+        }),
     ))
 }
 
-fn vpn_dns_assignment(settings: &WindowsNetworkSettings) -> Result<VpnDomainNameAssignment> {
-    let dns_servers = IVectorView::from(vec![
-        Some(HostName::CreateHostName(
-            &settings.dns_ipv4_address().to_string().into(),
-        )?),
-        Some(HostName::CreateHostName(
+fn vpn_dns_assignment(
+    settings: &WindowsNetworkSettings,
+    ipv6: bool,
+) -> Result<VpnDomainNameAssignment> {
+    let mut dns_servers = vec![Some(HostName::CreateHostName(
+        &settings.dns_ipv4_address().to_string().into(),
+    )?)];
+    if ipv6 {
+        dns_servers.push(Some(HostName::CreateHostName(
             &settings.dns_ipv6_address().to_string().into(),
-        )?),
-    ]);
+        )?));
+    }
+    let dns_servers = IVectorView::from(dns_servers);
     let proxy_servers = IVectorView::from(Vec::<Option<HostName>>::new());
     let info = VpnDomainNameInfo::CreateVpnDomainNameInfo(
         &".".into(),
@@ -1095,15 +1108,20 @@ mod tests {
         let _winrt = WinRtGuard::enter();
         let digest = "0123456789abcdef".repeat(4);
         let profile = WindowsProfileConfiguration::parse(&format!(
-            r#"{{"version":2,"snapshotToken":"vcore-session-v2:{digest}","networkSettings":{{"ipv4Address":"192.168.8.1","ipv6Address":"fd00:8::2","dnsIpv4Address":"223.5.5.5","dnsIpv6Address":"2400:3200::1"}}}}"#
+            r#"{{"version":3,"snapshotToken":"vcore-session-v2:{digest}","ipv6":true,"networkSettings":{{"ipv4Address":"192.168.8.1","ipv6Address":"fd00:8::2","dnsIpv4Address":"223.5.5.5","dnsIpv6Address":"2400:3200::1"}}}}"#
         ))
         .unwrap();
 
-        let (ipv4, ipv6) = vpn_client_addresses(profile.network_settings()).unwrap();
+        let routes = vpn_routes(profile.ipv6_enabled()).unwrap();
+        assert_eq!(routes.Ipv4InclusionRoutes().unwrap().Size().unwrap(), 2);
+        assert_eq!(routes.Ipv6InclusionRoutes().unwrap().Size().unwrap(), 2);
+
+        let (ipv4, ipv6) =
+            vpn_client_addresses(profile.network_settings(), profile.ipv6_enabled()).unwrap();
         assert_eq!(ipv4.GetAt(0).unwrap().DisplayName().unwrap(), "192.168.8.1");
         assert_eq!(ipv6.GetAt(0).unwrap().DisplayName().unwrap(), "fd00:8::2");
 
-        let dns = vpn_dns_assignment(profile.network_settings()).unwrap();
+        let dns = vpn_dns_assignment(profile.network_settings(), profile.ipv6_enabled()).unwrap();
         let info = dns.DomainNameList().unwrap().GetAt(0).unwrap();
         let servers = info.DnsServers().unwrap();
         assert_eq!(
@@ -1113,6 +1131,39 @@ mod tests {
         assert_eq!(
             servers.GetAt(1).unwrap().DisplayName().unwrap(),
             "2400:3200::1"
+        );
+    }
+
+    #[test]
+    fn provider_omits_ipv6_assignments_when_disabled() {
+        let _winrt = WinRtGuard::enter();
+        let digest = "0123456789abcdef".repeat(4);
+        let profile = WindowsProfileConfiguration::parse(&format!(
+            r#"{{"version":3,"snapshotToken":"vcore-session-v2:{digest}","ipv6":false,"networkSettings":{{"ipv4Address":"192.168.8.1","ipv6Address":"fd00:8::2","dnsIpv4Address":"223.5.5.5","dnsIpv6Address":"2400:3200::1"}}}}"#
+        ))
+        .unwrap();
+
+        let routes = vpn_routes(profile.ipv6_enabled()).unwrap();
+        assert_eq!(routes.Ipv4InclusionRoutes().unwrap().Size().unwrap(), 2);
+        assert_eq!(routes.Ipv6InclusionRoutes().unwrap().Size().unwrap(), 0);
+
+        let (ipv4, ipv6) =
+            vpn_client_addresses(profile.network_settings(), profile.ipv6_enabled()).unwrap();
+        assert_eq!(ipv4.Size().unwrap(), 1);
+        assert_eq!(ipv6.Size().unwrap(), 0);
+
+        let dns = vpn_dns_assignment(profile.network_settings(), profile.ipv6_enabled()).unwrap();
+        let servers = dns
+            .DomainNameList()
+            .unwrap()
+            .GetAt(0)
+            .unwrap()
+            .DnsServers()
+            .unwrap();
+        assert_eq!(servers.Size().unwrap(), 1);
+        assert_eq!(
+            servers.GetAt(0).unwrap().DisplayName().unwrap(),
+            "223.5.5.5"
         );
     }
 

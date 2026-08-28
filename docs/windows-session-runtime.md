@@ -50,21 +50,22 @@ Session Host 每次连接新建一个进程，不常驻、不复用运行时，�
 
 - Snapshot revision 2 保存完整 VCore YAML，以及可选的有序 `sessionBackend.processes`；每项只有规范 package-relative executable path 和 argv 数组。
 - token 覆盖 YAML、进程顺序、路径和参数。参数引用的文件由调用方保持存在且不可变，VCore 不读取或摘要其内容。
-- profile custom configuration 是最大 1 KiB 的严格 JSON，包含修订版 2、规范 Session token 和 TUN/DNS 的 IPv4/IPv6 地址。
+- profile custom configuration 是最大 1 KiB 的严格 JSON，包含修订版 3、规范 Session token、顶层 IPv6 开关和 TUN/DNS 的 IPv4/IPv6 地址。
 - custom configuration 不包含 YAML、backend 描述、Controller secret、PID 或管道路径。
-- 活动 profile 只有在 token 和四个地址完全相同时才幂等；任何变化都必须先 Stop。
+- `startVpn` 的四个地址始终严格必填并经过验证；顶层 `ipv6: false` 时，Provider 忽略两个 IPv6 地址，只安装 IPv4 地址、路由和 DNS。
+- 活动 profile 只有在 token、IPv6 开关和四个地址完全相同时才幂等；任何变化都必须先 Stop。
 - 读取 Snapshot 时校验大小、普通文件、reparse point、内容摘要、规范 JSON及每个 executable。
 - TUN 地址、Controller 端口/secret 和 Ping 目标属于运行时字段，不写入用户 RAW YAML。
 
 ## 启动顺序
 
 1. 前台宿主调用 `startVpn(configYaml, networkSettings, sessionBackend?)`。
-2. 桥接验证配置、地址和进程描述，发布不可变 Session Snapshot 并生成 profile configuration。
+2. 桥接验证配置、四个地址和进程描述，发布不可变 Session Snapshot，并把解析后的顶层 IPv6 开关写入 profile configuration。
 3. 桥接通过 `IApplicationActivationManager` 激活隐藏 Session Host，只传 `--session-token <token>`。
 4. 桥接持有激活返回的精确进程句柄。
 5. 桥接写入单一 VPN profile 并调用 `ConnectProfileAsync`。
 6. Windows 激活 Provider。
-7. Provider 在安装路由前选择物理网络绑定，并创建控制/数据管道服务端。
+7. Provider 在安装路由前选择物理网络绑定，并创建控制/数据管道服务端；顶层 `ipv6: false` 时不安装 IPv6 地址、路由或 DNS。
 8. Provider 原子发布会合记录。
 9. Session Host 校验命令行令牌和会合记录，构造限定对象路径并连接两条管道。
 10. Session Host 发送 `SessionHello`；Provider 返回 `ProviderHello` 和不可变物理绑定。

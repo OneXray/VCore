@@ -18,7 +18,7 @@
 当前测试覆盖以下公共边界：
 
 - Invoke API v5 envelope、严格 payload、单实例生命周期、panic 隔离和同步清理；
-- 配置修订版 11、代理图、节点测速配置和未知字段拒绝；
+- 配置修订版 12、IPv6 总开关、代理图、节点测速配置和未知字段拒绝；
 - VLESS/XHTTP/TLS/REALITY、SOCKS5、AnyTLS 和代理链；
 - DNS wire、缓存、singleflight、policy、故障转移和 TCP 复用；
 - 规则、GeoData、HTTP/TLS/QUIC 嗅探；

@@ -4,7 +4,7 @@
   English · <a href="./readme/README.zh_CN.md">简体中文</a> · <a href="./readme/README.ru.md">Русский</a>
 </p>
 
-VCore is a standalone, host-agnostic Rust client proxy core. It provides proxy graphs, DNS, routing rules, GeoData, an HTTP listener, a TUN data plane, and traffic statistics through strict YAML configuration and Invoke API v5. The internal configuration schema revision is 11; the revision appears only in the `version` response and `buildIdentity`, not in YAML.
+VCore is a standalone, host-agnostic Rust client proxy core. It provides proxy graphs, DNS, routing rules, GeoData, an HTTP listener, a TUN data plane, and traffic statistics through strict YAML configuration and Invoke API v5. The internal configuration schema revision is 12; the revision appears only in the `version` response and `buildIdentity`, not in YAML.
 
 ## Features
 

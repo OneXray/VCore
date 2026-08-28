@@ -183,7 +183,7 @@ if (response != nullptr) {
 - 配置内容或任一地址变化时，活动会话不会 hot-swap，必须先 `stopVpn`；
 - 完全相同的配置和地址重复 `startVpn` 是幂等查询，不创建第二个 Session Host。
 
-VCore 会校验 YAML、发布 `vcore-session-v2:` 内容寻址 Session Snapshot，并只把 token 和四个地址写入最大 1 KiB 的 profile custom configuration。调用方不要自行创建另一个 `VpnPlugInProfile` 或维护第二份 Snapshot。
+VCore 会校验 YAML、发布 `vcore-session-v2:` 内容寻址 Session Snapshot，并只把 token、解析后的顶层 IPv6 开关和四个地址写入最大 1 KiB 的 profile custom configuration。调用方不要自行创建另一个 `VpnPlugInProfile` 或维护第二份 Snapshot。
 
 需要让 Session Host 同会话监督 package-local 进程时，可以额外提交 `sessionBackend.processes`；每项只有 `executableRelativePath` 和 `arguments`。第一版不管理端口、UDP、readiness 或进程业务配置，完整契约见 [Windows 会话运行时](../../docs/windows-session-runtime.md)。本 demo 不携带 backend。
 

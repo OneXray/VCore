@@ -38,6 +38,7 @@ pub const GEO_UPDATE_INTERVAL_HOURS: u64 = 24;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
+    pub ipv6: bool,
     pub proxies: Vec<ProxyConfig>,
     pub default_proxy: ProxyId,
     pub geodata_update: Option<GeoDataUpdateConfig>,
@@ -396,6 +397,8 @@ impl std::fmt::Debug for HttpInboundConfig {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawVCoreConfig {
+    #[serde(default = "default_true")]
+    ipv6: bool,
     #[serde(
         rename = "geox-url",
         default,
@@ -797,9 +800,10 @@ impl RawVCoreConfig {
         let (proxies, proxy_ids) = normalize_proxy_graph(self.proxies)?;
         let default_proxy = derive_default_proxy_from_rules(&self.rules, &proxy_ids)?;
 
-        let dns = self
+        let mut dns = self
             .dns
             .map_or_else(DnsConfig::disabled, |dns| dns.normalize(&proxy_ids))?;
+        dns.ipv6 &= self.ipv6;
         let rules = normalize_rules(self.rules, &proxy_ids)?;
         drop(proxy_ids);
 
@@ -822,6 +826,7 @@ impl RawVCoreConfig {
         }
 
         Ok(Config {
+            ipv6: self.ipv6,
             proxies,
             default_proxy,
             geodata_update,
@@ -3039,6 +3044,7 @@ geo-update-interval: 24"#,
     fn rejects_unknown_fields_at_every_depth() {
         for yaml in [
             CURRENT_TLS.replacen("port: 1080\n", "log: {}\nport: 1080\n", 1),
+            CURRENT_TLS.replacen("port: 1080\n", "ipv6-mode: true\nport: 1080\n", 1),
             CURRENT_TLS.replace("tun:\n", "tun:\n  typo: true\n"),
             with_sniffer("  enable: true\n  typo: true\n  sniff:\n    HTTP: {}"),
             with_sniffer("  enable: true\n  override-destination: false\n  sniff:\n    HTTP: {}"),
@@ -3684,6 +3690,7 @@ authentication:
             .as_bytes(),
         )
         .unwrap();
+        assert!(config.ipv6);
         assert_eq!(
             config.tun,
             TunConfig {
@@ -3705,6 +3712,29 @@ authentication:
         let tun_only = Config::parse_yaml(current_yaml("tun:\n  enable: true").as_bytes()).unwrap();
         assert_eq!(tun_only.inbounds.len(), 1);
         assert!(matches!(tun_only.inbounds[0], InboundConfig::Tun(_)));
+    }
+
+    #[test]
+    fn current_config_combines_global_and_dns_ipv6_switches() {
+        let global_disabled = Config::parse_yaml(
+            current_yaml(
+                "ipv6: false\nport: 1080\nauthentication:\n  - measure:secret\ndns:\n  enable: true\n  ipv6: true\n  nameserver: [1.1.1.1]",
+            )
+            .as_bytes(),
+        )
+        .unwrap();
+        assert!(!global_disabled.ipv6);
+        assert!(!global_disabled.dns.ipv6);
+
+        let dns_disabled = Config::parse_yaml(
+            current_yaml(
+                "ipv6: true\nport: 1080\nauthentication:\n  - measure:secret\ndns:\n  enable: true\n  ipv6: false\n  nameserver: [1.1.1.1]",
+            )
+            .as_bytes(),
+        )
+        .unwrap();
+        assert!(dns_disabled.ipv6);
+        assert!(!dns_disabled.dns.ipv6);
     }
 
     #[test]

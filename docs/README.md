@@ -4,7 +4,7 @@
 
 ## 公共契约
 
-1. [配置协议](config.yaml)：配置修订版 11 的完整 YAML 示例和严格字段边界。
+1. [配置协议](config.yaml)：配置修订版 12 的完整 YAML 示例和严格字段边界。
 2. [Invoke API](invoke-api.md)：API v5 的请求格式、生命周期和平台回调。
 3. [AnyTLS 出站](anytls.md)：TLS、会话复用、填充、TCP/UoT 和清理语义。
 4. [REALITY V1 协议](reality-wire-protocol.md)：握手、认证、连接状态和失败边界。
