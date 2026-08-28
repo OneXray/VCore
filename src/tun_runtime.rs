@@ -338,7 +338,6 @@ async fn tun_read_loop(
             first_read_logged = true;
         }
         if !tun_ingress_allowed(ipv6, &packet) {
-            tracing::debug!("dropping IPv6 packet because IPv6 is disabled");
             continue;
         }
         let raw = Packet::new(Bytes::copy_from_slice(&packet));
