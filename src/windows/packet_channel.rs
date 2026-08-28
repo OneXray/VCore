@@ -750,6 +750,7 @@ mod tests {
         let (provider, mut host) = tokio::io::duplex(4096);
         let (mut control_read, mut control_write) = tokio::io::split(provider);
         let (stop_tx, mut stop_rx) = oneshot::channel();
+        let (release_tx, release_rx) = oneshot::channel();
         let host = tokio::spawn(async move {
             write_control_async(
                 &mut host,
@@ -765,6 +766,7 @@ mod tests {
                 ControlMessage::ProviderHello { .. }
             ));
             stop_tx.send(PacketCounters::default()).unwrap();
+            _ = release_rx.await;
         });
 
         let outcome = timeout(
@@ -785,6 +787,7 @@ mod tests {
         .unwrap();
 
         assert!(outcome.is_none());
+        release_tx.send(()).unwrap();
         host.await.unwrap();
     }
 

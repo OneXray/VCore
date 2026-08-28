@@ -7,7 +7,9 @@
 
 use std::{
     collections::HashMap,
-    fmt, io,
+    fmt,
+    future::Future,
+    io,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     sync::{
         Arc, Mutex as StdMutex, Weak,
@@ -1265,62 +1267,16 @@ impl RuntimeDns {
         parsed_query: &DnsMessage,
         deadline: TokioInstant,
     ) -> Result<(Vec<u8>, DnsMessage), RuntimeDnsError> {
-        let mut last_error: Box<str> = "no nameserver attempted".into();
-        for (nameserver_index, nameserver) in nameservers.iter().copied().enumerate() {
-            let now = TokioInstant::now();
-            if now >= deadline {
-                tracing::warn!(
-                    nameserver_index,
-                    event = "runtime_dns_total_deadline",
-                    "runtime DNS deadline expired before nameserver attempt"
-                );
-                last_error = "runtime DNS total query deadline expired".into();
-                break;
-            }
-            let attempt_deadline = std::cmp::min(deadline, now + UPSTREAM_TIMEOUT);
-            let attempt = self.exchange_nameserver(nameserver, query, parsed_query);
-            match timeout_at(attempt_deadline, attempt).await {
-                Err(_) => {
-                    tracing::warn!(
-                        nameserver_index,
-                        event = "runtime_dns_attempt_timeout",
-                        "runtime DNS nameserver attempt timed out"
-                    );
-                    last_error = format!("nameserver {nameserver_index} attempt timed out").into();
-                }
-                Ok(Err(error)) => {
-                    tracing::debug!(
-                        nameserver_index,
-                        error_kind = error.category(),
-                        "runtime DNS nameserver attempt failed"
-                    );
-                    last_error = error.summary(nameserver_index);
-                }
-                Ok(Ok((_response, parsed_response)))
-                    if matches!(parsed_response.rcode, RCODE_SERVFAIL | RCODE_REFUSED) =>
-                {
-                    tracing::debug!(
-                        nameserver_index,
-                        rcode = parsed_response.rcode,
-                        "runtime DNS nameserver returned a retryable response"
-                    );
-                    last_error = format!(
-                        "nameserver {nameserver_index} returned retryable response code {}",
-                        parsed_response.rcode
-                    )
-                    .into();
-                }
-                Ok(Ok(result)) => return Ok(result),
-            }
-            if nameserver_index + 1 < nameservers.len() {
-                tracing::debug!(
-                    nameserver_index,
-                    event = "runtime_dns_nameserver_failover",
-                    "runtime DNS is trying the next nameserver"
-                );
-            }
-        }
-        Err(RuntimeDnsError::UpstreamsExhausted { last_error })
+        exchange_nameservers(
+            nameservers,
+            deadline,
+            |nameserver| self.exchange_nameserver(nameserver, query, parsed_query),
+            |(_, response): &(Vec<u8>, DnsMessage)| {
+                matches!(response.rcode, RCODE_SERVFAIL | RCODE_REFUSED)
+                    .then_some(u16::from(response.rcode))
+            },
+        )
+        .await
     }
 
     async fn exchange_opaque_upstreams(
@@ -1330,63 +1286,20 @@ impl RuntimeDns {
         classified: &ClassifiedDnsQuery,
         deadline: TokioInstant,
     ) -> Result<ValidatedOpaqueResponse, RuntimeDnsError> {
-        let mut last_error: Box<str> = "no nameserver attempted".into();
-        for (nameserver_index, nameserver) in nameservers.iter().copied().enumerate() {
-            let now = TokioInstant::now();
-            if now >= deadline {
-                tracing::warn!(
-                    nameserver_index,
-                    event = "runtime_dns_total_deadline",
-                    "runtime DNS deadline expired before opaque nameserver attempt"
-                );
-                last_error = "runtime DNS total query deadline expired".into();
-                break;
-            }
-            let attempt_deadline = std::cmp::min(deadline, now + UPSTREAM_TIMEOUT);
-            let attempt = self.exchange_opaque_nameserver(nameserver, query, classified);
-            match timeout_at(attempt_deadline, attempt).await {
-                Err(_) => {
-                    tracing::warn!(
-                        nameserver_index,
-                        event = "runtime_dns_attempt_timeout",
-                        "runtime DNS opaque nameserver attempt timed out"
-                    );
-                    last_error = format!("nameserver {nameserver_index} attempt timed out").into();
-                }
-                Ok(Err(error)) => {
-                    tracing::debug!(
-                        nameserver_index,
-                        error_kind = error.category(),
-                        "runtime DNS opaque nameserver attempt failed"
-                    );
-                    last_error = error.summary(nameserver_index);
-                }
-                Ok(Ok(response))
-                    if response.rcode() == u16::from(RCODE_SERVFAIL)
-                        || response.rcode() == u16::from(RCODE_REFUSED) =>
-                {
-                    tracing::debug!(
-                        nameserver_index,
-                        rcode = response.rcode(),
-                        "runtime DNS opaque nameserver returned a retryable response"
-                    );
-                    last_error = format!(
-                        "nameserver {nameserver_index} returned retryable response code {}",
-                        response.rcode()
-                    )
-                    .into();
-                }
-                Ok(Ok(response)) => return Ok(response),
-            }
-            if nameserver_index + 1 < nameservers.len() {
-                tracing::debug!(
-                    nameserver_index,
-                    event = "runtime_dns_nameserver_failover",
-                    "runtime DNS is trying the next opaque nameserver"
-                );
-            }
-        }
-        Err(RuntimeDnsError::UpstreamsExhausted { last_error })
+        exchange_nameservers(
+            nameservers,
+            deadline,
+            |nameserver| self.exchange_opaque_nameserver(nameserver, query, classified),
+            |response: &ValidatedOpaqueResponse| {
+                matches!(
+                    response.rcode(),
+                    rcode if rcode == u16::from(RCODE_SERVFAIL)
+                        || rcode == u16::from(RCODE_REFUSED)
+                )
+                .then_some(response.rcode())
+            },
+        )
+        .await
     }
 
     async fn exchange_nameserver(
@@ -1683,6 +1596,73 @@ fn finish_shared_result(
         },
         Err(error) => Err(error),
     }
+}
+
+async fn exchange_nameservers<T, Attempt, AttemptFuture, RetryableResponse>(
+    nameservers: &[DnsNameserver],
+    deadline: TokioInstant,
+    mut attempt: Attempt,
+    retryable_response: RetryableResponse,
+) -> Result<T, RuntimeDnsError>
+where
+    Attempt: FnMut(DnsNameserver) -> AttemptFuture,
+    AttemptFuture: Future<Output = Result<T, AttemptError>>,
+    RetryableResponse: Fn(&T) -> Option<u16>,
+{
+    let mut last_error: Box<str> = "no nameserver attempted".into();
+    for (nameserver_index, nameserver) in nameservers.iter().copied().enumerate() {
+        let now = TokioInstant::now();
+        if now >= deadline {
+            tracing::warn!(
+                nameserver_index,
+                event = "runtime_dns_total_deadline",
+                "runtime DNS deadline expired before nameserver attempt"
+            );
+            last_error = "runtime DNS total query deadline expired".into();
+            break;
+        }
+        let attempt_deadline = std::cmp::min(deadline, now + UPSTREAM_TIMEOUT);
+        match timeout_at(attempt_deadline, attempt(nameserver)).await {
+            Err(_) => {
+                tracing::warn!(
+                    nameserver_index,
+                    event = "runtime_dns_attempt_timeout",
+                    "runtime DNS nameserver attempt timed out"
+                );
+                last_error = format!("nameserver {nameserver_index} attempt timed out").into();
+            }
+            Ok(Err(error)) => {
+                tracing::debug!(
+                    nameserver_index,
+                    error_kind = error.category(),
+                    "runtime DNS nameserver attempt failed"
+                );
+                last_error = error.summary(nameserver_index);
+            }
+            Ok(Ok(response)) => {
+                let Some(rcode) = retryable_response(&response) else {
+                    return Ok(response);
+                };
+                tracing::debug!(
+                    nameserver_index,
+                    rcode,
+                    "runtime DNS nameserver returned a retryable response"
+                );
+                last_error = format!(
+                    "nameserver {nameserver_index} returned retryable response code {rcode}"
+                )
+                .into();
+            }
+        }
+        if nameserver_index + 1 < nameservers.len() {
+            tracing::debug!(
+                nameserver_index,
+                event = "runtime_dns_nameserver_failover",
+                "runtime DNS is trying the next nameserver"
+            );
+        }
+    }
+    Err(RuntimeDnsError::UpstreamsExhausted { last_error })
 }
 
 impl DnsNameserver {

@@ -1360,7 +1360,7 @@ impl RawRealitySettings {
             return invalid("REALITY short-id must be at most 16 even-numbered hex characters");
         }
         let mut short_id = Vec::with_capacity(self.short_id.len() / 2);
-        for pair in self.short_id.as_bytes().chunks_exact(2) {
+        for pair in self.short_id.as_bytes().as_chunks::<2>().0 {
             let pair = std::str::from_utf8(pair).expect("hex input is UTF-8");
             let byte = u8::from_str_radix(pair, 16)
                 .map_err(|_| VCoreError::InvalidConfig("invalid REALITY short-id".to_owned()))?;
@@ -2051,7 +2051,7 @@ fn parse_port_ranges(input: &str) -> Result<Vec<PortRange>> {
             if item.is_empty() {
                 return invalid("DST-PORT contains an empty port range");
             }
-            let (start, end) = item.split_once('-').map_or((item, item), |range| range);
+            let (start, end) = item.split_once('-').unwrap_or((item, item));
             if end.contains('-') {
                 return invalid("DST-PORT range must contain at most one `-`");
             }

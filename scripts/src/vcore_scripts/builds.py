@@ -346,22 +346,25 @@ def build_windows(architecture: str) -> None:
         "cargo",
         "build",
         "--locked",
-        "--all-features",
         "--release",
         "--target",
         target,
+        "--no-default-features",
+        "--features",
+        "ffi",
     ]
     _run([*base, "--lib", "--bins"], env=env)
 
     release = CORE_DIR / "target" / target / "release"
-    output = CORE_DIR / "dist" / "windows" / architecture
-    shutil.rmtree(output, ignore_errors=True)
-    output.mkdir(parents=True)
     artifacts = [
         "vcore.dll",
         "vcore-windows-vpn-host.exe",
         "vcore-windows-session-host.exe",
     ]
+    _require_identity(release / "vcore.dll", "Windows")
+    output = CORE_DIR / "dist" / "windows" / architecture
+    shutil.rmtree(output, ignore_errors=True)
+    output.mkdir(parents=True)
     for name in artifacts:
         shutil.copy2(release / name, output / name)
     for name in artifacts:

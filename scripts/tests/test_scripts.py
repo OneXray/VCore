@@ -4,9 +4,10 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
-from vcore_scripts import cli
+from vcore_scripts import builds, cli
 from vcore_scripts.builds import EXPECTED_IDENTITY, _android_target, _require_identity
 from vcore_scripts.checks import (
     CRATES_IO_SOURCES,
@@ -38,6 +39,45 @@ class ScriptTest(unittest.TestCase):
             artifact.write_bytes(b"wrong")
             with self.assertRaisesRegex(RuntimeError, "incompatible Rust identity"):
                 _require_identity(artifact, "test")
+
+    def test_windows_release_build_uses_production_features_and_checks_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            release = root / "target/aarch64-pc-windows-msvc/release"
+            release.mkdir(parents=True)
+            for name in (
+                "vcore.dll",
+                "vcore-windows-vpn-host.exe",
+                "vcore-windows-session-host.exe",
+            ):
+                (release / name).write_bytes(EXPECTED_IDENTITY)
+
+            with (
+                patch.object(builds, "CORE_DIR", root),
+                patch.object(builds, "os", SimpleNamespace(name="nt")),
+                patch.object(builds, "_windows_msvc_environment", return_value={}),
+                patch.object(builds, "_run") as run,
+            ):
+                builds.build_windows("arm64")
+                self.assertEqual(
+                    run.call_args_list[1].args[0],
+                    [
+                        "cargo",
+                        "build",
+                        "--locked",
+                        "--release",
+                        "--target",
+                        "aarch64-pc-windows-msvc",
+                        "--no-default-features",
+                        "--features",
+                        "ffi",
+                        "--lib",
+                        "--bins",
+                    ],
+                )
+                (release / "vcore.dll").write_bytes(b"wrong")
+                with self.assertRaisesRegex(RuntimeError, "incompatible Rust identity"):
+                    builds.build_windows("arm64")
 
     def test_tls_metadata_accepts_the_locked_graph(self):
         registry = next(iter(CRATES_IO_SOURCES))

@@ -49,6 +49,16 @@ bash tests/run_xray_interop.sh
 bash tests/run_anytls_interop.sh
 ```
 
+Windows 11 ARM64 开发验收的环境、命令、结果和适用范围保存在以下不可变记录中：
+
+- [Session Runtime lifecycle、失败关闭、重连与 pressure](https://github.com/OneXray/VCore/blob/f41610c/docs/acceptance.md#windows-session-runtime-phase-6-2026-08-24)
+- [protocol-v1 有界 batching](https://github.com/OneXray/VCore/blob/7856bef/docs/acceptance.md#windows-session-runtime-phase-6-2026-08-24)
+- [外部 TUN/DNS 地址与安装包边界](https://github.com/OneXray/VCore/blob/1011955/docs/acceptance.md#6-windows-vpn)
+- [external Xray SOCKS tun2socks demo](https://github.com/OneXray/VCore/blob/6636bd7/docs/acceptance.md#67-external-xray-socks-tun2socks-demo)
+- [UWP VPN 最小示例 lifecycle](https://github.com/OneXray/VCore/blob/26e1095/docs/acceptance.md#windows-vpn)
+
+这些记录只证明其明确列出的开发环境和场景，不是当前 release 或 Store 保证。没有保留公开命令记录的观察结果不计入下方“已验证”范围。
+
 ## 协议与数据面
 
 | 能力 | 自动化 | 外部进程互操作 | 物理 TUN / 安装包 |
@@ -93,8 +103,6 @@ bash tests/run_anytls_interop.sh
 - 非回环 socket 的物理源地址与接口索引绑定；
 - Controller、外部回环 SOCKS5 和前台宿主退出后的会话延续；
 - Provider/Session Host 退出、管道错误和网络变化时的失败关闭；
-- `sessionBackend` 同时启动两个 package-local 进程并传递不同 argv；调用桥接的完全信任进程退出后会话继续，外部探针通过两个独立回环监听器确认参数生效；
-- 任一受管进程退出和 Session Host 强制退出都会清理完整 backend 并断开 VPN，显式 Stop 在 Session Host 和 backend 退出后清理路由；
 - 快速重连、持续压力、零队列丢弃和显式 Stop 清理；
 - 断开状态下的安装包原位升级和签名校验。
 
@@ -110,6 +118,7 @@ Windows 路由必须保留两条 `/1`。在安装包环境中，单条 VPN `/0` 
 - Partner Center identity、publisher 和受限能力审批；
 - ARM64/x64 Store bundle 与提交；
 - 多用户和远程会话矩阵；
+- 带公开、可复现命令记录的 `sessionBackend` package-boundary argv、进程退出和 Job 清理矩阵；
 - native x64 和正式宿主 UI 路径下的 `sessionBackend` 回归。
 
 ## rustls REALITY 发布

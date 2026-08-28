@@ -12,7 +12,7 @@ use tokio::time::{Instant, MissedTickBehavior, interval_at};
 use tokio_util::sync::CancellationToken;
 
 #[cfg(feature = "inbound-http")]
-use crate::config::ExternalControllerConfig;
+use crate::config::{ExternalControllerConfig, MAX_CONTROLLER_SECRET_BYTES};
 #[cfg(feature = "inbound-http")]
 use std::net::SocketAddr;
 #[cfg(feature = "inbound-http")]
@@ -287,20 +287,18 @@ fn authorized(headers: &[(String, String)], secret: Option<&str>) -> bool {
     }
     value
         .strip_prefix("Bearer ")
-        .is_some_and(|token| constant_time_eq(token.as_bytes(), secret.as_bytes()))
+        .is_some_and(|token| controller_token_eq(token.as_bytes(), secret.as_bytes()))
 }
 
 #[cfg(feature = "inbound-http")]
-fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
-    if left.len() != right.len() {
-        return false;
+fn controller_token_eq(candidate: &[u8], secret: &[u8]) -> bool {
+    let mut difference = candidate.len() ^ secret.len();
+    for index in 0..MAX_CONTROLLER_SECRET_BYTES {
+        let candidate = candidate.get(index).copied().unwrap_or_default();
+        let secret = secret.get(index).copied().unwrap_or_default();
+        difference |= usize::from(candidate ^ secret);
     }
-    left.iter()
-        .zip(right)
-        .fold(0_u8, |difference, (left, right)| {
-            difference | (left ^ right)
-        })
-        == 0
+    difference == 0
 }
 
 #[cfg(feature = "inbound-http")]
@@ -408,6 +406,10 @@ mod tests {
             ],
             Some("token")
         ));
+        assert!(!controller_token_eq(b"toke", b"token"));
+        assert!(!controller_token_eq(b"token-longer", b"token"));
+        let longest = vec![b'x'; MAX_CONTROLLER_SECRET_BYTES];
+        assert!(controller_token_eq(&longest, &longest));
     }
 
     #[cfg(feature = "inbound-http")]

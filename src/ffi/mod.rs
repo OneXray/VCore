@@ -925,6 +925,11 @@ impl CoreController {
         payload: StartPayload,
         presence: StartFieldPresence,
     ) -> Result<(), InvokeFailure> {
+        if cfg!(target_os = "linux") {
+            return Err(InvokeFailure::new(
+                "VCore runtime startup is unsupported on Linux",
+            ));
+        }
         let _command = self.try_command()?;
         let (prepared, tun, has_tun, allocator_relief) = {
             let mut inner = lock(&self.inner);
@@ -2179,6 +2184,7 @@ rules:
         assert_registry_is_idle();
     }
 
+    #[cfg(not(target_os = "linux"))]
     #[test]
     fn prepare_keeps_missing_geodata_rules_dormant_and_reports_state() {
         let _guard = TEST_LOCK.lock().unwrap();
@@ -2219,6 +2225,38 @@ rules:
         let stopped = request("getGeoDataState", None, json!({}));
         assert_eq!(stopped["data"]["geosite"]["required"], false);
         assert_eq!(stopped["data"]["geoip"]["required"], false);
+        destroy_instance(&instance_id);
+        assert_registry_is_idle();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_runtime_start_fails_closed() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        reset_registry();
+        let _directory = initialize_test_data_directory();
+        let instance_id = create_instance();
+        let prepared = request(
+            "prepare",
+            Some(&instance_id),
+            json!({"configYaml": http_config(free_ports(1)[0])}),
+        );
+        assert_eq!(prepared["success"], true, "{prepared}");
+
+        let started = request("start", Some(&instance_id), json!({}));
+        assert_failure(&started);
+        assert!(
+            started["error"]
+                .as_str()
+                .unwrap()
+                .contains("unsupported on Linux")
+        );
+        assert_eq!(state(&instance_id)["data"]["state"], "prepared");
+
+        assert_eq!(
+            request("stop", Some(&instance_id), json!({}))["success"],
+            true
+        );
         destroy_instance(&instance_id);
         assert_registry_is_idle();
     }
@@ -2296,6 +2334,7 @@ rules:
         destroy_instance(&instance_id);
     }
 
+    #[cfg(not(target_os = "linux"))]
     #[test]
     fn repeated_create_run_stop_destroy_leaves_registry_idle() {
         let _guard = TEST_LOCK.lock().unwrap();
@@ -2323,6 +2362,7 @@ rules:
         }
     }
 
+    #[cfg(not(target_os = "linux"))]
     #[test]
     fn public_lifecycle_is_singleton_until_destroyed() {
         let _guard = TEST_LOCK.lock().unwrap();
@@ -2448,6 +2488,7 @@ rules:
         destroy_instance(&instance_id);
     }
 
+    #[cfg(not(target_os = "linux"))]
     #[test]
     fn panic_recovery_preserves_the_public_generation_until_destroy() {
         let _guard = TEST_LOCK.lock().unwrap();
