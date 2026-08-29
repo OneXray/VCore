@@ -5,6 +5,8 @@
 //! dispatches to one public runtime lifecycle plus private batch-measurement workers.
 
 pub mod config;
+#[cfg(feature = "inbound-http")]
+mod controller;
 pub mod data_dir;
 pub mod dialer;
 pub mod dispatch;
@@ -39,7 +41,7 @@ pub mod session;
 mod socks5;
 #[cfg(any(feature = "tun", test))]
 mod tcp_sniffer;
-#[cfg(any(feature = "tun", test))]
+#[cfg(any(feature = "inbound-http", feature = "tun", test))]
 pub(crate) mod traffic;
 #[cfg(feature = "outbound-vless")]
 pub mod transport;
@@ -62,7 +64,7 @@ pub const INVOKE_API_VERSION: u32 = 5;
 /// Internal configuration schema revision reported through Invoke.
 ///
 /// The strict Mihomo YAML subset deliberately carries no version field.
-pub const CONFIG_VERSION: u8 = 12;
+pub const CONFIG_VERSION: u8 = 13;
 
 /// Stable implementation identifier returned by the version Invoke method.
 pub const ENGINE: &str = "rust";
@@ -74,5 +76,5 @@ pub const ENGINE: &str = "rust";
 pub const BUILD_IDENTITY: &str = concat!(
     "VCore;engine=rust;coreVersion=",
     env!("CARGO_PKG_VERSION"),
-    ";invokeApiVersion=5;configVersion=12"
+    ";invokeApiVersion=5;configVersion=13"
 );

@@ -1,7 +1,7 @@
 //! Strict parsing for the current VCore YAML configuration.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     str::FromStr,
 };
@@ -40,7 +40,8 @@ pub const GEO_UPDATE_INTERVAL_HOURS: u64 = 24;
 pub struct Config {
     pub ipv6: bool,
     pub proxies: Vec<ProxyConfig>,
-    pub default_proxy: ProxyId,
+    pub proxy_groups: Vec<SelectProxyGroupConfig>,
+    pub default_route_target: RouteTargetId,
     pub geodata_update: Option<GeoDataUpdateConfig>,
     pub external_controller: Option<ExternalControllerConfig>,
     pub inbounds: Vec<InboundConfig>,
@@ -153,7 +154,7 @@ pub enum DnsTransport {
 pub enum DnsRoute {
     Direct,
     Rules,
-    Proxy(ProxyId),
+    Route(RouteTargetId),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -178,7 +179,7 @@ pub enum RuleKind {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuleAction {
-    Proxy(ProxyId),
+    Route(RouteTargetId),
     Direct,
     Reject,
 }
@@ -203,6 +204,53 @@ impl ProxyId {
 }
 
 type ProxyIdsByTag = HashMap<String, ProxyId>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ProxyGroupId(usize);
+
+impl ProxyGroupId {
+    #[must_use]
+    pub const fn new(index: usize) -> Option<Self> {
+        Some(Self(index))
+    }
+
+    #[must_use]
+    pub const fn index(self) -> usize {
+        self.0
+    }
+
+    fn from_index(index: usize) -> Self {
+        Self(index)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RouteTargetId {
+    Proxy(ProxyId),
+    Group(ProxyGroupId),
+}
+
+type RouteTargetsByName = HashMap<String, RouteTargetId>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProxyGroupMemberTarget {
+    Route(RouteTargetId),
+    Direct,
+    Reject,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProxyGroupMemberConfig {
+    pub name: String,
+    pub target: ProxyGroupMemberTarget,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SelectProxyGroupConfig {
+    pub name: String,
+    pub members: Vec<ProxyGroupMemberConfig>,
+    pub initial_member: usize,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct IpCidr {
@@ -434,9 +482,30 @@ struct RawVCoreConfig {
     #[serde(default, deserialize_with = "deserialize_present_option")]
     sniffer: Option<RawSnifferConfig>,
     proxies: Vec<RawOutbound>,
+    #[serde(
+        rename = "proxy-groups",
+        default,
+        deserialize_with = "deserialize_non_null_vec"
+    )]
+    proxy_groups: Vec<RawProxyGroup>,
     #[serde(default, deserialize_with = "deserialize_present_option")]
     dns: Option<RawDnsConfig>,
     rules: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawProxyGroup {
+    name: String,
+    #[serde(rename = "type")]
+    kind: String,
+    proxies: Vec<String>,
+    #[serde(
+        rename = "default-selected",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    default_selected: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -735,6 +804,15 @@ where
     T::deserialize(deserializer).map(Some)
 }
 
+fn deserialize_non_null_vec<'de, D, T>(deserializer: D) -> std::result::Result<Vec<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<Vec<T>>::deserialize(deserializer)?
+        .ok_or_else(|| serde::de::Error::custom("sequence must not be null"))
+}
+
 impl Config {
     pub fn parse_yaml(input: &[u8]) -> Result<Self> {
         if input.len() > MAX_CONFIG_BYTES {
@@ -784,8 +862,6 @@ impl RawVCoreConfig {
         if tun.mtu != default_mtu() {
             return invalid("TUN only supports mtu: 1500");
         }
-        let external_controller =
-            normalize_external_controller(self.external_controller, self.secret, tun.enable)?;
         if self.port.is_none() && !tun.enable {
             return invalid("configuration requires port or tun.enable: true");
         }
@@ -797,15 +873,28 @@ impl RawVCoreConfig {
         if self.proxies.is_empty() {
             return invalid("proxies must contain at least 1 entry");
         }
-        let (proxies, proxy_ids) = normalize_proxy_graph(self.proxies)?;
-        let default_proxy = derive_default_proxy_from_rules(&self.rules, &proxy_ids)?;
+        let (raw_proxy_groups, proxy_group_ids) =
+            normalize_proxy_group_declarations(self.proxy_groups)?;
+        let (proxies, proxy_ids) =
+            normalize_proxy_graph_with_groups(self.proxies, &proxy_group_ids)?;
+        let route_targets = collect_route_targets(&proxy_ids, &proxy_group_ids);
+        let proxy_groups = normalize_proxy_groups(raw_proxy_groups, &route_targets)?;
+        let default_route_target =
+            derive_default_route_target_from_rules(&self.rules, &route_targets)?;
+        let external_controller = normalize_external_controller(
+            self.external_controller,
+            self.secret,
+            tun.enable,
+            !proxy_groups.is_empty(),
+        )?;
 
         let mut dns = self
             .dns
-            .map_or_else(DnsConfig::disabled, |dns| dns.normalize(&proxy_ids))?;
+            .map_or_else(DnsConfig::disabled, |dns| dns.normalize(&route_targets))?;
         dns.ipv6 &= self.ipv6;
-        let rules = normalize_rules(self.rules, &proxy_ids)?;
+        let rules = normalize_rules(self.rules, &route_targets)?;
         drop(proxy_ids);
+        drop(route_targets);
 
         let mut inbounds = Vec::with_capacity(2);
         if let (Some(port), Some((username, password))) = (self.port, http_authentication) {
@@ -828,7 +917,8 @@ impl RawVCoreConfig {
         Ok(Config {
             ipv6: self.ipv6,
             proxies,
-            default_proxy,
+            proxy_groups,
+            default_route_target,
             geodata_update,
             external_controller,
             inbounds,
@@ -845,6 +935,7 @@ fn normalize_external_controller(
     listen: Option<String>,
     secret: Option<String>,
     tun_enabled: bool,
+    has_proxy_groups: bool,
 ) -> Result<Option<ExternalControllerConfig>> {
     let Some(listen) = listen else {
         if secret.is_some() {
@@ -852,8 +943,11 @@ fn normalize_external_controller(
         }
         return Ok(None);
     };
-    if !tun_enabled {
-        return invalid("external-controller requires tun.enable: true");
+    if !tun_enabled && !has_proxy_groups {
+        return invalid("external-controller requires tun.enable: true or proxy-groups");
+    }
+    if has_proxy_groups && secret.is_none() {
+        return invalid("secret is required when external-controller manages proxy-groups");
     }
     let listen = listen.parse::<SocketAddr>().map_err(|_| {
         VCoreError::InvalidConfig(
@@ -1163,6 +1257,13 @@ fn validate_proxy_graph(
 fn normalize_proxy_graph(
     raw_proxies: Vec<RawOutbound>,
 ) -> Result<(Vec<ProxyConfig>, ProxyIdsByTag)> {
+    normalize_proxy_graph_with_groups(raw_proxies, &HashMap::new())
+}
+
+fn normalize_proxy_graph_with_groups(
+    raw_proxies: Vec<RawOutbound>,
+    proxy_group_ids: &HashMap<String, ProxyGroupId>,
+) -> Result<(Vec<ProxyConfig>, ProxyIdsByTag)> {
     if raw_proxies.is_empty() {
         return invalid("proxies must contain at least 1 entry");
     }
@@ -1172,6 +1273,12 @@ fn normalize_proxy_graph(
         .collect::<Result<Vec<_>>>()?;
     let mut proxy_ids = ProxyIdsByTag::with_capacity(pending.len());
     for (index, proxy) in pending.iter().enumerate() {
+        if proxy_group_ids.contains_key(&proxy.tag) {
+            return invalid(format!(
+                "route target name `{}` is used by both a proxy and a proxy group",
+                proxy.tag
+            ));
+        }
         if proxy_ids
             .insert(proxy.tag.clone(), ProxyId::from_index(index))
             .is_some()
@@ -1186,6 +1293,12 @@ fn normalize_proxy_graph(
                 .dialer_proxy
                 .as_deref()
                 .map(|tag| {
+                    if proxy_group_ids.contains_key(tag) {
+                        return invalid(format!(
+                            "proxy `{}` dialer-proxy `{tag}` must reference a concrete proxy, not a proxy group",
+                            proxy.tag
+                        ));
+                    }
                     proxy_ids.get(tag).copied().ok_or_else(|| {
                         VCoreError::InvalidConfig(format!(
                             "proxy `{}` dialer-proxy `{tag}` does not reference a configured proxy name",
@@ -1209,6 +1322,152 @@ fn normalize_proxy_graph(
         })
         .collect();
     Ok((proxies, proxy_ids))
+}
+
+fn normalize_proxy_group_declarations(
+    raw_groups: Vec<RawProxyGroup>,
+) -> Result<(Vec<RawProxyGroup>, HashMap<String, ProxyGroupId>)> {
+    let mut group_ids = HashMap::with_capacity(raw_groups.len());
+    for (index, group) in raw_groups.iter().enumerate() {
+        if group.kind != "select" {
+            return invalid(format!(
+                "proxy group `{}` type must be exactly `select`",
+                group.name
+            ));
+        }
+        validate_route_target_definition_name(&group.name, "proxy group name")?;
+        if group.proxies.is_empty() {
+            return invalid(format!(
+                "proxy group `{}` proxies must contain at least 1 entry",
+                group.name
+            ));
+        }
+        if group_ids
+            .insert(group.name.clone(), ProxyGroupId::from_index(index))
+            .is_some()
+        {
+            return invalid(format!("duplicate proxy group name `{}`", group.name));
+        }
+    }
+    Ok((raw_groups, group_ids))
+}
+
+fn collect_route_targets(
+    proxy_ids: &ProxyIdsByTag,
+    proxy_group_ids: &HashMap<String, ProxyGroupId>,
+) -> RouteTargetsByName {
+    let mut targets = RouteTargetsByName::with_capacity(proxy_ids.len() + proxy_group_ids.len());
+    targets.extend(
+        proxy_ids
+            .iter()
+            .map(|(name, id)| (name.clone(), RouteTargetId::Proxy(*id))),
+    );
+    targets.extend(
+        proxy_group_ids
+            .iter()
+            .map(|(name, id)| (name.clone(), RouteTargetId::Group(*id))),
+    );
+    targets
+}
+
+fn normalize_proxy_groups(
+    raw_groups: Vec<RawProxyGroup>,
+    route_targets: &RouteTargetsByName,
+) -> Result<Vec<SelectProxyGroupConfig>> {
+    let groups = raw_groups
+        .into_iter()
+        .map(|group| {
+            let members = group
+                .proxies
+                .into_iter()
+                .map(|name| {
+                    validate_route_target_name(&name, "proxy group member")?;
+                    let target = match name.as_str() {
+                        "DIRECT" => ProxyGroupMemberTarget::Direct,
+                        "REJECT" => ProxyGroupMemberTarget::Reject,
+                        "RULES" => {
+                            return invalid(format!(
+                                "proxy group `{}` cannot use reserved DNS target `RULES` as a member",
+                                group.name
+                            ));
+                        }
+                        _ => route_targets
+                            .get(&name)
+                            .copied()
+                            .map(ProxyGroupMemberTarget::Route)
+                            .ok_or_else(|| {
+                                VCoreError::InvalidConfig(format!(
+                                    "proxy group `{}` member `{name}` does not reference a configured proxy, proxy group, DIRECT, or REJECT",
+                                    group.name
+                                ))
+                            })?,
+                    };
+                    Ok(ProxyGroupMemberConfig { name, target })
+                })
+                .collect::<Result<Vec<_>>>()?;
+            let initial_member = match group.default_selected {
+                Some(default) => members
+                    .iter()
+                    .position(|member| member.name == default)
+                    .ok_or_else(|| {
+                        VCoreError::InvalidConfig(format!(
+                            "proxy group `{}` default-selected `{default}` must name a direct member",
+                            group.name
+                        ))
+                    })?,
+                None => 0,
+            };
+            Ok(SelectProxyGroupConfig {
+                name: group.name,
+                members,
+                initial_member,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    validate_proxy_group_dag(&groups)?;
+    Ok(groups)
+}
+
+fn validate_proxy_group_dag(groups: &[SelectProxyGroupConfig]) -> Result<()> {
+    let mut dependency_counts = vec![0_usize; groups.len()];
+    let mut dependents = vec![Vec::<usize>::new(); groups.len()];
+    for (group_index, group) in groups.iter().enumerate() {
+        for member in &group.members {
+            if let ProxyGroupMemberTarget::Route(RouteTargetId::Group(dependency)) = member.target {
+                let dependency_index = dependency.index();
+                dependency_counts[group_index] += 1;
+                dependents[dependency_index].push(group_index);
+            }
+        }
+    }
+
+    let mut ready = dependency_counts
+        .iter()
+        .enumerate()
+        .filter_map(|(index, count)| (*count == 0).then_some(index))
+        .collect::<VecDeque<_>>();
+    let mut visited = 0_usize;
+    while let Some(group_index) = ready.pop_front() {
+        visited += 1;
+        for &dependent in &dependents[group_index] {
+            dependency_counts[dependent] -= 1;
+            if dependency_counts[dependent] == 0 {
+                ready.push_back(dependent);
+            }
+        }
+    }
+    if visited != groups.len() {
+        let blocked = dependency_counts
+            .iter()
+            .enumerate()
+            .filter_map(|(index, count)| (*count != 0).then_some(groups[index].name.as_str()))
+            .collect::<Vec<_>>()
+            .join(", ");
+        return invalid(format!(
+            "proxy groups contain a circular member dependency involving: {blocked}"
+        ));
+    }
+    Ok(())
 }
 
 impl RawOutbound {
@@ -1277,9 +1536,9 @@ impl RawOutbound {
                 ProxyProtocol::AnyTls(normalize_anytls(server, port, password, sni)?),
             ),
         };
-        validate_proxy_tag(&tag)?;
+        validate_route_target_definition_name(&tag, "proxy name")?;
         if let Some(dialer_proxy) = &dialer_proxy {
-            validate_tag_syntax(dialer_proxy, "dialer-proxy")?;
+            validate_route_target_name(dialer_proxy, "dialer-proxy")?;
         }
         Ok(PendingProxyConfig {
             tag,
@@ -1600,7 +1859,7 @@ impl DnsConfig {
 }
 
 impl RawDnsConfig {
-    fn normalize(self, proxy_ids: &ProxyIdsByTag) -> Result<DnsConfig> {
+    fn normalize(self, route_targets: &RouteTargetsByName) -> Result<DnsConfig> {
         if !self.enable {
             if !self.nameserver.is_empty() || !self.nameserver_policies.is_empty() {
                 return invalid(
@@ -1624,10 +1883,13 @@ impl RawDnsConfig {
         let nameservers = self
             .nameserver
             .iter()
-            .map(|nameserver| parse_dns_nameserver(nameserver, proxy_ids, default_route))
+            .map(|nameserver| parse_dns_nameserver(nameserver, route_targets, default_route))
             .collect::<Result<Vec<_>>>()?;
-        let nameserver_policies =
-            normalize_dns_nameserver_policies(self.nameserver_policies, proxy_ids, default_route)?;
+        let nameserver_policies = normalize_dns_nameserver_policies(
+            self.nameserver_policies,
+            route_targets,
+            default_route,
+        )?;
 
         Ok(DnsConfig {
             enable: true,
@@ -1640,7 +1902,7 @@ impl RawDnsConfig {
 
 fn normalize_dns_nameserver_policies(
     raw_policies: Vec<RawDnsNameserverPolicy>,
-    proxy_ids: &ProxyIdsByTag,
+    route_targets: &RouteTargetsByName,
     default_route: DnsRoute,
 ) -> Result<Vec<DnsNameserverPolicy>> {
     if raw_policies.len() > MAX_DNS_NAMESERVER_POLICIES {
@@ -1697,7 +1959,7 @@ fn normalize_dns_nameserver_policies(
         let nameservers = raw_policy
             .nameservers
             .iter()
-            .map(|nameserver| parse_dns_nameserver(nameserver, proxy_ids, default_route))
+            .map(|nameserver| parse_dns_nameserver(nameserver, route_targets, default_route))
             .collect::<Result<Vec<_>>>()?;
         normalized.push(DnsNameserverPolicy {
             geosite_codes: geosite_codes.into_boxed_slice(),
@@ -1709,13 +1971,13 @@ fn normalize_dns_nameserver_policies(
 
 fn parse_dns_nameserver(
     input: &str,
-    proxy_ids: &ProxyIdsByTag,
+    route_targets: &RouteTargetsByName,
     default_route: DnsRoute,
 ) -> Result<DnsNameserver> {
     let (endpoint, route) = match input.split_once('#') {
         Some((endpoint, fragment)) => (
             endpoint,
-            parse_dns_route_fragment(input, fragment, proxy_ids)?,
+            parse_dns_route_fragment(input, fragment, route_targets)?,
         ),
         None => (input, default_route),
     };
@@ -1756,7 +2018,7 @@ fn parse_dns_nameserver(
 fn parse_dns_route_fragment(
     input: &str,
     fragment: &str,
-    proxy_ids: &ProxyIdsByTag,
+    route_targets: &RouteTargetsByName,
 ) -> Result<DnsRoute> {
     if fragment.is_empty() {
         return invalid(format!(
@@ -1771,13 +2033,13 @@ fn parse_dns_route_fragment(
     match fragment {
         "DIRECT" => Ok(DnsRoute::Direct),
         "RULES" => Ok(DnsRoute::Rules),
-        fragment => proxy_ids
+        fragment => route_targets
             .get(fragment)
             .copied()
-            .map(DnsRoute::Proxy)
+            .map(DnsRoute::Route)
             .ok_or_else(|| {
                 VCoreError::InvalidConfig(format!(
-                    "invalid DNS nameserver `{input}`; route fragment must be exactly DIRECT, RULES, or a configured proxy name"
+                    "invalid DNS nameserver `{input}`; route fragment must be exactly DIRECT, RULES, or a configured proxy or proxy group name"
                 ))
             }),
     }
@@ -1808,10 +2070,13 @@ fn parse_dns_endpoint(endpoint: &str) -> Option<(IpAddr, u16)> {
     Some((endpoint.ip(), endpoint.port()))
 }
 
-fn derive_default_proxy_from_rules(rules: &[String], proxy_ids: &ProxyIdsByTag) -> Result<ProxyId> {
+fn derive_default_route_target_from_rules(
+    rules: &[String],
+    route_targets: &RouteTargetsByName,
+) -> Result<RouteTargetId> {
     let final_rule = rules.last().ok_or_else(|| {
         VCoreError::InvalidConfig(
-            "rules must end with MATCH targeting an exact proxy name".to_owned(),
+            "rules must end with MATCH targeting an exact proxy or proxy group name".to_owned(),
         )
     })?;
     let fields = final_rule
@@ -1819,17 +2084,20 @@ fn derive_default_proxy_from_rules(rules: &[String], proxy_ids: &ProxyIdsByTag) 
         .map(trim_ascii_whitespace)
         .collect::<Vec<_>>();
     if fields.len() != 2 || !fields[0].eq_ignore_ascii_case("MATCH") {
-        return invalid("rules must end with MATCH targeting an exact proxy name");
+        return invalid("rules must end with MATCH targeting an exact proxy or proxy group name");
     }
-    proxy_ids.get(fields[1]).copied().ok_or_else(|| {
+    route_targets.get(fields[1]).copied().ok_or_else(|| {
         VCoreError::InvalidConfig(format!(
-            "final MATCH target must be an exact configured proxy name; found `{}`",
+            "final MATCH target must be an exact configured proxy or proxy group name; found `{}`",
             fields[1]
         ))
     })
 }
 
-fn normalize_rules(rules: Vec<String>, proxy_ids: &ProxyIdsByTag) -> Result<Vec<RuleSpec>> {
+fn normalize_rules(
+    rules: Vec<String>,
+    route_targets: &RouteTargetsByName,
+) -> Result<Vec<RuleSpec>> {
     if rules.is_empty() {
         return invalid("rules must not be empty");
     }
@@ -1853,7 +2121,7 @@ fn normalize_rules(rules: Vec<String>, proxy_ids: &ProxyIdsByTag) -> Result<Vec<
                 "rules exceeds the {MAX_RULES_TOTAL_BYTES}-byte cumulative limit"
             ));
         }
-        normalized.push(parse_rule(&rule, proxy_ids)?);
+        normalized.push(parse_rule(&rule, route_targets)?);
     }
 
     let match_count = normalized
@@ -1871,7 +2139,7 @@ fn normalize_rules(rules: Vec<String>, proxy_ids: &ProxyIdsByTag) -> Result<Vec<
     Ok(normalized)
 }
 
-fn parse_rule(input: &str, proxy_ids: &ProxyIdsByTag) -> Result<RuleSpec> {
+fn parse_rule(input: &str, route_targets: &RouteTargetsByName) -> Result<RuleSpec> {
     if input.is_empty() {
         return invalid("rule must not be empty");
     }
@@ -1890,7 +2158,7 @@ fn parse_rule(input: &str, proxy_ids: &ProxyIdsByTag) -> Result<RuleSpec> {
             require_rule_field_count(&fields, 2, "MATCH")?;
             Ok(RuleSpec {
                 kind: RuleKind::Match,
-                action: parse_rule_action(fields[1], proxy_ids)?,
+                action: parse_rule_action(fields[1], route_targets)?,
                 no_resolve: false,
             })
         }
@@ -1909,7 +2177,7 @@ fn parse_rule(input: &str, proxy_ids: &ProxyIdsByTag) -> Result<RuleSpec> {
             };
             Ok(RuleSpec {
                 kind,
-                action: parse_rule_action(fields[2], proxy_ids)?,
+                action: parse_rule_action(fields[2], route_targets)?,
                 no_resolve: false,
             })
         }
@@ -1937,7 +2205,7 @@ fn parse_rule(input: &str, proxy_ids: &ProxyIdsByTag) -> Result<RuleSpec> {
             };
             Ok(RuleSpec {
                 kind,
-                action: parse_rule_action(fields[2], proxy_ids)?,
+                action: parse_rule_action(fields[2], route_targets)?,
                 no_resolve,
             })
         }
@@ -1958,17 +2226,17 @@ fn require_rule_field_count(fields: &[&str], expected: usize, rule_type: &str) -
     Ok(())
 }
 
-fn parse_rule_action(action: &str, proxy_ids: &ProxyIdsByTag) -> Result<RuleAction> {
+fn parse_rule_action(action: &str, route_targets: &RouteTargetsByName) -> Result<RuleAction> {
     match action {
         "DIRECT" => Ok(RuleAction::Direct),
         "REJECT" => Ok(RuleAction::Reject),
-        tag => proxy_ids
+        tag => route_targets
             .get(tag)
             .copied()
-            .map(RuleAction::Proxy)
+            .map(RuleAction::Route)
             .ok_or_else(|| {
                 VCoreError::InvalidConfig(format!(
-                    "rule target must be exactly DIRECT, REJECT, or a configured proxy name; found `{action}`"
+                    "rule target must be exactly DIRECT, REJECT, or a configured proxy or proxy group name; found `{action}`"
                 ))
             }),
     }
@@ -2090,26 +2358,31 @@ fn parse_network(input: &str) -> Result<Network> {
     }
 }
 
-fn validate_tag_syntax(tag: &str, field: &str) -> Result<()> {
-    let bytes = tag.as_bytes();
-    if bytes.is_empty()
-        || bytes.len() > 64
-        || !bytes[0].is_ascii_alphanumeric()
-        || !bytes[1..]
-            .iter()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(*byte, b'.' | b'_' | b'-'))
+pub(crate) fn validate_route_target_name(name: &str, field: &str) -> Result<()> {
+    let mut characters = name.chars();
+    let first = characters.next();
+    let last = characters.next_back().or(first);
+    if name.is_empty()
+        || name.len() > 64
+        || first.is_some_and(char::is_whitespace)
+        || last.is_some_and(char::is_whitespace)
+        || name.chars().any(|character| {
+            character.is_control()
+                || matches!(character, ',' | '#' | '/' | '?' | '&' | '=' | '%' | '\\')
+        })
+        || matches!(name, "." | "..")
     {
         return invalid(format!(
-            "{field} must match [A-Za-z0-9][A-Za-z0-9._-]{{0,63}}"
+            "{field} must be 1-64 UTF-8 bytes without surrounding whitespace, control characters, path separators, or reserved delimiters"
         ));
     }
     Ok(())
 }
 
-fn validate_proxy_tag(tag: &str) -> Result<()> {
-    validate_tag_syntax(tag, "proxy name")?;
-    if matches!(tag, "DIRECT" | "REJECT" | "RULES") {
-        return invalid(format!("proxy name `{tag}` is reserved"));
+fn validate_route_target_definition_name(name: &str, field: &str) -> Result<()> {
+    validate_route_target_name(name, field)?;
+    if matches!(name, "DIRECT" | "REJECT" | "RULES") {
+        return invalid(format!("{field} `{name}` is reserved"));
     }
     Ok(())
 }
@@ -2352,6 +2625,14 @@ proxies:
         format!("{}{SOCKS_PROXY_ENTRY}", current_yaml(fields))
     }
 
+    fn with_proxy_groups(groups: &str, fields: &str) -> String {
+        current_yaml(fields).replacen(
+            "\nproxies:",
+            &format!("\nproxy-groups:\n{groups}\nproxies:"),
+            1,
+        )
+    }
+
     fn second_vless_entry() -> String {
         CURRENT_PROXY
             .strip_prefix("\nproxies:\n")
@@ -2433,7 +2714,10 @@ proxies:
         assert_eq!(config.inbounds.len(), 2);
         assert_eq!(config.proxies[0].tag, "proxy");
         assert!(config.proxies[0].udp);
-        assert_eq!(config.default_proxy, ProxyId::new(0).unwrap());
+        assert_eq!(
+            config.default_route_target,
+            RouteTargetId::Proxy(ProxyId::new(0).unwrap())
+        );
         assert_eq!(first_vless(&config).address, "203.0.113.1");
         assert!(matches!(
             &first_vless(&config).security,
@@ -3319,7 +3603,10 @@ authentication:
     #[test]
     fn parses_the_strict_anytls_subset() {
         let config = Config::parse_yaml(CURRENT_ANYTLS.as_bytes()).unwrap();
-        assert_eq!(config.default_proxy, ProxyId::new(0).unwrap());
+        assert_eq!(
+            config.default_route_target,
+            RouteTargetId::Proxy(ProxyId::new(0).unwrap())
+        );
         let proxy = &config.proxies[0];
         assert_eq!(proxy.tag, "anytls-node");
         assert!(!proxy.udp);
@@ -3356,7 +3643,10 @@ authentication:
                 "    password: private-anytls-password\n    dialer-proxy: socks-hop",
             );
         let config = Config::parse_yaml(yaml.as_bytes()).unwrap();
-        assert_eq!(config.default_proxy, ProxyId::new(1).unwrap());
+        assert_eq!(
+            config.default_route_target,
+            RouteTargetId::Proxy(ProxyId::new(1).unwrap())
+        );
         assert_eq!(
             config.proxies[1].dialer_proxy,
             ProxyId::new(0),
@@ -3703,7 +3993,7 @@ authentication:
             config.rules,
             [RuleSpec {
                 kind: RuleKind::Match,
-                action: RuleAction::Proxy(ProxyId::new(0).unwrap()),
+                action: RuleAction::Route(RouteTargetId::Proxy(ProxyId::new(0).unwrap())),
                 no_resolve: false,
             }]
         );
@@ -3795,7 +4085,10 @@ authentication:
         );
         let config = Config::parse_yaml(yaml.as_bytes()).unwrap();
         assert_eq!(config.proxies.len(), 2);
-        assert_eq!(config.default_proxy, ProxyId::new(1).unwrap());
+        assert_eq!(
+            config.default_route_target,
+            RouteTargetId::Proxy(ProxyId::new(1).unwrap())
+        );
         let ProxyProtocol::Socks5(socks5) = &config.proxies[1].protocol else {
             panic!("expected SOCKS5 proxy");
         };
@@ -3939,12 +4232,21 @@ authentication:
         let config = Config::parse_yaml(yaml.as_bytes()).unwrap();
         let first = ProxyId::new(0).unwrap();
         let second = ProxyId::new(1).unwrap();
-        assert_eq!(config.default_proxy, second);
+        assert_eq!(config.default_route_target, RouteTargetId::Proxy(second));
         assert_eq!(config.proxies[0].dialer_proxy, Some(second));
         assert_eq!(config.proxies[1].dialer_proxy, None);
-        assert_eq!(config.rules[0].action, RuleAction::Proxy(first));
-        assert_eq!(config.rules[1].action, RuleAction::Proxy(second));
-        assert_eq!(config.rules[2].action, RuleAction::Proxy(second));
+        assert_eq!(
+            config.rules[0].action,
+            RuleAction::Route(RouteTargetId::Proxy(first))
+        );
+        assert_eq!(
+            config.rules[1].action,
+            RuleAction::Route(RouteTargetId::Proxy(second))
+        );
+        assert_eq!(
+            config.rules[2].action,
+            RuleAction::Route(RouteTargetId::Proxy(second))
+        );
 
         let proxy_default = two_proxy_yaml(
             "port: 1080
@@ -3956,10 +4258,184 @@ authentication:
             config.rules,
             [RuleSpec {
                 kind: RuleKind::Match,
-                action: RuleAction::Proxy(first),
+                action: RuleAction::Route(RouteTargetId::Proxy(first)),
                 no_resolve: false,
             }]
         );
+    }
+
+    #[test]
+    fn normalizes_select_groups_in_declaration_order() {
+        let yaml = with_proxy_groups(
+            r#"  - name: 主线路
+    type: select
+    proxies: [proxy, 备用线路, DIRECT, REJECT, proxy]
+    default-selected: 备用线路
+  - name: 备用线路
+    type: select
+    proxies: [proxy, proxy, DIRECT]
+    default-selected: proxy"#,
+            r#"port: 1080
+authentication:
+  - measure:secret
+dns:
+  enable: true
+  nameserver: ["tcp://1.1.1.1:53#主线路"]
+rules:
+  - DOMAIN-SUFFIX,example.com,备用线路
+  - MATCH,主线路"#,
+        );
+        let config = Config::parse_yaml(yaml.as_bytes()).unwrap();
+        let main = ProxyGroupId::new(0).unwrap();
+        let backup = ProxyGroupId::new(1).unwrap();
+
+        assert_eq!(config.proxy_groups.len(), 2);
+        assert_eq!(config.proxy_groups[0].name, "主线路");
+        assert_eq!(config.proxy_groups[0].initial_member, 1);
+        assert_eq!(
+            config.proxy_groups[0]
+                .members
+                .iter()
+                .map(|member| member.name.as_str())
+                .collect::<Vec<_>>(),
+            ["proxy", "备用线路", "DIRECT", "REJECT", "proxy"]
+        );
+        assert_eq!(
+            config.proxy_groups[0].members[1].target,
+            ProxyGroupMemberTarget::Route(RouteTargetId::Group(backup))
+        );
+        assert_eq!(
+            config.proxy_groups[0].members[2].target,
+            ProxyGroupMemberTarget::Direct
+        );
+        assert_eq!(
+            config.proxy_groups[0].members[3].target,
+            ProxyGroupMemberTarget::Reject
+        );
+        assert_eq!(config.proxy_groups[1].initial_member, 0);
+        assert_eq!(
+            config.proxy_groups[1]
+                .members
+                .iter()
+                .map(|member| member.name.as_str())
+                .collect::<Vec<_>>(),
+            ["proxy", "proxy", "DIRECT"]
+        );
+        assert_eq!(config.default_route_target, RouteTargetId::Group(main));
+        assert_eq!(
+            config.rules[0].action,
+            RuleAction::Route(RouteTargetId::Group(backup))
+        );
+        assert_eq!(
+            config.dns.nameservers[0].route,
+            DnsRoute::Route(RouteTargetId::Group(main))
+        );
+    }
+
+    #[test]
+    fn strictly_rejects_invalid_select_group_shapes_and_graphs() {
+        let fields = "port: 1080\nauthentication:\n  - measure:secret\nrules:\n  - MATCH,主线路";
+        for groups in [
+            r#"  - name: 主线路
+    type: url-test
+    proxies: [proxy]"#,
+            r#"  - name: 主线路
+    type: select
+    proxies: []"#,
+            r#"  - name: 主线路
+    type: select
+    proxies: [proxy]
+    default-selected: missing"#,
+            r#"  - name: 主线路
+    type: select
+    proxies: [missing]"#,
+            r#"  - name: 主线路
+    type: select
+    proxies: [RULES]"#,
+            r#"  - name: 主线路
+    type: select
+    proxies: [proxy]
+    url: https://example.com"#,
+            r#"  - name: 主线路
+    type: select
+    proxies: [proxy]
+    default-selected: null"#,
+        ] {
+            let yaml = with_proxy_groups(groups, fields);
+            assert!(Config::parse_yaml(yaml.as_bytes()).is_err(), "{yaml}");
+        }
+
+        let cycle = with_proxy_groups(
+            r#"  - name: 主线路
+    type: select
+    proxies: [备用线路]
+  - name: 备用线路
+    type: select
+    proxies: [主线路]"#,
+            fields,
+        );
+        let error = Config::parse_yaml(cycle.as_bytes()).unwrap_err();
+        assert!(error.to_string().contains("circular member dependency"));
+
+        let duplicate = with_proxy_groups(
+            r#"  - name: 主线路
+    type: select
+    proxies: [proxy]
+  - name: 主线路
+    type: select
+    proxies: [DIRECT]"#,
+            fields,
+        );
+        assert!(Config::parse_yaml(duplicate.as_bytes()).is_err());
+
+        let shared_name = with_proxy_groups(
+            r#"  - name: proxy
+    type: select
+    proxies: [DIRECT]"#,
+            "port: 1080\nauthentication:\n  - measure:secret\nrules:\n  - MATCH,proxy",
+        );
+        assert!(Config::parse_yaml(shared_name.as_bytes()).is_err());
+
+        let null_groups = current_yaml("port: 1080\nauthentication:\n  - measure:secret").replacen(
+            "\nproxies:",
+            "\nproxy-groups: null\nproxies:",
+            1,
+        );
+        assert!(Config::parse_yaml(null_groups.as_bytes()).is_err());
+    }
+
+    #[test]
+    fn keeps_dialer_proxy_node_only_and_secures_group_controller() {
+        let groups = r#"  - name: 主线路
+    type: select
+    proxies: [proxy, DIRECT]"#;
+        let dialer_group = with_proxy_groups(
+            groups,
+            "port: 1080\nauthentication:\n  - measure:secret\nrules:\n  - MATCH,主线路",
+        )
+        .replacen(
+            "    server: edge.example.com\n",
+            "    dialer-proxy: 主线路\n    server: edge.example.com\n",
+            1,
+        );
+        let error = Config::parse_yaml(dialer_group.as_bytes()).unwrap_err();
+        assert!(error.to_string().contains("concrete proxy"), "{error}");
+
+        let no_controller = with_proxy_groups(
+            groups,
+            "port: 1080\nauthentication:\n  - measure:secret\nrules:\n  - MATCH,主线路",
+        );
+        assert!(Config::parse_yaml(no_controller.as_bytes()).is_ok());
+
+        let controller = with_proxy_groups(
+            groups,
+            "port: 1080\nauthentication:\n  - measure:secret\nexternal-controller: '127.0.0.1:19090'\nsecret: token\nrules:\n  - MATCH,主线路",
+        );
+        assert!(Config::parse_yaml(controller.as_bytes()).is_ok());
+
+        let missing_secret = controller.replace("secret: token\n", "");
+        let error = Config::parse_yaml(missing_secret.as_bytes()).unwrap_err();
+        assert!(error.to_string().contains("secret is required"), "{error}");
     }
 
     #[test]
@@ -3986,7 +4462,10 @@ proxies:
         let config = Config::parse_yaml(yaml.as_bytes()).unwrap();
 
         assert_eq!(config.proxies.len(), 4);
-        assert_eq!(config.default_proxy.index(), 3);
+        assert_eq!(
+            config.default_route_target,
+            RouteTargetId::Proxy(ProxyId::from_index(3))
+        );
         assert_eq!(
             config
                 .dns
@@ -3995,10 +4474,10 @@ proxies:
                 .map(|nameserver| nameserver.route)
                 .collect::<Vec<_>>(),
             [
-                DnsRoute::Proxy(ProxyId::from_index(0)),
-                DnsRoute::Proxy(ProxyId::from_index(1)),
-                DnsRoute::Proxy(ProxyId::from_index(2)),
-                DnsRoute::Proxy(ProxyId::from_index(3)),
+                DnsRoute::Route(RouteTargetId::Proxy(ProxyId::from_index(0))),
+                DnsRoute::Route(RouteTargetId::Proxy(ProxyId::from_index(1))),
+                DnsRoute::Route(RouteTargetId::Proxy(ProxyId::from_index(2))),
+                DnsRoute::Route(RouteTargetId::Proxy(ProxyId::from_index(3))),
             ]
         );
         assert_eq!(
@@ -4008,9 +4487,9 @@ proxies:
                 .map(|rule| rule.action)
                 .collect::<Vec<_>>(),
             [
-                RuleAction::Proxy(ProxyId::from_index(1)),
-                RuleAction::Proxy(ProxyId::from_index(2)),
-                RuleAction::Proxy(ProxyId::from_index(3)),
+                RuleAction::Route(RouteTargetId::Proxy(ProxyId::from_index(1))),
+                RuleAction::Route(RouteTargetId::Proxy(ProxyId::from_index(2))),
+                RuleAction::Route(RouteTargetId::Proxy(ProxyId::from_index(3))),
             ]
         );
     }
@@ -4025,7 +4504,10 @@ proxies:
         assert!(yaml.len() <= MAX_CONFIG_BYTES);
         let config = Config::parse_yaml(yaml.as_bytes()).unwrap();
         assert_eq!(config.proxies.len(), 300);
-        assert_eq!(config.default_proxy.index(), 299);
+        assert_eq!(
+            config.default_route_target,
+            RouteTargetId::Proxy(ProxyId::from_index(299))
+        );
         assert_eq!(
             config.proxies[299]
                 .dialer_proxy
@@ -4053,15 +4535,31 @@ proxies:
     #[test]
     fn rejects_invalid_proxy_tags_references_and_cycles() {
         for tag in [
-            "DIRECT", "REJECT", "RULES", "-edge", "edge,one", "edge#one", "节点",
+            "DIRECT",
+            "REJECT",
+            "RULES",
+            "edge,one",
+            "edge#one",
+            "edge/one",
+            "edge?one",
+            "edge&one",
+            "edge=one",
+            "edge%one",
+            "edge\\one",
+            ".",
+            "..",
+            " edge",
+            "edge ",
         ] {
             let yaml = CURRENT_TLS.replace("name: proxy", &format!("name: '{tag}'"));
             assert!(Config::parse_yaml(yaml.as_bytes()).is_err(), "{yaml}");
         }
-        let literal_proxy = CURRENT_TLS
-            .replace("name: proxy", "name: PROXY")
-            .replace("MATCH,proxy", "MATCH,PROXY");
-        assert!(Config::parse_yaml(literal_proxy.as_bytes()).is_ok());
+        for tag in ["PROXY", "-edge", "节点", "♻️ 自动选择", "+"] {
+            let yaml = CURRENT_TLS
+                .replace("name: proxy", &format!("name: '{tag}'"))
+                .replace("MATCH,proxy", &format!("MATCH,{tag}"));
+            assert!(Config::parse_yaml(yaml.as_bytes()).is_ok(), "{yaml}");
+        }
         let long_tag = "a".repeat(65);
         let yaml = CURRENT_TLS.replace("name: proxy", &format!("name: {long_tag}"));
         assert!(Config::parse_yaml(yaml.as_bytes()).is_err());
@@ -4086,7 +4584,7 @@ authentication:
         );
         assert!(Config::parse_yaml(unknown.as_bytes()).is_err());
 
-        for invalid_reference in ["''", "null", "'-bad'"] {
+        for invalid_reference in ["''", "null", "'bad#name'"] {
             let yaml = two_proxy_yaml(
                 "port: 1080
 authentication:
@@ -4256,7 +4754,7 @@ dns:
                 DnsRoute::Direct,
                 DnsRoute::Direct,
                 DnsRoute::Rules,
-                DnsRoute::Proxy(ProxyId::new(0).unwrap()),
+                DnsRoute::Route(RouteTargetId::Proxy(ProxyId::new(0).unwrap())),
             ]
         );
 
@@ -4277,7 +4775,7 @@ authentication:
         let config = Config::parse_yaml(yaml.as_bytes()).unwrap();
         assert_eq!(
             config.dns.nameservers[0].route,
-            DnsRoute::Proxy(ProxyId::new(0).unwrap())
+            DnsRoute::Route(RouteTargetId::Proxy(ProxyId::new(0).unwrap()))
         );
 
         let yaml = two_proxy_yaml(
@@ -4294,8 +4792,8 @@ authentication:
                 .map(|nameserver| nameserver.route)
                 .collect::<Vec<_>>(),
             [
-                DnsRoute::Proxy(ProxyId::new(0).unwrap()),
-                DnsRoute::Proxy(ProxyId::new(1).unwrap()),
+                DnsRoute::Route(RouteTargetId::Proxy(ProxyId::new(0).unwrap())),
+                DnsRoute::Route(RouteTargetId::Proxy(ProxyId::new(1).unwrap())),
                 DnsRoute::Rules,
             ]
         );
@@ -4321,7 +4819,7 @@ dns:
         let dns = config.dns;
         assert_eq!(
             dns.nameservers[0].route,
-            DnsRoute::Proxy(config.default_proxy)
+            DnsRoute::Route(config.default_route_target)
         );
         assert_eq!(dns.nameserver_policies.len(), 2);
         assert_eq!(&*dns.nameserver_policies[0].geosite_codes, ["apple", "cn"]);
@@ -4341,7 +4839,10 @@ dns:
                 .iter()
                 .map(|nameserver| nameserver.route)
                 .collect::<Vec<_>>(),
-            [DnsRoute::Direct, DnsRoute::Proxy(ProxyId::new(0).unwrap())]
+            [
+                DnsRoute::Direct,
+                DnsRoute::Route(RouteTargetId::Proxy(ProxyId::new(0).unwrap()))
+            ]
         );
     }
 

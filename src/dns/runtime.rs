@@ -1,7 +1,7 @@
 //! Bounded runtime DNS service with Mihomo-compatible nameserver egress.
 //!
 //! Upstream endpoints are literal IP addresses. Explicit nameserver fragments
-//! select DIRECT, one of the fixed proxy nodes, or the ordered rules using only that
+//! select DIRECT, a named route target, or the ordered rules using only that
 //! endpoint as routing context; a DNS question name is never injected into
 //! business routing.
 
@@ -35,7 +35,8 @@ use super::{
 };
 use crate::{
     config::{
-        DnsConfig, DnsNameserver, DnsNameserverPolicy, DnsRoute, DnsTransport, Network, RuleAction,
+        DnsConfig, DnsNameserver, DnsNameserverPolicy, DnsRoute, DnsTransport, Network,
+        RouteTargetId, RuleAction,
     },
     dispatch::{BoxStream, DispatchError, Dispatcher},
     resources::{ResourceActivity, ResourceActivityGuard, RuntimeResourceStats},
@@ -103,7 +104,7 @@ pub struct RuntimeDns {
 enum DnsEgressKey {
     Single,
     Direct,
-    Proxy(crate::config::ProxyId),
+    Route(RouteTargetId),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -913,9 +914,9 @@ impl RuntimeDns {
 
         match nameserver.route {
             DnsRoute::Direct => Ok((DnsEgressKey::Direct, direct)),
-            DnsRoute::Proxy(id) => proxies
-                .get(id)
-                .map(|dispatcher| (DnsEgressKey::Proxy(id), dispatcher))
+            DnsRoute::Route(id) => proxies
+                .get_route(id)
+                .map(|dispatcher| (DnsEgressKey::Route(id), dispatcher))
                 .map_err(AttemptError::Dispatch),
             DnsRoute::Rules => {
                 let destination = Destination::Ip(nameserver.endpoint());
@@ -926,9 +927,9 @@ impl RuntimeDns {
                 })?;
                 match rules.evaluate_with_geo(&context, self.geo_matcher.as_ref()) {
                     RuleEvaluation::Matched(rule_match) => match rule_match.action {
-                        RuleAction::Proxy(id) => proxies
-                            .get(id)
-                            .map(|dispatcher| (DnsEgressKey::Proxy(id), dispatcher))
+                        RuleAction::Route(id) => proxies
+                            .get_route(id)
+                            .map(|dispatcher| (DnsEgressKey::Route(id), dispatcher))
                             .map_err(AttemptError::Dispatch),
                         RuleAction::Direct => Ok((DnsEgressKey::Direct, direct)),
                         RuleAction::Reject => {
@@ -2269,7 +2270,9 @@ mod tests {
             transport,
             address: IpAddr::V4(Ipv4Addr::new(192, 0, 2, index)),
             port: 53,
-            route: crate::config::DnsRoute::Proxy(crate::config::ProxyId::new(0).unwrap()),
+            route: crate::config::DnsRoute::Route(crate::config::RouteTargetId::Proxy(
+                crate::config::ProxyId::new(0).unwrap(),
+            )),
         }
     }
 
@@ -2650,8 +2653,9 @@ mod tests {
         let mut direct_nameserver = nameserver(1, DnsTransport::Tcp);
         direct_nameserver.route = DnsRoute::Direct;
         let mut proxy_nameserver = direct_nameserver;
-        proxy_nameserver.route =
-            DnsRoute::Proxy(crate::config::ProxyId::new(0).expect("proxy zero is valid"));
+        proxy_nameserver.route = DnsRoute::Route(crate::config::RouteTargetId::Proxy(
+            crate::config::ProxyId::new(0).expect("proxy zero is valid"),
+        ));
         let resolver = RuntimeDns::new_routed(
             &config(false, vec![direct_nameserver]),
             proxy.clone(),
@@ -2675,6 +2679,80 @@ mod tests {
         assert_eq!(direct.tcp_calls.load(Ordering::Acquire), 1);
         assert_eq!(proxy.tcp_calls.load(Ordering::Acquire), 1);
         assert_eq!(resolver.tcp_pool.snapshot().current_idle, 2);
+    }
+
+    #[tokio::test]
+    async fn group_switch_keeps_dns_cache_and_tcp_pool_until_a_new_connection() {
+        use crate::config::{
+            ProxyGroupId, ProxyGroupMemberConfig, ProxyGroupMemberTarget, ProxyId, RouteTargetId,
+            SelectProxyGroupConfig,
+        };
+        use crate::routing::{ProxyGroups, RouteTargetDispatchers};
+
+        let address = IpAddr::V4(Ipv4Addr::new(203, 0, 113, 65));
+        let old = Arc::new(ScriptedTcpDispatcher::new(vec![vec![
+            TcpScriptReply::Response(ResponseSpec::answer(address)),
+            TcpScriptReply::Response(ResponseSpec::answer(address)),
+        ]]));
+        let new = Arc::new(ScriptedTcpDispatcher::new(vec![vec![
+            TcpScriptReply::Response(ResponseSpec::answer(address)),
+        ]]));
+        let direct: Arc<dyn Dispatcher> = Arc::new(MockDispatcher::default());
+        let proxy_dispatchers: Vec<Arc<dyn Dispatcher>> = vec![old.clone(), new.clone()];
+        let groups = ProxyGroups::new(
+            &[SelectProxyGroupConfig {
+                name: "group".to_owned(),
+                members: vec![
+                    ProxyGroupMemberConfig {
+                        name: "old".to_owned(),
+                        target: ProxyGroupMemberTarget::Route(RouteTargetId::Proxy(
+                            ProxyId::new(0).unwrap(),
+                        )),
+                    },
+                    ProxyGroupMemberConfig {
+                        name: "new".to_owned(),
+                        target: ProxyGroupMemberTarget::Route(RouteTargetId::Proxy(
+                            ProxyId::new(1).unwrap(),
+                        )),
+                    },
+                ],
+                initial_member: 0,
+            }],
+            proxy_dispatchers.clone(),
+            direct.clone(),
+        )
+        .unwrap();
+        let route_targets =
+            RouteTargetDispatchers::with_proxy_groups(proxy_dispatchers, &groups).unwrap();
+        let group = RouteTargetId::Group(ProxyGroupId::new(0).unwrap());
+        let mut upstream = nameserver(1, DnsTransport::Tcp);
+        upstream.route = DnsRoute::Route(group);
+        let resolver = RuntimeDns::new_routed_proxies(
+            &config(false, vec![upstream]),
+            route_targets,
+            direct,
+            RuleSet::compile(vec![rule(RuleKind::Match, RuleAction::Route(group))]).unwrap(),
+            Arc::new(EmptyGeoMatcher),
+        );
+
+        assert_eq!(resolver.resolve("cached.example").await.unwrap(), [address]);
+        groups.select("group", "new").unwrap();
+        assert_eq!(resolver.resolve("cached.example").await.unwrap(), [address]);
+        assert_eq!(new.tcp_calls.load(Ordering::Acquire), 0);
+
+        assert_eq!(resolver.resolve("pooled.example").await.unwrap(), [address]);
+        assert_eq!(old.tcp_calls.load(Ordering::Acquire), 1);
+        assert_eq!(old.tcp_queries.load(Ordering::Acquire), 2);
+        assert_eq!(new.tcp_calls.load(Ordering::Acquire), 0);
+
+        tokio::task::yield_now().await;
+        assert_eq!(
+            resolver.resolve("rebuilt.example").await.unwrap(),
+            [address]
+        );
+        assert_eq!(new.tcp_calls.load(Ordering::Acquire), 1);
+        assert_eq!(new.tcp_queries.load(Ordering::Acquire), 1);
+        assert_eq!(resolver.tcp_pool.snapshot().stale_retries, 1);
     }
 
     #[tokio::test]
@@ -2750,8 +2828,9 @@ mod tests {
 
         for index in 1..=5 {
             let mut upstream = nameserver(index, DnsTransport::Tcp);
-            upstream.route =
-                DnsRoute::Proxy(crate::config::ProxyId::new(0).expect("proxy zero is valid"));
+            upstream.route = DnsRoute::Route(crate::config::RouteTargetId::Proxy(
+                crate::config::ProxyId::new(0).expect("proxy zero is valid"),
+            ));
             let query = build_query(
                 u16::from(index),
                 &format!("idle-{index}.example"),
@@ -2832,7 +2911,9 @@ mod tests {
             direct.clone(),
             RuleSet::compile(vec![rule(
                 RuleKind::Match,
-                RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap()),
+                RuleAction::Route(crate::config::RouteTargetId::Proxy(
+                    crate::config::ProxyId::new(0).unwrap(),
+                )),
             )])
             .unwrap(),
             Arc::new(EmptyGeoMatcher),
@@ -2860,7 +2941,9 @@ mod tests {
                 ),
                 rule(
                     RuleKind::Match,
-                    RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap()),
+                    RuleAction::Route(crate::config::RouteTargetId::Proxy(
+                        crate::config::ProxyId::new(0).unwrap(),
+                    )),
                 ),
             ])
             .unwrap(),
@@ -2890,7 +2973,9 @@ mod tests {
                 ),
                 rule(
                     RuleKind::Match,
-                    RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap()),
+                    RuleAction::Route(crate::config::RouteTargetId::Proxy(
+                        crate::config::ProxyId::new(0).unwrap(),
+                    )),
                 ),
             ])
             .unwrap(),
@@ -2924,7 +3009,9 @@ mod tests {
             transport: DnsTransport::Tcp,
             address: "1.1.1.1".parse().unwrap(),
             port: 53,
-            route: DnsRoute::Proxy(crate::config::ProxyId::new(0).unwrap()),
+            route: DnsRoute::Route(crate::config::RouteTargetId::Proxy(
+                crate::config::ProxyId::new(0).unwrap(),
+            )),
         };
         let policy_nameserver = DnsNameserver {
             transport: DnsTransport::Tcp,
@@ -2943,7 +3030,9 @@ mod tests {
             direct.clone(),
             RuleSet::compile(vec![rule(
                 RuleKind::Match,
-                RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap()),
+                RuleAction::Route(crate::config::RouteTargetId::Proxy(
+                    crate::config::ProxyId::new(0).unwrap(),
+                )),
             )])
             .unwrap(),
             Arc::new(PolicyGeoMatcher),
@@ -3014,7 +3103,9 @@ mod tests {
             direct.clone(),
             RuleSet::compile(vec![rule(
                 RuleKind::Match,
-                RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap()),
+                RuleAction::Route(crate::config::RouteTargetId::Proxy(
+                    crate::config::ProxyId::new(0).unwrap(),
+                )),
             )])
             .unwrap(),
             Arc::new(PolicyGeoMatcher),
@@ -3058,7 +3149,9 @@ mod tests {
                 direct.clone(),
                 RuleSet::compile(vec![rule(
                     RuleKind::Match,
-                    RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap()),
+                    RuleAction::Route(crate::config::RouteTargetId::Proxy(
+                        crate::config::ProxyId::new(0).unwrap(),
+                    )),
                 )])
                 .unwrap(),
                 Arc::new(PolicyGeoMatcher),
@@ -3107,7 +3200,9 @@ mod tests {
             direct.clone(),
             RuleSet::compile(vec![rule(
                 RuleKind::Match,
-                RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap()),
+                RuleAction::Route(crate::config::RouteTargetId::Proxy(
+                    crate::config::ProxyId::new(0).unwrap(),
+                )),
             )])
             .unwrap(),
             Arc::new(PolicyGeoMatcher),
@@ -3170,7 +3265,9 @@ mod tests {
                 ),
                 rule(
                     RuleKind::Match,
-                    RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap()),
+                    RuleAction::Route(crate::config::RouteTargetId::Proxy(
+                        crate::config::ProxyId::new(0).unwrap(),
+                    )),
                 ),
             ])
             .unwrap(),
@@ -3209,7 +3306,9 @@ mod tests {
             direct.clone(),
             RuleSet::compile(vec![rule(
                 RuleKind::Match,
-                RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap()),
+                RuleAction::Route(crate::config::RouteTargetId::Proxy(
+                    crate::config::ProxyId::new(0).unwrap(),
+                )),
             )])
             .unwrap(),
             Arc::new(EmptyGeoMatcher),
@@ -3249,7 +3348,9 @@ mod tests {
             direct,
             RuleSet::compile(vec![rule(
                 RuleKind::Match,
-                RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap()),
+                RuleAction::Route(crate::config::RouteTargetId::Proxy(
+                    crate::config::ProxyId::new(0).unwrap(),
+                )),
             )])
             .unwrap(),
             Arc::new(EmptyGeoMatcher),
@@ -3286,7 +3387,9 @@ mod tests {
                 rule(RuleKind::Network(Network::Udp), RuleAction::Reject),
                 rule(
                     RuleKind::Match,
-                    RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap()),
+                    RuleAction::Route(crate::config::RouteTargetId::Proxy(
+                        crate::config::ProxyId::new(0).unwrap(),
+                    )),
                 ),
             ])
             .unwrap(),

@@ -18,14 +18,14 @@
 当前测试覆盖以下公共边界：
 
 - Invoke API v5 envelope、严格 payload、单实例生命周期、panic 隔离和同步清理；
-- 配置修订版 12、IPv6 总开关、代理图、节点测速配置和未知字段拒绝；
+- 配置修订版 13、IPv6 总开关、代理图、静态 `select` 代理组、节点测速配置和未知字段拒绝；
 - VLESS/XHTTP/TLS/REALITY、SOCKS5、AnyTLS 和代理链；
 - DNS wire、缓存、singleflight、policy、故障转移和 TCP 复用；
 - 规则、GeoData、HTTP/TLS/QUIC 嗅探；
 - ICMPv4/ICMPv6 Echo、校验和、分片、MTU 和队列满；
 - Apple/Android TUN 帧格式、文件描述符副本和关闭所有权；
 - Windows 控制/数据协议、Session Snapshot v2、会合记录、包队列、批量写入、物理网络绑定和 Job Object 多进程监督；
-- Controller 鉴权、速率和累计流量语义。
+- Controller 鉴权、速率和累计流量语义，以及代理组查询、实时选择和有界请求处理。
 
 常用命令：
 
@@ -70,6 +70,7 @@ Windows 11 ARM64 开发验收的环境、命令、结果和适用范围保存在
 | DNS / rules / GeoData / sniffer | 已覆盖 | 本地 DNS 与代理 fixture | Windows ARM64 已覆盖 |
 | ICMPv4 / ICMPv6 Echo | 已覆盖 | 不适用 | Windows ARM64 已覆盖 |
 | Controller 四字段流量 | 已覆盖 | HTTP fixture | Windows ARM64 已覆盖 |
+| Controller `select` 代理组控制 | 已覆盖 | HTTP fixture | 物理设备未验证 |
 
 “本地互操作”只证明当前双方在受控配置下可以通信，不代表所有公网服务或配置组合。
 

@@ -51,3 +51,19 @@ _Avoid_: Proxy traffic, transport traffic, per-node traffic
 **Local SOCKS5 outbound**:
 A normal VCore SOCKS5 outbound to a loopback server. The server may be managed outside VCore or happen to run in a Windows session backend; SOCKS5 readiness and protocol health remain outside the backend contract.
 _Avoid_: Managed core, child core, URI configuration
+
+**Proxy node**:
+A named, concrete outbound protocol path that can be selected as a route target or referenced by another proxy node through `dialer-proxy`.
+_Avoid_: Proxy when a proxy group or route target is intended, server profile
+
+**Proxy group**:
+A named route target whose current group selection identifies one direct member route target.
+_Avoid_: Folder, provider, subscription
+
+**Route target**:
+A proxy node, proxy group, or reserved built-in target that routing rules, the final `MATCH`, and DNS routes can select.
+_Avoid_: Proxy when the distinction between a node and group matters, dialer
+
+**Group selection**:
+The running-session state identifying the direct member route target currently chosen by a proxy group.
+_Avoid_: Variant, configuration switch, active profile

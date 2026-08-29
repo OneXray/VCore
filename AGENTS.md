@@ -1,6 +1,6 @@
 # Project Overview
 
-VCore is a standalone Rust proxy core. The current public contract is Invoke API v5 with internal schema revision 12. Runtime configuration uses the strict schema documented in `docs/config.yaml` and is passed inline as `configYaml` / `configYamls`; YAML contains neither `configVersion` nor `default-proxy`. Public lifecycle state is runtime-local and single-instance.
+VCore is a standalone Rust proxy core. The current public contract is Invoke API v5 with internal schema revision 13. Runtime configuration uses the strict schema documented in `docs/config.yaml` and is passed inline as `configYaml` / `configYamls`; YAML contains neither `configVersion` nor `default-proxy`. Public lifecycle state is runtime-local and single-instance.
 
 Apple and Android use host-owned TUN fds through the Unix `rust-tun` adapter. Windows uses `windows-rs` / `Windows.Networking.Vpn`; the packaged ARM64 foreground, AppContainer provider, per-session full-trust runtime, lifecycle, pressure, and packet-channel gates pass on Windows 11. Windows 10, native x64, physical IPv6, WACK, and Store publishing remain release gates. Linux remains unsupported.
 
@@ -11,9 +11,9 @@ Current source, tests, and the public contract documents under `docs/` define im
 Read the relevant document completely before changing that area:
 
 - FFI, lifecycle, Android protect, or config delivery: `docs/invoke-api.md` and `src/ffi/`.
-- YAML, proxy graph, DNS, rules, or sniffer: `docs/config.yaml`, `docs/tun-icmp-dns.md`, and `src/config/`.
+- YAML, proxy graph, proxy groups, DNS, rules, or sniffer: `docs/config.yaml`, `docs/tun-icmp-dns.md`, and `src/config/`.
 - AnyTLS: `docs/anytls.md`.
-- TUN traffic metrics: `docs/controller-api.md`.
+- Runtime Controller, proxy-group selection, or TUN traffic metrics: `docs/controller-api.md` and `src/controller.rs`.
 - GeoData: `docs/geodata.md`.
 - REALITY or the GitHub rustls fork: `docs/reality-wire-protocol.md` and `docs/rustls-reality-release.md`.
 - Unix TUN fd ownership or packet I/O: `docs/tun-platform.md`.
@@ -28,6 +28,7 @@ Read the relevant document completely before changing that area:
 - `src/tun_runtime.rs` connects platform raw-IP I/O to `vcore-netstack` and dispatches TCP, UDP, DNS, ICMP, and sniffing.
 - `src/platform/` contains platform adapters. Keep Windows callback semantics here instead of simulating a Unix fd.
 - `src/dialer.rs` is the shared physical TCP/UDP socket seam. Fix socket protection or Windows `(source IP, interface index)` binding once here rather than in each outbound.
+- Static `select` proxy groups are mutable Running Session route targets at the routing `Dispatcher` seam. Keep `dialer-proxy` and `measureDelay` node-only, and do not move group selection into the immutable outbound connector graph.
 - `crates/vcore-netstack` is platform-independent raw-IP state and must not depend on WinRT, JNI, Swift, or host UI frameworks.
 - Core runtime lifecycle does not infer App, extension, service, or daemon roles and does not implement cross-process state or IPC. The Windows-only host Invoke is the explicit package integration seam for profile/status/Session Snapshot/StartupTask operations and an optional bounded `sessionBackend`; its Session Host owns backend process liveness without interpreting arguments, files, ports, or protocols. Provider runtime state remains process-local.
 

@@ -13,8 +13,13 @@ use crate::{
 };
 
 mod dispatcher;
+mod proxy_group;
 
+pub(crate) use dispatcher::RouteTargetDispatchers;
 pub use dispatcher::{ProxyDispatchers, RoutingDispatcher};
+pub(crate) use proxy_group::{
+    ProxyGroupError, ProxyGroupState, ProxyGroups, ResolvedProxyGroupLeaf,
+};
 
 /// Defensive runtime ceiling, independent from the configuration parser.
 pub const MAX_ROUTING_RULES: usize = crate::config::MAX_RULES;
@@ -668,6 +673,12 @@ mod tests {
         }
     }
 
+    fn proxy_action(index: usize) -> RuleAction {
+        RuleAction::Route(crate::config::RouteTargetId::Proxy(
+            crate::config::ProxyId::new(index).unwrap(),
+        ))
+    }
+
     fn domain_context(network: Network, host: &str, port: u16) -> RoutingContext {
         let destination = Destination::domain(host, port).unwrap();
         RoutingContext::new(network, &destination).unwrap()
@@ -691,10 +702,7 @@ mod tests {
                 RuleKind::DomainSuffix("example.com".to_owned()),
                 RuleAction::Reject,
             ),
-            spec(
-                RuleKind::Match,
-                RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap()),
-            ),
+            spec(RuleKind::Match, proxy_action(0)),
         ])
         .unwrap();
 
@@ -709,10 +717,7 @@ mod tests {
                 RuleKind::DomainSuffix("example.com".to_owned()),
                 RuleAction::Direct,
             ),
-            spec(
-                RuleKind::Match,
-                RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap()),
-            ),
+            spec(RuleKind::Match, proxy_action(0)),
         ])
         .unwrap();
 
@@ -726,7 +731,7 @@ mod tests {
         );
         assert_eq!(
             action(rules.evaluate(&domain_context(Network::Tcp, "badexample.com", 443))),
-            RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap())
+            proxy_action(0)
         );
     }
 
@@ -747,10 +752,7 @@ mod tests {
                 }),
                 RuleAction::Reject,
             ),
-            spec(
-                RuleKind::Match,
-                RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap()),
-            ),
+            spec(RuleKind::Match, proxy_action(0)),
         ])
         .unwrap();
 
@@ -767,7 +769,7 @@ mod tests {
         );
         assert_eq!(
             action(rules.evaluate(&RoutingContext::new(Network::Tcp, &public).unwrap())),
-            RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap())
+            proxy_action(0)
         );
     }
 
@@ -784,10 +786,7 @@ mod tests {
                 ]),
                 RuleAction::Reject,
             ),
-            spec(
-                RuleKind::Match,
-                RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap()),
-            ),
+            spec(RuleKind::Match, proxy_action(0)),
         ])
         .unwrap();
 
@@ -801,7 +800,7 @@ mod tests {
         );
         assert_eq!(
             action(rules.evaluate(&domain_context(Network::Tcp, "web.example", 80))),
-            RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap())
+            proxy_action(0)
         );
     }
 
@@ -809,10 +808,7 @@ mod tests {
     fn network_rule_distinguishes_tcp_and_udp() {
         let rules = RuleSet::compile(vec![
             spec(RuleKind::Network(Network::Udp), RuleAction::Reject),
-            spec(
-                RuleKind::Match,
-                RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap()),
-            ),
+            spec(RuleKind::Match, proxy_action(0)),
         ])
         .unwrap();
 
@@ -822,7 +818,7 @@ mod tests {
         );
         assert_eq!(
             action(rules.evaluate(&domain_context(Network::Tcp, "example.com", 53))),
-            RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap())
+            proxy_action(0)
         );
     }
 
@@ -892,10 +888,7 @@ mod tests {
         );
         let rules = RuleSet::compile(vec![
             resolvable.clone(),
-            spec(
-                RuleKind::Match,
-                RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap()),
-            ),
+            spec(RuleKind::Match, proxy_action(0)),
         ])
         .unwrap();
         let mut context = domain_context(Network::Tcp, "example.com", 443);
@@ -904,23 +897,14 @@ mod tests {
             RuleEvaluation::NeedsIpResolution { rule_index: 0 }
         );
         context.mark_ip_resolution_unavailable();
-        assert_eq!(
-            action(rules.evaluate(&context)),
-            RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap())
-        );
+        assert_eq!(action(rules.evaluate(&context)), proxy_action(0));
 
         resolvable.no_resolve = true;
-        let rules = RuleSet::compile(vec![
-            resolvable,
-            spec(
-                RuleKind::Match,
-                RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap()),
-            ),
-        ])
-        .unwrap();
+        let rules =
+            RuleSet::compile(vec![resolvable, spec(RuleKind::Match, proxy_action(0))]).unwrap();
         assert_eq!(
             action(rules.evaluate(&domain_context(Network::Tcp, "example.com", 443))),
-            RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap())
+            proxy_action(0)
         );
     }
 
@@ -943,10 +927,7 @@ mod tests {
                 RuleAction::Direct,
             ),
             later_no_resolve,
-            spec(
-                RuleKind::Match,
-                RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap()),
-            ),
+            spec(RuleKind::Match, proxy_action(0)),
         ])
         .unwrap();
         let mut context = domain_context(Network::Tcp, "example.com", 443);
@@ -989,10 +970,7 @@ mod tests {
                 }),
                 RuleAction::Direct,
             ),
-            spec(
-                RuleKind::Match,
-                RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap()),
-            ),
+            spec(RuleKind::Match, proxy_action(0)),
         ])
         .unwrap();
         let mut context = domain_context(Network::Tcp, "example.com", 443);
@@ -1009,7 +987,7 @@ mod tests {
                 &[IpAddr::V4(Ipv4Addr::new(10, 0, 0, 7))],
             ),
             RuleEvaluation::Matched(RuleMatch {
-                action: RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap()),
+                action: proxy_action(0),
                 rule_index: 2,
             })
         );
@@ -1020,15 +998,12 @@ mod tests {
     fn absent_geodata_never_matches() {
         let rules = RuleSet::compile(vec![
             spec(RuleKind::GeoSite("CN".to_owned()), RuleAction::Direct),
-            spec(
-                RuleKind::Match,
-                RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap()),
-            ),
+            spec(RuleKind::Match, proxy_action(0)),
         ])
         .unwrap();
         assert_eq!(
             action(rules.evaluate(&domain_context(Network::Tcp, "example.cn", 443))),
-            RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap())
+            proxy_action(0)
         );
     }
 
@@ -1037,14 +1012,17 @@ mod tests {
         let proxy = crate::config::ProxyId::new(0).unwrap();
         let rules = RuleSet::compile(vec![
             spec(RuleKind::GeoIp("cn".to_owned()), RuleAction::Direct),
-            spec(RuleKind::Match, RuleAction::Proxy(proxy)),
+            spec(
+                RuleKind::Match,
+                RuleAction::Route(crate::config::RouteTargetId::Proxy(proxy)),
+            ),
         ])
         .unwrap();
         let context = domain_context(Network::Tcp, "example.com", 443);
         assert_eq!(
             rules.evaluate_with_geo(&context, &EmptyGeoMatcher),
             RuleEvaluation::Matched(RuleMatch {
-                action: RuleAction::Proxy(proxy),
+                action: RuleAction::Route(crate::config::RouteTargetId::Proxy(proxy)),
                 rule_index: 1,
             })
         );

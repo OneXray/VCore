@@ -1,6 +1,6 @@
 # VCore Invoke API
 
-业务接口版本为 5，配置结构修订版为 12。配置只通过内联的 `configYaml` 或 `configYamls` 传入；每份已加载的 VCore 运行时最多拥有一个公共实例。
+业务接口版本为 5，配置结构修订版为 13。配置只通过内联的 `configYaml` 或 `configYamls` 传入；每份已加载的 VCore 运行时最多拥有一个公共实例。代理组实时选择沿用 Controller，不增加 Invoke method 或版本协商。
 
 ## C ABI
 
@@ -89,7 +89,7 @@ stopped -> preparing -> prepared -> starting -> running
 - 同一实例一次只执行一个生命周期命令，重叠命令立即失败。
 - `validateConfig` 是可并发的纯校验方法。
 - `measureDelay` 使用独立批次和私有工作器，不进入公共实例表。
-- 不支持热重载；切换配置需要 `stop -> prepare -> start`。
+- 不支持配置热重载；切换配置需要 `stop -> prepare -> start`。唯一的运行期路由变更是通过 Controller 修改静态 `select` 组的当前选择，它不修改已 prepare 的配置。
 - `stop` 在 stopped 状态幂等；`destroyInstance` 是最终同步清理屏障。
 
 ## 方法
@@ -107,8 +107,8 @@ stopped -> preparing -> prepared -> starting -> running
 ```json
 {
   "apiVersion": 5,
-  "buildIdentity": "VCore;engine=rust;coreVersion=0.1.0;invokeApiVersion=5;configVersion=12",
-  "configVersion": 12,
+  "buildIdentity": "VCore;engine=rust;coreVersion=0.1.0;invokeApiVersion=5;configVersion=13",
+  "configVersion": 13,
   "engine": "rust",
   "version": "0.1.0"
 }
@@ -193,7 +193,7 @@ stopped -> preparing -> prepared -> starting -> running
 }
 ```
 
-完成大小、YAML、结构、引用、代理图和字段组合校验。不创建实例、不解析远端域名、不联网，也不读取 GeoData。资产缺失不影响纯配置校验。
+完成大小、YAML、结构、共享 route-target 命名空间、引用、具体节点 `dialer-proxy` 图、代理组 DAG 和字段组合校验。不创建实例、不解析远端域名、不联网，也不读取 GeoData。资产缺失不影响纯配置校验。
 
 ### `prepare`
 
@@ -210,6 +210,7 @@ stopped -> preparing -> prepared -> starting -> running
 
 - 读取当时可用的本地 GeoData，不启动或等待下载。
 - 只为直接访问物理网络的代理根节点执行引导 DNS；代理链上的域名交给下一跳。
+- 为每个静态 `select` 组建立当前 session 的初始选择；省略 `default-selected` 时使用第一项，显式值必须是直接成员。
 - 成功进入 prepared；失败释放临时资源并回到 stopped。
 - 含 TUN 的配置从 preparing 起持有运行时本地的 TUN/protect 租约，直到停止或销毁。
 - Android 只有在实际启用 TUN 时才要求事先注册 protect controller。
@@ -242,7 +243,7 @@ Android 使用 `rawIp`。非 TUN 配置必须省略 `tunFd` 和 `tunFraming`。
 {"apiVersion":5,"method":"stop","instanceId":"1","payload":{}}
 ```
 
-同步取消并等待监听器、TUN、netstack、DNS、会话、出站和更新任务，关闭 VCore 持有的文件描述符副本并释放平台回调租约。返回后不得继续产生数据包或调用 protect callback。
+同步取消并等待监听器、Controller、TUN、netstack、DNS、会话、出站和更新任务，关闭 VCore 持有的文件描述符副本并释放平台回调租约。返回后不得继续产生数据包或调用 protect callback；本次 session 的代理组选择随之销毁。
 
 ### `getState`
 
@@ -287,7 +288,7 @@ Android 使用 `rawIp`。非 TUN 配置必须省略 `tunFd` 和 `tunFraming`。
 
 - `configYamls` 接受 1–5 份非空节点配置，`timeout` 为 1–30 秒。
 - 同一运行时一次只允许一个测速批次，最多并发五个私有工作器。
-- 节点配置顶层只允许 `proxies`。VCore 推导唯一链头，且该链必须覆盖全部节点。
+- 节点配置顶层只允许 `proxies`，不接受 `proxy-groups`；`dialer-proxy` 也只能引用具体节点。VCore 推导唯一链头，且该链必须覆盖全部节点。
 - 工作器只准备出站图并执行 TCP、可选 TLS 和 HTTP/1.1 HEAD；不创建公共实例、监听器、TUN、DNS、规则、嗅探器或 GeoData。
 - URL 必须是无 userinfo 和 fragment 的绝对 HTTP/HTTPS URL；HTTPS 使用发布信任根。
 - 任意合法 HTTP 状态都表示探测成功；不跟随重定向、不读取正文。
@@ -310,7 +311,9 @@ ProtectFd(fd) -> bool
 
 ## Controller
 
-配置 `external-controller` 后，TUN 运行时提供回环 `GET /traffic`。该查询不是 Invoke 方法，不携带 `instanceId`。完整语义见 [Controller API](controller-api.md)。
+配置 `external-controller` 后，运行时可提供回环 `GET /traffic`、`GET /group`、`GET /group/{name}`、`GET /proxies/{name}` 和 `PUT /proxies/{name}`。代理组 Controller 可以在非 TUN 的本地 HTTP 配置中运行；此时 `/traffic` 不存在。只要 Controller 管理代理组，`secret` 就必填并保护全部路由。
+
+组成员列表是配置期固定的，选择只存于当前 Running Session。成功切换只影响之后新建的物理 TCP、UDP 和 DNS transport，不迁移既有连接、UDP association、DNS 状态或 TCP pool，也不触发 failover。Controller 查询不携带 `instanceId`，不进入 Invoke 命令锁；完整语义见 [Controller API](controller-api.md)。
 
 ## Windows 安装包桥接
 
@@ -355,7 +358,7 @@ ProtectFd(fd) -> bool
 
 桥接把 YAML、进程顺序、路径和参数发布为 `vcore-session-v2:<sha256>` Session Snapshot。参数引用的文件由调用方保持存在且不可变，VCore 不读取或摘要其内容。`getVpnStatus.data.snapshotToken` 返回该完整 Session token。
 
-桥接请求最大 1 MiB。它负责安装包身份、单一 VPN profile、不可变 Session Snapshot、Session Host 激活和系统 VPN 状态；不公开 profile CRUD、内部文件路径、backend 描述、参数、PID、管道名称或 Snapshot 维护。数据包、Controller 查询和业务生命周期不经过该 JSON 桥接。
+桥接请求最大 1 MiB。它负责安装包身份、单一 VPN profile、不可变 Session Snapshot、Session Host 激活和系统 VPN 状态；不公开 profile CRUD、内部文件路径、backend 描述、参数、PID、管道名称或 Snapshot 维护。数据包、Controller 流量查询、代理组查询/切换和业务生命周期不经过该 JSON 桥接。
 
 ## 编码与安全边界
 
@@ -363,4 +366,5 @@ ProtectFd(fd) -> bool
 - 配置、错误和日志按 UTF-8 字节计数并受固定上限约束。
 - TUN 原始数据包最大 1,500 字节；最终代理 UDP 负载最大 1,452 字节。
 - 嵌套 UDP 协议可以增加有界帧头，但解封装后的最终负载仍受 1,452 字节限制。
+- 节点和代理组定义名共享大小写敏感的严格 UTF-8 命名空间；`DIRECT`、`REJECT` 和 `RULES` 不能用作定义名。
 - Secret、password、UUID、REALITY key、short ID、目标地址和完整配置不得进入日志。

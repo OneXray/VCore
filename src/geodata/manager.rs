@@ -1378,7 +1378,9 @@ mod tests {
     fn rule(kind: RuleKind) -> RuleSpec {
         RuleSpec {
             kind,
-            action: RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap()),
+            action: RuleAction::Route(crate::config::RouteTargetId::Proxy(
+                crate::config::ProxyId::new(0).unwrap(),
+            )),
             no_resolve: false,
         }
     }

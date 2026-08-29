@@ -1,26 +1,25 @@
-# TUN 流量 Controller API
+# 运行时 Controller API
 
-Controller 只提供当前 TUN 会话的单次 HTTP 流量快照，不提供持续推送、连接明细、配置修改或其他管理接口。
+Controller 是当前 Running Session 的回环 HTTP 接口。它提供一次性 TUN 流量快照，以及静态 `select` 代理组的状态查询和实时选择；它不是 Invoke API，也不承诺完整 Mihomo Dashboard 兼容。
 
-## 配置
+## 配置与生命周期
 
 ```yaml
 external-controller: 127.0.0.1:9090
 secret: "vcore-runtime-secret"
 ```
 
-- 省略 `external-controller` 表示不启动 Controller，此时不能单独配置 `secret`。
-- `external-controller` 只接受回环地址，并且只能与 `tun.enable: true` 一起使用。
-- `secret` 可省略；一旦出现就必须是非空 Bearer token。
-- `measureDelay` 的节点配置不能包含这两个字段。
-- `validateConfig` 只校验字段；`prepare` 不监听端口；`start` 绑定端口，绑定失败则启动失败。
-- `stop` 和 `destroyInstance` 关闭监听器。
+- 省略 `external-controller` 表示不启动 Controller，此时不能单独配置 `secret`。含代理组但没有 Controller 的配置合法，组在本次 session 内保持初始选择。
+- `external-controller` 只接受带显式非零端口的回环 IP 地址。它要求启用 TUN 或至少定义一个 `proxy-groups`；非 TUN 配置仍须通过 `port` 满足运行配置的入站要求。
+- 只要同时配置代理组与 Controller，`secret` 就必填；仅有 TUN 流量接口时可省略。`secret` 出现时必须为 1–255 UTF-8 字节，并保护本文定义的全部路由。
+- `measureDelay` 的 node-only 配置不能包含 Controller 或代理组字段。
+- `validateConfig` 只校验字段；`prepare` 不监听端口；`start` 绑定端口，绑定失败则启动失败。`stop` 和 `destroyInstance` 关闭监听器。
 
-Controller 与 TUN 会话同生共灭。每次会话启动都会新建统计状态并把全部计数清零。宿主应为每次运行选择专用端口和随机密钥，密钥不得写入日志或错误正文。
+Controller 与公共运行时 session 同生共灭。代理组选择只保存在 VCore 当前 session 的内存中；VCore 不写回配置。宿主如需跨 session 保留选择，必须自行持久化，并在下次 `configYaml` 中提供对应的 `default-selected`。
 
 ## Bearer 鉴权
 
-配置 `secret` 后，请求必须携带：
+配置 `secret` 后，每个请求都必须携带：
 
 ```http
 Authorization: Bearer vcore-runtime-secret
@@ -28,12 +27,10 @@ Authorization: Bearer vcore-runtime-secret
 
 要求：
 
-- scheme 必须是 `Bearer`；
-- token 必须与当前会话配置完全一致；
-- 缺失、格式错误或不匹配都返回 `401 Unauthorized`；
-- 比较过程不能通过日志、响应或明显的提前返回时序泄漏 token。
-
-未配置 `secret` 时不要求 `Authorization`。Controller 不使用 HTTP Basic；顶层 `authentication` 只属于可选 HTTP 代理监听器。
+- scheme 必须精确为 `Bearer`，token 必须与当前 session 配置完全一致；
+- 缺失、重复、格式错误或不匹配都返回 `401 Unauthorized`；
+- 比较过程不能通过日志、响应或明显的提前返回时序泄漏 token；
+- 未配置 `secret` 时不要求 `Authorization`；Controller 不使用 HTTP Basic，顶层 `authentication` 只属于 HTTP 代理 listener。
 
 ## `GET /traffic`
 
@@ -52,15 +49,99 @@ Authorization: Bearer vcore-runtime-secret
 
 - `up`：最近一个完整的一秒窗口内，从宿主 TUN 进入 VCore 的原始 IP 包字节数；
 - `down`：最近一个完整的一秒窗口内，由 VCore 写回宿主 TUN 的原始 IP 包字节数；
-- `upTotal`：本次 TUN 会话的累计上行字节数；
-- `downTotal`：本次 TUN 会话的累计下行字节数。
+- `upTotal`：本次 TUN session 的累计上行字节数；
+- `downTotal`：本次 TUN session 的累计下行字节数。
 
 Apple utun 的四字节包信息头不计入统计。统计只覆盖跨过 TUN L3 边界的包，包括 TUN DNS 和 ICMP；不重复计算 TLS、XHTTP 或其他代理封装，也不包含 HTTP 代理入站、GeoData 下载、Controller 请求和 `measureDelay`。
 
-请求不会等待下一次采样，不保持分块响应，不升级 WebSocket，也不为调用方保存“上次读取”状态。首个采样窗口完成前和空闲窗口内，`up`/`down` 为 0；累计值在同一会话内单调不减并采用饱和语义。
+请求不会等待下一次采样，不保持分块响应，不升级 WebSocket，也不为调用方保存“上次读取”状态。首个采样窗口完成前和空闲窗口内，`up`/`down` 为 0；累计值在同一 session 内单调不减并采用饱和语义。没有 TUN 的代理组 Controller 对该路由返回 `404 Not Found`。
 
-## 边界
+## 代理组查询
 
-Windows 的 TUN 运行时位于独立 Session Host 时，App 通过回环 HTTP 访问 Controller。流量查询不是 `VCoreInvoke` 方法，不携带 `instanceId`，也不占用 Invoke 命令锁。
+`GET /group` 按 YAML 声明顺序返回全部代理组：
 
-当前协议只定义符合鉴权要求的 `GET /traffic`。其他路径和方法均不属于公共协议。
+```json
+{
+  "proxies": [
+    {
+      "name": "main-select",
+      "type": "Selector",
+      "all": ["edge-a", "fallback-select", "DIRECT", "edge-a"],
+      "now": "edge-a"
+    }
+  ]
+}
+```
+
+以下两个请求返回同一个组状态对象：
+
+```http
+GET /group/{name}
+GET /proxies/{name}
+```
+
+- `name` 是组定义名，`type` 固定为 `Selector`；
+- `all` 是配置中的直接成员，严格保留顺序和重复项；
+- `now` 是当前选中的直接成员名。若该成员是嵌套组，`now` 仍返回组名，不展开为最终叶节点；
+- 名称和值大小写敏感并精确匹配，不做大小写折叠或 Unicode normalization。
+
+## `PUT /proxies/{name}`
+
+切换组的当前直接成员：
+
+```http
+PUT /proxies/main-select HTTP/1.1
+Authorization: Bearer vcore-runtime-secret
+Content-Type: application/json
+Content-Length: 26
+
+{"name":"fallback-select"}
+```
+
+成功返回 `204 No Content` 和空正文。`name` 必须是该组 `all` 中的直接成员；重复名称命中第一项。请求不接受传递成员、数组、索引、CAS/version 或其他字段。
+
+请求正文边界：
+
+- `Content-Type` 必须是唯一且不带参数的 `application/json`；
+- 必须有且只有一个十进制 `Content-Length`，不接受 `Transfer-Encoding` 或 chunked；
+- 正文最大 1 KiB，读取 header 和 body 各有 5 秒期限；
+- JSON 必须是 UTF-8 对象并且恰好包含一个字符串字段 `name`；缺失、未知或重复字段、malformed JSON 和尾随 JSON 都会失败；
+- 未知组、未知成员和任何无效请求都不得改变当前选择。
+
+同一组的成功写入是线性化的，最后一个成功提交的请求胜出；不同组独立更新，不提供跨组事务或 CAS。
+
+## 名称与路径
+
+节点和代理组定义名共享一个命名空间。名称必须为 1–64 UTF-8 字节，首尾不能是任何 Unicode 空白字符，不能含控制字符或 `, # / ? & = % \\`，也不能是 `.` 或 `..`。定义名额外保留 `DIRECT`、`REJECT` 和 `RULES`；前两者仍可作为组成员，`RULES` 只作为 DNS sentinel。内部普通空格、CJK 和 emoji 可以使用。
+
+路径中的 `{name}` 必须是单个 segment。Controller 对 percent-encoding 严格解码一次，再执行相同的 UTF-8 和名称校验；无效 `%`、无效 UTF-8、解码后的 `/`、二次编码形式、query 和 fragment 都会失败。客户端应对非 ASCII 或路径保留字节执行一次标准 percent-encoding；`+` 不会被当作空格。
+
+## 选择生效边界
+
+代理组成员列表在配置期固定，只有当前选择可在 Running Session 内改变：
+
+- 新建的物理 TCP 连接使用切换后的当前叶节点；既有 TCP 连接保持原路径；
+- 新建的 UDP association/物理 transport 使用切换后的当前叶节点；既有 association 不迁移；
+- 新建的 DNS transport 使用切换后的当前叶节点；DNS cache、singleflight 状态和已在池中的 TCP transport 不清空、不迁移；
+- 切换不主动断开连接、不刷新缓存、不重启运行时，也不修改 YAML 或下一次 session 的默认值；
+- 选中节点、`DIRECT` 或 `REJECT` 时按原样执行；选中嵌套组时继续解析其当前成员。失败按原样返回，不自动选择其他成员。
+
+## HTTP 状态与协议边界
+
+| 状态 | 含义 |
+| --- | --- |
+| `200 OK` | 查询成功，返回 `application/json` |
+| `204 No Content` | 选择成功，正文为空 |
+| `400 Bad Request` | 路径、JSON、长度格式或成员无效 |
+| `401 Unauthorized` | Bearer 鉴权失败 |
+| `403 Forbidden` | 请求来源不是回环地址 |
+| `404 Not Found` | 路由、组或当前 session 中的 TUN 流量资源不存在 |
+| `405 Method Not Allowed` | 路由存在但方法不允许 |
+| `408 Request Timeout` | header 或 body 读取超时 |
+| `411 Length Required` | PUT 缺少 `Content-Length` |
+| `413 Payload Too Large` | PUT 正文超过 1 KiB |
+| `415 Unsupported Media Type` | PUT 不是严格 `application/json` |
+
+第一版不提供 provider/`use`、health check、自动 failover、`url-test`/`fallback`/`load-balance`、delay 测试、连接管理、配置修改、WebSocket 推送、Controller 版本协商或完整 Dashboard response。除 `GET /traffic`、`GET /group`、`GET /group/{name}`、`GET /proxies/{name}` 和 `PUT /proxies/{name}` 外，其他路径和方法均不属于公共协议。
+
+Windows 的完整运行时和 Controller 位于独立 Session Host。App 通过回环 HTTP 直接访问实际 Running Session；组查询和切换不经过 `VCoreInvoke`、Windows bridge 或 Provider 控制管道，不携带 `instanceId`，也不占用 Invoke 命令锁。

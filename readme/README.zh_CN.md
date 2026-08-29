@@ -4,12 +4,13 @@
   <a href="../README.md">English</a> · 简体中文 · <a href="./README.ru.md">Русский</a>
 </p>
 
-VCore 是独立且不绑定特定宿主应用的 Rust 客户端代理 core。它通过严格 YAML 配置和 Invoke API v5 提供代理图、DNS、规则、GeoData、HTTP listener、TUN 数据面与流量统计。内部配置 schema revision 为 12；revision 只出现在 `version` 响应和 `buildIdentity` 中，不写入 YAML。
+VCore 是独立且不绑定特定宿主应用的 Rust 客户端代理 core。它通过严格 YAML 配置和 Invoke API v5 提供代理图、静态 `select` 代理组、DNS、规则、GeoData、HTTP listener、TUN 数据面与回环 Controller。内部配置 schema revision 为 13；revision 只出现在 `version` 响应和 `buildIdentity` 中，不写入 YAML。
 
 ## 能力
 
 - Outbound：VLESS + XHTTP + TLS/REALITY、SOCKS5 CONNECT/UDP ASSOCIATE、AnyTLS TCP/UoT、DIRECT。
 - 代理链：`dialer-proxy` 组成任意长度的有向无环图；节点 A 指向 B 时，物理路径为 `client -> B -> A -> target`。
+- 代理组：静态 `select` 组保留有序成员，可包含具体节点、嵌套组、`DIRECT` 与 `REJECT`；当前 session 的选择可通过 Controller 实时修改。`dialer-proxy` 仍然只能引用具体节点。
 - 路由：顺序执行 `DOMAIN`、`DOMAIN-SUFFIX`、`DOMAIN-KEYWORD`、`GEOSITE`、`GEOIP`、`IP-CIDR`、`IP-CIDR6`、`DST-PORT`、`NETWORK` 和最终 `MATCH`。
 - DNS：固定 IP 的 UDP/TCP nameserver、显式出口、顺序 policy/failover、typed/opaque cache、singleflight、TUN UDP/TCP 53 劫持。
 - TUN：raw IPv4/IPv6、TCP/UDP、ICMPv4/ICMPv6 Echo 本地响应、HTTP/TLS/QUIC sniffer、每 session 四字段流量统计。
@@ -23,9 +24,10 @@ VCore 是独立且不绑定特定宿主应用的 Rust 客户端代理 core。它
 
 - YAML 最大 256 KiB，拒绝未知字段、anchor、alias、自定义 tag 和历史结构。
 - 顶层至少包含一个 proxy，以及 `port` 或启用的 `tun`。
-- proxy `name` 大小写敏感且唯一；引用必须存在，代理图必须无环。
-- `rules` 必填，必须恰好以一个指向实际 proxy name 的 `MATCH` 结束。
-- `DIRECT` 和 `REJECT` 是内置 action；其他 action 必须是实际 proxy name。
+- proxy 与 proxy group 定义名共享一个精确且大小写敏感的命名空间。名称为 1–64 UTF-8 字节，拒绝首尾 Unicode 空白、控制字符、`, # / ? & = % \`、`.`、`..`，并保留 `DIRECT`、`REJECT` 与 `RULES`；内部普通空格、CJK 和 emoji 可用。
+- `proxy-groups` 只接受 `select`。成员顺序与重复项均保留；省略 `default-selected` 时选择第一项，显式值必须是直接成员。代理链和嵌套组分别必须无环。
+- `rules` 必填，必须恰好以一个指向已配置 proxy node 或 proxy group 的 `MATCH` 结束。
+- `DIRECT` 和 `REJECT` 是内置 action 与组成员；其他 route target 必须是已配置 proxy node 或 proxy group。`RULES` 只由 DNS 保留。
 - 配置通过 `configYaml` / `configYamls` 内联交付；VCore 不读取宿主配置路径。
 - Controller、TUN fd、Controller 端口/secret 等运行时值由宿主生成，不进入用户保存的 RAW YAML。
 
@@ -57,14 +59,18 @@ initialize
 
 `instanceId` 是当前 runtime 内不可复用的 generation token。同实例命令 fail-fast；纯 `validateConfig` 可并发执行。完整 envelope、method、fd 所有权和 Android protect 契约见 [`docs/invoke-api.md`](../docs/invoke-api.md)。
 
-TUN 流量通过 session-local loopback Controller 查询：
+运行时状态通过 session-local loopback Controller 访问：
 
 ```http
 GET /traffic
+GET /group
+GET /group/{name}
+GET /proxies/{name}
+PUT /proxies/{name}
 Authorization: Bearer <secret>
 ```
 
-响应为一次 `up/down/upTotal/downTotal` snapshot，不是持续 stream。详见 [`docs/controller-api.md`](../docs/controller-api.md)。
+`GET /traffic` 返回一次 TUN `up/down/upTotal/downTotal` snapshot。代理组端点读取或修改静态 `select` 组的当前直接成员；成功切换只影响当前 session 后续新建的物理 TCP、UDP 与 DNS transport，不迁移既有连接、UDP association、DNS 状态或 TCP 连接池，也不自动故障转移。Controller 管理代理组时，全部路由必须共用一个 Bearer secret，并且可以不启用 TUN。详见 [`docs/controller-api.md`](../docs/controller-api.md)。
 
 ## 平台
 
@@ -103,7 +109,7 @@ TCP session、普通 UDP association、half-open、outbound handshake 和 active
 - [AnyTLS 出站](../docs/anytls.md)
 - [REALITY V1 客户端协议](../docs/reality-wire-protocol.md)
 - [rustls REALITY 依赖与发布要求](../docs/rustls-reality-release.md)
-- [TUN 流量 Controller](../docs/controller-api.md)
+- [运行时 Controller](../docs/controller-api.md)
 - [TUN ICMP 与 DNS](../docs/tun-icmp-dns.md)
 - [GeoData 规则与资产](../docs/geodata.md)
 - [TUN 平台层](../docs/tun-platform.md)

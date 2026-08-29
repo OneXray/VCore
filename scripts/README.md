@@ -20,7 +20,7 @@ uv run --project scripts --locked vcore-scripts build windows
 - Apple 命令只能在 macOS 运行，输出 `dist/apple/LibVCore.xcframework`。
 - Android 命令在 macOS/Linux 运行，默认输出 `dist/android/{arm64-v8a,x86_64}/libvcore.so`。
 - Windows 命令只能在已安装 Visual Studio C++ 工具的 Windows 运行；命令从系统注册表读取原生 ARM64/x64 处理器架构，通过 `vswhere` 加载对应的 MSVC 环境，并输出 `dist/windows/<architecture>` 下的 DLL、Provider Host 和 Session Host。
-- 所有构建都使用 `Cargo.lock`，并检查产物内的 Invoke API v5/config revision 12 身份。
+- 所有构建都使用 `Cargo.lock`，并检查产物内的 Invoke API v5/config revision 13 身份。
 
 Apple/Android 继续接受现有环境变量：
 

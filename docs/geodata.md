@@ -10,7 +10,7 @@ rules:
   - GEOSITE,cn,DIRECT
   - GEOIP,PRIVATE,DIRECT,no-resolve
   - GEOIP,CN,DIRECT
-  - MATCH,vless-edge
+  - MATCH,main-select
 ```
 
 语法：
@@ -20,12 +20,12 @@ GEOSITE,<code>,<target>
 GEOIP,<code>,<target>[,no-resolve]
 ```
 
-- 规则类型和 `code` 不区分 ASCII 大小写，代理目标名称大小写敏感。
-- `target` 只能是 `DIRECT`、`REJECT` 或实际代理名。
+- 规则类型和 `code` 不区分 ASCII 大小写，route target 名称大小写敏感并精确匹配。
+- `target` 只能是 `DIRECT`、`REJECT`、实际代理节点名或静态 `select` 组名。
 - `code` 必须匹配 `[A-Za-z0-9][A-Za-z0-9._+!-]{0,63}`，按 ASCII 大小写折叠后判重。
 - `GEOSITE` 恰好三段；`GEOIP` 只允许可选且大小写敏感的 `no-resolve`。
 - 不支持反选、属性选择器、单条规则多个 code、源地址 GeoIP 或隐式局域网分类。
-- 规则按顺序首条命中，最终 `MATCH` 必须指向实际代理。
+- 规则按顺序首条命中，最终 `MATCH` 必须指向实际代理节点或代理组。
 
 DNS `nameserver-policy` 中的 `geosite:<code>[,<code>...]` 与业务规则共享同一份分类需求和匹配器。
 
@@ -59,7 +59,7 @@ geo-update-interval: 24
 - `geox-url` 只能包含 `geoip` 和 `geosite`；URL 必须是以域名为主机、无 userinfo/fragment 的绝对 HTTPS URL。
 - `geo-update-interval` 只接受整数 `24`。
 - `validateConfig` 和 `prepare` 不下载。实例启动后，只有自动更新已开启且规则实际需要资产时才运行更新任务。
-- 下载固定使用最终 `MATCH` 选中的完整代理链，不回退 DIRECT 或系统代理。
+- 下载固定使用最终 `MATCH` route target。若它是代理组，每次新建下载物理 transport 时沿嵌套组解析到当时选中的具体节点、`DIRECT` 或 `REJECT`；失败不自动换成员，也不隐式回退 DIRECT 或系统代理。
 - 缺失资产立即检查；失败后按 1 分钟、5 分钟、15 分钟、1 小时退避，之后保持 1 小时上限。成功后恢复 24 小时周期。
 - ETag、SHA-256、源 URL 和下次检查时间保存在 VCore 管理的状态中。合法 304 只推进调度。
 - 下载写入同目录暂存文件，通过大小、hash、wire、需求和资源校验后原子替换。失败保留上一份有效资产。
@@ -111,6 +111,7 @@ geo-update-interval: 24
 - `prepare` 注册去重后的需求并读取当时可用的本地快照，不等待更新。
 - Manager 只为当前公共实例构建匹配器；停止或销毁实例时释放需求和快照。
 - 后台更新通过完整校验后原子发布不可变快照。新流使用新快照，已经完成的选路不回溯。
+- Controller 切换代理组不会重启正在进行的下载或迁移既有连接；只有之后新建的 GeoData 下载物理 transport 使用新选择。
 - `measureDelay` 不注册 GeoData、匹配器或更新任务。
 
 ## 资源上限

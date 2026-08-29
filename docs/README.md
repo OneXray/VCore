@@ -4,12 +4,12 @@
 
 ## 公共契约
 
-1. [配置协议](config.yaml)：配置修订版 12 的完整 YAML 示例和严格字段边界。
+1. [配置协议](config.yaml)：配置修订版 13 的完整 YAML 示例、静态 `select` 代理组和严格字段边界。
 2. [Invoke API](invoke-api.md)：API v5 的请求格式、生命周期和平台回调。
 3. [AnyTLS 出站](anytls.md)：TLS、会话复用、填充、TCP/UoT 和清理语义。
 4. [REALITY V1 协议](reality-wire-protocol.md)：握手、认证、连接状态和失败边界。
-5. [TUN 流量 Controller](controller-api.md)：Bearer 鉴权和四字段流量快照。
-6. [DNS 与 ICMP](tun-icmp-dns.md)：TUN DNS、缓存、故障转移和本地 Echo Reply。
+5. [运行时 Controller](controller-api.md)：Bearer 鉴权、实时代理组选择和四字段 TUN 流量快照。
+6. [DNS 与 ICMP](tun-icmp-dns.md)：TUN DNS、代理组出口、缓存、故障转移和本地 Echo Reply。
 7. [GeoData](geodata.md)：规则、资产更新、匹配器和资源上限。
 8. [TUN 平台层](tun-platform.md)：文件描述符、原始 IP 包和平台所有权。
 
