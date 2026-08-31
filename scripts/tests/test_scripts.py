@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -38,6 +39,35 @@ class ScriptTest(unittest.TestCase):
                 registry.QueryValueEx.assert_called_once_with(
                     key, "PROCESSOR_ARCHITECTURE"
                 )
+
+    def test_windows_example_uses_one_application_with_isolated_hosts(self):
+        root = ET.parse(
+            builds.CORE_DIR / "example/windows-uwp/AppxManifest.xml.in"
+        ).getroot()
+        foundation = "http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+        desktop = "http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+        uap10 = "http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
+        applications = root.findall(
+            f"{{{foundation}}}Applications/{{{foundation}}}Application"
+        )
+
+        self.assertEqual(len(applications), 1)
+        self.assertFalse(
+            any("AppListEntry" in element.attrib for element in root.iter())
+        )
+        extensions = applications[0].find(f"{{{foundation}}}Extensions")
+        full_trust = extensions.find(
+            f"{{{desktop}}}Extension[@Category='windows.fullTrustProcess']"
+        )
+        provider = extensions.find(
+            f"{{{foundation}}}Extension[@Category='windows.backgroundTasks']"
+        )
+        self.assertEqual(
+            full_trust.attrib["Executable"], "vcore-windows-session-host.exe"
+        )
+        self.assertEqual(provider.attrib["Executable"], "vcore-windows-vpn-host.exe")
+        self.assertEqual(provider.attrib[f"{{{uap10}}}RuntimeBehavior"], "windowsApp")
+        self.assertEqual(provider.attrib[f"{{{uap10}}}TrustLevel"], "appContainer")
 
     def test_android_target_mapping_is_strict(self):
         self.assertEqual(
@@ -91,6 +121,28 @@ class ScriptTest(unittest.TestCase):
                         "--lib",
                         "--bins",
                     ],
+                )
+                manifest = json.loads(
+                    (
+                        root / "dist/windows/arm64/vcore-windows-artifacts.json"
+                    ).read_text()
+                )
+                expected_digest = (
+                    "b8241c047493f35fd082f0fcac9da78936d5668392cbcee8b67175f24c6dfa5d"
+                )
+                self.assertEqual(
+                    manifest,
+                    {
+                        "architecture": "arm64",
+                        "artifacts": {
+                            "vcore-windows-session-host.exe": expected_digest,
+                            "vcore-windows-vpn-host.exe": expected_digest,
+                            "vcore.dll": expected_digest,
+                        },
+                        "buildIdentity": EXPECTED_IDENTITY.decode("ascii"),
+                        "formatVersion": 1,
+                        "windowsPackageIntegrationRevision": 2,
+                    },
                 )
                 (release / "vcore.dll").write_bytes(b"wrong")
                 with self.assertRaisesRegex(RuntimeError, "incompatible Rust identity"):

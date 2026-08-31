@@ -102,7 +102,6 @@ windows = { version = "=0.62.2", optional = true, features = [
     "Win32_Networking_WinSock",
     "Win32_Security",
     "Win32_Security_Isolation",
-    "Win32_System_Com",
     "Win32_System_JobObjects",
     "Win32_System_RemoteDesktop",
     "Win32_System_Threading",

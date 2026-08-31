@@ -24,7 +24,7 @@
 - 规则、GeoData、HTTP/TLS/QUIC 嗅探；
 - ICMPv4/ICMPv6 Echo、校验和、分片、MTU 和队列满；
 - Apple/Android TUN 帧格式、文件描述符副本和关闭所有权；
-- Windows 控制/数据协议、Session Snapshot v2、会合记录、包队列、批量写入、物理网络绑定和 Job Object 多进程监督；
+- Windows 单 Application manifest、Provider/Session Host token 绑定、控制/数据协议、Session Snapshot v2、会合记录、包队列、批量写入、物理网络绑定和 Job Object 多进程监督；
 - Controller 鉴权、速率和累计流量语义，以及代理组查询、实时选择和有界请求处理。
 
 常用命令：
@@ -94,7 +94,9 @@ Windows 11 ARM64 开发验收的环境、命令、结果和适用范围保存在
 
 ## Windows VPN
 
-已验证范围限于 Windows 11 ARM64 开发签名安装包：
+单 Application 目标在 Windows 11 ARM64 build 26200.9278 的 Developer Mode loose package 上已验证：manifest 只有一个 Application，Provider 是 AppContainer，Provider 可通过无参数 `FullTrustProcessLauncher` 启动具有同一 package identity 的 medium-integrity Session Host，connect/stop 与 rendezvous 清理通过。该结果不等于签名 MSIX、Windows 10、原生 x64、WACK 或 Store 通过。
+
+此前 Windows 11 ARM64 开发签名包的数据面证据覆盖：
 
 - `Windows.Networking.Vpn` Provider 激活；
 - 完全信任前台宿主、AppContainer Provider 和完全信任 Session Host 的进程边界；
@@ -104,13 +106,13 @@ Windows 11 ARM64 开发验收的环境、命令、结果和适用范围保存在
 - 非回环 socket 的物理源地址与接口索引绑定；
 - Controller、外部回环 SOCKS5 和前台宿主退出后的会话延续；
 - Provider/Session Host 退出、管道错误和网络变化时的失败关闭；
-- 快速重连、持续压力、零队列丢弃和显式 Stop 清理；
-- 断开状态下的安装包原位升级和签名校验。
+- 快速重连、持续压力、零队列丢弃和显式 Stop 清理。
 
 Windows 路由必须保留两条 `/1`。在安装包环境中，单条 VPN `/0` 会使按产品要求绑定物理源地址和接口的外层 socket 返回 `WSAENETUNREACH`；两条 `/1` 不会产生该问题。
 
 尚未验证或完成：
 
+- 单 Application test-signed MSIX 安装；
 - Windows 10 20H2；
 - 原生 x64 Windows；
 - 真实物理 IPv6；

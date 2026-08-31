@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import locale
 import mmap
 import os
@@ -384,8 +385,24 @@ def build_windows() -> None:
     output.mkdir(parents=True)
     for name in artifacts:
         shutil.copy2(release / name, output / name)
+    digests = {}
     for name in artifacts:
         artifact = output / name
         with artifact.open("rb") as file:
-            digest = hashlib.file_digest(file, "sha256").hexdigest()
-        print(f"{digest}  {artifact}")
+            digests[name] = hashlib.file_digest(file, "sha256").hexdigest()
+        print(f"{digests[name]}  {artifact}")
+    (output / "vcore-windows-artifacts.json").write_text(
+        json.dumps(
+            {
+                "formatVersion": 1,
+                "windowsPackageIntegrationRevision": 2,
+                "architecture": architecture,
+                "buildIdentity": EXPECTED_IDENTITY.decode("ascii"),
+                "artifacts": digests,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )

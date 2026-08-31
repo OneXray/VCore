@@ -17,23 +17,14 @@ use windows::{
     },
     Storage::ApplicationData,
     Win32::{
-        Foundation::{E_NOINTERFACE, HANDLE},
-        System::{
-            Com::{CLSCTX_LOCAL_SERVER, CoCreateInstance},
-            Threading::{
-                OpenProcess, PROCESS_SYNCHRONIZE, PROCESS_TERMINATE, TerminateProcess,
-                WaitForSingleObject,
-            },
-            WinRT::{RO_INIT_MULTITHREADED, RoInitialize, RoUninitialize},
-        },
-        UI::Shell::{AO_NONE, ApplicationActivationManager, IApplicationActivationManager},
+        Foundation::E_NOINTERFACE,
+        System::WinRT::{RO_INIT_MULTITHREADED, RoInitialize, RoUninitialize},
     },
-    core::{HSTRING, IUnknown, Interface as _, Owned, Result as WindowsResult},
+    core::{Interface as _, Result as WindowsResult},
 };
 
 use super::{
     managed_processes::SessionBackend,
-    packet_channel::remove_rendezvous,
     profile::{WindowsNetworkSettings, WindowsProfileConfiguration},
     snapshot::SessionReference,
 };
@@ -106,51 +97,6 @@ impl WinRtGuard {
 impl Drop for WinRtGuard {
     fn drop(&mut self) {
         unsafe { RoUninitialize() };
-    }
-}
-
-struct SessionHostProcess {
-    handle: Owned<HANDLE>,
-    terminate_on_drop: bool,
-}
-
-impl SessionHostProcess {
-    fn launch(family_name: &str, session_token: &str) -> Result<Self, String> {
-        let manager: IApplicationActivationManager = unsafe {
-            CoCreateInstance(
-                &ApplicationActivationManager,
-                None::<&IUnknown>,
-                CLSCTX_LOCAL_SERVER,
-            )
-        }
-        .map_err(display_error)?;
-        let app_user_model_id: HSTRING = format!("{family_name}!SessionHost").into();
-        let arguments: HSTRING = format!("--session-token {session_token}").into();
-        let process_id =
-            unsafe { manager.ActivateApplication(&app_user_model_id, &arguments, AO_NONE) }
-                .map_err(display_error)?;
-        let handle =
-            unsafe { OpenProcess(PROCESS_TERMINATE | PROCESS_SYNCHRONIZE, false, process_id) }
-                .map_err(display_error)?;
-        Ok(Self {
-            handle: unsafe { Owned::new(handle) },
-            terminate_on_drop: true,
-        })
-    }
-
-    fn release(mut self) {
-        self.terminate_on_drop = false;
-    }
-}
-
-impl Drop for SessionHostProcess {
-    fn drop(&mut self) {
-        if self.terminate_on_drop {
-            unsafe {
-                _ = TerminateProcess(*self.handle, 1);
-                _ = WaitForSingleObject(*self.handle, 5_000);
-            }
-        }
     }
 }
 
@@ -286,8 +232,6 @@ fn start_vpn(payload: StartPayload) -> Result<Value, String> {
             Ok(existing.profile.clone())
         })
         .map_err(display_error)?;
-    remove_rendezvous(&environment.local_folder).map_err(display_error)?;
-    let session_host = SessionHostProcess::launch(&environment.family_name, &token)?;
     configure_profile(
         &profile,
         &environment.family_name,
@@ -316,7 +260,6 @@ fn start_vpn(payload: StartPayload) -> Result<Value, String> {
     {
         return Err(format!("connect Windows VPN returned status {}", status.0));
     }
-    session_host.release();
     Ok(json!({"status": "connected", "snapshotToken": token}))
 }
 

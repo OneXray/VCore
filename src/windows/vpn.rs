@@ -20,6 +20,7 @@ use windows::{
     ApplicationModel::{
         Background::{IBackgroundTask, IBackgroundTask_Impl, IBackgroundTaskInstance},
         Core::CoreApplication,
+        FullTrustProcessLauncher,
     },
     Networking::{
         Connectivity::{ConnectionProfile, NetworkInformation, NetworkStatusChangedEventHandler},
@@ -60,6 +61,7 @@ use super::{
     log,
     packet_channel::{
         AddressBindingV4, AddressBindingV6, PacketCounters, PhysicalBinding, ProviderPacketSession,
+        remove_rendezvous,
     },
     profile::{WindowsNetworkSettings, WindowsProfileConfiguration},
 };
@@ -620,6 +622,9 @@ impl VpnProvider {
             ));
         }
 
+        remove_rendezvous(&local_folder).map_err(windows_error)?;
+        launch_session_host()?;
+
         let unexpected_stop = fail_closed_handle.clone();
         let session = ProviderPacketSession::start(
             local_folder,
@@ -1023,6 +1028,10 @@ fn write_buffer(buffer: &Buffer, bytes: &[u8]) -> Result<()> {
     }
     unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), pointer, bytes.len()) };
     buffer.SetLength(bytes.len() as u32)
+}
+
+fn launch_session_host() -> Result<()> {
+    FullTrustProcessLauncher::LaunchFullTrustProcessForCurrentAppAsync()?.join()
 }
 
 fn write_dummy(output: &IOutputStream) -> Result<()> {

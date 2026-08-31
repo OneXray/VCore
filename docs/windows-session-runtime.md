@@ -1,6 +1,6 @@
 # Windows 会话运行时
 
-Windows 每个 VPN 会话由一个隐藏的完全信任 Session Host 独占完整 VCore 运行时。AppContainer Provider 只负责 Windows VPN 平台资源、原始包转发和失败关闭；系统中不存在 Provider 内嵌运行时的备用路径。
+Windows package 只有一个主 Application，但每个 VPN 会话仍由独立的完全信任 Session Host 独占完整 VCore 运行时。AppContainer Provider 只负责 Windows VPN 平台资源、原始包转发和失败关闭；系统中不存在 Provider 内嵌运行时的备用路径。
 
 ## 参与者与所有权
 
@@ -61,21 +61,21 @@ Session Host 每次连接新建一个进程，不常驻、不复用运行时，�
 
 1. 前台宿主调用 `startVpn(configYaml, networkSettings, sessionBackend?)`。
 2. 桥接验证配置、四个地址和进程描述，发布不可变 Session Snapshot，并把解析后的顶层 IPv6 开关写入 profile configuration。
-3. 桥接通过 `IApplicationActivationManager` 激活隐藏 Session Host，只传 `--session-token <token>`。
-4. 桥接持有激活返回的精确进程句柄。
-5. 桥接写入单一 VPN profile 并调用 `ConnectProfileAsync`。
-6. Windows 激活 Provider。
-7. Provider 在安装路由前选择物理网络绑定，并创建控制/数据管道服务端；顶层 `ipv6: false` 时不安装 IPv6 地址、路由或 DNS。
-8. Provider 原子发布会合记录。
-9. Session Host 校验命令行令牌和会合记录，构造限定对象路径并连接两条管道。
-10. Session Host 发送 `SessionHello`；Provider 返回 `ProviderHello` 和不可变物理绑定。
-11. Session Host 读取 Snapshot；若存在 backend，则用一个 kill-on-close Job Object 按顺序启动全部进程。
+3. 桥接写入单一 VPN profile 并调用 `ConnectProfileAsync`；它不启动或持有 Session Host。
+4. Windows 激活 AppContainer Provider。
+5. Provider 从 profile configuration 取得权威 token，选择物理网络绑定并准备基础资源。
+6. Provider 清理陈旧会合记录，通过无参数 `FullTrustProcessLauncher` 激活 Session Host。
+7. Session Host 不读取动态命令行参数，等待 Provider 会合记录。
+8. Provider 创建控制/数据管道服务端并原子发布会合记录。
+9. Session Host 严格解析会合记录，把其中的 token 作为候选值，构造限定对象路径并连接两条管道。
+10. Session Host 发送 `SessionHello`；Provider 把候选 token 与 profile token 精确比较后返回 `ProviderHello` 和不可变物理绑定。
+11. Session Host 验证 `ProviderHello` 回传同一 token，之后才读取 Snapshot；若存在 backend，则用一个 kill-on-close Job Object 按顺序启动全部进程。
 12. Session Host 准备并启动完整 VCore 运行时、静态代理组状态和 Controller。
 13. Session Host 确认受管进程尚未退出后返回 `RuntimeReady`。
 14. Provider 调用 `StartWithMainTransport` 并启动失败关闭监视器。
 15. 连接成功后，桥接向前台宿主返回当前系统 VPN 状态。
 
-任一步失败都必须关闭包通道、终止本次精确 Session Host、收敛为 Disconnected，并只返回有界脱敏错误。
+任一步失败都必须关闭包通道并收敛为 Disconnected，只返回有界脱敏错误；未完成握手的 Session Host 最多等待 15 秒后退出。
 
 ## 会合记录
 
@@ -93,8 +93,8 @@ Session Host 每次连接新建一个进程，不常驻、不复用运行时，�
 
 - Provider 是唯一发布者和清理者；
 - 使用同目录暂存文件和原子重命名；
-- 只接受规范 AppContainer 相对路径、固定 leaf 和匹配令牌；
-- 非普通文件、reparse point、超限、未知字段和令牌不匹配都会失败关闭；
+- 只接受规范 token、AppContainer 相对路径和固定 leaf；
+- 非普通文件、reparse point、超限或未知字段都会失败关闭；候选 token 与 profile token 的绑定只在双向握手中完成；
 - 握手完成后删除，新连接前清理断开状态下的陈旧记录。
 
 ## 控制协议

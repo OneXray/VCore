@@ -9,7 +9,7 @@ Windows 数据面只使用官方 `Windows.Networking.Vpn` 和 `windows-rs`，不
 - 分发形式：具有 package identity 的 MSIX。
 - 前台：调用 Windows 桥接接口的完全信任宿主。
 - Provider：同 package family 的 AppContainer 应用。
-- Session Host：同 package 中隐藏的完全信任应用，每个 VPN 会话一个进程，可选拥有同包 session backend。
+- Session Host：同一主 Application 的完全信任 extension，每个 VPN 会话一个独立进程，可选拥有同包 session backend。
 - Windows 依赖：`windows = 0.62.2`。
 - Manifest：包含 `networkingVpnProvider` 和 `runFullTrust`，不配置产品级 loopback exemption。
 
@@ -130,7 +130,7 @@ Provider 是物理网络状态的唯一权威，并订阅 `NetworkStatusChanged`
 
 - Provider 创建 AppContainer 本地控制管道和数据管道；
 - `GetAppContainerNamedObjectPath` 提供限定对象路径；
-- `IApplicationActivationManager` 激活隐藏 Session Host；
+- Provider 通过无参数 `FullTrustProcessLauncher` 激活同一 Application 的 Session Host；
 - Session Host 使用当前 Windows session ID 构造限定路径并连接；
 - 前台宿主退出不停止 Provider 或 Session Host，重新启动后从系统 profile 恢复状态。
 
@@ -155,8 +155,9 @@ vcore-windows-vpn-host.exe
 vcore-windows-session-host.exe
 ```
 
-- 三个可执行参与者相互独立；
-- Session Host 不显示在应用列表，也不注册 StartupTask 或 URI；
+- manifest 只有一个主 Application，三个可执行参与者相互独立；
+- Session Host 是 `windows.fullTrustProcess` extension，不显示在应用列表，也不注册 StartupTask 或 URI；
+- Provider 的 `windows.backgroundTasks` extension 显式使用 `windowsApp + appContainer`；
 - Provider activation class 来自 `vcore.dll`；
 - 同一 package 只维护一个 `VCore` VPN profile；
 - custom configuration 是最大 1 KiB 的严格 JSON，只含修订版 3、Session token、顶层 IPv6 开关和四个网络地址；
@@ -176,7 +177,7 @@ vcore-windows-session-host.exe
 | 受管进程退出 | 清理同 Job 进程并停止当前 VPN |
 | 本地 SOCKS 流失败且服务进程仍存活 | 只失败当前流 |
 | 显式 Stop | 有界确认后清理路由、记录、Controller 和会话进程 |
-| 启动失败 | 终止本次精确 Session Host 进程并收敛为 Disconnected |
+| 启动失败 | Provider Connect 失败；未完成握手的 Session Host 最多等待 15 秒后退出 |
 
 当前实测范围和未完成平台门禁见 [验收矩阵](acceptance.md)。
 
@@ -187,5 +188,5 @@ vcore-windows-session-host.exe
 - [`VpnChannel.AssociateTransport`](https://learn.microsoft.com/uwp/api/windows.networking.vpn.vpnchannel.associatetransport)
 - [`VpnPacketBuffer`](https://learn.microsoft.com/uwp/api/windows.networking.vpn.vpnpacketbuffer)
 - [`VpnManagementAgent`](https://learn.microsoft.com/uwp/api/windows.networking.vpn.vpnmanagementagent)
-- [`IApplicationActivationManager`](https://learn.microsoft.com/windows/win32/api/shobjidl_core/nn-shobjidl_core-iapplicationactivationmanager)
+- [`FullTrustProcessLauncher`](https://learn.microsoft.com/uwp/api/windows.applicationmodel.fulltrustprocesslauncher)
 - [Package identity](https://learn.microsoft.com/windows/apps/desktop/modernize/package-identity-overview)

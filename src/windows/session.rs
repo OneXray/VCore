@@ -7,7 +7,7 @@ use std::{
 };
 
 use tokio::{
-    io::BufReader,
+    io::{AsyncRead, AsyncWrite, BufReader},
     net::windows::named_pipe::{ClientOptions, NamedPipeClient},
     sync::Notify,
     task::JoinSet,
@@ -64,14 +64,13 @@ impl Drop for WinRtGuard {
 #[doc(hidden)]
 pub fn run() -> io::Result<()> {
     let _winrt = WinRtGuard::enter()?;
-    let token = parse_args(std::env::args().skip(1))?;
     let (local_folder, installed_folder) = package_folders()?;
     log::append(&local_folder, "session", "Session Host starting");
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_io()
         .enable_time()
         .build()?;
-    let result = runtime.block_on(run_async(&local_folder, &installed_folder, &token));
+    let result = runtime.block_on(run_async(&local_folder, &installed_folder));
     log::append(
         &local_folder,
         "session",
@@ -91,26 +90,9 @@ pub fn log_startup_failure(_error: &io::Error) {
     }
 }
 
-fn parse_args(args: impl IntoIterator<Item = String>) -> io::Result<String> {
-    let args: Vec<String> = args.into_iter().collect();
-    let [flag, token] = args.as_slice() else {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "invalid Session Host arguments",
-        ));
-    };
-    if flag != "--session-token" {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "invalid Session Host arguments",
-        ));
-    }
-    SessionReference::parse(token).map_err(io::Error::other)?;
-    Ok(token.clone())
-}
-
-async fn run_async(local_folder: &Path, installed_folder: &Path, token: &str) -> io::Result<()> {
-    let rendezvous = wait_for_rendezvous(local_folder, token).await?;
+async fn run_async(local_folder: &Path, installed_folder: &Path) -> io::Result<()> {
+    let rendezvous = wait_for_rendezvous(local_folder).await?;
+    let token = rendezvous.snapshot_token.clone();
     let session_id = current_session_id()?;
     let (control_name, data_name) = rendezvous.qualified_names(session_id)?;
     let control = open_pipe(&control_name, STARTUP_TIMEOUT).await?;
@@ -118,24 +100,9 @@ async fn run_async(local_folder: &Path, installed_folder: &Path, token: &str) ->
     // The Provider publishes and removes rendezvous; competing deletes can return ACCESS_DENIED.
 
     let (mut control_read, mut control_write) = tokio::io::split(control);
-    write_control_async(
-        &mut control_write,
-        &ControlMessage::SessionHello {
-            version: PROTOCOL_VERSION,
-            snapshot_token: token.to_owned(),
-        },
-    )
-    .await?;
-    let binding = match read_control_async(&mut control_read).await? {
-        ControlMessage::ProviderHello {
-            snapshot_token,
-            physical_binding,
-            ..
-        } if snapshot_token == token => physical_binding,
-        _ => return Err(invalid_data("invalid Provider handshake")),
-    };
+    let binding = complete_session_handshake(&mut control_read, &mut control_write, &token).await?;
 
-    let started = start_session(local_folder, installed_folder, token, binding, data).await;
+    let started = start_session(local_folder, installed_folder, &token, binding, data).await;
     let (running, mut data_tasks, mut managed_processes) = match started {
         Ok(started) => started,
         Err(error) => {
@@ -223,6 +190,29 @@ async fn run_async(local_folder: &Path, installed_folder: &Path, token: &str) ->
             .await;
             Err(error)
         }
+    }
+}
+
+async fn complete_session_handshake(
+    control_read: &mut (impl AsyncRead + Unpin),
+    control_write: &mut (impl AsyncWrite + Unpin),
+    token: &str,
+) -> io::Result<PhysicalBinding> {
+    write_control_async(
+        control_write,
+        &ControlMessage::SessionHello {
+            version: PROTOCOL_VERSION,
+            snapshot_token: token.to_owned(),
+        },
+    )
+    .await?;
+    match read_control_async(control_read).await? {
+        ControlMessage::ProviderHello {
+            snapshot_token,
+            physical_binding,
+            ..
+        } if snapshot_token == token => Ok(physical_binding),
+        _ => Err(invalid_data("invalid Provider handshake")),
     }
 }
 
@@ -349,10 +339,10 @@ fn dialer_from_binding(binding: &PhysicalBinding) -> io::Result<Dialer> {
     Ok(Dialer::default().with_windows_interface(ipv4, ipv6))
 }
 
-async fn wait_for_rendezvous(local_folder: &Path, token: &str) -> io::Result<Rendezvous> {
+async fn wait_for_rendezvous(local_folder: &Path) -> io::Result<Rendezvous> {
     let deadline = Instant::now() + STARTUP_TIMEOUT;
     loop {
-        match read_rendezvous(local_folder, token) {
+        match read_rendezvous(local_folder) {
             Ok(rendezvous) => return Ok(rendezvous),
             Err(error) if error.kind() == io::ErrorKind::NotFound && Instant::now() < deadline => {
                 sleep(Duration::from_millis(25)).await;
@@ -423,27 +413,36 @@ mod tests {
     use super::*;
     use crate::windows::packet_channel::AddressBindingV4;
 
-    const TOKEN: &str =
-        "vcore-session-v2:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    #[tokio::test]
+    async fn provider_cannot_bind_a_candidate_to_another_snapshot() {
+        let candidate =
+            "vcore-session-v2:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let mut provider = Vec::new();
+        write_control_async(
+            &mut provider,
+            &ControlMessage::ProviderHello {
+                version: PROTOCOL_VERSION,
+                snapshot_token: candidate.replace('0', "1"),
+                physical_binding: PhysicalBinding {
+                    adapter_id: "adapter".to_owned(),
+                    profile_name: "Ethernet".to_owned(),
+                    network_names: vec![],
+                    ipv4: Some(AddressBindingV4 {
+                        source: "192.0.2.10".parse().unwrap(),
+                        interface_index: 10,
+                    }),
+                    ipv6: None,
+                },
+            },
+        )
+        .await
+        .unwrap();
 
-    #[test]
-    fn session_host_accepts_only_one_canonical_snapshot_argument() {
-        assert_eq!(
-            parse_args(["--session-token".to_owned(), TOKEN.to_owned()]).unwrap(),
-            TOKEN
+        assert!(
+            complete_session_handshake(&mut provider.as_slice(), &mut Vec::new(), candidate)
+                .await
+                .is_err()
         );
-        for args in [
-            vec![],
-            vec![TOKEN.to_owned()],
-            vec!["--config".to_owned(), TOKEN.to_owned()],
-            vec![
-                "--session-token".to_owned(),
-                TOKEN.to_owned(),
-                "extra".to_owned(),
-            ],
-        ] {
-            assert!(parse_args(args).is_err());
-        }
     }
 
     #[test]
