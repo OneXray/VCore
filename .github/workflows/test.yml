@@ -1,4 +1,4 @@
-name: Unit tests
+name: Tests
 
 on:
   pull_request:
@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  unit-tests:
+  test:
     runs-on: windows-2025
     timeout-minutes: 30
     steps:
@@ -18,4 +18,7 @@ jobs:
       - uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
-      - run: cargo test --locked --all-features --all-targets
+      - name: Build default features
+        run: cargo build --locked --all-targets
+      - name: Unit tests
+        run: cargo test --locked --all-features --all-targets
