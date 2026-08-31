@@ -78,6 +78,25 @@ def _cargo_build(
     )
 
 
+def _require_windows_architecture(artifact: Path, architecture: str) -> None:
+    with artifact.open("rb") as file:
+        if file.read(2) != b"MZ":
+            raise RuntimeError(f"invalid Windows PE artifact: {artifact}")
+        file.seek(0x3C)
+        offset = file.read(4)
+        if len(offset) != 4:
+            raise RuntimeError(f"invalid Windows PE artifact: {artifact}")
+        file.seek(int.from_bytes(offset, "little"))
+        if file.read(4) != b"PE\0\0":
+            raise RuntimeError(f"invalid Windows PE artifact: {artifact}")
+        machine = file.read(2)
+        if len(machine) != 2:
+            raise RuntimeError(f"invalid Windows PE artifact: {artifact}")
+    expected = {"arm64": 0xAA64, "x64": 0x8664}[architecture]
+    if int.from_bytes(machine, "little") != expected:
+        raise RuntimeError(f"VCore Windows artifact has wrong architecture: {artifact}")
+
+
 def _require_identity(artifact: Path, platform_name: str) -> None:
     found = False
     if artifact.stat().st_size:
@@ -353,6 +372,9 @@ def build_windows() -> None:
     if os.name != "nt":
         raise RuntimeError("Windows artifacts must be built on Windows")
     architecture = _windows_architecture()
+    output = CORE_DIR / "dist" / "windows" / architecture
+    shutil.rmtree(output, ignore_errors=True)
+    output.mkdir(parents=True)
     targets = {
         "arm64": "aarch64-pc-windows-msvc",
         "x64": "x86_64-pc-windows-msvc",
@@ -379,10 +401,9 @@ def build_windows() -> None:
         "vcore-windows-vpn-host.exe",
         "vcore-windows-session-host.exe",
     ]
+    for name in artifacts:
+        _require_windows_architecture(release / name, architecture)
     _require_identity(release / "vcore.dll", "Windows")
-    output = CORE_DIR / "dist" / "windows" / architecture
-    shutil.rmtree(output, ignore_errors=True)
-    output.mkdir(parents=True)
     for name in artifacts:
         shutil.copy2(release / name, output / name)
     digests = {}

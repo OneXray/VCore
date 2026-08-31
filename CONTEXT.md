@@ -13,8 +13,8 @@ The VCore runtime serving one active Windows tunnel session inside the Windows s
 _Avoid_: Foreground runtime, provider runtime, external core
 
 **Windows session host**:
-The hidden packaged full-trust Application that owns one Windows session runtime and its optional Windows session backend independently of the foreground host.
-_Avoid_: Foreground process, provider host, external-core host
+The packaged full-trust process registered under the product's single Application that owns one Windows session runtime and its optional Windows session backend independently of the foreground host.
+_Avoid_: Helper Application, foreground process, provider host, external-core host
 
 **Windows session backend**:
 The optional ordered set of package-local processes whose lifetime is owned by one Windows session host. VCore supervises process liveness but does not interpret their arguments, files, ports, or protocols.

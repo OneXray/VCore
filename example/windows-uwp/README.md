@@ -2,7 +2,7 @@
 
 本示例演示如何把 VCore 的 `Windows.Networking.Vpn` Provider、每会话完全信任运行时和一个最小命令行前台打进同一个 MSIX，并通过 `VCoreWindowsVpnInvoke` 创建、连接、查询和停止系统 VPN。
 
-> 这里的 “UWP” 指 Windows 的 UWP VPN Provider 模型。VCore **不支持纯 AppContainer 前台直接承载完整集成**：profile/snapshot 管理和 Session Host 激活必须由同包的完全信任进程执行。已有纯 UWP UI 时，应增加一个完全信任 broker；不要从 UWP UI 直接调用桥接接口。
+> 这里的 “UWP” 指 Windows 的 UWP VPN Provider 模型。VCore **不支持纯 AppContainer 前台直接承载完整集成**：profile/snapshot 管理必须由同包的完全信任进程执行，Session Host 则由 Provider 激活。已有纯 UWP UI 时，应增加一个完全信任 broker；不要从 UWP UI 直接调用桥接接口。
 
 ## 最小架构
 

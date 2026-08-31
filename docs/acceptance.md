@@ -94,7 +94,18 @@ Windows 11 ARM64 开发验收的环境、命令、结果和适用范围保存在
 
 ## Windows VPN
 
-单 Application 目标在 Windows 11 ARM64 build 26200.9278 的 Developer Mode loose package 上已验证：manifest 只有一个 Application，Provider 是 AppContainer，Provider 可通过无参数 `FullTrustProcessLauncher` 启动具有同一 package identity 的 medium-integrity Session Host，connect/stop 与 rendezvous 清理通过。该结果不等于签名 MSIX、Windows 10、原生 x64、WACK 或 Store 通过。
+单 Application 可行性在当前 Windows 11 ARM64 build 26200.9278 机器的 Developer Mode loose-package spike 上验证。该 spike 以 `042919ab5ead6af719ae68564244966e95003b58` 为基线，并包含后来收敛为 `d9018a2dfb75ab1f55c593023cbaa60951165eb5` 的未提交目标改动；基线 SHA 本身不能复现该结果。实际执行路径为：
+
+```powershell
+Add-AppxPackage -Register <stage>\AppxManifest.xml
+vcore-uwp-demo.exe environment
+vcore-uwp-demo.exe status
+vcore-uwp-demo.exe start <demo.yaml>
+vcore-uwp-demo.exe status
+vcore-uwp-demo.exe stop
+```
+
+观察结果是 manifest 只有一个 Application，Provider 是 AppContainer，Provider 通过无参数 `FullTrustProcessLauncher` 启动具有同一 package identity 的 medium-integrity Session Host，connect/stop 与 rendezvous 清理通过。该记录只证明本机可行性，不作为其他系统、架构、签名包、WACK 或 Store 的验证结论。
 
 此前 Windows 11 ARM64 开发签名包的数据面证据覆盖：
 
@@ -110,7 +121,7 @@ Windows 11 ARM64 开发验收的环境、命令、结果和适用范围保存在
 
 Windows 路由必须保留两条 `/1`。在安装包环境中，单条 VPN `/0` 会使按产品要求绑定物理源地址和接口的外层 socket 返回 `WSAENETUNREACH`；两条 `/1` 不会产生该问题。
 
-尚未验证或完成：
+以下项目由发布开发者在对应机器或服务中验证，不阻塞上述本机可行性结论：
 
 - 单 Application test-signed MSIX 安装；
 - Windows 10 20H2；

@@ -8,8 +8,16 @@ Windows package 只有一个主 Application，但每个 VPN 会话仍由独立�
 前台宿主（完全信任）
   ├─ VCoreInvoke
   └─ VCoreWindowsVpnInvoke
-         │ 激活
-         ▼
+       ├─ Session Snapshot / profile
+       └─ ConnectProfileAsync
+              │ Windows 激活
+              ▼
+vcore-windows-vpn-host.exe + vcore.dll（AppContainer）
+  ├─ VpnChannel / 路由 / DNS / 物理网络
+  ├─ VpnPacketBuffer / 有界回调队列 / 失败关闭
+  └─ FullTrustProcessLauncher
+              │ 无参数激活
+              ▼
 vcore-windows-session-host.exe
   ├─ 校验不可变 Session Snapshot
   ├─ 可选 Windows session backend / Job Object
@@ -17,23 +25,16 @@ vcore-windows-session-host.exe
   ├─ DNS / 规则 / GeoData / 嗅探器 / select 代理组
   ├─ VLESS / SOCKS5 / AnyTLS / DIRECT
   └─ 运行时 Controller（TUN 流量 / 代理组选择）
-         ▲
-         │ 同包控制管道 + 数据管道
-         ▼
-vcore-windows-vpn-host.exe + vcore.dll（AppContainer）
-  ├─ VpnChannel 生命周期
-  ├─ 路由 / DNS / 物理网络
-  ├─ VpnPacketBuffer 所有权
-  ├─ 有界回调队列
-  └─ 失败关闭
+              ▲
+              └─ 同包控制管道 + 数据管道
 ```
 
 | 参与者 | 拥有 | 不拥有 |
 | --- | --- | --- |
 | 前台宿主 | 用户命令、会话记录、UI 状态 | TUN 运行时、包通道、Provider 状态 |
-| Windows 桥接 | Session Snapshot、profile、Session Host 激活与回滚 | 数据包、代理流 |
+| Windows 桥接 | Session Snapshot、profile、连接/断开命令 | 数据包、代理流、Session Host 进程 |
 | Session Host | 单次 VCore 运行时、可选 session backend、Controller、GeoData、包客户端 | `VpnChannel`、路由、进程业务配置 |
-| Provider | `VpnChannel`、WinRT 缓冲区、路由、物理绑定、管道服务端、网络监控 | YAML、代理图、Controller、GeoData、backend 描述 |
+| Provider | `VpnChannel`、WinRT 缓冲区、路由、物理绑定、管道服务端、网络监控、Session Host 激活 | YAML、代理图、Controller、GeoData、backend 描述 |
 | SOCKS 服务 | 自身监听器、外层 socket 和绕过策略 | VCore 代理图和 Windows profile |
 
 Session Host 每次连接新建一个进程，不常驻、不复用运行时，也不处理 URI 或 StartupTask。
@@ -219,7 +220,7 @@ Provider 订阅网络变化，等待 2 秒消抖后复验适配器、地址和 i
 | Controller 绑定失败 | 启动失败，profile 不进入 Connected |
 | Controller 切换代理组 | 当前 Session Host 原子更新选择；既有 transport 保持原路径 |
 
-桥接回滚只终止本次激活返回的精确进程句柄，不按进程名扫描或清理。
+桥接不持有或终止 Session Host 进程；启动失败由 Provider 的 Connect 清理路径收敛，显式 Stop 通过系统 profile 断开。
 
 ## 安装包契约
 

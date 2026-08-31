@@ -210,7 +210,7 @@ stopped -> preparing -> prepared -> starting -> running
 
 - 读取当时可用的本地 GeoData，不启动或等待下载。
 - 只为直接访问物理网络的代理根节点执行引导 DNS；代理链上的域名交给下一跳。
-- 为每个静态 `select` 组建立当前 session 的初始选择；省略 `default-selected` 时使用第一项，显式值必须是直接成员。
+- 校验每个静态 `select` 组的初始选择；省略 `default-selected` 时使用第一项，显式值必须是直接成员。可变的 session 选择状态到 `start` 时才创建。
 - 成功进入 prepared；失败释放临时资源并回到 stopped。
 - 含 TUN 的配置从 preparing 起持有运行时本地的 TUN/protect 租约，直到停止或销毁。
 - Android 只有在实际启用 TUN 时才要求事先注册 protect controller。
@@ -233,6 +233,7 @@ Android 使用 `rawIp`。非 TUN 配置必须省略 `tunFd` 和 `tunFraming`。
 - `tunFd` 由宿主借用，宿主必须预先设置 nonblocking。
 - VCore 校验后建立带 `CLOEXEC` 的副本，只关闭副本。
 - Apple 只接受 `utun`，Android 只接受 `rawIp`。
+- 从 prepared 配置创建本次 session 的代理组选择状态。
 - 所有监听器和关键数据面成功后才进入 running。
 - GeoData 更新只在启动后按需后台运行，不属于启动关键路径。
 - Windows 系统 VPN 使用安装包桥接接口，不使用文件描述符启动参数。
@@ -358,7 +359,7 @@ ProtectFd(fd) -> bool
 
 桥接把 YAML、进程顺序、路径和参数发布为 `vcore-session-v2:<sha256>` Session Snapshot。参数引用的文件由调用方保持存在且不可变，VCore 不读取或摘要其内容。`getVpnStatus.data.snapshotToken` 返回该完整 Session token。
 
-桥接请求最大 1 MiB。它负责安装包身份、单一 VPN profile、不可变 Session Snapshot、Session Host 激活和系统 VPN 状态；不公开 profile CRUD、内部文件路径、backend 描述、参数、PID、管道名称或 Snapshot 维护。数据包、Controller 流量查询、代理组查询/切换和业务生命周期不经过该 JSON 桥接。
+桥接请求最大 1 MiB。它负责安装包身份、单一 VPN profile、不可变 Session Snapshot、连接/断开命令和系统 VPN 状态；Provider 负责激活 Session Host。桥接不公开 profile CRUD、内部文件路径、backend 描述、参数、PID、管道名称或 Snapshot 维护。数据包、Controller 流量查询、代理组查询/切换和业务生命周期不经过该 JSON 桥接。
 
 ## 编码与安全边界
 

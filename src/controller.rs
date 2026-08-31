@@ -308,7 +308,13 @@ async fn handle_select(
             write_error(stream, 404, "Resource not found", &[]).await
         }
         Err(ProxyGroupError::UnknownMember) => {
-            write_error(stream, 400, "Selector update error: proxy not exist", &[]).await
+            write_error(
+                stream,
+                400,
+                "Selector update error: route target not found",
+                &[],
+            )
+            .await
         }
     }
 }

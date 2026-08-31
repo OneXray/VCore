@@ -755,11 +755,11 @@ mod tests {
         .await
         .unwrap();
 
-        assert!(
-            complete_provider_handshake(&mut host.as_slice(), &mut Vec::new(), TOKEN, binding(),)
+        let error =
+            complete_provider_handshake(&mut host.as_slice(), &mut Vec::new(), TOKEN, binding())
                 .await
-                .is_err()
-        );
+                .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
     }
 
     #[tokio::test]
@@ -887,5 +887,56 @@ mod tests {
             .unwrap()
             .replace(TOKEN, "vcore-session-v2:not-a-digest");
         assert!(Rendezvous::from_json(invalid_token.as_bytes()).is_err());
+    }
+
+    #[test]
+    fn rendezvous_rejects_noncanonical_records() {
+        let rendezvous = Rendezvous::new(TOKEN.to_owned(), OBJECT_PATH.to_owned()).unwrap();
+        let json = String::from_utf8(rendezvous.to_json().unwrap()).unwrap();
+        let invalid = [
+            Vec::new(),
+            vec![b' '; MAX_RENDEZVOUS_BYTES + 1],
+            json.replace("\"protocolVersion\":1", "\"protocolVersion\":2")
+                .into_bytes(),
+            json.replace(CONTROL_LEAF, "VCore.Vpn.Control.v2")
+                .into_bytes(),
+            json.replace(DATA_LEAF, "VCore.Vpn.Data.v2").into_bytes(),
+            json.replace(TOKEN, "vcore-session-v2:not-a-digest")
+                .into_bytes(),
+            serde_json::to_vec(&Rendezvous {
+                object_path: "AppContainerNamedObjects\\invalid".to_owned(),
+                ..rendezvous
+            })
+            .unwrap(),
+            json.replace('}', ",\"unknown\":true}").into_bytes(),
+        ];
+        for (index, bytes) in invalid.into_iter().enumerate() {
+            assert!(
+                Rendezvous::from_json(&bytes).is_err(),
+                "invalid rendezvous case {index} was accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn read_rendezvous_rejects_reparse_points() {
+        let root = tempfile::tempdir().unwrap();
+        let target = root.path().join("target.json");
+        fs::write(
+            &target,
+            Rendezvous::new(TOKEN.to_owned(), OBJECT_PATH.to_owned())
+                .unwrap()
+                .to_json()
+                .unwrap(),
+        )
+        .unwrap();
+        let link = root.path().join(RENDEZVOUS_FILE);
+        fs::create_dir_all(link.parent().unwrap()).unwrap();
+        std::os::windows::fs::symlink_file(target, link).unwrap();
+
+        assert_eq!(
+            read_rendezvous(root.path()).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
     }
 }

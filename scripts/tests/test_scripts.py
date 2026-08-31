@@ -18,6 +18,16 @@ from vcore_scripts.checks import (
 from vcore_scripts.tun2socks import derive_xray_config
 
 
+def _windows_pe(machine: int) -> bytes:
+    contents = bytearray(512)
+    contents[:2] = b"MZ"
+    contents[0x3C:0x40] = (0x80).to_bytes(4, "little")
+    contents[0x80:0x84] = b"PE\0\0"
+    contents[0x84:0x86] = machine.to_bytes(2, "little")
+    contents[0x100 : 0x100 + len(EXPECTED_IDENTITY)] = EXPECTED_IDENTITY
+    return bytes(contents)
+
+
 class ScriptTest(unittest.TestCase):
     def test_cli_dispatches_windows_build_without_architecture(self):
         with patch("vcore_scripts.cli.build_windows") as build:
@@ -91,12 +101,13 @@ class ScriptTest(unittest.TestCase):
             root = Path(directory)
             release = root / "target/aarch64-pc-windows-msvc/release"
             release.mkdir(parents=True)
-            for name in (
+            artifacts = (
                 "vcore.dll",
                 "vcore-windows-vpn-host.exe",
                 "vcore-windows-session-host.exe",
-            ):
-                (release / name).write_bytes(EXPECTED_IDENTITY)
+            )
+            for name in artifacts:
+                (release / name).write_bytes(_windows_pe(0xAA64))
 
             with (
                 patch.object(builds, "CORE_DIR", root),
@@ -128,7 +139,7 @@ class ScriptTest(unittest.TestCase):
                     ).read_text()
                 )
                 expected_digest = (
-                    "b8241c047493f35fd082f0fcac9da78936d5668392cbcee8b67175f24c6dfa5d"
+                    "93dd534a99e69369e9dc435101dce44d5b0be4fb43c82abec500e1bb4fb88444"
                 )
                 self.assertEqual(
                     manifest,
@@ -144,7 +155,21 @@ class ScriptTest(unittest.TestCase):
                         "windowsPackageIntegrationRevision": 2,
                     },
                 )
-                (release / "vcore.dll").write_bytes(b"wrong")
+
+                provider = release / "vcore-windows-vpn-host.exe"
+                provider.write_bytes(_windows_pe(0x8664))
+                with self.assertRaisesRegex(RuntimeError, "wrong architecture"):
+                    builds.build_windows()
+                self.assertFalse(
+                    (root / "dist/windows/arm64/vcore-windows-artifacts.json").exists()
+                )
+
+                provider.write_bytes(_windows_pe(0xAA64))
+                dll = bytearray(_windows_pe(0xAA64))
+                dll[0x100 : 0x100 + len(EXPECTED_IDENTITY)] = bytes(
+                    len(EXPECTED_IDENTITY)
+                )
+                (release / "vcore.dll").write_bytes(dll)
                 with self.assertRaisesRegex(RuntimeError, "incompatible Rust identity"):
                     builds.build_windows()
 

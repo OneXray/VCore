@@ -100,6 +100,7 @@ async fn run_async(local_folder: &Path, installed_folder: &Path) -> io::Result<(
     // The Provider publishes and removes rendezvous; competing deletes can return ACCESS_DENIED.
 
     let (mut control_read, mut control_write) = tokio::io::split(control);
+    // Authenticate the candidate token before reading Snapshot or starting processes.
     let binding = complete_session_handshake(&mut control_read, &mut control_write, &token).await?;
 
     let started = start_session(local_folder, installed_folder, &token, binding, data).await;
@@ -438,11 +439,11 @@ mod tests {
         .await
         .unwrap();
 
-        assert!(
+        let error =
             complete_session_handshake(&mut provider.as_slice(), &mut Vec::new(), candidate)
                 .await
-                .is_err()
-        );
+                .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
     }
 
     #[test]
