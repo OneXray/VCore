@@ -59,13 +59,23 @@ GeoData 分配容量                8 MiB
 - 不设置固定的活动请求或活动传输总许可数。
 - 相同 key 的 cache miss 使用 singleflight；leader 取消后 follower 重新选举。
 - UDP 传输属于单次请求，同一尝试的重发复用当前传输。
-- 显式 TCP nameserver 按 endpoint 和最终出口复用；一条连接同时只处理一个查询。
+- 显式 TCP nameserver 按 endpoint 和配置的 route target 复用；一条连接同时只处理一个查询。
 - 活动 TCP 不设固定数量上限；空闲连接总数最多 4，同 key 最多 2，空闲超时 30 秒。
 - 查询、单次尝试和 UDP 重发期限分别为 5 秒、3 秒和 1 秒。
 - 响应最多扫描 64 条记录，类型化缓存和提示最多保留 16 个唯一 IP。
 - 停止取消打开、发送、接收、重试和响应发送，并释放全部传输。
 
 完整语义见 [TUN ICMP 与 DNS](tun-icmp-dns.md)。
+
+## 代理组与 Controller
+
+- 静态 `select` 组只拥有不可变的有序成员和每组一个可原子替换的当前索引，不拥有协议连接、后台任务、队列、缓存或独立 worker。
+- 组数、每组成员数、重复成员数和嵌套深度没有独立固定上限，统一受 256 KiB YAML 上限约束；配置期使用 O(V+E) 的迭代 DAG 校验，运行时也以迭代方式解析当前叶节点。
+- 同组成功选择是线性化的，不同组独立；选择失败不改变状态，也不创建重试或自动 failover 任务。
+- 切换不扫描或迁移现有 TCP、UDP、DNS transport，不刷新 DNS cache/singleflight 或 TCP pool；资源仍由原所有者按既有 timeout、EOF、取消和 stop 语义回收。
+- Controller 同时最多跟踪 8 个连接任务。请求 header 和 PUT body 各有 5 秒读取期限，PUT body 最大 1 KiB；超时、超限和解析失败只终止当前请求。
+
+完整接口见 [运行时 Controller](controller-api.md)。
 
 ## GeoData
 

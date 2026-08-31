@@ -7,11 +7,14 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 #[cfg(all(feature = "tun", any(unix, windows)))]
-use crate::{platform::TunIo, traffic::TrafficController, tun_runtime::TunRuntime};
+use crate::{platform::TunIo, tun_runtime::TunRuntime};
 #[cfg(not(all(feature = "tun", any(unix, windows))))]
 type TunRuntime = ();
-#[cfg(not(all(feature = "tun", any(unix, windows))))]
-type TrafficController = ();
+
+#[cfg(feature = "inbound-http")]
+use crate::controller::RuntimeController;
+#[cfg(not(feature = "inbound-http"))]
+type RuntimeController = ();
 
 #[cfg(feature = "ffi")]
 use crate::config::MeasureConfig;
@@ -30,7 +33,7 @@ use crate::{
     },
     outbound::{ConnectorDispatcher, DirectOutbound, OutboundConnector, UpstreamPath},
     resources::RuntimeResourceStats,
-    routing::{GeoMatcher, ProxyDispatchers, RoutingDispatcher, RuleSet},
+    routing::{GeoMatcher, ProxyGroups, RouteTargetDispatchers, RoutingDispatcher, RuleSet},
     traffic::TunTrafficStats,
 };
 
@@ -111,6 +114,7 @@ struct BuiltRuntimeParts {
     dispatcher: Arc<dyn Dispatcher>,
     dns: Option<Arc<RuntimeDns>>,
     geodata_updater: Option<GeoDataUpdateService>,
+    proxy_groups: Arc<ProxyGroups>,
     proxy_graph: BuiltProxyGraph,
 }
 
@@ -259,27 +263,26 @@ impl PreparedCore {
         let dialer = dialer.with_ipv6(self.config.ipv6);
         let handshake_stats = RuntimeResourceStats::new("runtime_handshake_observation");
         let proxy_graph = self.build_proxy_graph(dialer.clone())?;
-        let geodata_proxy = proxy_graph
-            .get(self.config.default_proxy.index())
-            .cloned()
-            .ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "default proxy is missing from the runtime graph",
-                )
-            })?;
-        let geodata_dispatcher: Arc<dyn Dispatcher> =
-            Arc::new(ConnectorDispatcher::new(geodata_proxy));
-        let proxies = self.wrap_proxy_dispatchers(proxy_graph.connectors(), &handshake_stats)?;
+        let proxy_dispatchers =
+            self.wrap_proxy_dispatchers(proxy_graph.connectors(), &handshake_stats)?;
         let direct_raw: Arc<dyn Dispatcher> = Arc::new(DirectOutbound::new(dialer));
         let direct = observe_handshakes_with_stats(direct_raw, handshake_stats.clone());
+        let proxy_groups = ProxyGroups::new(
+            &self.config.proxy_groups,
+            proxy_dispatchers.clone(),
+            direct.clone(),
+        )
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+        let route_targets =
+            RouteTargetDispatchers::with_proxy_groups(proxy_dispatchers, &proxy_groups)
+                .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
         let rules = self.rules.clone();
         let redir_host_entries = self.dns_redir_host_entries();
         let geo_matcher: Arc<dyn GeoMatcher> = self.geodata_registration.matcher();
         let dns = self.config.dns.enable.then(|| {
             Arc::new(RuntimeDns::new_routed_proxies_with_cache_limits(
                 &self.config.dns,
-                proxies.clone(),
+                route_targets.clone(),
                 direct.clone(),
                 rules.clone(),
                 geo_matcher.clone(),
@@ -287,8 +290,22 @@ impl PreparedCore {
                 redir_host_entries,
             ))
         });
+        let geodata_rules = RuleSet::compile(vec![crate::config::RuleSpec {
+            kind: crate::config::RuleKind::Match,
+            action: crate::config::RuleAction::Route(self.config.default_route_target),
+            no_resolve: false,
+        }])
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+        let geodata_dispatcher: Arc<dyn Dispatcher> = Arc::new(RoutingDispatcher::new_with_ipv6(
+            route_targets.clone(),
+            direct.clone(),
+            dns.clone(),
+            self.config.ipv6,
+            geodata_rules,
+            geo_matcher.clone(),
+        ));
         let router: Arc<dyn Dispatcher> = Arc::new(RoutingDispatcher::new_with_ipv6(
-            proxies,
+            route_targets,
             direct,
             dns.clone(),
             self.config.ipv6,
@@ -315,6 +332,7 @@ impl PreparedCore {
                         )
                     })
             },
+            proxy_groups,
             proxy_graph,
         })
     }
@@ -327,7 +345,7 @@ impl PreparedCore {
         &self,
         connectors: &[Arc<dyn OutboundConnector>],
         handshake_stats: &RuntimeResourceStats,
-    ) -> io::Result<ProxyDispatchers> {
+    ) -> io::Result<Vec<Arc<dyn Dispatcher>>> {
         let mut dispatchers = Vec::with_capacity(connectors.len());
         for (proxy, connector) in self.config.proxies.iter().zip(connectors) {
             let mut dispatcher: Arc<dyn Dispatcher> = Arc::new(
@@ -336,8 +354,31 @@ impl PreparedCore {
             dispatcher = observe_handshakes_with_stats(dispatcher, handshake_stats.clone());
             dispatchers.push(dispatcher);
         }
-        ProxyDispatchers::new(dispatchers)
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))
+        Ok(dispatchers)
+    }
+
+    async fn bind_controller(
+        &self,
+        traffic: Option<Arc<TunTrafficStats>>,
+        proxy_groups: Arc<ProxyGroups>,
+    ) -> io::Result<Option<RuntimeController>> {
+        let Some(config) = &self.config.external_controller else {
+            return Ok(None);
+        };
+        #[cfg(feature = "inbound-http")]
+        {
+            RuntimeController::bind(config, traffic, proxy_groups)
+                .await
+                .map(Some)
+        }
+        #[cfg(not(feature = "inbound-http"))]
+        {
+            let _ = (config, traffic, proxy_groups);
+            Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "external controller support is disabled at build time",
+            ))
+        }
     }
 
     /// Starts configured local proxy listeners. TUN is started separately once
@@ -346,15 +387,17 @@ impl PreparedCore {
         let BuiltRuntimeParts {
             dispatcher,
             geodata_updater,
+            proxy_groups,
             proxy_graph,
             ..
         } = self.build_dispatcher(dialer)?;
+        let controller = self.bind_controller(None, proxy_groups).await?;
         RunningCore::start_components(
             &self.config.inbounds,
             dispatcher,
             None,
             None,
-            None,
+            controller,
             geodata_updater,
             self.geodata_registration,
             proxy_graph,
@@ -382,16 +425,16 @@ impl PreparedCore {
             dispatcher,
             dns,
             geodata_updater,
+            proxy_groups,
             proxy_graph,
         } = self.build_dispatcher(dialer)?;
         let sniffer = self.domain_sniffer_config();
         let traffic_stats = self
             .traffic_stats()
             .unwrap_or_else(|| Arc::new(TunTrafficStats::default()));
-        let traffic_controller = match &self.config.external_controller {
-            Some(config) => Some(TrafficController::bind(config, traffic_stats.clone()).await?),
-            None => None,
-        };
+        let controller = self
+            .bind_controller(Some(traffic_stats.clone()), proxy_groups)
+            .await?;
         let tun_runtime = TunRuntime::new_with_stats(
             tun,
             self.limits,
@@ -407,7 +450,7 @@ impl PreparedCore {
             dispatcher,
             Some(tun_runtime),
             Some(traffic_stats),
-            traffic_controller,
+            controller,
             geodata_updater,
             self.geodata_registration,
             proxy_graph,
@@ -815,7 +858,7 @@ impl RunningCore {
         dispatcher: Arc<dyn Dispatcher>,
         tun_runtime: Option<TunRuntime>,
         traffic_stats: Option<Arc<TunTrafficStats>>,
-        traffic_controller: Option<TrafficController>,
+        controller: Option<RuntimeController>,
         geodata_updater: Option<GeoDataUpdateService>,
         geodata_registration: GeoDataRegistration,
         proxy_graph: BuiltProxyGraph,
@@ -824,7 +867,7 @@ impl RunningCore {
         let mut tasks = Vec::with_capacity(
             inbounds.len()
                 + usize::from(tun_runtime.is_some())
-                + usize::from(traffic_controller.is_some())
+                + usize::from(controller.is_some())
                 + usize::from(geodata_updater.is_some()),
         );
         #[cfg(not(feature = "inbound-http"))]
@@ -884,11 +927,14 @@ impl RunningCore {
             tasks.push(tokio::spawn(tun_runtime.run(child)));
         }
 
-        #[cfg(all(feature = "tun", any(unix, windows)))]
-        if let Some(traffic_controller) = traffic_controller {
+        #[cfg(feature = "inbound-http")]
+        if let Some(controller) = controller {
             let child = cancellation.clone();
-            tasks.push(tokio::spawn(traffic_controller.serve(child)));
+            tasks.push(tokio::spawn(controller.serve(child)));
         }
+
+        #[cfg(not(feature = "inbound-http"))]
+        debug_assert!(controller.is_none());
 
         if let Some(geodata_updater) = geodata_updater {
             let child = cancellation.clone();
@@ -1138,7 +1184,9 @@ rules:
         assert_eq!(prepared.rules.len(), 1);
         assert_eq!(
             prepared.rules.rule(0).map(|rule| rule.action),
-            Some(crate::config::RuleAction::Proxy(id)),
+            Some(crate::config::RuleAction::Route(
+                crate::config::RouteTargetId::Proxy(id)
+            )),
             "moving the normalized rules must preserve the compiled default route"
         );
     }

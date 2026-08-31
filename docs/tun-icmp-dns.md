@@ -53,7 +53,7 @@ dns:
   enable: true
   ipv6: true
   nameserver:
-    - "tcp://1.1.1.1:53#vless-edge"
+    - "tcp://1.1.1.1:53#main-select"
   nameserver-policy:
     "geosite:private,cn":
       - "tcp://223.5.5.5:53#DIRECT"
@@ -66,9 +66,11 @@ dns:
 - `dns.ipv6: false` 不限制 IPv6 nameserver；顶层 `ipv6: false` 会阻止通过 DIRECT（含 `RULES` 选中 DIRECT）的 IPv6 nameserver 在本机物理建链，并继续当前组的故障转移。
 - Endpoint 必须是 IP 字面量，不支持 hostname、system 或 DHCP resolver。
 - 无 fragment 时固定使用 DIRECT。
-- Fragment 只接受 `DIRECT`、`RULES` 或实际代理名。
+- Fragment 只接受 `DIRECT`、`RULES`、实际代理节点名或静态 `select` 组名。
 - `#RULES` 只按 nameserver endpoint 和传输执行业务规则，不把 DNS question 当作选路域名。
 - 规则结果为 `REJECT` 时，当前尝试失败并继续当前组下一项。
+
+代理组成员可以是具体节点、嵌套组、`DIRECT` 或 `REJECT`。DNS exchange 需要新建物理 transport 时解析当时的当前叶节点；选中成员失败不会使代理组自动改选，但 nameserver 列表仍按本节已有故障转移语义继续下一项。
 
 ### Policy
 
@@ -132,12 +134,14 @@ A/AAAA 缓存最多 256 项，从空容量按需增长。TUN 域名提示存储�
 
 显式 TCP nameserver 使用每运行时独立连接池：
 
-- Key 为 endpoint 和最终出口；
+- Key 为 endpoint 和配置的 route target；
 - 一条连接同时只处理一个查询，不做 pipeline；
 - 活动连接不设固定业务数量上限；空闲连接总数最多 4、同 key 最多 2、超时 30 秒；
 - 完成帧和响应校验后才能归还连接；
 - 复用连接遇到 EOF、I/O、reset 或响应不匹配时，在原尝试期限内最多新建一次连接；
 - 非法、截断或超限响应不重试、不归还连接。
+
+Controller 切换代理组后，只在后续需要创建新 DNS transport 时使用新选择。类型化/原始响应 cache、singleflight 状态和已经位于 TCP pool 中的 transport 不清空、不迁移；因此命中 cache 或复用既有 TCP transport 时，不会为切换单独建链。停止 session 才统一释放这些状态。
 
 ## 队列与生命周期
 
@@ -157,7 +161,7 @@ DNS 和普通 UDP 响应使用不同队列，但共享 netstack UDP 入站接收
 
 - 真实 ICMP 转发、ICMP error、Traceroute、ICMP 选路规则或 ICMP 测速；
 - DoH、DoT、DoQ、hostname/system/DHCP nameserver；
-- 代理组、并行 nameserver 竞速、DNS fallback group、fake IP 和 hosts；
+- 代理组 provider/health check/自动 failover、并行 nameserver 竞速、DNS fallback group、fake IP 和 hosts；
 - 用户可配置的缓存容量、超时、重试或并发度；
 - 使用 DNS question 执行业务规则，或用 DNS 出口改写后续业务动作。
 

@@ -1,6 +1,6 @@
 # Windows 会话运行时
 
-Windows 每个 VPN 会话由一个隐藏的完全信任 Session Host 独占完整 VCore 运行时。AppContainer Provider 只负责 Windows VPN 平台资源、原始包转发和失败关闭；系统中不存在 Provider 内嵌运行时的备用路径。
+Windows package 只有一个主 Application，但每个 VPN 会话仍由独立的完全信任 Session Host 独占完整 VCore 运行时。AppContainer Provider 只负责 Windows VPN 平台资源、原始包转发和失败关闭；系统中不存在 Provider 内嵌运行时的备用路径。
 
 ## 参与者与所有权
 
@@ -8,32 +8,33 @@ Windows 每个 VPN 会话由一个隐藏的完全信任 Session Host 独占完�
 前台宿主（完全信任）
   ├─ VCoreInvoke
   └─ VCoreWindowsVpnInvoke
-         │ 激活
-         ▼
+       ├─ Session Snapshot / profile
+       └─ ConnectProfileAsync
+              │ Windows 激活
+              ▼
+vcore-windows-vpn-host.exe + vcore.dll（AppContainer）
+  ├─ VpnChannel / 路由 / DNS / 物理网络
+  ├─ VpnPacketBuffer / 有界回调队列 / 失败关闭
+  └─ FullTrustProcessLauncher
+              │ 无参数激活
+              ▼
 vcore-windows-session-host.exe
   ├─ 校验不可变 Session Snapshot
   ├─ 可选 Windows session backend / Job Object
   ├─ PreparedCore / RunningCore
-  ├─ DNS / 规则 / GeoData / 嗅探器
+  ├─ DNS / 规则 / GeoData / 嗅探器 / select 代理组
   ├─ VLESS / SOCKS5 / AnyTLS / DIRECT
-  └─ 已鉴权流量 Controller
-         ▲
-         │ 同包控制管道 + 数据管道
-         ▼
-vcore-windows-vpn-host.exe + vcore.dll（AppContainer）
-  ├─ VpnChannel 生命周期
-  ├─ 路由 / DNS / 物理网络
-  ├─ VpnPacketBuffer 所有权
-  ├─ 有界回调队列
-  └─ 失败关闭
+  └─ 运行时 Controller（TUN 流量 / 代理组选择）
+              ▲
+              └─ 同包控制管道 + 数据管道
 ```
 
 | 参与者 | 拥有 | 不拥有 |
 | --- | --- | --- |
 | 前台宿主 | 用户命令、会话记录、UI 状态 | TUN 运行时、包通道、Provider 状态 |
-| Windows 桥接 | Session Snapshot、profile、Session Host 激活与回滚 | 数据包、代理流 |
+| Windows 桥接 | Session Snapshot、profile、连接/断开命令 | 数据包、代理流、Session Host 进程 |
 | Session Host | 单次 VCore 运行时、可选 session backend、Controller、GeoData、包客户端 | `VpnChannel`、路由、进程业务配置 |
-| Provider | `VpnChannel`、WinRT 缓冲区、路由、物理绑定、管道服务端、网络监控 | YAML、代理图、Controller、GeoData、backend 描述 |
+| Provider | `VpnChannel`、WinRT 缓冲区、路由、物理绑定、管道服务端、网络监控、Session Host 激活 | YAML、代理图、Controller、GeoData、backend 描述 |
 | SOCKS 服务 | 自身监听器、外层 socket 和绕过策略 | VCore 代理图和 Windows profile |
 
 Session Host 每次连接新建一个进程，不常驻、不复用运行时，也不处理 URI 或 StartupTask。
@@ -48,7 +49,7 @@ Session Host 每次连接新建一个进程，不常驻、不复用运行时，�
   LocalState/vcore/windows/sessions/<sha256>.json
   ```
 
-- Snapshot revision 2 保存完整 VCore YAML，以及可选的有序 `sessionBackend.processes`；每项只有规范 package-relative executable path 和 argv 数组。
+- Snapshot revision 2 保存完整 VCore YAML（包括代理组及其 `default-selected`），以及可选的有序 `sessionBackend.processes`；每项只有规范 package-relative executable path 和 argv 数组。
 - token 覆盖 YAML、进程顺序、路径和参数。参数引用的文件由调用方保持存在且不可变，VCore 不读取或摘要其内容。
 - profile custom configuration 是最大 1 KiB 的严格 JSON，包含修订版 3、规范 Session token、顶层 IPv6 开关和 TUN/DNS 的 IPv4/IPv6 地址。
 - custom configuration 不包含 YAML、backend 描述、Controller secret、PID 或管道路径。
@@ -61,21 +62,21 @@ Session Host 每次连接新建一个进程，不常驻、不复用运行时，�
 
 1. 前台宿主调用 `startVpn(configYaml, networkSettings, sessionBackend?)`。
 2. 桥接验证配置、四个地址和进程描述，发布不可变 Session Snapshot，并把解析后的顶层 IPv6 开关写入 profile configuration。
-3. 桥接通过 `IApplicationActivationManager` 激活隐藏 Session Host，只传 `--session-token <token>`。
-4. 桥接持有激活返回的精确进程句柄。
-5. 桥接写入单一 VPN profile 并调用 `ConnectProfileAsync`。
-6. Windows 激活 Provider。
-7. Provider 在安装路由前选择物理网络绑定，并创建控制/数据管道服务端；顶层 `ipv6: false` 时不安装 IPv6 地址、路由或 DNS。
-8. Provider 原子发布会合记录。
-9. Session Host 校验命令行令牌和会合记录，构造限定对象路径并连接两条管道。
-10. Session Host 发送 `SessionHello`；Provider 返回 `ProviderHello` 和不可变物理绑定。
-11. Session Host 读取 Snapshot；若存在 backend，则用一个 kill-on-close Job Object 按顺序启动全部进程。
-12. Session Host 准备并启动完整 VCore 运行时和 Controller。
+3. 桥接写入单一 VPN profile 并调用 `ConnectProfileAsync`；它不启动或持有 Session Host。
+4. Windows 激活 AppContainer Provider。
+5. Provider 从 profile configuration 取得权威 token，选择物理网络绑定并准备基础资源。
+6. Provider 清理陈旧会合记录，通过无参数 `FullTrustProcessLauncher` 激活 Session Host。
+7. Session Host 不读取动态命令行参数，等待 Provider 会合记录。
+8. Provider 创建控制/数据管道服务端并原子发布会合记录。
+9. Session Host 严格解析会合记录，把其中的 token 作为候选值，构造限定对象路径并连接两条管道。
+10. Session Host 发送 `SessionHello`；Provider 把候选 token 与 profile token 精确比较后返回 `ProviderHello` 和不可变物理绑定。
+11. Session Host 验证 `ProviderHello` 回传同一 token，之后才读取 Snapshot；若存在 backend，则用一个 kill-on-close Job Object 按顺序启动全部进程。
+12. Session Host 准备并启动完整 VCore 运行时、静态代理组状态和 Controller。
 13. Session Host 确认受管进程尚未退出后返回 `RuntimeReady`。
 14. Provider 调用 `StartWithMainTransport` 并启动失败关闭监视器。
 15. 连接成功后，桥接向前台宿主返回当前系统 VPN 状态。
 
-任一步失败都必须关闭包通道、终止本次精确 Session Host、收敛为 Disconnected，并只返回有界脱敏错误。
+任一步失败都必须关闭包通道并收敛为 Disconnected，只返回有界脱敏错误；未完成握手的 Session Host 最多等待 15 秒后退出。
 
 ## 会合记录
 
@@ -93,8 +94,8 @@ Session Host 每次连接新建一个进程，不常驻、不复用运行时，�
 
 - Provider 是唯一发布者和清理者；
 - 使用同目录暂存文件和原子重命名；
-- 只接受规范 AppContainer 相对路径、固定 leaf 和匹配令牌；
-- 非普通文件、reparse point、超限、未知字段和令牌不匹配都会失败关闭；
+- 只接受规范 token、AppContainer 相对路径和固定 leaf；
+- 非普通文件、reparse point、超限或未知字段都会失败关闭；候选 token 与 profile token 的绑定只在双向握手中完成；
 - 握手完成后删除，新连接前清理断开状态下的陈旧记录。
 
 ## 控制协议
@@ -193,9 +194,13 @@ Provider 订阅网络变化，等待 2 秒消抖后复验适配器、地址和 i
 
 - Controller 由 Session Host 监听完全信任的回环地址；
 - `RuntimeReady` 前必须完成绑定，失败则连接失败；
-- 前台宿主持有配置中的端口和 secret，并调用 `GET /traffic`；
+- 前台宿主持有配置中的端口和 secret，并调用 `GET /traffic`、`GET /group`、`GET /group/{name}`、`GET /proxies/{name}` 或 `PUT /proxies/{name}`；
+- 配置代理组与 Controller 时 secret 必填并保护全部路由；仅有 TUN 流量 Controller 时 secret 仍可省略；
+- 代理组选择属于 Session Host 中实际 Running Session 的内存状态，不经过 Windows bridge、Provider 控制管道或 Session Snapshot 写回；
+- 成功切换只影响之后新建的物理 TCP、UDP 和 DNS transport，不迁移既有连接、UDP association、DNS 状态或 TCP pool，也不执行自动 failover；
+- 宿主如需跨 VPN session 保留选择，必须自行持久化，并在下次 `startVpn` 的 YAML 中注入对应 `default-selected`；
 - 前台宿主退出后 Controller 和运行时继续，重新启动后恢复查询；
-- Stop 关闭 Controller，下一会话从零计数；
+- Stop 关闭 Controller，销毁本次代理组选择；下一会话重新采用 YAML 初始选择并从零计数；
 - 回环 SOCKS5 是普通 VCore 出站；其服务可以由外部宿主管理，也可以恰好运行在 session backend 中，但 VCore 不从 backend 描述推断端口或 readiness；
 - 单个 SOCKS 流失败不停止 VPN。
 
@@ -213,8 +218,9 @@ Provider 订阅网络变化，等待 2 秒消抖后复验适配器、地址和 i
 | 显式 Stop | Disconnect -> Stop -> 有界确认 -> channel Stop |
 | 本地 SOCKS 流失败且服务进程仍存活 | 只失败当前流 |
 | Controller 绑定失败 | 启动失败，profile 不进入 Connected |
+| Controller 切换代理组 | 当前 Session Host 原子更新选择；既有 transport 保持原路径 |
 
-桥接回滚只终止本次激活返回的精确进程句柄，不按进程名扫描或清理。
+桥接不持有或终止 Session Host 进程；启动失败由 Provider 的 Connect 清理路径收敛，显式 Stop 通过系统 profile 断开。
 
 ## 安装包契约
 

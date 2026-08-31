@@ -16,7 +16,7 @@ use tokio::{
 };
 
 use crate::{
-    config::{Network, ProxyId, RuleAction},
+    config::{Network, ProxyId, RouteTargetId, RuleAction},
     dispatch::{BoxStream, DatagramTransport, DispatchError, Dispatcher},
     dns::{
         MAX_MESSAGE_SIZE,
@@ -25,7 +25,9 @@ use crate::{
     session::{Datagram, DatagramSession, Destination, InboundKind, StreamSession},
 };
 
-use super::{GeoMatcher, RoutingContext, RuleEvaluation, RuleSet};
+use super::{
+    GeoMatcher, ProxyGroups, ResolvedProxyGroupLeaf, RoutingContext, RuleEvaluation, RuleSet,
+};
 
 const TCP_DNS_DUPLEX_CAPACITY: usize = 8 * 1024;
 
@@ -59,18 +61,22 @@ fn runtime_dns_error(error: impl std::fmt::Display) -> DispatchError {
     DispatchError::Other(format!("runtime DNS: {error}"))
 }
 
-/// Runtime proxy registry. Configuration validation converts every
-/// user-facing tag into a checked [`ProxyId`].
+/// Runtime registry for concrete proxy nodes.
+///
+/// Group-aware runtime paths use the crate-private [`RouteTargetDispatchers`]
+/// name and methods while this type preserves the public node-only API.
 #[derive(Clone)]
 pub struct ProxyDispatchers {
-    slots: Vec<Arc<dyn Dispatcher>>,
+    proxies: Vec<Arc<dyn Dispatcher>>,
+    groups: Vec<Arc<dyn Dispatcher>>,
+    proxy_groups: Option<Arc<ProxyGroups>>,
 }
 
 impl std::fmt::Debug for ProxyDispatchers {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("ProxyDispatchers")
-            .field("len", &self.slots.len())
+            .field("len", &self.proxies.len())
             .finish_non_exhaustive()
     }
 }
@@ -82,27 +88,86 @@ impl ProxyDispatchers {
                 "proxy registry must contain at least one entry".to_owned(),
             ));
         }
-        Ok(Self { slots: proxies })
+        Ok(Self {
+            proxies,
+            groups: Vec::new(),
+            proxy_groups: None,
+        })
+    }
+
+    pub(crate) fn with_proxy_groups(
+        proxies: Vec<Arc<dyn Dispatcher>>,
+        proxy_groups: &Arc<ProxyGroups>,
+    ) -> Result<Self, DispatchError> {
+        let mut registry = Self::new(proxies)?;
+        registry.groups = (0..proxy_groups.len())
+            .map(|index| {
+                proxy_groups.dispatcher(
+                    crate::config::ProxyGroupId::new(index)
+                        .expect("ProxyGroupId has no count-based ceiling"),
+                )
+            })
+            .collect();
+        registry.proxy_groups = Some(proxy_groups.clone());
+        Ok(registry)
     }
 
     #[must_use]
     pub fn len(&self) -> usize {
-        self.slots.len()
+        self.proxies.len()
     }
 
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.slots.is_empty()
+        self.proxies.is_empty()
     }
 
     pub fn get(&self, id: ProxyId) -> Result<&Arc<dyn Dispatcher>, DispatchError> {
-        self.slots
+        self.proxies
             .get(id.index())
             .ok_or_else(|| DispatchError::Other(format!("unknown proxy id {}", id.index())))
     }
+
+    pub(crate) fn get_route(
+        &self,
+        id: RouteTargetId,
+    ) -> Result<&Arc<dyn Dispatcher>, DispatchError> {
+        match id {
+            RouteTargetId::Proxy(id) => self.get(id),
+            RouteTargetId::Group(id) => self.groups.get(id.index()).ok_or_else(|| {
+                DispatchError::Other(format!("unknown proxy group id {}", id.index()))
+            }),
+        }
+    }
+
+    pub(crate) fn resolve(
+        &self,
+        id: RouteTargetId,
+    ) -> Result<ResolvedProxyGroupLeaf, DispatchError> {
+        match id {
+            RouteTargetId::Proxy(id) => self
+                .proxies
+                .get(id.index())
+                .cloned()
+                .map(|dispatcher| ResolvedProxyGroupLeaf {
+                    dispatcher,
+                    direct: false,
+                })
+                .ok_or_else(|| DispatchError::Other(format!("unknown proxy id {}", id.index()))),
+            RouteTargetId::Group(id) => self
+                .proxy_groups
+                .as_ref()
+                .ok_or_else(|| {
+                    DispatchError::Other(format!("unknown proxy group id {}", id.index()))
+                })?
+                .resolve_leaf(id),
+        }
+    }
 }
 
-/// Ordered VCore router backed by named proxy nodes, built-in DIRECT, and
+pub(crate) type RouteTargetDispatchers = ProxyDispatchers;
+
+/// Ordered VCore router backed by named route targets, built-in DIRECT, and
 /// fail-closed REJECT actions.
 ///
 /// The outer session observer records returned transport lifetimes without
@@ -110,7 +175,7 @@ impl ProxyDispatchers {
 /// proxy id and one direct transport for each association and chooses between
 /// them independently for every datagram.
 pub struct RoutingDispatcher {
-    proxies: ProxyDispatchers,
+    route_targets: ProxyDispatchers,
     direct: Arc<dyn Dispatcher>,
     dns: Option<Arc<dyn RoutingDns>>,
     ipv6: bool,
@@ -121,18 +186,18 @@ pub struct RoutingDispatcher {
 impl RoutingDispatcher {
     #[must_use]
     pub fn new(
-        proxies: ProxyDispatchers,
+        route_targets: ProxyDispatchers,
         direct: Arc<dyn Dispatcher>,
         dns: Option<Arc<RuntimeDns>>,
         rules: RuleSet,
         geo_matcher: Arc<dyn GeoMatcher>,
     ) -> Self {
-        Self::new_with_ipv6(proxies, direct, dns, true, rules, geo_matcher)
+        Self::new_with_ipv6(route_targets, direct, dns, true, rules, geo_matcher)
     }
 
     #[must_use]
     pub(crate) fn new_with_ipv6(
-        proxies: ProxyDispatchers,
+        route_targets: ProxyDispatchers,
         direct: Arc<dyn Dispatcher>,
         dns: Option<Arc<RuntimeDns>>,
         ipv6: bool,
@@ -140,7 +205,7 @@ impl RoutingDispatcher {
         geo_matcher: Arc<dyn GeoMatcher>,
     ) -> Self {
         Self {
-            proxies,
+            route_targets,
             direct,
             dns: dns.map(|dns| dns as Arc<dyn RoutingDns>),
             ipv6,
@@ -159,7 +224,7 @@ impl RoutingDispatcher {
         geo_matcher: Arc<dyn GeoMatcher>,
     ) -> Self {
         Self {
-            proxies: ProxyDispatchers::new(vec![proxy])
+            route_targets: ProxyDispatchers::new(vec![proxy])
                 .expect("test proxy registry contains one entry"),
             direct,
             dns,
@@ -234,7 +299,7 @@ impl RoutingDispatcher {
             ));
         };
 
-        let mut routed_destination = match destination {
+        let routed_destination = match destination {
             Destination::Domain { port, .. } => Destination::Domain {
                 host: context
                     .domain()
@@ -244,32 +309,41 @@ impl RoutingDispatcher {
             },
             Destination::Ip(_) => destination.clone(),
         };
-        if let Some(address) = context.pinned_ip() {
-            routed_destination =
-                Destination::Ip(std::net::SocketAddr::new(address, destination.port()));
-        } else if rule_match.action == RuleAction::Direct
-            && let Destination::Domain { host, port } = destination
-        {
-            let addresses = if let Some(addresses) = resolved.as_deref() {
-                addresses
-            } else {
-                resolved = Some(match &self.dns {
-                    Some(dns) => {
-                        self.resolve_addresses(dns, context.domain().unwrap_or(host))
-                            .await
-                    }
-                    None => Vec::new(),
-                });
-                resolved.as_deref().unwrap_or_default()
-            };
-            let address = preferred_address(addresses).ok_or(DispatchError::HostUnreachable)?;
-            routed_destination = Destination::Ip(std::net::SocketAddr::new(address, *port));
-        }
-
-        Ok(RouteDecision {
+        let mut decision = RouteDecision {
             action: rule_match.action,
-            destination: routed_destination,
-        })
+            destination: context.pinned_ip().map_or(routed_destination, |address| {
+                Destination::Ip(std::net::SocketAddr::new(address, destination.port()))
+            }),
+            resolved_addresses: resolved,
+        };
+        if decision.action == RuleAction::Direct {
+            self.resolve_direct_destination(&mut decision).await?;
+        }
+        Ok(decision)
+    }
+
+    async fn resolve_direct_destination(
+        &self,
+        decision: &mut RouteDecision,
+    ) -> Result<(), DispatchError> {
+        let (host, port) = match &decision.destination {
+            Destination::Domain { host, port } => (host.clone(), *port),
+            Destination::Ip(_) => return Ok(()),
+        };
+        let address = if let Some(addresses) = decision.resolved_addresses.as_deref() {
+            preferred_address(addresses)
+        } else {
+            let addresses = match &self.dns {
+                Some(dns) => self.resolve_addresses(dns, &host).await,
+                None => Vec::new(),
+            };
+            let address = preferred_address(&addresses);
+            decision.resolved_addresses = Some(addresses);
+            address
+        }
+        .ok_or(DispatchError::HostUnreachable)?;
+        decision.destination = Destination::Ip(std::net::SocketAddr::new(address, port));
+        Ok(())
     }
 
     fn dns_tcp_stream(&self, dns: Arc<dyn RoutingDns>) -> BoxStream {
@@ -357,15 +431,23 @@ impl Drop for DnsTcpStream {
 struct RouteDecision {
     action: RuleAction,
     destination: Destination,
+    resolved_addresses: Option<Vec<IpAddr>>,
 }
 
 fn log_route_decision(network: Network, decision: &RouteDecision) {
     let destination_port = decision.destination.port();
     match decision.action {
-        RuleAction::Proxy(id) => tracing::debug!(
+        RuleAction::Route(RouteTargetId::Proxy(id)) => tracing::debug!(
             ?network,
             action = "proxy",
             proxy_index = id.index(),
+            destination_port,
+            "routing decision"
+        ),
+        RuleAction::Route(RouteTargetId::Group(id)) => tracing::debug!(
+            ?network,
+            action = "proxy_group",
+            proxy_group_index = id.index(),
             destination_port,
             "routing decision"
         ),
@@ -403,7 +485,7 @@ impl Dispatcher for RoutingDispatcher {
             return Ok(self.dns_tcp_stream(dns.clone()));
         }
 
-        let decision = self
+        let mut decision = self
             .route(
                 Network::Tcp,
                 session.inbound,
@@ -411,11 +493,24 @@ impl Dispatcher for RoutingDispatcher {
                 session.sniffed_domain.as_deref(),
             )
             .await?;
+        let resolved_target = match decision.action {
+            RuleAction::Route(id) => Some(self.route_targets.resolve(id)?),
+            RuleAction::Direct | RuleAction::Reject => None,
+        };
+        if resolved_target.as_ref().is_some_and(|target| target.direct) {
+            self.resolve_direct_destination(&mut decision).await?;
+        }
         log_route_decision(Network::Tcp, &decision);
         session.destination = decision.destination;
         session.sniffed_domain = None;
         match decision.action {
-            RuleAction::Proxy(id) => self.proxies.get(id)?.connect_tcp(session).await,
+            RuleAction::Route(_) => {
+                resolved_target
+                    .expect("route target was resolved before dispatch")
+                    .dispatcher
+                    .connect_tcp(session)
+                    .await
+            }
             RuleAction::Direct => self.direct.connect_tcp(session).await,
             RuleAction::Reject => Err(DispatchError::NotAllowed),
         }
@@ -428,7 +523,7 @@ impl Dispatcher for RoutingDispatcher {
         Ok(Box::new(RoutedDatagramTransport {
             router: self.clone_parts(),
             session,
-            proxy_transports: HashMap::new(),
+            route_transports: HashMap::new(),
             direct_transport: None,
             logged_route_actions: HashSet::new(),
             receive_wakeup: Arc::new(Notify::new()),
@@ -439,7 +534,7 @@ impl Dispatcher for RoutingDispatcher {
 impl RoutingDispatcher {
     fn clone_parts(&self) -> Self {
         Self {
-            proxies: self.proxies.clone(),
+            route_targets: self.route_targets.clone(),
             direct: self.direct.clone(),
             dns: self.dns.clone(),
             ipv6: self.ipv6,
@@ -452,15 +547,20 @@ impl RoutingDispatcher {
 struct RoutedDatagramTransport {
     router: RoutingDispatcher,
     session: DatagramSession,
-    proxy_transports: HashMap<ProxyId, Box<dyn DatagramTransport>>,
+    route_transports: HashMap<RouteTargetId, CachedRouteTransport>,
     direct_transport: Option<Box<dyn DatagramTransport>>,
     logged_route_actions: HashSet<LoggedRouteAction>,
     receive_wakeup: Arc<Notify>,
 }
 
+struct CachedRouteTransport {
+    transport: Box<dyn DatagramTransport>,
+    direct: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum LoggedRouteAction {
-    Proxy(ProxyId),
+    Route(RouteTargetId),
     Direct,
     Reject,
 }
@@ -468,7 +568,7 @@ enum LoggedRouteAction {
 impl From<RuleAction> for LoggedRouteAction {
     fn from(action: RuleAction) -> Self {
         match action {
-            RuleAction::Proxy(id) => Self::Proxy(id),
+            RuleAction::Route(id) => Self::Route(id),
             RuleAction::Direct => Self::Direct,
             RuleAction::Reject => Self::Reject,
         }
@@ -480,20 +580,44 @@ impl RoutedDatagramTransport {
         self.logged_route_actions.insert(action.into())
     }
 
-    async fn send_proxy(&mut self, id: ProxyId, datagram: Datagram) -> Result<(), DispatchError> {
-        if !self.proxy_transports.contains_key(&id) {
-            let transport = self
-                .router
-                .proxies
-                .get(id)?
-                .open_datagram(self.session.clone())
+    async fn send_route(
+        &mut self,
+        id: RouteTargetId,
+        mut decision: RouteDecision,
+        mut datagram: Datagram,
+    ) -> Result<(), DispatchError> {
+        let direct = self.route_transports.get(&id).map(|cached| cached.direct);
+        let direct = match direct {
+            Some(direct) => direct,
+            None => {
+                let target = self.router.route_targets.resolve(id)?;
+                let direct = target.direct;
+                if direct {
+                    self.router
+                        .resolve_direct_destination(&mut decision)
+                        .await?;
+                }
+                let transport = target
+                    .dispatcher
+                    .open_datagram(self.session.clone())
+                    .await?;
+                self.route_transports
+                    .insert(id, CachedRouteTransport { transport, direct });
+                self.receive_wakeup.notify_one();
+                direct
+            }
+        };
+        if direct && !matches!(decision.destination, Destination::Ip(_)) {
+            self.router
+                .resolve_direct_destination(&mut decision)
                 .await?;
-            self.proxy_transports.insert(id, transport);
-            self.receive_wakeup.notify_one();
         }
-        self.proxy_transports
+        datagram.remote = decision.destination;
+        datagram.sniffed_domain = None;
+        self.route_transports
             .get_mut(&id)
-            .expect("proxy transport was inserted")
+            .expect("route transport was inserted")
+            .transport
             .send(datagram)
             .await
     }
@@ -518,9 +642,9 @@ impl RoutedDatagramTransport {
     async fn receive_inner(&mut self) -> Result<Datagram, DispatchError> {
         loop {
             let mut receives = self
-                .proxy_transports
+                .route_transports
                 .values_mut()
-                .map(|transport| transport.receive())
+                .map(|cached| cached.transport.receive())
                 .collect::<Vec<_>>();
             if let Some(direct) = self.direct_transport.as_mut() {
                 receives.push(direct.receive());
@@ -552,11 +676,13 @@ impl DatagramTransport for RoutedDatagramTransport {
         if self.should_log_route_action(decision.action) {
             log_route_decision(Network::Udp, &decision);
         }
-        datagram.remote = decision.destination;
-        datagram.sniffed_domain = None;
         match decision.action {
-            RuleAction::Proxy(id) => self.send_proxy(id, datagram).await,
-            RuleAction::Direct => self.send_direct(datagram).await,
+            RuleAction::Route(id) => self.send_route(id, decision, datagram).await,
+            RuleAction::Direct => {
+                datagram.remote = decision.destination;
+                datagram.sniffed_domain = None;
+                self.send_direct(datagram).await
+            }
             // UDP REJECT applies only to this datagram. The association stays
             // alive so a later destination can select another action.
             RuleAction::Reject => Ok(()),
@@ -569,8 +695,8 @@ impl DatagramTransport for RoutedDatagramTransport {
 
     async fn close(&mut self) -> Result<(), DispatchError> {
         let mut first_error = None;
-        for proxy in self.proxy_transports.values_mut() {
-            if let Err(error) = proxy.close().await
+        for route in self.route_transports.values_mut() {
+            if let Err(error) = route.transport.close().await
                 && first_error.is_none()
             {
                 first_error = Some(error);
@@ -582,7 +708,7 @@ impl DatagramTransport for RoutedDatagramTransport {
         {
             first_error = Some(error);
         }
-        self.proxy_transports.clear();
+        self.route_transports.clear();
         self.direct_transport = None;
         if let Some(error) = first_error {
             Err(error)
@@ -603,14 +729,15 @@ mod tests {
         },
     };
 
-    use bytes::Bytes;
-    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
-
     use super::*;
     use crate::{
-        config::{IpCidr, PortRange, RuleKind, RuleSpec},
+        config::{
+            IpCidr, PortRange, ProxyGroupId, ProxyGroupMemberConfig, ProxyGroupMemberTarget,
+            ProxyId, RuleKind, RuleSpec, SelectProxyGroupConfig,
+        },
         routing::EmptyGeoMatcher,
     };
+    use bytes::Bytes;
 
     #[derive(Default)]
     struct RecordingDispatcher {
@@ -770,6 +897,31 @@ mod tests {
         }
     }
 
+    fn proxy_action(index: usize) -> RuleAction {
+        RuleAction::Route(RouteTargetId::Proxy(ProxyId::new(index).unwrap()))
+    }
+
+    fn group_action(index: usize) -> RuleAction {
+        RuleAction::Route(RouteTargetId::Group(ProxyGroupId::new(index).unwrap()))
+    }
+
+    fn select_group(
+        name: &str,
+        members: Vec<(&str, ProxyGroupMemberTarget)>,
+    ) -> SelectProxyGroupConfig {
+        SelectProxyGroupConfig {
+            name: name.to_owned(),
+            members: members
+                .into_iter()
+                .map(|(name, target)| ProxyGroupMemberConfig {
+                    name: name.to_owned(),
+                    target,
+                })
+                .collect(),
+            initial_member: 0,
+        }
+    }
+
     fn dispatcher(
         proxy: Arc<RecordingDispatcher>,
         direct: Arc<RecordingDispatcher>,
@@ -829,6 +981,120 @@ mod tests {
         assert!(registry.get(ProxyId::new(300).unwrap()).is_err());
     }
 
+    #[tokio::test]
+    async fn group_route_snapshots_direct_dns_for_tcp() {
+        let proxy = Arc::new(RecordingDispatcher::default());
+        let direct = Arc::new(RecordingDispatcher::default());
+        let groups = ProxyGroups::new(
+            &[select_group(
+                "route",
+                vec![("DIRECT", ProxyGroupMemberTarget::Direct)],
+            )],
+            vec![proxy.clone()],
+            direct.clone(),
+        )
+        .unwrap();
+        let targets = RouteTargetDispatchers::with_proxy_groups(vec![proxy], &groups).unwrap();
+        let dns = Arc::new(MockDns::new(vec![IpAddr::V4(Ipv4Addr::new(
+            203, 0, 113, 9,
+        ))]));
+        let router = RoutingDispatcher {
+            route_targets: targets,
+            direct: direct.clone(),
+            dns: Some(dns.clone()),
+            ipv6: true,
+            rules: Arc::new(
+                RuleSet::compile(vec![rule(RuleKind::Match, group_action(0))]).unwrap(),
+            ),
+            geo_matcher: Arc::new(EmptyGeoMatcher),
+        };
+
+        router
+            .connect_tcp(StreamSession {
+                inbound: InboundKind::Http,
+                source: "127.0.0.1:10000".parse().unwrap(),
+                destination: Destination::domain("example.com", 443).unwrap(),
+                sniffed_domain: None,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(dns.resolve_calls.load(Ordering::Relaxed), 1);
+        assert_eq!(
+            direct.tcp_sessions.lock().unwrap()[0].destination,
+            Destination::Ip("203.0.113.9:443".parse().unwrap())
+        );
+    }
+
+    #[tokio::test]
+    async fn group_route_keeps_existing_udp_transport_after_selection_changes() {
+        let first = Arc::new(RecordingDispatcher::default());
+        let second = Arc::new(RecordingDispatcher::default());
+        let direct = Arc::new(RecordingDispatcher::default());
+        let proxy_dispatchers = vec![
+            first.clone() as Arc<dyn Dispatcher>,
+            second.clone() as Arc<dyn Dispatcher>,
+        ];
+        let groups = ProxyGroups::new(
+            &[select_group(
+                "route",
+                vec![
+                    (
+                        "first",
+                        ProxyGroupMemberTarget::Route(RouteTargetId::Proxy(
+                            ProxyId::new(0).unwrap(),
+                        )),
+                    ),
+                    (
+                        "second",
+                        ProxyGroupMemberTarget::Route(RouteTargetId::Proxy(
+                            ProxyId::new(1).unwrap(),
+                        )),
+                    ),
+                ],
+            )],
+            proxy_dispatchers.clone(),
+            direct.clone(),
+        )
+        .unwrap();
+        let targets =
+            RouteTargetDispatchers::with_proxy_groups(proxy_dispatchers, &groups).unwrap();
+        let router = RoutingDispatcher::new(
+            targets,
+            direct,
+            None,
+            RuleSet::compile(vec![rule(RuleKind::Match, group_action(0))]).unwrap(),
+            Arc::new(EmptyGeoMatcher),
+        );
+        let mut old_association = router
+            .open_datagram(association(InboundKind::Http))
+            .await
+            .unwrap();
+
+        old_association
+            .send(datagram("192.0.2.1:443".parse().unwrap(), b"old"))
+            .await
+            .unwrap();
+        groups.select("route", "second").unwrap();
+        old_association
+            .send(datagram("192.0.2.1:443".parse().unwrap(), b"still-old"))
+            .await
+            .unwrap();
+        let mut new_association = router
+            .open_datagram(association(InboundKind::Http))
+            .await
+            .unwrap();
+        new_association
+            .send(datagram("192.0.2.1:443".parse().unwrap(), b"new"))
+            .await
+            .unwrap();
+
+        assert_eq!(first.udp_opens.load(Ordering::Relaxed), 1);
+        assert_eq!(first.datagrams.lock().unwrap().len(), 2);
+        assert_eq!(second.udp_opens.load(Ordering::Relaxed), 1);
+        assert_eq!(second.datagrams.lock().unwrap().len(), 1);
+    }
+
     fn stream(destination: SocketAddr, inbound: InboundKind) -> StreamSession {
         StreamSession {
             inbound,
@@ -875,10 +1141,7 @@ mod tests {
                     RuleKind::DstPorts(vec![PortRange { start: 25, end: 25 }]),
                     RuleAction::Reject,
                 ),
-                rule(
-                    RuleKind::Match,
-                    RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap()),
-                ),
+                rule(RuleKind::Match, proxy_action(0)),
             ],
         );
 
@@ -916,10 +1179,7 @@ mod tests {
                     RuleKind::DstPorts(vec![PortRange { start: 80, end: 80 }]),
                     RuleAction::Direct,
                 ),
-                rule(
-                    RuleKind::Match,
-                    RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap()),
-                ),
+                rule(RuleKind::Match, proxy_action(0)),
             ],
         );
 
@@ -1009,10 +1269,7 @@ mod tests {
                     }),
                     RuleAction::Direct,
                 ),
-                rule(
-                    RuleKind::Match,
-                    RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap()),
-                ),
+                rule(RuleKind::Match, proxy_action(0)),
             ],
         );
 
@@ -1051,10 +1308,7 @@ mod tests {
                     RuleKind::DomainSuffix("example.com".to_owned()),
                     RuleAction::Direct,
                 ),
-                rule(
-                    RuleKind::Match,
-                    RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap()),
-                ),
+                rule(RuleKind::Match, proxy_action(0)),
             ],
         );
 
@@ -1096,10 +1350,7 @@ mod tests {
                     RuleKind::DomainSuffix("example.com".to_owned()),
                     RuleAction::Direct,
                 ),
-                rule(
-                    RuleKind::Match,
-                    RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap()),
-                ),
+                rule(RuleKind::Match, proxy_action(0)),
             ],
         );
         let mut transport = router
@@ -1144,10 +1395,7 @@ mod tests {
                     RuleKind::Domain("hint.example".to_owned()),
                     RuleAction::Direct,
                 ),
-                rule(
-                    RuleKind::Match,
-                    RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap()),
-                ),
+                rule(RuleKind::Match, proxy_action(0)),
             ],
         );
 
@@ -1200,10 +1448,7 @@ mod tests {
             proxy.clone(),
             direct,
             Some(dns.clone()),
-            vec![rule(
-                RuleKind::Match,
-                RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap()),
-            )],
+            vec![rule(RuleKind::Match, proxy_action(0))],
         );
 
         router
@@ -1233,17 +1478,17 @@ mod tests {
             vec![
                 rule(
                     RuleKind::DstPorts(vec![PortRange { start: 80, end: 80 }]),
-                    RuleAction::Proxy(ProxyId::new(3).unwrap()),
+                    proxy_action(3),
                 ),
                 rule(
                     RuleKind::DstPorts(vec![PortRange { start: 81, end: 81 }]),
-                    RuleAction::Proxy(ProxyId::new(2).unwrap()),
+                    proxy_action(2),
                 ),
                 rule(
                     RuleKind::DstPorts(vec![PortRange { start: 82, end: 82 }]),
-                    RuleAction::Proxy(ProxyId::new(1).unwrap()),
+                    proxy_action(1),
                 ),
-                rule(RuleKind::Match, RuleAction::Proxy(ProxyId::new(0).unwrap())),
+                rule(RuleKind::Match, proxy_action(0)),
             ],
         );
 
@@ -1281,23 +1526,23 @@ mod tests {
             vec![
                 rule(
                     RuleKind::DstPorts(vec![PortRange { start: 53, end: 53 }]),
-                    RuleAction::Proxy(ProxyId::new(3).unwrap()),
+                    proxy_action(3),
                 ),
                 rule(
                     RuleKind::DstPorts(vec![PortRange {
                         start: 123,
                         end: 123,
                     }]),
-                    RuleAction::Proxy(ProxyId::new(2).unwrap()),
+                    proxy_action(2),
                 ),
                 rule(
                     RuleKind::DstPorts(vec![PortRange {
                         start: 500,
                         end: 500,
                     }]),
-                    RuleAction::Proxy(ProxyId::new(1).unwrap()),
+                    proxy_action(1),
                 ),
-                rule(RuleKind::Match, RuleAction::Proxy(ProxyId::new(0).unwrap())),
+                rule(RuleKind::Match, proxy_action(0)),
             ],
         );
         let mut transport = router
@@ -1391,10 +1636,7 @@ mod tests {
             proxy.clone(),
             Arc::new(RecordingDispatcher::default()),
             None,
-            vec![rule(
-                RuleKind::Match,
-                RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap()),
-            )],
+            vec![rule(RuleKind::Match, proxy_action(0))],
         );
         router
             .connect_tcp(StreamSession {
@@ -1427,10 +1669,7 @@ mod tests {
                     }),
                     RuleAction::Direct,
                 ),
-                rule(
-                    RuleKind::Match,
-                    RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap()),
-                ),
+                rule(RuleKind::Match, proxy_action(0)),
             ],
         );
         let mut transport = router
@@ -1463,10 +1702,7 @@ mod tests {
             Arc::new(RecordingDispatcher::default()),
             Arc::new(RecordingDispatcher::default()),
             None,
-            vec![rule(
-                RuleKind::Match,
-                RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap()),
-            )],
+            vec![rule(RuleKind::Match, proxy_action(0))],
         );
         let association_router = router.clone_parts();
 
@@ -1486,10 +1722,7 @@ mod tests {
                     RuleKind::DstPorts(vec![PortRange { start: 9, end: 9 }]),
                     RuleAction::Reject,
                 ),
-                rule(
-                    RuleKind::Match,
-                    RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap()),
-                ),
+                rule(RuleKind::Match, proxy_action(0)),
             ],
         );
         let mut transport = router
@@ -1519,10 +1752,7 @@ mod tests {
             proxy.clone(),
             direct,
             Some(dns.clone()),
-            vec![rule(
-                RuleKind::Match,
-                RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap()),
-            )],
+            vec![rule(RuleKind::Match, proxy_action(0))],
         );
 
         let mut tun_udp = router
@@ -1575,10 +1805,7 @@ mod tests {
             Arc::new(RecordingDispatcher::default()),
             Arc::new(RecordingDispatcher::default()),
             Some(dns.clone()),
-            vec![rule(
-                RuleKind::Match,
-                RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap()),
-            )],
+            vec![rule(RuleKind::Match, proxy_action(0))],
         );
         let mut stream = router
             .connect_tcp(stream("1.1.1.1:53".parse().unwrap(), InboundKind::Tun))
@@ -1625,10 +1852,7 @@ mod tests {
             proxy,
             direct,
             Some(dns.clone()),
-            vec![rule(
-                RuleKind::Match,
-                RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap()),
-            )],
+            vec![rule(RuleKind::Match, proxy_action(0))],
         );
 
         let mut stream = router
@@ -1682,10 +1906,7 @@ mod tests {
                     }),
                     RuleAction::Reject,
                 ),
-                rule(
-                    RuleKind::Match,
-                    RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap()),
-                ),
+                rule(RuleKind::Match, proxy_action(0)),
             ],
         );
 
@@ -1739,10 +1960,7 @@ mod tests {
                     RuleAction::Reject,
                 ),
                 later_no_resolve,
-                rule(
-                    RuleKind::Match,
-                    RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap()),
-                ),
+                rule(RuleKind::Match, proxy_action(0)),
             ],
         );
 
@@ -1803,10 +2021,7 @@ mod tests {
                     RuleAction::Reject,
                 ),
                 later_no_resolve,
-                rule(
-                    RuleKind::Match,
-                    RuleAction::Proxy(crate::config::ProxyId::new(0).unwrap()),
-                ),
+                rule(RuleKind::Match, proxy_action(0)),
             ],
         );
 

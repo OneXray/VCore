@@ -4,12 +4,13 @@
   <a href="../README.md">English</a> · <a href="./README.zh_CN.md">简体中文</a> · Русский
 </p>
 
-VCore — независимое клиентское прокси-ядро на Rust, не привязанное к конкретному хост-приложению. Через строгую YAML-конфигурацию и Invoke API v5 оно предоставляет граф прокси, DNS, правила маршрутизации, GeoData, HTTP listener, плоскость данных TUN и статистику трафика. Внутренняя ревизия схемы конфигурации — 12; она присутствует только в ответе `version` и `buildIdentity`, но не записывается в YAML.
+VCore — независимое клиентское прокси-ядро на Rust, не привязанное к конкретному хост-приложению. Через строгую YAML-конфигурацию и Invoke API v5 оно предоставляет граф прокси, статические группы `select`, DNS, правила маршрутизации, GeoData, HTTP listener, плоскость данных TUN и loopback Controller. Внутренняя ревизия схемы конфигурации — 13; она присутствует только в ответе `version` и `buildIdentity`, но не записывается в YAML.
 
 ## Возможности
 
 - Исходящие подключения: VLESS + XHTTP + TLS/REALITY, SOCKS5 CONNECT/UDP ASSOCIATE, AnyTLS TCP/UoT и DIRECT.
 - Цепочки прокси: `dialer-proxy` образует ориентированный ациклический граф произвольной длины. Если узел A указывает на B, физический путь имеет вид `client -> B -> A -> target`.
+- Группы прокси: статические группы `select` сохраняют порядок участников; участниками могут быть конкретные узлы, вложенные группы, `DIRECT` и `REJECT`. Выбор текущей session можно менять через Controller. `dialer-proxy` по-прежнему принимает только конкретный узел.
 - Маршрутизация: последовательно применяются `DOMAIN`, `DOMAIN-SUFFIX`, `DOMAIN-KEYWORD`, `GEOSITE`, `GEOIP`, `IP-CIDR`, `IP-CIDR6`, `DST-PORT`, `NETWORK` и завершающее правило `MATCH`.
 - DNS: UDP/TCP nameserver с фиксированным IP, явный outbound, последовательные policy/failover, typed/opaque cache, singleflight и перехват UDP/TCP-порта 53 в TUN.
 - TUN: raw IPv4/IPv6, TCP/UDP, локальные ответы ICMPv4/ICMPv6 Echo, HTTP/TLS/QUIC sniffer и четыре счётчика трафика на session.
@@ -23,9 +24,10 @@ VCore — независимое клиентское прокси-ядро на
 
 - Размер YAML ограничен 256 KiB; неизвестные поля, anchors, aliases, пользовательские tags и устаревшие структуры отклоняются.
 - На верхнем уровне должен быть хотя бы один proxy, а также `port` или включённый `tun`.
-- Значения proxy `name` чувствительны к регистру и уникальны; все ссылки должны существовать, а граф прокси должен быть ациклическим.
-- `rules` обязателен и должен завершаться ровно одним `MATCH`, указывающим на реальное имя proxy.
-- `DIRECT` и `REJECT` — встроенные actions; любой другой action должен быть реальным именем proxy.
+- Имена proxy и proxy group используют общее пространство имён с точным совпадением и учётом регистра. Имя занимает 1–64 байта UTF-8; запрещены окружающие Unicode-пробелы, управляющие символы, `, # / ? & = % \`, `.` и `..`, а `DIRECT`, `REJECT` и `RULES` зарезервированы. Внутренние обычные пробелы, CJK и emoji разрешены.
+- `proxy-groups` принимает только `select`. Порядок и повторы участников сохраняются; без `default-selected` выбирается первый участник, а явное значение должно быть прямым участником. Цепочки proxy и вложенные группы должны быть ациклическими.
+- `rules` обязателен и должен завершаться ровно одним `MATCH`, указывающим на настроенный proxy node или proxy group.
+- `DIRECT` и `REJECT` — встроенные actions и участники групп; любой другой route target должен быть настроенным proxy node или proxy group. `RULES` зарезервирован только для DNS.
 - Конфигурация передаётся inline через `configYaml` / `configYamls`; VCore не читает пути конфигурации хоста.
 - Runtime-значения, включая Controller, TUN fd, порт и secret Controller, создаются хостом и не сохраняются в пользовательском RAW YAML.
 
@@ -57,14 +59,18 @@ initialize
 
 `instanceId` — generation token, который не используется повторно текущим runtime. Команды одного экземпляра завершаются fail-fast, если другая команда уже выполняется; чистые вызовы `validateConfig` могут выполняться параллельно. Полный envelope, методы, владение fd и контракт Android protect описаны в [`docs/invoke-api.md`](../docs/invoke-api.md).
 
-Трафик TUN запрашивается через session-local loopback Controller:
+Состояние runtime доступно через session-local loopback Controller:
 
 ```http
 GET /traffic
+GET /group
+GET /group/{name}
+GET /proxies/{name}
+PUT /proxies/{name}
 Authorization: Bearer <secret>
 ```
 
-Ответ представляет собой одноразовый snapshot `up/down/upTotal/downTotal`, а не непрерывный stream. Подробности — в [`docs/controller-api.md`](../docs/controller-api.md).
+`GET /traffic` возвращает одноразовый TUN snapshot `up/down/upTotal/downTotal`. Конечные точки групп читают и изменяют выбранного прямого участника статической группы `select`; успешное изменение влияет только на новые физические TCP-, UDP- и DNS-transports текущей session. Оно не переносит существующие соединения, UDP associations, состояние DNS или pooled TCP transports и не выполняет автоматический failover. Controller, управляющий группами, требует один Bearer secret для всех маршрутов и может работать без TUN. Подробности — в [`docs/controller-api.md`](../docs/controller-api.md).
 
 ## Платформы
 
@@ -103,7 +109,7 @@ TCP sessions, обычные UDP associations, half-open connections, outbound h
 - [AnyTLS outbound](../docs/anytls.md)
 - [Клиентский протокол REALITY V1](../docs/reality-wire-protocol.md)
 - [Зависимость rustls REALITY и требования к выпуску](../docs/rustls-reality-release.md)
-- [Controller трафика TUN](../docs/controller-api.md)
+- [Runtime Controller](../docs/controller-api.md)
 - [ICMP и DNS в TUN](../docs/tun-icmp-dns.md)
 - [Правила и assets GeoData](../docs/geodata.md)
 - [Платформенный слой TUN](../docs/tun-platform.md)

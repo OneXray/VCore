@@ -18,14 +18,14 @@
 当前测试覆盖以下公共边界：
 
 - Invoke API v5 envelope、严格 payload、单实例生命周期、panic 隔离和同步清理；
-- 配置修订版 12、IPv6 总开关、代理图、节点测速配置和未知字段拒绝；
+- 配置修订版 13、IPv6 总开关、代理图、静态 `select` 代理组、节点测速配置和未知字段拒绝；
 - VLESS/XHTTP/TLS/REALITY、SOCKS5、AnyTLS 和代理链；
 - DNS wire、缓存、singleflight、policy、故障转移和 TCP 复用；
 - 规则、GeoData、HTTP/TLS/QUIC 嗅探；
 - ICMPv4/ICMPv6 Echo、校验和、分片、MTU 和队列满；
 - Apple/Android TUN 帧格式、文件描述符副本和关闭所有权；
-- Windows 控制/数据协议、Session Snapshot v2、会合记录、包队列、批量写入、物理网络绑定和 Job Object 多进程监督；
-- Controller 鉴权、速率和累计流量语义。
+- Windows 单 Application manifest、Provider/Session Host token 绑定、控制/数据协议、Session Snapshot v2、会合记录、包队列、批量写入、物理网络绑定和 Job Object 多进程监督；
+- Controller 鉴权、速率和累计流量语义，以及代理组查询、实时选择和有界请求处理。
 
 常用命令：
 
@@ -70,6 +70,7 @@ Windows 11 ARM64 开发验收的环境、命令、结果和适用范围保存在
 | DNS / rules / GeoData / sniffer | 已覆盖 | 本地 DNS 与代理 fixture | Windows ARM64 已覆盖 |
 | ICMPv4 / ICMPv6 Echo | 已覆盖 | 不适用 | Windows ARM64 已覆盖 |
 | Controller 四字段流量 | 已覆盖 | HTTP fixture | Windows ARM64 已覆盖 |
+| Controller `select` 代理组控制 | 已覆盖 | HTTP fixture | 物理设备未验证 |
 
 “本地互操作”只证明当前双方在受控配置下可以通信，不代表所有公网服务或配置组合。
 
@@ -93,7 +94,20 @@ Windows 11 ARM64 开发验收的环境、命令、结果和适用范围保存在
 
 ## Windows VPN
 
-已验证范围限于 Windows 11 ARM64 开发签名安装包：
+单 Application 可行性在当前 Windows 11 ARM64 build 26200.9278 机器的 Developer Mode loose-package spike 上验证。该 spike 以 `042919ab5ead6af719ae68564244966e95003b58` 为基线，并包含后来收敛为 `d9018a2dfb75ab1f55c593023cbaa60951165eb5` 的未提交目标改动；基线 SHA 本身不能复现该结果。实际执行路径为：
+
+```powershell
+Add-AppxPackage -Register <stage>\AppxManifest.xml
+vcore-uwp-demo.exe environment
+vcore-uwp-demo.exe status
+vcore-uwp-demo.exe start <demo.yaml>
+vcore-uwp-demo.exe status
+vcore-uwp-demo.exe stop
+```
+
+观察结果是 manifest 只有一个 Application，Provider 是 AppContainer，Provider 通过无参数 `FullTrustProcessLauncher` 启动具有同一 package identity 的 medium-integrity Session Host，connect/stop 与 rendezvous 清理通过。该记录只证明本机可行性，不作为其他系统、架构、签名包、WACK 或 Store 的验证结论。
+
+此前 Windows 11 ARM64 开发签名包的数据面证据覆盖：
 
 - `Windows.Networking.Vpn` Provider 激活；
 - 完全信任前台宿主、AppContainer Provider 和完全信任 Session Host 的进程边界；
@@ -103,13 +117,13 @@ Windows 11 ARM64 开发验收的环境、命令、结果和适用范围保存在
 - 非回环 socket 的物理源地址与接口索引绑定；
 - Controller、外部回环 SOCKS5 和前台宿主退出后的会话延续；
 - Provider/Session Host 退出、管道错误和网络变化时的失败关闭；
-- 快速重连、持续压力、零队列丢弃和显式 Stop 清理；
-- 断开状态下的安装包原位升级和签名校验。
+- 快速重连、持续压力、零队列丢弃和显式 Stop 清理。
 
 Windows 路由必须保留两条 `/1`。在安装包环境中，单条 VPN `/0` 会使按产品要求绑定物理源地址和接口的外层 socket 返回 `WSAENETUNREACH`；两条 `/1` 不会产生该问题。
 
-尚未验证或完成：
+以下项目由发布开发者在对应机器或服务中验证，不阻塞上述本机可行性结论：
 
+- 单 Application test-signed MSIX 安装；
 - Windows 10 20H2；
 - 原生 x64 Windows；
 - 真实物理 IPv6；

@@ -137,6 +137,7 @@ proxies:
             "geo-auto-update: false",
             "configVersion: 9",
             "default-proxy: proxy",
+            "proxy-groups: []",
         ] {
             let yaml = NODE.replacen("proxies:", &format!("{extra}\nproxies:"), 1);
             assert!(

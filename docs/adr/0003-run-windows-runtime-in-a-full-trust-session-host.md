@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0007
 ---
 
 # ADR 0003：在完全信任的 Session Host 中运行 Windows 会话

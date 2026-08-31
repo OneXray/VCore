@@ -2,7 +2,7 @@
 
 本示例演示如何把 VCore 的 `Windows.Networking.Vpn` Provider、每会话完全信任运行时和一个最小命令行前台打进同一个 MSIX，并通过 `VCoreWindowsVpnInvoke` 创建、连接、查询和停止系统 VPN。
 
-> 这里的 “UWP” 指 Windows 的 UWP VPN Provider 模型。VCore **不支持纯 AppContainer 前台直接承载完整集成**：profile/snapshot 管理和 Session Host 激活必须由同包的完全信任进程执行。已有纯 UWP UI 时，应增加一个完全信任 broker；不要从 UWP UI 直接调用桥接接口。
+> 这里的 “UWP” 指 Windows 的 UWP VPN Provider 模型。VCore **不支持纯 AppContainer 前台直接承载完整集成**：profile/snapshot 管理必须由同包的完全信任进程执行，Session Host 则由 Provider 激活。已有纯 UWP UI 时，应增加一个完全信任 broker；不要从 UWP UI 直接调用桥接接口。
 
 ## 最小架构
 
@@ -11,13 +11,13 @@ VCoreUwpDemo.exe（完全信任前台）
   └─ VCoreWindowsVpnInvoke
        ├─ 发布不可变配置快照
        ├─ 创建/更新同包 VPN profile
-       └─ 激活 SessionHost
-
-vcore-windows-session-host.exe（每次连接一个完全信任进程）
-  └─ 完整 VCore：netstack / DNS / rules / outbounds
+       └─ ConnectProfileAsync
 
 vcore-windows-vpn-host.exe + vcore.dll（AppContainer Provider）
-  └─ VpnChannel / routes / DNS assignment / packet buffers / physical network
+  ├─ VpnChannel / routes / DNS assignment / packet buffers / physical network
+  └─ FullTrustProcessLauncher
+       └─ vcore-windows-session-host.exe（每次连接一个完全信任进程）
+            └─ 完整 VCore：netstack / DNS / rules / outbounds
 ```
 
 前台退出不会停止 VPN。Provider 或 Session Host 退出、管道损坏、非法 frame 或物理网络变化会失败关闭当前 VPN。
@@ -180,17 +180,17 @@ VCore 会校验 YAML、发布 `vcore-session-v2:` 内容寻址 Session Snapshot�
 
 | Manifest 项 | 必须值/规则 |
 | --- | --- |
-| Session Host Application Id | `SessionHost` |
-| Session Host executable | `vcore-windows-session-host.exe` |
+| Application 数量 | `1` |
+| Session Host extension | `windows.fullTrustProcess` / `vcore-windows-session-host.exe` |
 | Provider executable | `vcore-windows-vpn-host.exe` |
-| Provider Application EntryPoint | `VCore.VpnHost.App` |
 | Provider background EntryPoint | `VCore.VpnBackgroundTask` |
+| Provider runtime / trust | `windowsApp` / `appContainer` |
 | in-process server path | `vcore.dll` |
 | activatable class | `VCore.VpnBackgroundTask`，`ThreadingModel="both"` |
 | capabilities | `internetClientServer`、`privateNetworkClientServer`、`runFullTrust`、`networkingVpnProvider` |
 | minimum desktop OS | `10.0.19042.0` |
 
-可以修改 identity、publisher、版本、前台 Application Id/EXE、显示名称、图标和 app execution alias。除非同步修改 VCore 源码，否则不要修改 `SessionHost` 和 `VCore.VpnBackgroundTask`。桥接还固定使用 profile 名 `VCore`，可选 StartupTask 固定使用 `VCoreStartup`；两者都按 package family 隔离。
+可以修改 identity、publisher、版本、主 Application Id/EXE、显示名称、图标和 app execution alias。不要删除 Session Host/Provider extensions 或修改 `VCore.VpnBackgroundTask`。桥接还固定使用 profile 名 `VCore`，可选 StartupTask 固定使用 `VCoreStartup`；两者都按 package family 隔离。
 
 三项 VCore 文件必须位于 package 根目录：
 

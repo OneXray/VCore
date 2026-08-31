@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import locale
 import mmap
 import os
@@ -12,7 +13,7 @@ from pathlib import Path
 
 CORE_DIR = Path(__file__).resolve().parents[3]
 EXPECTED_IDENTITY = (
-    b"VCore;engine=rust;coreVersion=0.1.0;invokeApiVersion=5;configVersion=12"
+    b"VCore;engine=rust;coreVersion=0.1.0;invokeApiVersion=5;configVersion=13"
 )
 DEFAULT_FEATURES = "ffi,tun,inbound-http,outbound-vless"
 
@@ -75,6 +76,25 @@ def _cargo_build(
         ],
         env=env,
     )
+
+
+def _require_windows_architecture(artifact: Path, architecture: str) -> None:
+    with artifact.open("rb") as file:
+        if file.read(2) != b"MZ":
+            raise RuntimeError(f"invalid Windows PE artifact: {artifact}")
+        file.seek(0x3C)
+        offset = file.read(4)
+        if len(offset) != 4:
+            raise RuntimeError(f"invalid Windows PE artifact: {artifact}")
+        file.seek(int.from_bytes(offset, "little"))
+        if file.read(4) != b"PE\0\0":
+            raise RuntimeError(f"invalid Windows PE artifact: {artifact}")
+        machine = file.read(2)
+        if len(machine) != 2:
+            raise RuntimeError(f"invalid Windows PE artifact: {artifact}")
+    expected = {"arm64": 0xAA64, "x64": 0x8664}[architecture]
+    if int.from_bytes(machine, "little") != expected:
+        raise RuntimeError(f"VCore Windows artifact has wrong architecture: {artifact}")
 
 
 def _require_identity(artifact: Path, platform_name: str) -> None:
@@ -352,6 +372,9 @@ def build_windows() -> None:
     if os.name != "nt":
         raise RuntimeError("Windows artifacts must be built on Windows")
     architecture = _windows_architecture()
+    output = CORE_DIR / "dist" / "windows" / architecture
+    shutil.rmtree(output, ignore_errors=True)
+    output.mkdir(parents=True)
     targets = {
         "arm64": "aarch64-pc-windows-msvc",
         "x64": "x86_64-pc-windows-msvc",
@@ -378,14 +401,29 @@ def build_windows() -> None:
         "vcore-windows-vpn-host.exe",
         "vcore-windows-session-host.exe",
     ]
+    for name in artifacts:
+        _require_windows_architecture(release / name, architecture)
     _require_identity(release / "vcore.dll", "Windows")
-    output = CORE_DIR / "dist" / "windows" / architecture
-    shutil.rmtree(output, ignore_errors=True)
-    output.mkdir(parents=True)
     for name in artifacts:
         shutil.copy2(release / name, output / name)
+    digests = {}
     for name in artifacts:
         artifact = output / name
         with artifact.open("rb") as file:
-            digest = hashlib.file_digest(file, "sha256").hexdigest()
-        print(f"{digest}  {artifact}")
+            digests[name] = hashlib.file_digest(file, "sha256").hexdigest()
+        print(f"{digests[name]}  {artifact}")
+    (output / "vcore-windows-artifacts.json").write_text(
+        json.dumps(
+            {
+                "formatVersion": 1,
+                "windowsPackageIntegrationRevision": 2,
+                "architecture": architecture,
+                "buildIdentity": EXPECTED_IDENTITY.decode("ascii"),
+                "artifacts": digests,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
