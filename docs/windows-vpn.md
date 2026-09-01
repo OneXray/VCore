@@ -72,14 +72,14 @@ u16 大端序包长
 
 ## 回包唤醒
 
-`VpnChannel` 要求 Provider 关联受管理传输。Provider 在同一 AppContainer 内建立一对回环 `DatagramSocket`：
+`VpnChannel` 要求 Provider 关联受管理传输。Provider 在同一 AppContainer 内建立一对绑定当前物理地址的本地 `DatagramSocket`，并把主 socket 交给 `AssociateTransport` 和 `StartWithMainTransport`：
 
-1. 出站队列从空变为非空时发送一个哑数据报；
+1. 出站队列从空变为非空时，配对 socket 向主 socket 发送一个哑数据报；
 2. Windows 触发 `Decapsulate`；
 3. 回调消费哑数据报并排空已就绪的原始包；
 4. 队列持续非空时不重复唤醒。
 
-哑数据报只用于调度，不承载业务包。
+哑数据报只用于调度，不承载业务包。主 socket 不能绑定回环地址；Windows 必须从它识别物理接口，才能把 local/CIDR exclusion route 落到物理出口。
 
 ## 路由与 DNS
 
@@ -90,11 +90,12 @@ IPv4: 0.0.0.0/1, 128.0.0.0/1
 IPv6: ::/1, 8000::/1
 ```
 
-顶层 `ipv6` 默认为 `true`。设为 `false` 时，Provider 只安装 IPv4 `/1` 路由，只分配 IPv4 TUN 地址，并且只向 Windows 注册 IPv4 DNS；不会安装或分配任何 IPv6 项。
+顶层 `ipv6` 默认为 `true`。设为 `false` 时，Provider 只安装 IPv4 `/1` 路由，只分配 IPv4 TUN 地址，并且只向 Windows 注册 IPv4 DNS；不会安装或分配任何 IPv6 项。传给 `StartWithMainTransport` 的 IPv6 client-address 参数必须是 null，而不是空集合；Windows 11 ARM64 对空集合返回 `0x8007000E`。
 
 Windows profile 固定覆盖所有应用，不使用 AppTriggers、traffic filters 或流量身份。每次会话还应用完整 policy：
 
-- `allowLocalNetwork` 直接传给 `VpnRouteAssignment.SetExcludeLocalSubnets`；
+- `allowLocalNetwork: true` 设置 `VpnRouteAssignment.SetExcludeLocalSubnets(true)`；
+- `allowLocalNetwork: false` 清除该标志，并用物理子网的两个更具体子前缀覆盖本地 on-link route，避免 `/1` inclusion route 因优先级较低而旁路 VPN；
 - `excludedCidrs` 按地址族加入 exclusion routes，不修改两条 `/1` inclusion routes；
 - `alwaysOn` 写入 profile capability；实际自动连接仍由 Windows 用户设置和 active profile 决定。
 
@@ -117,7 +118,7 @@ Provider 在安装路由前选择不可变的：
 
 - 适配器 GUID；
 - 网络 profile 和 network identity；
-- 每个可用地址族的源 IP；
+- 每个可用地址族的源 IP 和 on-link prefix；
 - 对应的非零接口索引。
 
 Session Host 的每个非回环出站 socket 必须同时应用：
@@ -132,7 +133,7 @@ Session Host 的每个非回环出站 socket 必须同时应用：
 
 ## 网络变化
 
-Provider 是物理网络状态的唯一权威，并订阅 `NetworkStatusChanged`。事件到达后等待 2 秒，再复验适配器 GUID、地址和 network identity；任一项变化就停止当前 VPN。
+Provider 是物理网络状态的唯一权威，并订阅 `NetworkStatusChanged`。事件到达后等待 2 秒，再复验适配器 GUID、地址、on-link prefix 和 network identity；任一项变化就停止当前 VPN。
 
 当前实现不迁移现有 socket、不重选接口，也不回退到未绑定 socket。Session Host 不自行更新物理绑定。
 

@@ -43,7 +43,7 @@ VpnChannel callback
 Windows 使用 `Windows.Networking.Vpn` 回调，不使用文件描述符或适配器 ring：
 
 - Provider 在回调内复制 `VpnPacketBuffer` 字节，不保存系统缓冲区的借用；
-- 顶层 `ipv6: false` 时，Provider 不向 Windows 分配 IPv6 TUN 地址，也不安装 IPv6 路由或 DNS；`startVpn` 的 IPv6 地址字段仍严格必填并经过验证；
+- 顶层 `ipv6: false` 时，Provider 向 `StartWithMainTransport` 传 null IPv6 client-address 参数，不分配 IPv6 TUN 地址，也不安装 IPv6 路由或 DNS；`startVpn` 的 IPv6 地址字段仍严格必填并经过验证；
 - Windows profile 固定覆盖所有应用；Provider 按 policy 设置本地子网旁路，并把最多 64 条规范目标 CIDR 加入 exclusion routes；
 - 系统和 Provider 创建的缓冲区都按 WinRT 所有权规则归还；
 - 回调不等待管道 I/O，入站和出站队列保持有界；

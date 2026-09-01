@@ -119,11 +119,27 @@ vcore-uwp-demo.exe stop
 - Provider/Session Host 退出、管道错误和网络变化时的失败关闭；
 - 快速重连、持续压力、零队列丢弃和显式 Stop 清理。
 
+### 全局 VPN policy 与 IPv4-only clean gate（2026-09-01）
+
+当前 Windows 11 ARM64 build 26200.9278 主机重启后，先确认 package-owned route、interface 和进程均为零，再用同一源树构建、开发签名并安装单 Application MSIX。实际结果：
+
+- `ipv6: false` 和 `ipv6: true` 都完成稳定 `start → status → TCP traffic → stop → status`；前者运行时有一个 VPN interface，后者有两个，Provider 和 Session Host 都各激活一个；
+- 两种地址模式都观察到 Provider ingress/egress，显式 Stop 后 Session Host、route 和 interface 均归零；
+- `ipv6: false` 向 `StartWithMainTransport` 传 null IPv6 client-address 参数后通过；传空集合的对照包稳定返回 `0x8007000E`，且不启动 Session Host；
+- 主 transport 绑定当前物理地址后，目标 exclusion route 选择物理出口，而未排除的控制流量仍进入 VPN；回环绑定的对照包会使 exclusion traffic 超时；
+- `allowLocalNetwork: true` 时实机局域网 peer 选择物理出口；设为 `false` 后，两个更具体的物理子网 inclusion route 使同一 peer 进入 VPN，并完成外网双向流量；
+- profile 的 Always On capability 在连接时读回为启用，显式 Stop 后保持断开；随后用默认 policy 重建 profile 时读回为禁用；
+- 已有 profile/Snapshot 在前台启动命令退出、Provider/Session Host 均不存在时，由系统 profile connect 冷启动两个 native 进程并完成双向流量；
+- 类型错误的 policy 在 Provider 激活前被拒绝；运行中强制终止 Session Host 后 Provider 失败关闭，profile 变为 disconnected，route/interface 清零；
+- 每个 gate 结束时都确认无 Session Host、route 或 VPN interface 残留。Provider 的已停止 AppContainer 外壳可能暂留，验收脚本在各 case 之间显式结束它。
+
+该记录证明当前机器上的 IPv4 物理出口和 Windows 分配的双栈 VPN interface；主机没有物理 IPv6/default gateway，因此真实 IPv6 exclusion 仍未执行。
+
 Windows 路由必须保留两条 `/1`。在安装包环境中，单条 VPN `/0` 会使按产品要求绑定物理源地址和接口的外层 socket 返回 `WSAENETUNREACH`；两条 `/1` 不会产生该问题。
 
 以下项目由发布开发者在对应机器或服务中验证，不阻塞上述本机可行性结论：
 
-- 单 Application test-signed MSIX 安装；
+- production-signed MSIX、WACK 与 Store 安装路径；
 - Windows 10 20H2；
 - 原生 x64 Windows；
 - 真实物理 IPv6；
