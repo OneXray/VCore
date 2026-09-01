@@ -42,7 +42,7 @@ Session Host 每次连接新建一个进程，不常驻、不复用运行时，�
 ## 快照与 profile
 
 - Windows 只维护一个同包 `VCore` profile。
-- 桥接先用当前解析器验证 TUN 配置、四个网络地址和可选 backend，再发布单文件内容寻址 Session Snapshot：
+- 桥接先用当前解析器验证 TUN 配置、四个网络地址、全局 VPN policy 和可选 backend，再发布单文件内容寻址 Session Snapshot：
 
   ```text
   vcore-session-v2:<64 lowercase sha256>
@@ -51,17 +51,17 @@ Session Host 每次连接新建一个进程，不常驻、不复用运行时，�
 
 - Snapshot revision 2 保存完整 VCore YAML（包括代理组及其 `default-selected`），以及可选的有序 `sessionBackend.processes`；每项只有规范 package-relative executable path 和 argv 数组。
 - token 覆盖 YAML、进程顺序、路径和参数。参数引用的文件由调用方保持存在且不可变，VCore 不读取或摘要其内容。
-- profile custom configuration 是最大 1 KiB 的严格 JSON，包含修订版 3、规范 Session token、顶层 IPv6 开关和 TUN/DNS 的 IPv4/IPv6 地址。
+- profile custom configuration 是最大 4 KiB 的严格 JSON，包含修订版 4、规范 Session token、顶层 IPv6 开关、TUN/DNS 的 IPv4/IPv6 地址和完整 policy。
 - custom configuration 不包含 YAML、backend 描述、Controller secret、PID 或管道路径。
-- `startVpn` 的四个地址始终严格必填并经过验证；顶层 `ipv6: false` 时，Provider 忽略两个 IPv6 地址，只安装 IPv4 地址、路由和 DNS。
-- 活动 profile 只有在 token、IPv6 开关和四个地址完全相同时才幂等；任何变化都必须先 Stop。
+- `startVpn` 的四个地址和 `alwaysOn`、`allowLocalNetwork`、`excludedCidrs` 始终严格必填并经过验证；顶层 `ipv6: false` 时，Provider 忽略两个 IPv6 地址，只安装 IPv4 地址、路由和 DNS，并拒绝 IPv6 exclusion。
+- 活动 profile 只有在 token、IPv6 开关、四个地址和 policy 完全相同时才幂等；任何变化都必须先 Stop。
 - 读取 Snapshot 时校验大小、普通文件、reparse point、内容摘要、规范 JSON及每个 executable。
 - TUN 地址、Controller 端口/secret 和 Ping 目标属于运行时字段，不写入用户 RAW YAML。
 
 ## 启动顺序
 
-1. 前台宿主调用 `startVpn(configYaml, networkSettings, sessionBackend?)`。
-2. 桥接验证配置、四个地址和进程描述，发布不可变 Session Snapshot，并把解析后的顶层 IPv6 开关写入 profile configuration。
+1. 前台宿主调用 `startVpn(configYaml, networkSettings, policy, sessionBackend?)`。
+2. 桥接验证配置、四个地址、policy 和进程描述，发布不可变 Session Snapshot，并把解析后的顶层 IPv6 开关和 policy 写入 profile configuration。
 3. 桥接写入单一 VPN profile 并调用 `ConnectProfileAsync`；它不启动或持有 Session Host。
 4. Windows 激活 AppContainer Provider。
 5. Provider 从 profile configuration 取得权威 token，选择物理网络绑定并准备基础资源。
@@ -164,11 +164,12 @@ Provider 选择并持有：
 
 - 适配器 GUID；
 - profile 和 network identity；
-- 可用地址族的源 IP 和非零接口索引。
+- 可用地址族从非 link-local 地址中选出的源 IP 和非零接口索引；
+- 独立于源地址选择保留的全部去重 on-link prefixes，包括 link-local。
 
 Session Host 只消费这份不可变绑定。每个非回环 socket 必须同时设置源地址和接口选项。只有配置中显式使用 `127.0.0.0/8` 范围内的 IPv4 字面量或 `::1` 的本地出站可以跳过；物理代理服务器的域名在准备阶段解析到任何回环地址都会失败关闭。地址族缺失、bind 失败或 setsockopt 失败时，当前连接失败关闭。
 
-Provider 订阅网络变化，等待 2 秒消抖后复验适配器、地址和 identity。任一变化就停止会话，不迁移 socket、不重选网卡、不自动回退。
+Provider 订阅网络变化，等待 2 秒消抖后复验适配器、选定源地址、全部 on-link prefixes 和 identity。任一变化就停止会话，不迁移 socket、不重选网卡、不自动回退。
 
 ## Windows session backend
 

@@ -42,7 +42,7 @@ Read the relevant document completely before changing that area:
 6. Reuse the existing raw-IP netstack and outbound graph. Add no second Windows proxy core, Wintun path, per-protocol socket factory, or fake fd layer.
 7. Keep optional protocol/platform code feature- and target-gated. Default non-TUN builds must continue to compile.
 8. When copying or modifying third-party source, record the upstream project and preserve all applicable license terms. Audit linked dependencies against the resolved release graph. Do not describe independent rewrites, protocol interoperability, or architectural references as derived source without evidence; Credits provide context and attribution, not a substitute for release license review.
-9. Keep code, documentation, package identifiers, examples, and signing inputs host-neutral; application-specific names and credentials belong in downstream integrations.
+9. Keep every public surface—code, documentation, tests, examples, commits, issues, pull requests, reviews, CI output, and releases—limited to VCore and public dependencies. Keep private downstream repository or product identities, links, implementation details, status, artifacts, and roadmaps outside this repository and its GitHub surfaces. Before publishing, search the staged diff and proposed GitHub text for downstream identifiers.
 
 # Validation
 

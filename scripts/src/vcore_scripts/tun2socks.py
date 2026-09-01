@@ -89,7 +89,7 @@ def invoke_bridge(
     command = temp / "bridge.cmd"
     request.write_text(
         json.dumps(
-            {"bridgeVersion": 2, "method": method, "payload": payload},
+            {"bridgeVersion": 3, "method": method, "payload": payload},
             separators=(",", ":"),
         ),
         encoding="utf-8",
@@ -405,6 +405,11 @@ def run_demo(source_config: Path | None = None) -> None:
                         "ipv6Address": TUN_IPV6,
                         "dnsIpv4Address": DNS_IPV4,
                         "dnsIpv6Address": DNS_IPV6,
+                    },
+                    "policy": {
+                        "alwaysOn": False,
+                        "allowLocalNetwork": True,
+                        "excludedCidrs": [],
                     },
                 },
             )

@@ -64,6 +64,10 @@ const TUN_NETSTACK_STATS_FINAL_EVENT: &str = "tun_netstack_stats_final";
 
 static NEXT_DIAGNOSTIC_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 
+fn effective_tun_mtu(limits: ResourceLimits) -> usize {
+    TUN_MTU.min(limits.tun_max_datagram_size)
+}
+
 fn tun_udp_ingress_queue_capacity(limits: ResourceLimits, dns_enabled: bool) -> usize {
     if dns_enabled {
         limits.tun_dns_ingress_queue_capacity
@@ -78,7 +82,7 @@ fn tun_netstack_config(
     fake_icmp_echo: bool,
 ) -> NetStackConfig {
     NetStackConfig {
-        mtu: TUN_MTU.min(limits.tun_max_datagram_size),
+        mtu: effective_tun_mtu(limits),
         packet_queue: limits.packet_queue_capacity,
         tcp_accept_queue: limits.event_queue_capacity,
         udp_queue: tun_udp_ingress_queue_capacity(limits, dns_enabled),
@@ -757,6 +761,7 @@ async fn udp_loop(
     resource_stats: RuntimeResourceStats,
     cancellation: CancellationToken,
 ) -> io::Result<()> {
+    let tun_mtu = effective_tun_mtu(limits);
     let association_queue = limits
         .event_queue_capacity
         .clamp(1, UDP_ASSOCIATION_QUEUE_MAX);
@@ -845,6 +850,7 @@ async fn udp_loop(
                         permit,
                         datagram,
                         dns_responses_tx.clone(),
+                        tun_mtu,
                         resource_stats.clone(),
                         cancellation.clone(),
                     ));
@@ -876,6 +882,7 @@ async fn udp_loop(
                             resource_stats: resource_stats.clone(),
                             association_clock: association_clock.clone(),
                             last_activity,
+                            tun_mtu,
                             sniffer: sniffer.clone(),
                             cancellation: child_cancellation,
                         },
@@ -983,6 +990,7 @@ async fn run_tun_dns_query(
     permit: DnsQueryPermit,
     request: UdpDatagram,
     responses: mpsc::Sender<QueuedUdpResponse>,
+    tun_mtu: usize,
     resource_stats: RuntimeResourceStats,
     cancellation: CancellationToken,
 ) {
@@ -997,7 +1005,7 @@ async fn run_tun_dns_query(
             }
         },
     };
-    if let Some(response) = complete_tun_dns_response(&request, response) {
+    if let Some(response) = complete_tun_dns_response(&request, response, tun_mtu) {
         try_queue_tun_dns_response(&responses, response, Some(permit), &resource_stats);
     }
 }
@@ -1049,11 +1057,13 @@ fn try_queue_tun_udp_response(
     }
 }
 
-fn complete_tun_dns_response(request: &UdpDatagram, response: Vec<u8>) -> Option<UdpDatagram> {
+fn complete_tun_dns_response(
+    request: &UdpDatagram,
+    response: Vec<u8>,
+    tun_mtu: usize,
+) -> Option<UdpDatagram> {
     if response.len()
-        > usize::from(
-            DatagramSession::new(InboundKind::Tun, request.source).max_response_payload_size(),
-        )
+        > usize::from(DatagramSession::for_tun(request.source, tun_mtu).max_response_payload_size())
     {
         tracing::debug!(
             response_bytes = response.len(),
@@ -1559,6 +1569,7 @@ struct UdpAssociationTaskContext {
     resource_stats: RuntimeResourceStats,
     association_clock: AssociationClock,
     last_activity: Arc<AtomicU64>,
+    tun_mtu: usize,
     sniffer: Option<Arc<SnifferConfig>>,
     cancellation: CancellationToken,
 }
@@ -1655,7 +1666,7 @@ where
 {
     let association_id = context.association_id;
     let source = context.source;
-    let session = DatagramSession::new(InboundKind::Tun, source);
+    let session = DatagramSession::for_tun(source, context.tun_mtu);
     let opened = tokio::select! {
         biased;
         () = context.cancellation.cancelled() => return Ok(()),
@@ -2500,6 +2511,7 @@ mod tests {
                     resource_stats: RuntimeResourceStats::new("tun_runtime_quic_test"),
                     association_clock: AssociationClock::realtime(),
                     last_activity: Arc::new(AtomicU64::new(0)),
+                    tun_mtu: TUN_MTU,
                     sniffer: Some(test_sniffer(
                         &[],
                         &[],
@@ -2601,6 +2613,7 @@ mod tests {
                     resource_stats: RuntimeResourceStats::new("tun_runtime_quic_fairness_test"),
                     association_clock: AssociationClock::realtime(),
                     last_activity: Arc::new(AtomicU64::new(0)),
+                    tun_mtu: TUN_MTU,
                     sniffer: Some(test_sniffer(
                         &[],
                         &[],
@@ -3384,7 +3397,7 @@ mod tests {
         let limits = ResourceLimits {
             packet_queue_capacity: 8,
             event_queue_capacity: 4,
-            tun_max_datagram_size: TUN_MTU,
+            tun_max_datagram_size: 1_400,
             ..ResourceLimits::default()
         };
         let runtime = TunRuntime::new(
@@ -3444,7 +3457,7 @@ mod tests {
         assert_eq!(dispatcher.udp_sessions.lock().unwrap().len(), 1);
         assert_eq!(
             dispatcher.udp_sessions.lock().unwrap()[0],
-            DatagramSession::new(InboundKind::Tun, udp_source)
+            DatagramSession::for_tun(udp_source, 1_400)
         );
 
         let tcp_source: SocketAddr = "192.0.2.11:13000".parse().unwrap();
@@ -3717,6 +3730,7 @@ mod tests {
             permit,
             request,
             responses.clone(),
+            TUN_MTU,
             resource_stats.clone(),
             CancellationToken::new(),
         )
@@ -3745,6 +3759,7 @@ mod tests {
             permit,
             request,
             responses,
+            TUN_MTU,
             resource_stats.clone(),
             CancellationToken::new(),
         )
@@ -3931,9 +3946,11 @@ mod tests {
         let requested_server: SocketAddr = "198.51.100.20:53".parse().unwrap();
         let query = build_query(0x3456, "example.com", QueryType::A).unwrap();
         let request = UdpDatagram::new(source, requested_server, query.clone());
+        let tun_mtu = 1_400;
         let ceiling =
-            usize::from(DatagramSession::new(InboundKind::Tun, source).max_response_payload_size());
-        assert!(complete_tun_dns_response(&request, vec![0_u8; ceiling + 1]).is_none());
+            usize::from(DatagramSession::for_tun(source, tun_mtu).max_response_payload_size());
+        assert!(complete_tun_dns_response(&request, vec![0_u8; ceiling], tun_mtu).is_some());
+        assert!(complete_tun_dns_response(&request, vec![0_u8; ceiling + 1], tun_mtu).is_none());
     }
 
     #[test]
@@ -3943,9 +3960,12 @@ mod tests {
         let query = build_query(0x4567, "example.com", QueryType::Aaaa).unwrap();
         let classified = classify_query(&query).unwrap();
         let request = UdpDatagram::new(source, requested_server, query);
-        let response =
-            complete_tun_dns_response(&request, synthesize_empty_response(&classified, 0).unwrap())
-                .unwrap();
+        let response = complete_tun_dns_response(
+            &request,
+            synthesize_empty_response(&classified, 0).unwrap(),
+            TUN_MTU,
+        )
+        .unwrap();
         assert_eq!(response.source, requested_server);
         assert_eq!(response.destination, source);
         let parsed = crate::dns::parse_response(&response.payload).unwrap();
@@ -4105,6 +4125,7 @@ mod tests {
                     resource_stats: RuntimeResourceStats::new("tun_runtime_test"),
                     association_clock: AssociationClock::realtime(),
                     last_activity: Arc::new(AtomicU64::new(0)),
+                    tun_mtu: TUN_MTU,
                     sniffer: None,
                     cancellation: child,
                 },

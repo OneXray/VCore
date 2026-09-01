@@ -66,18 +66,20 @@ u16 大端序包长
 - Provider 两侧包队列容量均为 256；从空变为非空时只发一次唤醒；
 - `Decapsulate` 每次排空当前已就绪队列，队列满按包计数。
 
+`StartWithMainTransport` 按 WinRT 契约使用 1400 MTU 和 1412 最大 frame；Session Host netstack 同样使用 1400 MTU，并把 TUN/XUDP 与 DNS UDP 响应负载保守限制为 MTU 减 48，即 1352 字节。packet channel 的 1500 上限仍是帧解析的结构边界，不是 Windows L3 接口宣告值。
+
 控制消息使用独立管道，避免包背压阻塞启动和停止。
 
 ## 回包唤醒
 
-`VpnChannel` 要求 Provider 关联受管理传输。Provider 在同一 AppContainer 内建立一对回环 `DatagramSocket`：
+`VpnChannel` 要求 Provider 关联受管理传输。Provider 在同一 AppContainer 内建立一对绑定当前物理地址的本地 `DatagramSocket`，并把主 socket 交给 `AssociateTransport` 和 `StartWithMainTransport`：
 
-1. 出站队列从空变为非空时发送一个哑数据报；
+1. 出站队列从空变为非空时，配对 socket 向主 socket 发送一个哑数据报；
 2. Windows 触发 `Decapsulate`；
 3. 回调消费哑数据报并排空已就绪的原始包；
 4. 队列持续非空时不重复唤醒。
 
-哑数据报只用于调度，不承载业务包。
+哑数据报只用于调度，不承载业务包。主 socket 不能绑定回环地址；Windows 必须从它识别物理接口，才能把 local/CIDR exclusion route 落到物理出口。
 
 ## 路由与 DNS
 
@@ -88,11 +90,20 @@ IPv4: 0.0.0.0/1, 128.0.0.0/1
 IPv6: ::/1, 8000::/1
 ```
 
-顶层 `ipv6` 默认为 `true`。设为 `false` 时，Provider 只安装 IPv4 `/1` 路由，只分配 IPv4 TUN 地址，并且只向 Windows 注册 IPv4 DNS；不会安装或分配任何 IPv6 项。
+顶层 `ipv6` 默认为 `true`。设为 `false` 时，Provider 只安装 IPv4 `/1` 路由，只分配 IPv4 TUN 地址，并且只向 Windows 注册 IPv4 DNS；不会安装或分配任何 IPv6 项。传给 `StartWithMainTransport` 的 IPv6 client-address 参数必须是 null，而不是空集合；Windows 11 ARM64 对空集合返回 `0x8007000E`。
+
+Windows profile 固定覆盖所有应用，不使用 AppTriggers、traffic filters 或流量身份。每次会话还应用完整 policy：
+
+- `allowLocalNetwork: true` 设置 `VpnRouteAssignment.SetExcludeLocalSubnets(true)`；
+- `allowLocalNetwork: false` 清除该标志，并为物理适配器的每个去重 on-link prefix（包括 link-local）生成更具体的 inclusion routes，避免 `/1` inclusion route 因优先级较低而旁路 VPN；
+- `excludedCidrs` 按地址族加入 exclusion routes，不修改两条 `/1` inclusion routes；生成本地 inclusion routes 前先减去全部显式排除范围，确保排除项不会被更具体的本地 inclusion 覆盖；
+- `alwaysOn` 写入 profile capability；实际自动连接仍由 Windows 用户设置和 active profile 决定。
+
+排除项最多 64 条，必须是规范 network/prefix；重复、host bits、`/0`、禁用 IPv6 时的 IPv6 项和包含 VPN DNS 的项都会在接触 WinRT 前失败关闭。
 
 不能把 IPv4 两条 `/1` 合并为 `/0`。Windows 包环境中的验证表明，VPN `/0` 会使按产品要求绑定物理源地址和接口索引的外层 socket 返回 `WSAENETUNREACH`，而两条 `/1` 可以保持物理出口。
 
-前台宿主在 `startVpn` payload 中提供当前会话的 TUN IPv4/IPv6 和 DNS IPv4/IPv6。四个地址始终严格必填并经过验证；即使顶层 `ipv6: false`，两个 IPv6 值仍保留在桥接契约中，但 Provider 不使用。桥接把地址、顶层 IPv6 开关与 Session token 写入 profile custom configuration，Provider 再按开关传给 `StartWithMainTransport`。这些字段不写入用户 RAW YAML。
+前台宿主在 `startVpn` payload 中提供当前会话的 TUN IPv4/IPv6、DNS IPv4/IPv6 和 policy。四个地址与三个 policy 字段始终严格必填并经过验证；即使顶层 `ipv6: false`，两个 IPv6 地址仍保留在桥接契约中，但 Provider 不使用。桥接把地址、顶层 IPv6 开关、policy 与 Session token 写入 profile custom configuration，Provider 再按开关传给 `StartWithMainTransport`。这些字段不写入用户 RAW YAML。
 
 Provider 为后缀 `.` 安装外部 DNS 地址：
 
@@ -107,8 +118,8 @@ Provider 在安装路由前选择不可变的：
 
 - 适配器 GUID；
 - 网络 profile 和 network identity；
-- 每个可用地址族的源 IP；
-- 对应的非零接口索引。
+- 每个可用地址族从非 link-local 地址中选定的一个源 IP 和对应非零接口索引；
+- 独立于源地址选择保留的、物理适配器上全部去重的 on-link prefixes，包括 link-local。
 
 Session Host 的每个非回环出站 socket 必须同时应用：
 
@@ -122,7 +133,7 @@ Session Host 的每个非回环出站 socket 必须同时应用：
 
 ## 网络变化
 
-Provider 是物理网络状态的唯一权威，并订阅 `NetworkStatusChanged`。事件到达后等待 2 秒，再复验适配器 GUID、地址和 network identity；任一项变化就停止当前 VPN。
+Provider 是物理网络状态的唯一权威，并订阅 `NetworkStatusChanged`。事件到达后等待 2 秒，再复验适配器 GUID、选定源地址、全部去重 on-link prefixes 和 network identity；任一项变化就停止当前 VPN。
 
 当前实现不迁移现有 socket、不重选接口，也不回退到未绑定 socket。Session Host 不自行更新物理绑定。
 
@@ -160,9 +171,9 @@ vcore-windows-session-host.exe
 - Provider 的 `windows.backgroundTasks` extension 显式使用 `windowsApp + appContainer`；
 - Provider activation class 来自 `vcore.dll`；
 - 同一 package 只维护一个 `VCore` VPN profile；
-- custom configuration 是最大 1 KiB 的严格 JSON，只含修订版 3、Session token、顶层 IPv6 开关和四个网络地址；
+- custom configuration 是最大 4 KiB 的严格 JSON，只含修订版 4、Session token、顶层 IPv6 开关、四个网络地址和完整 policy；
 - Session Snapshot 是 `LocalState/vcore/windows/sessions/<sha256>.json`，覆盖 YAML、可选进程顺序、路径和参数；
-- 活动 Session token、IPv6 开关或网络地址不同时必须先显式 Stop，不能热切换；
+- 活动 Session token、IPv6 开关、网络地址或 policy 不同时必须先显式 Stop，不能热切换；
 - 安装包更新只能在 VPN 已断开时进行，并要求版本递增。
 
 ## 失败关闭
@@ -185,6 +196,7 @@ vcore-windows-session-host.exe
 
 - [`IVpnPlugIn`](https://learn.microsoft.com/uwp/api/windows.networking.vpn.ivpnplugin)
 - [`VpnChannel`](https://learn.microsoft.com/uwp/api/windows.networking.vpn.vpnchannel)
+- [`VpnChannel.StartWithMainTransport`](https://learn.microsoft.com/uwp/api/windows.networking.vpn.vpnchannel.startwithmaintransport)
 - [`VpnChannel.AssociateTransport`](https://learn.microsoft.com/uwp/api/windows.networking.vpn.vpnchannel.associatetransport)
 - [`VpnPacketBuffer`](https://learn.microsoft.com/uwp/api/windows.networking.vpn.vpnpacketbuffer)
 - [`VpnManagementAgent`](https://learn.microsoft.com/uwp/api/windows.networking.vpn.vpnmanagementagent)

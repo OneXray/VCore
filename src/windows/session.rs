@@ -23,7 +23,7 @@ use windows::{
 };
 
 use super::{
-    log,
+    WINDOWS_VPN_MTU, log,
     managed_processes::ManagedProcessSet,
     packet_channel::{
         ControlMessage, DATA_PIPE_READ_BUFFER_BYTES, MAX_PACKET_BATCH_PACKETS, PROTOCOL_VERSION,
@@ -273,9 +273,11 @@ async fn start_vcore(
         Duration::from_secs(24 * 60 * 60),
     )
     .map_err(io::Error::other)?;
-    let prepared =
-        PreparedCore::prepare_config(config, geodata, &SystemResolver, ResourceLimits::default())
-            .await?;
+    let limits = ResourceLimits {
+        tun_max_datagram_size: WINDOWS_VPN_MTU,
+        ..ResourceLimits::default()
+    };
+    let prepared = PreparedCore::prepare_config(config, geodata, &SystemResolver, limits).await?;
 
     let wake = Arc::new(Notify::new());
     let observed = Arc::clone(&wake);

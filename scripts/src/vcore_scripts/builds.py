@@ -416,7 +416,7 @@ def build_windows() -> None:
         json.dumps(
             {
                 "formatVersion": 1,
-                "windowsPackageIntegrationRevision": 2,
+                "windowsPackageIntegrationRevision": 3,
                 "architecture": architecture,
                 "buildIdentity": EXPECTED_IDENTITY.decode("ascii"),
                 "artifacts": digests,

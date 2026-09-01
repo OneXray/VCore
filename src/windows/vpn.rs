@@ -3,7 +3,7 @@
 use std::{
     io,
     mem::size_of,
-    net::{Ipv4Addr, Ipv6Addr},
+    net::{IpAddr, Ipv4Addr, Ipv6Addr},
     num::NonZeroU32,
     panic::{AssertUnwindSafe, catch_unwind},
     path::PathBuf,
@@ -24,7 +24,7 @@ use windows::{
     },
     Networking::{
         Connectivity::{ConnectionProfile, NetworkInformation, NetworkStatusChangedEventHandler},
-        HostName, HostNameType,
+        HostName,
         Sockets::DatagramSocket,
         Vpn::{
             IVpnPlugIn, IVpnPlugIn_Impl, VpnChannel, VpnDomainNameAssignment, VpnDomainNameInfo,
@@ -43,7 +43,10 @@ use windows::{
         NetworkManagement::IpHelper::{
             GET_ADAPTERS_ADDRESSES_FLAGS, GetAdaptersAddresses, IP_ADAPTER_ADDRESSES_LH,
         },
-        Networking::WinSock::AF_UNSPEC,
+        Networking::WinSock::{
+            AF_INET, AF_INET6, AF_UNSPEC, IpDadStatePreferred, SOCKADDR_IN, SOCKADDR_IN6,
+            SOCKET_ADDRESS,
+        },
         System::WinRT::{
             IActivationFactory, IActivationFactory_Impl, IBufferByteAccess, RO_INIT_MULTITHREADED,
             RoInitialize, RoUninitialize,
@@ -58,17 +61,19 @@ use windows_collections::IVectorView;
 use windows_core::{AgileReference, IUnknownImpl as _};
 
 use super::{
-    log,
+    WINDOWS_VPN_MTU, log,
     packet_channel::{
         AddressBindingV4, AddressBindingV6, PacketCounters, PhysicalBinding, ProviderPacketSession,
         remove_rendezvous,
     },
+    policy::{WindowsVpnCidr, WindowsVpnPolicy},
     profile::{WindowsNetworkSettings, WindowsProfileConfiguration},
 };
 use crate::platform::{TunIo, WindowsPacketAdapter, WindowsPacketStats};
 
 const CLASS_NAME: &str = "VCore.VpnBackgroundTask";
 const PACKET_QUEUE_CAPACITY: usize = 256;
+const WINDOWS_VPN_MAX_FRAME_SIZE: u32 = WINDOWS_VPN_MTU as u32 + 12;
 const FAIL_CLOSED_IDLE: u8 = 0;
 const FAIL_CLOSED_STOPPING: u8 = 1;
 const FAIL_CLOSED_CANCELLED: u8 = 2;
@@ -278,10 +283,16 @@ impl Drop for FailClosedStop {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct InterfaceIndices {
     ipv4: Option<NonZeroU32>,
     ipv6: Option<NonZeroU32>,
+}
+
+#[derive(Debug)]
+struct AdapterProperties {
+    indices: InterfaceIndices,
+    addresses: AdapterAddresses,
 }
 
 fn adapter_name_matches(name: &str, adapter_id: GUID) -> bool {
@@ -290,7 +301,38 @@ fn adapter_name_matches(name: &str, adapter_id: GUID) -> bool {
         .eq_ignore_ascii_case(&format!("{adapter_id:?}"))
 }
 
-fn adapter_interface_indices(adapter_id: GUID) -> Result<InterfaceIndices> {
+fn socket_address_ip(address: SOCKET_ADDRESS) -> Option<IpAddr> {
+    if address.lpSockaddr.is_null() {
+        return None;
+    }
+    // SAFETY: callers pass a `SOCKET_ADDRESS` returned inside the live adapter buffer.
+    let family = unsafe { (*address.lpSockaddr).sa_family };
+    match family {
+        AF_INET if address.iSockaddrLength >= size_of::<SOCKADDR_IN>() as i32 => {
+            // SAFETY: the family and recorded length identify a complete `SOCKADDR_IN`.
+            let address = unsafe { &*address.lpSockaddr.cast::<SOCKADDR_IN>() };
+            // SAFETY: `S_un_b` is the byte view of the network-order IPv4 address.
+            let octets = unsafe { address.sin_addr.S_un.S_un_b };
+            Some(IpAddr::V4(Ipv4Addr::new(
+                octets.s_b1,
+                octets.s_b2,
+                octets.s_b3,
+                octets.s_b4,
+            )))
+        }
+        AF_INET6 if address.iSockaddrLength >= size_of::<SOCKADDR_IN6>() as i32 => {
+            // SAFETY: the family and recorded length identify a complete `SOCKADDR_IN6`.
+            let address = unsafe { &*address.lpSockaddr.cast::<SOCKADDR_IN6>() };
+            // SAFETY: `Byte` is the octet view of the IPv6 address.
+            Some(IpAddr::V6(Ipv6Addr::from(unsafe {
+                address.sin6_addr.u.Byte
+            })))
+        }
+        _ => None,
+    }
+}
+
+fn adapter_properties(adapter_id: GUID) -> Result<AdapterProperties> {
     let mut storage = vec![0_usize; (15 * 1024_usize).div_ceil(size_of::<usize>())];
     for _ in 0..3 {
         let mut byte_count = u32::try_from(storage.len() * size_of::<usize>())
@@ -330,11 +372,27 @@ fn adapter_interface_indices(adapter_id: GUID) -> Result<InterfaceIndices> {
                 let name = unsafe { adapter.AdapterName.to_string() }
                     .map_err(|_| Error::new(E_FAIL, "network adapter name is not UTF-8"))?;
                 if adapter_name_matches(&name, adapter_id) {
+                    let mut addresses = AdapterAddresses::default();
+                    let mut current = adapter.FirstUnicastAddress;
+                    while !current.is_null() {
+                        // SAFETY: successful `GetAdaptersAddresses` linked this entry in `storage`.
+                        let unicast = unsafe { &*current };
+                        if unicast.DadState == IpDadStatePreferred
+                            && let Some(address) = socket_address_ip(unicast.Address)
+                        {
+                            addresses.record(address, unicast.OnLinkPrefixLength);
+                        }
+                        current = unicast.Next;
+                    }
+                    addresses.normalize();
                     // SAFETY: `Anonymous` is the documented Length/IfIndex view of this union.
                     let ipv4 = NonZeroU32::new(unsafe { adapter.Anonymous1.Anonymous.IfIndex });
-                    return Ok(InterfaceIndices {
-                        ipv4,
-                        ipv6: NonZeroU32::new(adapter.Ipv6IfIndex),
+                    return Ok(AdapterProperties {
+                        indices: InterfaceIndices {
+                            ipv4,
+                            ipv6: NonZeroU32::new(adapter.Ipv6IfIndex),
+                        },
+                        addresses,
                     });
                 }
             }
@@ -370,12 +428,67 @@ fn network_identity(profile: &ConnectionProfile) -> Result<NetworkIdentity> {
     })
 }
 
+#[derive(Debug, Default)]
+struct AdapterAddresses {
+    ipv4: Vec<(Ipv4Addr, u8)>,
+    ipv6: Vec<(Ipv6Addr, u8)>,
+    ipv4_subnets: Vec<WindowsVpnCidr>,
+    ipv6_subnets: Vec<WindowsVpnCidr>,
+}
+
+impl AdapterAddresses {
+    fn record(&mut self, address: IpAddr, prefix: u8) {
+        let Some(subnet) = WindowsVpnCidr::from_address(address, prefix) else {
+            return;
+        };
+        match address {
+            IpAddr::V4(address)
+                if !address.is_loopback()
+                    && !address.is_unspecified()
+                    && !address.is_multicast()
+                    && !address.is_broadcast() =>
+            {
+                self.ipv4_subnets.push(subnet);
+                if !address.is_link_local() {
+                    self.ipv4.push((address, prefix));
+                }
+            }
+            IpAddr::V6(address)
+                if !address.is_loopback()
+                    && !address.is_unspecified()
+                    && !address.is_multicast() =>
+            {
+                self.ipv6_subnets.push(subnet);
+                if !address.is_unicast_link_local() {
+                    self.ipv6.push((address, prefix));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn normalize(&mut self) {
+        self.ipv4.sort_unstable();
+        self.ipv4.dedup();
+        self.ipv6.sort_unstable();
+        self.ipv6.dedup();
+        self.ipv4_subnets.sort_unstable();
+        self.ipv4_subnets.dedup();
+        self.ipv6_subnets.sort_unstable();
+        self.ipv6_subnets.dedup();
+    }
+}
+
 #[derive(Debug, Clone)]
 struct PhysicalNetwork {
     adapter_id: GUID,
     identity: NetworkIdentity,
     ipv4: Option<Ipv4Addr>,
     ipv6: Option<Ipv6Addr>,
+    ipv4_prefix: Option<u8>,
+    ipv6_prefix: Option<u8>,
+    ipv4_subnets: Vec<WindowsVpnCidr>,
+    ipv6_subnets: Vec<WindowsVpnCidr>,
     ipv4_index: Option<NonZeroU32>,
     ipv6_index: Option<NonZeroU32>,
 }
@@ -385,59 +498,21 @@ impl PhysicalNetwork {
         let profile = NetworkInformation::GetInternetConnectionProfile()?;
         let adapter_id = profile.NetworkAdapter()?.NetworkAdapterId()?;
         let identity = network_identity(&profile)?;
-        let host_names = NetworkInformation::GetHostNames()?;
-        let mut ipv4 = Vec::new();
-        let mut ipv6 = Vec::new();
-
-        for index in 0..host_names.Size()? {
-            let host = host_names.GetAt(index)?;
-            let Ok(adapter) = host.IPInformation().and_then(|info| info.NetworkAdapter()) else {
-                continue;
-            };
-            if adapter.NetworkAdapterId()? != adapter_id {
-                continue;
-            }
-            match host.Type()? {
-                HostNameType::Ipv4 => {
-                    let Ok(address) = host.CanonicalName()?.to_string().parse::<Ipv4Addr>() else {
-                        continue;
-                    };
-                    if !address.is_loopback()
-                        && !address.is_link_local()
-                        && !address.is_unspecified()
-                    {
-                        ipv4.push(address);
-                    }
-                }
-                HostNameType::Ipv6 => {
-                    let Ok(address) = host.CanonicalName()?.to_string().parse::<Ipv6Addr>() else {
-                        continue;
-                    };
-                    if !address.is_loopback()
-                        && !address.is_unicast_link_local()
-                        && !address.is_unspecified()
-                        && !address.is_multicast()
-                    {
-                        ipv6.push(address);
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        ipv4.sort_unstable();
-        ipv4.dedup();
-        ipv6.sort_unstable();
-        ipv6.dedup();
-        if ipv4.is_empty() && ipv6.is_empty() {
+        let properties = adapter_properties(adapter_id)?;
+        let addresses = properties.addresses;
+        if addresses.ipv4.is_empty() && addresses.ipv6.is_empty() {
             return Err(Error::new(
                 E_FAIL,
                 "physical network has no usable IP address",
             ));
         }
-        let ipv4 = ipv4.into_iter().next();
-        let ipv6 = ipv6.into_iter().next();
-        let indices = adapter_interface_indices(adapter_id)?;
+        let ipv4 = addresses.ipv4.first().copied();
+        let ipv6 = addresses.ipv6.first().copied();
+        let ipv4_prefix = ipv4.map(|(_, prefix)| prefix);
+        let ipv6_prefix = ipv6.map(|(_, prefix)| prefix);
+        let ipv4 = ipv4.map(|(address, _)| address);
+        let ipv6 = ipv6.map(|(address, _)| address);
+        let indices = properties.indices;
         let ipv4_index = match ipv4 {
             Some(_) => Some(indices.ipv4.ok_or_else(|| {
                 Error::new(E_FAIL, "physical network has no IPv4 interface index")
@@ -455,6 +530,10 @@ impl PhysicalNetwork {
             identity,
             ipv4,
             ipv6,
+            ipv4_prefix,
+            ipv6_prefix,
+            ipv4_subnets: addresses.ipv4_subnets,
+            ipv6_subnets: addresses.ipv6_subnets,
             ipv4_index,
             ipv6_index,
         })
@@ -483,26 +562,23 @@ impl PhysicalNetwork {
     }
 
     fn is_available(&self) -> Result<bool> {
-        let host_names = NetworkInformation::GetHostNames()?;
-        let mut ipv4_found = self.ipv4.is_none();
-        let mut ipv6_found = self.ipv6.is_none();
-        for index in 0..host_names.Size()? {
-            let host = host_names.GetAt(index)?;
-            let Ok(adapter) = host.IPInformation().and_then(|info| info.NetworkAdapter()) else {
-                continue;
-            };
-            if adapter.NetworkAdapterId()? != self.adapter_id {
-                continue;
-            }
-            let canonical = host.CanonicalName()?.to_string();
-            ipv4_found |= self.ipv4.is_some_and(|expected| {
-                canonical.parse::<Ipv4Addr>().is_ok_and(|ip| ip == expected)
-            });
-            ipv6_found |= self.ipv6.is_some_and(|expected| {
-                canonical.parse::<Ipv6Addr>().is_ok_and(|ip| ip == expected)
-            });
-        }
-        if !ipv4_found || !ipv6_found {
+        let properties = adapter_properties(self.adapter_id)?;
+        let addresses = properties.addresses;
+        let ipv4_found = self
+            .ipv4
+            .zip(self.ipv4_prefix)
+            .is_none_or(|expected| addresses.ipv4.contains(&expected));
+        let ipv6_found = self
+            .ipv6
+            .zip(self.ipv6_prefix)
+            .is_none_or(|expected| addresses.ipv6.contains(&expected));
+        if !ipv4_found
+            || !ipv6_found
+            || (self.ipv4.is_some() && properties.indices.ipv4 != self.ipv4_index)
+            || (self.ipv6.is_some() && properties.indices.ipv6 != self.ipv6_index)
+            || addresses.ipv4_subnets != self.ipv4_subnets
+            || addresses.ipv6_subnets != self.ipv6_subnets
+        {
             return Ok(false);
         }
 
@@ -570,26 +646,31 @@ impl VpnProvider {
         let token = profile.snapshot_token().to_owned();
         let physical = PhysicalNetwork::current()?;
 
-        let localhost = HostName::CreateHostName(&"127.0.0.1".into())?;
+        let transport_address = physical
+            .ipv4
+            .map(|address| address.to_string())
+            .or_else(|| physical.ipv6.map(|address| address.to_string()))
+            .ok_or_else(|| Error::new(E_FAIL, "physical network has no transport address"))?;
+        let transport_host = HostName::CreateHostName(&transport_address.into())?;
         let transport = DatagramSocket::new()?;
         let back_transport = DatagramSocket::new()?;
         channel.AssociateTransport(&transport, None::<&IInspectable>)?;
         transport
-            .BindEndpointAsync(&localhost, &HSTRING::new())?
+            .BindEndpointAsync(&transport_host, &HSTRING::new())?
             .join()?;
         back_transport
-            .BindEndpointAsync(&localhost, &HSTRING::new())?
+            .BindEndpointAsync(&transport_host, &HSTRING::new())?
             .join()?;
         transport
-            .ConnectAsync(&localhost, &back_transport.Information()?.LocalPort()?)?
+            .ConnectAsync(&transport_host, &back_transport.Information()?.LocalPort()?)?
             .join()?;
         back_transport
-            .ConnectAsync(&localhost, &transport.Information()?.LocalPort()?)?
+            .ConnectAsync(&transport_host, &transport.Information()?.LocalPort()?)?
             .join()?;
         let output = back_transport.OutputStream()?;
 
         let ipv6 = profile.ipv6_enabled();
-        let routes = vpn_routes(ipv6)?;
+        let routes = vpn_routes(ipv6, profile.policy(), &physical)?;
         let (assigned_ipv4, assigned_ipv6) =
             vpn_client_addresses(profile.network_settings(), ipv6)?;
         let dns = vpn_dns_assignment(profile.network_settings(), ipv6)?;
@@ -639,12 +720,12 @@ impl VpnProvider {
 
         channel.StartWithMainTransport(
             &assigned_ipv4,
-            &assigned_ipv6,
+            assigned_ipv6.as_ref(),
             None::<&VpnInterfaceId>,
             &routes,
             &dns,
-            1500,
-            1512,
+            WINDOWS_VPN_MTU as u32,
+            WINDOWS_VPN_MAX_FRAME_SIZE,
             false,
             &transport,
         )?;
@@ -933,9 +1014,56 @@ extern "system" fn DllGetActivationFactory(
     .unwrap_or(E_FAIL)
 }
 
-fn vpn_routes(ipv6: bool) -> Result<VpnRouteAssignment> {
+fn subtract_exclusion(
+    route: WindowsVpnCidr,
+    exclusion: &WindowsVpnCidr,
+    remaining: &mut Vec<WindowsVpnCidr>,
+) {
+    if !route.overlaps(exclusion) {
+        remaining.push(route);
+    } else if !exclusion.contains_cidr(&route)
+        && let Some(children) = route.children()
+    {
+        for child in children {
+            subtract_exclusion(child, exclusion, remaining);
+        }
+    }
+}
+
+fn local_inclusion_routes(
+    ipv6: bool,
+    policy: &WindowsVpnPolicy,
+    physical: &PhysicalNetwork,
+) -> Vec<WindowsVpnCidr> {
+    let mut routes = Vec::new();
+    for subnet in physical
+        .ipv4_subnets
+        .iter()
+        .chain(physical.ipv6_subnets.iter().filter(|_| ipv6))
+    {
+        if let Some(children) = subnet.children() {
+            routes.extend(children);
+        }
+    }
+    for exclusion in policy.excluded_cidrs() {
+        let mut remaining = Vec::new();
+        for route in routes.drain(..) {
+            subtract_exclusion(route, exclusion, &mut remaining);
+        }
+        routes = remaining;
+    }
+    routes.sort_unstable();
+    routes.dedup();
+    routes
+}
+
+fn vpn_routes(
+    ipv6: bool,
+    policy: &WindowsVpnPolicy,
+    physical: &PhysicalNetwork,
+) -> Result<VpnRouteAssignment> {
     let routes = VpnRouteAssignment::new()?;
-    routes.SetExcludeLocalSubnets(true)?;
+    routes.SetExcludeLocalSubnets(policy.allow_local_network())?;
     for network in ["0.0.0.0", "128.0.0.0"] {
         routes
             .Ipv4InclusionRoutes()?
@@ -954,25 +1082,46 @@ fn vpn_routes(ipv6: bool) -> Result<VpnRouteAssignment> {
                 )?)?;
         }
     }
+    if !policy.allow_local_network() {
+        for cidr in local_inclusion_routes(ipv6, policy, physical) {
+            let route = VpnRoute::CreateVpnRoute(
+                &HostName::CreateHostName(&cidr.network().to_string().into())?,
+                cidr.prefix_len(),
+            )?;
+            match cidr.network() {
+                IpAddr::V4(_) => routes.Ipv4InclusionRoutes()?.Append(&route)?,
+                IpAddr::V6(_) => routes.Ipv6InclusionRoutes()?.Append(&route)?,
+            }
+        }
+    }
+    for cidr in policy.excluded_cidrs() {
+        let route = VpnRoute::CreateVpnRoute(
+            &HostName::CreateHostName(&cidr.network().to_string().into())?,
+            cidr.prefix_len(),
+        )?;
+        match cidr.network() {
+            IpAddr::V4(_) => routes.Ipv4ExclusionRoutes()?.Append(&route)?,
+            IpAddr::V6(_) => routes.Ipv6ExclusionRoutes()?.Append(&route)?,
+        }
+    }
     Ok(routes)
 }
 
 fn vpn_client_addresses(
     settings: &WindowsNetworkSettings,
     ipv6: bool,
-) -> Result<(IVectorView<HostName>, IVectorView<HostName>)> {
-    Ok((
-        IVectorView::from(vec![Some(HostName::CreateHostName(
-            &settings.ipv4_address().to_string().into(),
-        )?)]),
-        IVectorView::from(if ipv6 {
-            vec![Some(HostName::CreateHostName(
-                &settings.ipv6_address().to_string().into(),
-            )?)]
-        } else {
-            Vec::new()
-        }),
-    ))
+) -> Result<(IVectorView<HostName>, Option<IVectorView<HostName>>)> {
+    let ipv4 = IVectorView::from(vec![Some(HostName::CreateHostName(
+        &settings.ipv4_address().to_string().into(),
+    )?)]);
+    let ipv6 = if ipv6 {
+        Some(IVectorView::from(vec![Some(HostName::CreateHostName(
+            &settings.ipv6_address().to_string().into(),
+        )?)]))
+    } else {
+        None
+    };
+    Ok((ipv4, ipv6))
 }
 
 fn vpn_dns_assignment(
@@ -1079,6 +1228,47 @@ mod tests {
         }
     }
 
+    fn physical_network(
+        ipv4: Option<(Ipv4Addr, u8)>,
+        ipv6: Option<(Ipv6Addr, u8)>,
+    ) -> PhysicalNetwork {
+        physical_network_with_subnets(
+            &ipv4.into_iter().collect::<Vec<_>>(),
+            &ipv6.into_iter().collect::<Vec<_>>(),
+        )
+    }
+
+    fn physical_network_with_subnets(
+        ipv4: &[(Ipv4Addr, u8)],
+        ipv6: &[(Ipv6Addr, u8)],
+    ) -> PhysicalNetwork {
+        let mut addresses = AdapterAddresses::default();
+        for &(address, prefix) in ipv4 {
+            addresses.record(IpAddr::V4(address), prefix);
+        }
+        for &(address, prefix) in ipv6 {
+            addresses.record(IpAddr::V6(address), prefix);
+        }
+        addresses.normalize();
+        let ipv4 = addresses.ipv4.first().copied();
+        let ipv6 = addresses.ipv6.first().copied();
+        PhysicalNetwork {
+            adapter_id: GUID::from_u128(0),
+            identity: NetworkIdentity {
+                profile_name: String::new(),
+                network_names: Vec::new(),
+            },
+            ipv4: ipv4.map(|(address, _)| address),
+            ipv6: ipv6.map(|(address, _)| address),
+            ipv4_prefix: ipv4.map(|(_, prefix)| prefix),
+            ipv6_prefix: ipv6.map(|(_, prefix)| prefix),
+            ipv4_subnets: addresses.ipv4_subnets,
+            ipv6_subnets: addresses.ipv6_subnets,
+            ipv4_index: None,
+            ipv6_index: None,
+        }
+    }
+
     #[test]
     fn adapter_name_matches_winrt_network_adapter_id() {
         let id = GUID::from_u128(0xc2afe445_9ed9_423d_8c29_6b2cd49691d2);
@@ -1113,22 +1303,125 @@ mod tests {
     }
 
     #[test]
+    fn adapter_subnets_normalize_and_deduplicate_addresses() {
+        let mut addresses = AdapterAddresses::default();
+        for (address, prefix) in [
+            (IpAddr::V4(Ipv4Addr::new(198, 51, 100, 129)), 24),
+            (IpAddr::V4(Ipv4Addr::new(198, 51, 100, 200)), 24),
+            (IpAddr::V4(Ipv4Addr::new(198, 51, 100, 200)), 25),
+            (IpAddr::V6("2001:db8:1::2".parse().unwrap()), 64),
+            (IpAddr::V6("2001:db8:1::3".parse().unwrap()), 64),
+            (IpAddr::V6("2001:db8:2::2".parse().unwrap()), 64),
+        ] {
+            addresses.record(address, prefix);
+        }
+        addresses.normalize();
+
+        assert_eq!(
+            addresses
+                .ipv4_subnets
+                .iter()
+                .chain(&addresses.ipv6_subnets)
+                .map(ToString::to_string)
+                .collect::<Vec<_>>(),
+            [
+                "198.51.100.0/24",
+                "198.51.100.128/25",
+                "2001:db8:1::/64",
+                "2001:db8:2::/64",
+            ]
+        );
+    }
+
+    #[test]
+    fn socket_addresses_preserve_network_order() {
+        let mut ipv4 = SOCKADDR_IN::default();
+        ipv4.sin_family = AF_INET;
+        ipv4.sin_addr.S_un.S_un_b = windows::Win32::Networking::WinSock::IN_ADDR_0_0 {
+            s_b1: 198,
+            s_b2: 51,
+            s_b3: 100,
+            s_b4: 2,
+        };
+        assert_eq!(
+            socket_address_ip(SOCKET_ADDRESS {
+                lpSockaddr: std::ptr::from_mut(&mut ipv4).cast(),
+                iSockaddrLength: size_of::<SOCKADDR_IN>() as i32,
+            }),
+            Some(IpAddr::V4(Ipv4Addr::new(198, 51, 100, 2)))
+        );
+
+        let expected: Ipv6Addr = "fe80::2".parse().unwrap();
+        let mut ipv6 = SOCKADDR_IN6::default();
+        ipv6.sin6_family = AF_INET6;
+        ipv6.sin6_addr.u.Byte = expected.octets();
+        assert_eq!(
+            socket_address_ip(SOCKET_ADDRESS {
+                lpSockaddr: std::ptr::from_mut(&mut ipv6).cast(),
+                iSockaddrLength: size_of::<SOCKADDR_IN6>() as i32,
+            }),
+            Some(IpAddr::V6(expected))
+        );
+    }
+
+    #[test]
+    fn adapter_network_retains_link_local_subnets_but_not_sources() {
+        let mut addresses = AdapterAddresses::default();
+        for (address, prefix) in [
+            (IpAddr::V4(Ipv4Addr::new(169, 254, 10, 2)), 16),
+            (IpAddr::V4(Ipv4Addr::new(198, 51, 100, 2)), 24),
+            (IpAddr::V6("fe80::2".parse().unwrap()), 64),
+            (IpAddr::V6("2001:db8::2".parse().unwrap()), 64),
+        ] {
+            addresses.record(address, prefix);
+        }
+        addresses.normalize();
+
+        assert_eq!(addresses.ipv4, vec![(Ipv4Addr::new(198, 51, 100, 2), 24)]);
+        assert_eq!(addresses.ipv6, vec![("2001:db8::2".parse().unwrap(), 64)]);
+        assert_eq!(
+            addresses
+                .ipv4_subnets
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>(),
+            ["169.254.0.0/16", "198.51.100.0/24"]
+        );
+        assert_eq!(
+            addresses
+                .ipv6_subnets
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>(),
+            ["2001:db8::/64", "fe80::/64"]
+        );
+    }
+
+    #[test]
     fn provider_assignments_use_profile_addresses() {
         let _winrt = WinRtGuard::enter();
         let digest = "0123456789abcdef".repeat(4);
         let profile = WindowsProfileConfiguration::parse(&format!(
-            r#"{{"version":3,"snapshotToken":"vcore-session-v2:{digest}","ipv6":true,"networkSettings":{{"ipv4Address":"192.168.8.1","ipv6Address":"fd00:8::2","dnsIpv4Address":"223.5.5.5","dnsIpv6Address":"2400:3200::1"}}}}"#
+            r#"{{"version":4,"snapshotToken":"vcore-session-v2:{digest}","ipv6":true,"networkSettings":{{"ipv4Address":"192.168.8.1","ipv6Address":"fd00:8::2","dnsIpv4Address":"223.5.5.5","dnsIpv6Address":"2400:3200::1"}},"policy":{{"alwaysOn":false,"allowLocalNetwork":true,"excludedCidrs":[]}}}}"#
         ))
         .unwrap();
 
-        let routes = vpn_routes(profile.ipv6_enabled()).unwrap();
+        let routes = vpn_routes(
+            profile.ipv6_enabled(),
+            profile.policy(),
+            &physical_network(None, None),
+        )
+        .unwrap();
         assert_eq!(routes.Ipv4InclusionRoutes().unwrap().Size().unwrap(), 2);
         assert_eq!(routes.Ipv6InclusionRoutes().unwrap().Size().unwrap(), 2);
 
         let (ipv4, ipv6) =
             vpn_client_addresses(profile.network_settings(), profile.ipv6_enabled()).unwrap();
         assert_eq!(ipv4.GetAt(0).unwrap().DisplayName().unwrap(), "192.168.8.1");
-        assert_eq!(ipv6.GetAt(0).unwrap().DisplayName().unwrap(), "fd00:8::2");
+        assert_eq!(
+            ipv6.unwrap().GetAt(0).unwrap().DisplayName().unwrap(),
+            "fd00:8::2"
+        );
 
         let dns = vpn_dns_assignment(profile.network_settings(), profile.ipv6_enabled()).unwrap();
         let info = dns.DomainNameList().unwrap().GetAt(0).unwrap();
@@ -1144,22 +1437,219 @@ mod tests {
     }
 
     #[test]
+    fn provider_routes_apply_global_vpn_policy() {
+        let _winrt = WinRtGuard::enter();
+        let digest = "0123456789abcdef".repeat(4);
+        let profile = WindowsProfileConfiguration::parse(&format!(
+            r#"{{"version":4,"snapshotToken":"vcore-session-v2:{digest}","ipv6":true,"networkSettings":{{"ipv4Address":"192.168.8.1","ipv6Address":"fd00:8::2","dnsIpv4Address":"223.5.5.5","dnsIpv6Address":"2400:3200::1"}},"policy":{{"alwaysOn":true,"allowLocalNetwork":false,"excludedCidrs":["192.0.2.0/24","2001:db8::/64"]}}}}"#
+        ))
+        .unwrap();
+
+        let routes = vpn_routes(
+            profile.ipv6_enabled(),
+            profile.policy(),
+            &physical_network(
+                Some((Ipv4Addr::new(198, 51, 100, 129), 24)),
+                Some(("2001:db8:1::2".parse().unwrap(), 64)),
+            ),
+        )
+        .unwrap();
+        assert!(!routes.ExcludeLocalSubnets().unwrap());
+        let ipv4_inclusions = routes.Ipv4InclusionRoutes().unwrap();
+        assert_eq!(ipv4_inclusions.Size().unwrap(), 4);
+        assert_eq!(
+            ipv4_inclusions
+                .GetAt(2)
+                .unwrap()
+                .Address()
+                .unwrap()
+                .DisplayName()
+                .unwrap(),
+            "198.51.100.0"
+        );
+        assert_eq!(ipv4_inclusions.GetAt(2).unwrap().PrefixSize().unwrap(), 25);
+        assert_eq!(
+            ipv4_inclusions
+                .GetAt(3)
+                .unwrap()
+                .Address()
+                .unwrap()
+                .DisplayName()
+                .unwrap(),
+            "198.51.100.128"
+        );
+        let ipv6_inclusions = routes.Ipv6InclusionRoutes().unwrap();
+        assert_eq!(ipv6_inclusions.Size().unwrap(), 4);
+        assert_eq!(
+            ipv6_inclusions
+                .GetAt(2)
+                .unwrap()
+                .Address()
+                .unwrap()
+                .DisplayName()
+                .unwrap(),
+            "2001:db8:1::"
+        );
+        assert_eq!(ipv6_inclusions.GetAt(2).unwrap().PrefixSize().unwrap(), 65);
+        assert_eq!(
+            ipv6_inclusions
+                .GetAt(3)
+                .unwrap()
+                .Address()
+                .unwrap()
+                .DisplayName()
+                .unwrap(),
+            "2001:db8:1:0:8000::"
+        );
+        let ipv4 = routes.Ipv4ExclusionRoutes().unwrap().GetAt(0).unwrap();
+        assert_eq!(ipv4.Address().unwrap().DisplayName().unwrap(), "192.0.2.0");
+        assert_eq!(ipv4.PrefixSize().unwrap(), 24);
+        let ipv6 = routes.Ipv6ExclusionRoutes().unwrap().GetAt(0).unwrap();
+        assert_eq!(ipv6.Address().unwrap().DisplayName().unwrap(), "2001:db8::");
+        assert_eq!(ipv6.PrefixSize().unwrap(), 64);
+    }
+
+    #[test]
+    fn provider_routes_cover_every_physical_subnet() {
+        let _winrt = WinRtGuard::enter();
+        let digest = "0123456789abcdef".repeat(4);
+        let profile = WindowsProfileConfiguration::parse(&format!(
+            r#"{{"version":4,"snapshotToken":"vcore-session-v2:{digest}","ipv6":true,"networkSettings":{{"ipv4Address":"192.168.8.1","ipv6Address":"fd00:8::2","dnsIpv4Address":"223.5.5.5","dnsIpv6Address":"2400:3200::1"}},"policy":{{"alwaysOn":false,"allowLocalNetwork":false,"excludedCidrs":[]}}}}"#
+        ))
+        .unwrap();
+        let physical = physical_network_with_subnets(
+            &[
+                (Ipv4Addr::new(169, 254, 10, 2), 16),
+                (Ipv4Addr::new(198, 51, 100, 129), 24),
+                (Ipv4Addr::new(198, 51, 100, 200), 24),
+                (Ipv4Addr::new(203, 0, 113, 129), 24),
+            ],
+            &[
+                ("fe80::2".parse().unwrap(), 64),
+                ("2001:db8:1::2".parse().unwrap(), 64),
+                ("2001:db8:1::3".parse().unwrap(), 64),
+                ("2001:db8:2::2".parse().unwrap(), 64),
+            ],
+        );
+
+        let routes = vpn_routes(profile.ipv6_enabled(), profile.policy(), &physical).unwrap();
+        let ipv4 = routes.Ipv4InclusionRoutes().unwrap();
+        assert_eq!(ipv4.Size().unwrap(), 8);
+        assert_eq!(
+            ipv4.GetAt(2)
+                .unwrap()
+                .Address()
+                .unwrap()
+                .DisplayName()
+                .unwrap(),
+            "169.254.0.0"
+        );
+        assert_eq!(
+            ipv4.GetAt(6)
+                .unwrap()
+                .Address()
+                .unwrap()
+                .DisplayName()
+                .unwrap(),
+            "203.0.113.0"
+        );
+        let ipv6 = routes.Ipv6InclusionRoutes().unwrap();
+        assert_eq!(ipv6.Size().unwrap(), 8);
+        assert_eq!(
+            ipv6.GetAt(4)
+                .unwrap()
+                .Address()
+                .unwrap()
+                .DisplayName()
+                .unwrap(),
+            "2001:db8:2::"
+        );
+        assert_eq!(
+            ipv6.GetAt(6)
+                .unwrap()
+                .Address()
+                .unwrap()
+                .DisplayName()
+                .unwrap(),
+            "fe80::"
+        );
+    }
+
+    #[test]
+    fn provider_local_routes_subtract_explicit_exclusions() {
+        let _winrt = WinRtGuard::enter();
+        let digest = "0123456789abcdef".repeat(4);
+        let profile = WindowsProfileConfiguration::parse(&format!(
+            r#"{{"version":4,"snapshotToken":"vcore-session-v2:{digest}","ipv6":true,"networkSettings":{{"ipv4Address":"192.168.8.1","ipv6Address":"fd00:8::2","dnsIpv4Address":"223.5.5.5","dnsIpv6Address":"2400:3200::1"}},"policy":{{"alwaysOn":false,"allowLocalNetwork":false,"excludedCidrs":["198.51.100.0/25","198.51.100.192/26","2001:db8:1::/65","2001:db8:1:0:c000::/66"]}}}}"#
+        ))
+        .unwrap();
+        let physical = physical_network(
+            Some((Ipv4Addr::new(198, 51, 100, 129), 24)),
+            Some(("2001:db8:1::2".parse().unwrap(), 64)),
+        );
+
+        let local = local_inclusion_routes(profile.ipv6_enabled(), profile.policy(), &physical);
+        assert_eq!(
+            local.iter().map(ToString::to_string).collect::<Vec<_>>(),
+            ["198.51.100.128/26", "2001:db8:1:0:8000::/66"]
+        );
+        assert!(local.iter().all(|route| {
+            profile
+                .policy()
+                .excluded_cidrs()
+                .iter()
+                .all(|excluded| !route.overlaps(excluded))
+        }));
+
+        let routes = vpn_routes(profile.ipv6_enabled(), profile.policy(), &physical).unwrap();
+        let ipv4 = routes.Ipv4InclusionRoutes().unwrap();
+        assert_eq!(ipv4.Size().unwrap(), 3);
+        assert_eq!(
+            ipv4.GetAt(2)
+                .unwrap()
+                .Address()
+                .unwrap()
+                .DisplayName()
+                .unwrap(),
+            "198.51.100.128"
+        );
+        assert_eq!(ipv4.GetAt(2).unwrap().PrefixSize().unwrap(), 26);
+        let ipv6 = routes.Ipv6InclusionRoutes().unwrap();
+        assert_eq!(ipv6.Size().unwrap(), 3);
+        assert_eq!(
+            ipv6.GetAt(2)
+                .unwrap()
+                .Address()
+                .unwrap()
+                .DisplayName()
+                .unwrap(),
+            "2001:db8:1:0:8000::"
+        );
+        assert_eq!(ipv6.GetAt(2).unwrap().PrefixSize().unwrap(), 66);
+    }
+
+    #[test]
     fn provider_omits_ipv6_assignments_when_disabled() {
         let _winrt = WinRtGuard::enter();
         let digest = "0123456789abcdef".repeat(4);
         let profile = WindowsProfileConfiguration::parse(&format!(
-            r#"{{"version":3,"snapshotToken":"vcore-session-v2:{digest}","ipv6":false,"networkSettings":{{"ipv4Address":"192.168.8.1","ipv6Address":"fd00:8::2","dnsIpv4Address":"223.5.5.5","dnsIpv6Address":"2400:3200::1"}}}}"#
+            r#"{{"version":4,"snapshotToken":"vcore-session-v2:{digest}","ipv6":false,"networkSettings":{{"ipv4Address":"192.168.8.1","ipv6Address":"fd00:8::2","dnsIpv4Address":"223.5.5.5","dnsIpv6Address":"2400:3200::1"}},"policy":{{"alwaysOn":false,"allowLocalNetwork":true,"excludedCidrs":[]}}}}"#
         ))
         .unwrap();
 
-        let routes = vpn_routes(profile.ipv6_enabled()).unwrap();
+        let routes = vpn_routes(
+            profile.ipv6_enabled(),
+            profile.policy(),
+            &physical_network(None, None),
+        )
+        .unwrap();
         assert_eq!(routes.Ipv4InclusionRoutes().unwrap().Size().unwrap(), 2);
         assert_eq!(routes.Ipv6InclusionRoutes().unwrap().Size().unwrap(), 0);
 
         let (ipv4, ipv6) =
             vpn_client_addresses(profile.network_settings(), profile.ipv6_enabled()).unwrap();
         assert_eq!(ipv4.Size().unwrap(), 1);
-        assert_eq!(ipv6.Size().unwrap(), 0);
+        assert!(ipv6.is_none());
 
         let dns = vpn_dns_assignment(profile.network_settings(), profile.ipv6_enabled()).unwrap();
         let servers = dns

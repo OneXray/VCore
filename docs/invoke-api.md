@@ -318,10 +318,10 @@ ProtectFd(fd) -> bool
 
 ## Windows 安装包桥接
 
-`VCoreWindowsVpnInvoke` 使用独立的桥接修订版 2：
+`VCoreWindowsVpnInvoke` 使用独立的桥接修订版 3：
 
 ```json
-{"bridgeVersion":2,"method":"getVpnStatus","payload":{}}
+{"bridgeVersion":3,"method":"getVpnStatus","payload":{}}
 ```
 
 只接受六个方法：
@@ -344,6 +344,11 @@ ProtectFd(fd) -> bool
     "dnsIpv4Address": "8.8.8.8",
     "dnsIpv6Address": "2001:4860:4860::8888"
   },
+  "policy": {
+    "alwaysOn": false,
+    "allowLocalNetwork": true,
+    "excludedCidrs": []
+  },
   "sessionBackend": {
     "processes": [
       {
@@ -355,6 +360,8 @@ ProtectFd(fd) -> bool
 }
 ```
 
+`policy` 始终必填。Windows VPN 固定覆盖所有应用；`alwaysOn` 控制 profile capability，实际自动连接仍取决于 Windows 用户设置和 active profile；`allowLocalNetwork` 控制本地子网是否绕过；`excludedCidrs` 是最多 64 个规范 IPv4/IPv6 目标网段。拒绝重复项、host bits、`/0`、禁用 IPv6 时的 IPv6 项，以及包含当前 VPN DNS 地址的项。
+
 `sessionBackend` 可以省略。存在时包含 `1..=8` 个有序关键进程；每项只有 package installed location 内的规范 `.exe` 相对路径和有界 argv 数组。同一可执行文件可出现多次。第一版不接受 port、UDP、readiness、restart、environment、working directory 或 raw command line；任一进程退出都会使当前 VPN 会话失败关闭。
 
 桥接把 YAML、进程顺序、路径和参数发布为 `vcore-session-v2:<sha256>` Session Snapshot。参数引用的文件由调用方保持存在且不可变，VCore 不读取或摘要其内容。`getVpnStatus.data.snapshotToken` 返回该完整 Session token。
@@ -365,7 +372,7 @@ ProtectFd(fd) -> bool
 
 - 所有 JSON DTO 拒绝未知字段。
 - 配置、错误和日志按 UTF-8 字节计数并受固定上限约束。
-- TUN 原始数据包最大 1,500 字节；最终代理 UDP 负载最大 1,452 字节。
-- 嵌套 UDP 协议可以增加有界帧头，但解封装后的最终负载仍受 1,452 字节限制。
+- TUN 原始数据包解析最大 1,500 字节；最终代理 UDP 响应按有效 MTU 减去 48 字节限制，其他 TUN 平台最大 1,452 字节，Windows 最大 1,352 字节。
+- 嵌套 UDP 协议可以增加有界帧头，但解封装后的最终负载仍受该平台响应上限限制。
 - 节点和代理组定义名共享大小写敏感的严格 UTF-8 命名空间；`DIRECT`、`REJECT` 和 `RULES` 不能用作定义名。
 - Secret、password、UUID、REALITY key、short ID、目标地址和完整配置不得进入日志。

@@ -6,10 +6,10 @@ use windows::{
     core::{Error, Result},
 };
 
-use super::snapshot::SessionReference;
+use super::{policy::WindowsVpnPolicy, snapshot::SessionReference};
 
-const PROFILE_CONFIGURATION_VERSION: u32 = 3;
-const MAX_PROFILE_CONFIGURATION_BYTES: usize = 1024;
+const PROFILE_CONFIGURATION_VERSION: u32 = 4;
+const MAX_PROFILE_CONFIGURATION_BYTES: usize = 4096;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -84,6 +84,7 @@ pub(crate) struct WindowsProfileConfiguration {
     snapshot_token: String,
     ipv6: bool,
     network_settings: WindowsNetworkSettings,
+    policy: WindowsVpnPolicy,
 }
 
 impl WindowsProfileConfiguration {
@@ -91,12 +92,14 @@ impl WindowsProfileConfiguration {
         snapshot: &SessionReference,
         ipv6: bool,
         network_settings: WindowsNetworkSettings,
+        policy: WindowsVpnPolicy,
     ) -> Self {
         Self {
             version: PROFILE_CONFIGURATION_VERSION,
             snapshot_token: snapshot.token(),
             ipv6,
             network_settings,
+            policy,
         }
     }
 
@@ -108,6 +111,14 @@ impl WindowsProfileConfiguration {
             serde_json::from_str(value).map_err(|_| invalid_profile_configuration())?;
         if configuration.version != PROFILE_CONFIGURATION_VERSION
             || SessionReference::parse(&configuration.snapshot_token).is_err()
+            || configuration
+                .policy
+                .validate_for(
+                    configuration.ipv6,
+                    configuration.network_settings.dns_ipv4_address,
+                    configuration.network_settings.dns_ipv6_address,
+                )
+                .is_err()
         {
             return Err(invalid_profile_configuration());
         }
@@ -132,6 +143,10 @@ impl WindowsProfileConfiguration {
 
     pub(crate) fn network_settings(&self) -> &WindowsNetworkSettings {
         &self.network_settings
+    }
+
+    pub(crate) fn policy(&self) -> &WindowsVpnPolicy {
+        &self.policy
     }
 }
 
@@ -161,7 +176,7 @@ mod tests {
     fn valid_json() -> String {
         let digest = "0123456789abcdef".repeat(4);
         format!(
-            r#"{{"version":3,"snapshotToken":"vcore-session-v2:{digest}","ipv6":true,"networkSettings":{{"ipv4Address":"192.168.8.1","ipv6Address":"fd00:8::2","dnsIpv4Address":"223.5.5.5","dnsIpv6Address":"2400:3200::1"}}}}"#
+            r#"{{"version":4,"snapshotToken":"vcore-session-v2:{digest}","ipv6":true,"networkSettings":{{"ipv4Address":"192.168.8.1","ipv6Address":"fd00:8::2","dnsIpv4Address":"223.5.5.5","dnsIpv6Address":"2400:3200::1"}},"policy":{{"alwaysOn":false,"allowLocalNetwork":true,"excludedCidrs":[]}}}}"#
         )
     }
 
@@ -197,6 +212,9 @@ mod tests {
                 .to_string(),
             "2400:3200::1"
         );
+        assert!(!configuration.policy().always_on());
+        assert!(configuration.policy().allow_local_network());
+        assert!(configuration.policy().excluded_cidrs().is_empty());
         assert_eq!(
             serde_json::from_str::<serde_json::Value>(&configuration.to_json().unwrap()).unwrap(),
             serde_json::from_str::<serde_json::Value>(&json).unwrap()
@@ -207,7 +225,7 @@ mod tests {
     fn profile_configuration_rejects_unknown_or_unsafe_network_settings() {
         let valid = valid_json();
         for invalid in [
-            valid.replace(r#""version":3"#, r#""version":2"#),
+            valid.replace(r#""version":4"#, r#""version":3"#),
             valid.replace(r#","ipv6":true"#, ""),
             valid.replace(r#""ipv6":true"#, r#""ipv6":"true""#),
             valid.replace(r#""snapshotToken""#, r#""unknown":true,"snapshotToken""#),
@@ -230,6 +248,27 @@ mod tests {
         assert!(
             WindowsProfileConfiguration::parse(&"x".repeat(MAX_PROFILE_CONFIGURATION_BYTES + 1))
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn profile_configuration_rejects_policy_conflicts() {
+        let json = valid_json();
+        assert!(
+            WindowsProfileConfiguration::parse(&json.replace(
+                r#""excludedCidrs":[]"#,
+                r#""excludedCidrs":["223.5.5.5/32"]"#
+            ))
+            .is_err()
+        );
+        assert!(
+            WindowsProfileConfiguration::parse(
+                &json.replace(r#""ipv6":true"#, r#""ipv6":false"#).replace(
+                    r#""excludedCidrs":[]"#,
+                    r#""excludedCidrs":["2001:db8::/64"]"#,
+                ),
+            )
+            .is_err()
         );
     }
 

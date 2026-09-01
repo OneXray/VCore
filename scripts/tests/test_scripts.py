@@ -152,7 +152,7 @@ class ScriptTest(unittest.TestCase):
                         },
                         "buildIdentity": EXPECTED_IDENTITY.decode("ascii"),
                         "formatVersion": 1,
-                        "windowsPackageIntegrationRevision": 2,
+                        "windowsPackageIntegrationRevision": 3,
                     },
                 )
 

@@ -40,7 +40,7 @@ char *VCoreInvoke(const char *request_json);
 void VCoreFree(char *response);
 ```
 
-Windows 安装包另提供 revision-2 host bridge，负责 profile、Session Snapshot 和可选 session backend：
+Windows 安装包另提供 revision-3 host bridge，负责全应用 VPN policy、profile、Session Snapshot 和可选 session backend：
 
 ```c
 char *VCoreWindowsVpnInvoke(const char *request_json);
@@ -98,6 +98,8 @@ DNS typed cache                  256 entries
 DNS opaque cache                 64 entries / 256 KiB
 GeoData allocation capacity      8 MiB
 ```
+
+Windows 按 `StartWithMainTransport` 要求宣告 1,400 字节 L3 MTU；1,500 字节仍是跨平台解析上限。
 
 TCP session、普通 UDP association、half-open、outbound handshake 和 active DNS transport 按需创建；bounded queue、每流 buffer、wire/parser size、timeout、idle cleanup 和 cache 继续提供结构安全。iOS 35/45 MiB 仅为 best-effort 优化观测，不改变生命周期结果。
 

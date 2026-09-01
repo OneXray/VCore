@@ -8,6 +8,10 @@ VCore turns host-captured IP traffic into routed proxy or direct sessions while 
 The packaged AppContainer participant that owns one active Windows tunnel session and exchanges its raw-IP packets with the Windows session runtime.
 _Avoid_: Plugin, background task when referring to the whole participant, proxy core
 
+**Windows VPN policy**:
+The profile-level Always On and destination-bypass choices for a Windows tunnel whose application scope is always global.
+_Avoid_: Per-app policy, app selection, traffic filter
+
 **Windows session runtime**:
 The VCore runtime serving one active Windows tunnel session inside the Windows session host.
 _Avoid_: Foreground runtime, provider runtime, external core
