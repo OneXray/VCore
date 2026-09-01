@@ -2,7 +2,9 @@ use std::{fmt, net::SocketAddr, sync::Arc};
 
 use bytes::Bytes;
 
-const TUN_XUDP_MAX_RESPONSE_PAYLOAD_SIZE: u16 = 1_452;
+const DEFAULT_TUN_MTU: usize = 1_500;
+const IPV6_UDP_OVERHEAD: usize = 48;
+const TUN_XUDP_MAX_RESPONSE_PAYLOAD_SIZE: u16 = (DEFAULT_TUN_MTU - IPV6_UDP_OVERHEAD) as u16;
 const INTERNAL_DNS_XUDP_MAX_RESPONSE_PAYLOAD_SIZE: u16 = 4_096;
 const XUDP_MAX_RESPONSE_PAYLOAD_SIZE: u16 = u16::MAX;
 
@@ -130,8 +132,9 @@ pub struct DatagramSession {
 impl DatagramSession {
     /// Builds a UDP association with an inbound-specific XUDP response limit.
     ///
-    /// A TUN response must fit the conservative IPv6 UDP payload budget for a
-    /// 1500-byte MTU. Internal DNS is capped at the DNS wire-message ceiling,
+    /// The generic TUN default uses the conservative IPv6 UDP payload budget
+    /// for a 1500-byte MTU. TUN runtimes with a lower effective MTU use
+    /// [`Self::for_tun`]. Internal DNS is capped at the DNS wire-message ceiling,
     /// while proxy inbounds retain the full XUDP wire payload range.
     #[must_use]
     pub const fn new(inbound: InboundKind, source: SocketAddr) -> Self {
@@ -146,6 +149,21 @@ impl DatagramSession {
             inbound,
             source,
             max_response_payload_size,
+        }
+    }
+
+    /// Builds a TUN UDP association whose response budget follows its effective MTU.
+    #[must_use]
+    pub(crate) const fn for_tun(source: SocketAddr, mtu: usize) -> Self {
+        let payload_size = mtu.saturating_sub(IPV6_UDP_OVERHEAD);
+        Self {
+            inbound: InboundKind::Tun,
+            source,
+            max_response_payload_size: if payload_size > u16::MAX as usize {
+                u16::MAX
+            } else {
+                payload_size as u16
+            },
         }
     }
 
@@ -198,6 +216,10 @@ mod tests {
         assert_eq!(
             DatagramSession::new(InboundKind::Tun, source).max_response_payload_size(),
             TUN_XUDP_MAX_RESPONSE_PAYLOAD_SIZE
+        );
+        assert_eq!(
+            DatagramSession::for_tun(source, 1_400).max_response_payload_size(),
+            1_352
         );
         assert_eq!(
             DatagramSession::new(InboundKind::Http, source).max_response_payload_size(),

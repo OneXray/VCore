@@ -24,7 +24,7 @@
 - 规则、GeoData、HTTP/TLS/QUIC 嗅探；
 - ICMPv4/ICMPv6 Echo、校验和、分片、MTU 和队列满；
 - Apple/Android TUN 帧格式、文件描述符副本和关闭所有权；
-- Windows 单 Application manifest、Provider/Session Host token 绑定、控制/数据协议、Session Snapshot v2、会合记录、包队列、批量写入、物理网络绑定、全部 on-link prefix 去重、显式排除优先的本地路由规划和 Job Object 多进程监督；
+- Windows 单 Application manifest、Provider/Session Host token 绑定、控制/数据协议、Session Snapshot v2、会合记录、包队列、批量写入、物理网络绑定、link-local 与普通 on-link prefix 的独立收集/去重、显式排除优先的本地路由规划、按有效 MTU 计算的 UDP/DNS 响应上限和 Job Object 多进程监督；
 - Controller 鉴权、速率和累计流量语义，以及代理组查询、实时选择和有界请求处理。
 
 常用命令：
@@ -135,7 +135,15 @@ vcore-uwp-demo.exe stop
 
 路由规划修复后，同机开发签名包再次通过 IPv4-only/dual-stack lifecycle 与流量、LAN bypass、IPv4 exclusion/control、Always On、cold profile、失败关闭和零残留门禁。自动化同时覆盖多地址、多 IPv4/IPv6 on-link prefix、重复子网和显式 exclusion 与生成子前缀重叠；实机只探测到一个局域网 peer，未逐一验证每个 on-link prefix。
 
-该记录证明当前机器上的 IPv4 物理出口和 Windows 分配的双栈 VPN interface；主机没有物理 IPv6/default gateway，因此真实 IPv6 exclusion 仍未执行。
+PR 审查修复后的当前源树再次构建 ARM64 release artifacts，打入同一单 Application 开发签名 MSIX，并通过 `Add-AppxPackage` 安装。使用 bridge `start/status/stop`、`curl`、有接收超时的 UDP probe、`ping.exe`、`Clear-DnsClientCache` 和 `Resolve-DnsName` 实际执行：
+
+- `ipv6: false` 与 `ipv6: true` 都通过 TCP、UDP、ICMPv4 和清缓存 hostname 请求；dual-stack 还通过 ICMPv6；
+- 两种地址模式在 `dns.enable: true` 和 `false` 下都通过清缓存 hostname 请求；
+- 物理 IPv6 link-local 只进入 on-link prefix 库，不成为 Session Host socket 源地址；`allowLocalNetwork: false` 的 dual-stack case 实际观察到两条对应的更具体 inclusion routes，并保持 TCP、UDP、ICMPv4/ICMPv6 和 hostname 流量；
+- LAN allow/block 与 IPv4 exclusion/control 再次通过；每个 case 均观察到 Provider 和 Session Host 激活、稳定 connected、显式 Stop、disconnected，以及 Provider 外壳清理后的零进程、零 route、零 VPN interface；
+- 1400 MTU 对应的 1352 字节 TUN/XUDP 与 DNS UDP 响应上限由当前自动化覆盖；本次实包 probe 验证正常大小 UDP 数据面，没有把超限数据报写成成功传输。
+
+该记录证明当前机器上的 IPv4 物理出口、物理 IPv6 link-local route inventory 和 Windows 分配的双栈 VPN interface；主机没有物理 IPv6/default gateway，因此真实 IPv6 exclusion 仍未执行。
 
 Windows 路由必须保留两条 `/1`。在安装包环境中，单条 VPN `/0` 会使按产品要求绑定物理源地址和接口的外层 socket 返回 `WSAENETUNREACH`；两条 `/1` 不会产生该问题。
 

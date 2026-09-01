@@ -66,7 +66,7 @@ u16 大端序包长
 - Provider 两侧包队列容量均为 256；从空变为非空时只发一次唤醒；
 - `Decapsulate` 每次排空当前已就绪队列，队列满按包计数。
 
-`StartWithMainTransport` 按 WinRT 契约使用 1400 MTU 和 1412 最大 frame；Session Host netstack 同样使用 1400 MTU。packet channel 的 1500 上限仍是帧解析的结构边界，不是 Windows L3 接口宣告值。
+`StartWithMainTransport` 按 WinRT 契约使用 1400 MTU 和 1412 最大 frame；Session Host netstack 同样使用 1400 MTU，并把 TUN/XUDP 与 DNS UDP 响应负载保守限制为 MTU 减 48，即 1352 字节。packet channel 的 1500 上限仍是帧解析的结构边界，不是 Windows L3 接口宣告值。
 
 控制消息使用独立管道，避免包背压阻塞启动和停止。
 
@@ -95,7 +95,7 @@ IPv6: ::/1, 8000::/1
 Windows profile 固定覆盖所有应用，不使用 AppTriggers、traffic filters 或流量身份。每次会话还应用完整 policy：
 
 - `allowLocalNetwork: true` 设置 `VpnRouteAssignment.SetExcludeLocalSubnets(true)`；
-- `allowLocalNetwork: false` 清除该标志，并为物理适配器的每个去重 on-link prefix 生成更具体的 inclusion routes，避免 `/1` inclusion route 因优先级较低而旁路 VPN；
+- `allowLocalNetwork: false` 清除该标志，并为物理适配器的每个去重 on-link prefix（包括 link-local）生成更具体的 inclusion routes，避免 `/1` inclusion route 因优先级较低而旁路 VPN；
 - `excludedCidrs` 按地址族加入 exclusion routes，不修改两条 `/1` inclusion routes；生成本地 inclusion routes 前先减去全部显式排除范围，确保排除项不会被更具体的本地 inclusion 覆盖；
 - `alwaysOn` 写入 profile capability；实际自动连接仍由 Windows 用户设置和 active profile 决定。
 
@@ -118,8 +118,8 @@ Provider 在安装路由前选择不可变的：
 
 - 适配器 GUID；
 - 网络 profile 和 network identity；
-- 每个可用地址族选定的一个源 IP 和对应非零接口索引；
-- 物理适配器上全部去重的 on-link prefixes。
+- 每个可用地址族从非 link-local 地址中选定的一个源 IP 和对应非零接口索引；
+- 独立于源地址选择保留的、物理适配器上全部去重的 on-link prefixes，包括 link-local。
 
 Session Host 的每个非回环出站 socket 必须同时应用：
 

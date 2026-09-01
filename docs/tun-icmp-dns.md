@@ -151,7 +151,7 @@ Controller 切换代理组后，只在后续需要创建新 DNS transport 时使
 | DNS 响应 | 128 |
 | 普通 UDP 响应 | 128 |
 
-DNS 和普通 UDP 响应使用不同队列，但共享 netstack UDP 入站接收器。队列满时只丢当前请求或响应，不阻塞全局 UDP 循环。TUN UDP 响应受 1,452 字节负载上限约束。
+DNS 和普通 UDP 响应使用不同队列，但共享 netstack UDP 入站接收器。队列满时只丢当前请求或响应，不阻塞全局 UDP 循环。TUN UDP 响应按有效 MTU 减去 48 字节保守限制；其他平台为 1,452 字节，Windows 为 1,352 字节。
 
 运行时停止会取消 open、send、receive、retry 和 response-send，释放全部传输并等待已跟踪任务结束。停止返回后不得再向 TUN 回包。
 

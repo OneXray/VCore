@@ -60,7 +60,7 @@ Windows 使用 `Windows.Networking.Vpn` 回调，不使用文件描述符或适�
 
 ```text
 原始 TUN 包                   1,500 字节
-最终代理 UDP 负载             1,452 字节
+最终代理 UDP 负载             1,452 字节（Windows 1,352）
 包队列                        256
 普通事件 / UDP 响应           128
 DNS 入站 / DNS 响应           128 / 128
@@ -71,8 +71,8 @@ TCP 会话、普通 UDP 关联、半开连接和出站握手不设固定业务�
 ## 物理出口
 
 - Android：每个出站 TCP/UDP socket 在 connect 前调用宿主 protect；失败则当前连接失败关闭。
-- Windows：Provider 为当前会话选择不可变的物理网络绑定；每个地址族只选择一个源 IP 和接口索引交给 Session Host，同时保留物理适配器全部去重的 on-link prefixes 用于 VPN 路由。普通出站 socket 必须同时绑定源地址和 WinSock 接口索引。
+- Windows：Provider 为当前会话选择不可变的物理网络绑定；每个地址族只从非 link-local 地址中选择一个源 IP 和接口索引交给 Session Host，同时独立保留物理适配器全部去重的 on-link prefixes（包括 link-local）用于 VPN 路由。普通出站 socket 必须同时绑定源地址和 WinSock 接口索引。
 - Windows 只有配置中显式使用 `127.0.0.0/8` 范围内的 IPv4 字面量或 `::1` 的本地出站可以跳过物理绑定；物理代理服务器的域名解析到任何回环地址都会失败关闭。
-- 物理适配器、地址或网络身份变化后，Provider 等待 2 秒消抖并停止会话，不迁移 socket 或自动回退。
+- 物理适配器、选定源地址、全部 on-link prefixes 或网络身份变化后，Provider 等待 2 秒消抖并停止会话，不迁移 socket 或自动回退。
 
 主机测试只能证明帧、所有权、队列和生命周期逻辑；平台实测范围见 [验收矩阵](acceptance.md)。

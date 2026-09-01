@@ -99,7 +99,7 @@ DNS opaque cache                 64 entries / 256 KiB
 GeoData allocation capacity      8 MiB
 ```
 
-Windows advertises a 1,400-byte L3 MTU as required by `StartWithMainTransport`; 1,500 bytes remains the cross-platform parser ceiling.
+Windows advertises a 1,400-byte L3 MTU as required by `StartWithMainTransport` and caps TUN UDP responses at 1,352 bytes; 1,500 bytes remain the cross-platform parser ceiling.
 
 TCP sessions, ordinary UDP associations, half-open connections, outbound handshakes, and active DNS transports are created on demand. Bounded queues, per-flow buffers, wire/parser limits, timeouts, idle cleanup, and caches provide structural safety. The iOS 35/45 MiB targets are best-effort observations and do not change lifecycle results.
 
