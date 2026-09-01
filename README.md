@@ -40,7 +40,7 @@ char *VCoreInvoke(const char *request_json);
 void VCoreFree(char *response);
 ```
 
-Windows packages also use the revision-2 host bridge for profiles, Session Snapshots, and the optional session backend:
+Windows packages also use the revision-3 host bridge for the all-app VPN policy, profiles, Session Snapshots, and the optional session backend:
 
 ```c
 char *VCoreWindowsVpnInvoke(const char *request_json);
@@ -98,6 +98,8 @@ DNS typed cache                  256 entries
 DNS opaque cache                 64 entries / 256 KiB
 GeoData allocation capacity      8 MiB
 ```
+
+Windows advertises a 1,400-byte L3 MTU as required by `StartWithMainTransport`; 1,500 bytes remains the cross-platform parser ceiling.
 
 TCP sessions, ordinary UDP associations, half-open connections, outbound handshakes, and active DNS transports are created on demand. Bounded queues, per-flow buffers, wire/parser limits, timeouts, idle cleanup, and caches provide structural safety. The iOS 35/45 MiB targets are best-effort observations and do not change lifecycle results.
 

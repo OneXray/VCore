@@ -14,7 +14,7 @@ extern "C" {
 char *VCoreInvoke(const char *request_json);
 
 /*
- * Windows package hosts use a separate revision-2 JSON contract for package
+ * Windows package hosts use a separate revision-3 JSON contract for package
  * environment, VPN profile lifecycle, immutable Session Snapshot publication,
  * optional session backend processes, and StartupTask operations. The response
  * has the same allocation ownership as VCoreInvoke and must be released with

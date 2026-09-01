@@ -318,10 +318,10 @@ ProtectFd(fd) -> bool
 
 ## Windows 安装包桥接
 
-`VCoreWindowsVpnInvoke` 使用独立的桥接修订版 2：
+`VCoreWindowsVpnInvoke` 使用独立的桥接修订版 3：
 
 ```json
-{"bridgeVersion":2,"method":"getVpnStatus","payload":{}}
+{"bridgeVersion":3,"method":"getVpnStatus","payload":{}}
 ```
 
 只接受六个方法：
@@ -344,6 +344,11 @@ ProtectFd(fd) -> bool
     "dnsIpv4Address": "8.8.8.8",
     "dnsIpv6Address": "2001:4860:4860::8888"
   },
+  "policy": {
+    "alwaysOn": false,
+    "allowLocalNetwork": true,
+    "excludedCidrs": []
+  },
   "sessionBackend": {
     "processes": [
       {
@@ -354,6 +359,8 @@ ProtectFd(fd) -> bool
   }
 }
 ```
+
+`policy` 始终必填。Windows VPN 固定覆盖所有应用；`alwaysOn` 控制 profile capability，实际自动连接仍取决于 Windows 用户设置和 active profile；`allowLocalNetwork` 控制本地子网是否绕过；`excludedCidrs` 是最多 64 个规范 IPv4/IPv6 目标网段。拒绝重复项、host bits、`/0`、禁用 IPv6 时的 IPv6 项，以及包含当前 VPN DNS 地址的项。
 
 `sessionBackend` 可以省略。存在时包含 `1..=8` 个有序关键进程；每项只有 package installed location 内的规范 `.exe` 相对路径和有界 argv 数组。同一可执行文件可出现多次。第一版不接受 port、UDP、readiness、restart、environment、working directory 或 raw command line；任一进程退出都会使当前 VPN 会话失败关闭。
 

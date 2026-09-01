@@ -98,19 +98,19 @@ std::string json_string(std::string_view value) {
 
 std::string request(int argc, wchar_t **argv) {
   if (argc == 2 && std::wstring_view(argv[1]) == L"environment") {
-    return R"({"bridgeVersion":2,"method":"getEnvironment","payload":{}})";
+    return R"({"bridgeVersion":3,"method":"getEnvironment","payload":{}})";
   }
   if (argc == 2 && std::wstring_view(argv[1]) == L"status") {
-    return R"({"bridgeVersion":2,"method":"getVpnStatus","payload":{}})";
+    return R"({"bridgeVersion":3,"method":"getVpnStatus","payload":{}})";
   }
   if (argc == 2 && std::wstring_view(argv[1]) == L"stop") {
-    return R"({"bridgeVersion":2,"method":"stopVpn","payload":{}})";
+    return R"({"bridgeVersion":3,"method":"stopVpn","payload":{}})";
   }
   if (argc == 3 && std::wstring_view(argv[1]) == L"start") {
     return std::string(
-               R"({"bridgeVersion":2,"method":"startVpn","payload":{"configYaml":)") +
+               R"({"bridgeVersion":3,"method":"startVpn","payload":{"configYaml":)") +
            json_string(read_config(argv[2])) +
-           R"(,"networkSettings":{"ipv4Address":"192.168.3.1","ipv6Address":"fd00::2","dnsIpv4Address":"223.5.5.5","dnsIpv6Address":"2400:3200::1"}}})";
+           R"(,"networkSettings":{"ipv4Address":"192.168.3.1","ipv6Address":"fd00::2","dnsIpv4Address":"223.5.5.5","dnsIpv6Address":"2400:3200::1"},"policy":{"alwaysOn":false,"allowLocalNetwork":true,"excludedCidrs":[]}}})";
   }
   throw std::runtime_error(
       "usage: vcore-uwp-demo.exe environment|status|stop|start <config.yaml>");

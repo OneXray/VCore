@@ -27,6 +27,8 @@ TUN 域名提示                    256 项（按需）
 GeoData 分配容量                8 MiB
 ```
 
+Windows L3 接口及其 Session Host netstack 使用 1400 MTU；表中的 1500 是跨平台原始包解析上限和其他 TUN 平台的固定 MTU。
+
 - DNS 响应和普通 UDP 响应使用不同队列，但共享 netstack UDP 入站接收器。
 - TUN 域名提示只在 TUN 配置实际包含域名规则时创建，并从空容量按需增长。
 - ICMP 响应复用原始包出站队列，不创建独立任务或长期状态。

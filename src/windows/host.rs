@@ -25,12 +25,13 @@ use windows::{
 
 use super::{
     managed_processes::SessionBackend,
+    policy::WindowsVpnPolicy,
     profile::{WindowsNetworkSettings, WindowsProfileConfiguration},
     snapshot::SessionReference,
 };
 use crate::config::Config;
 
-const BRIDGE_VERSION: u32 = 2;
+const BRIDGE_VERSION: u32 = 3;
 const MAX_REQUEST_BYTES: usize = 1024 * 1024;
 const MAX_ERROR_BYTES: usize = 4096;
 const PROFILE_NAME: &str = "VCore";
@@ -54,6 +55,7 @@ struct EmptyPayload {}
 struct StartPayload {
     config_yaml: String,
     network_settings: WindowsNetworkSettings,
+    policy: WindowsVpnPolicy,
     #[serde(default, deserialize_with = "deserialize_session_backend")]
     session_backend: Option<SessionBackend>,
 }
@@ -176,6 +178,7 @@ fn start_vpn(payload: StartPayload) -> Result<Value, String> {
     let StartPayload {
         config_yaml,
         network_settings,
+        policy,
         session_backend,
     } = payload;
     let config = Config::parse_yaml(config_yaml.as_bytes())
@@ -183,6 +186,13 @@ fn start_vpn(payload: StartPayload) -> Result<Value, String> {
     if !config.tun.enable {
         return Err("Windows VPN configuration must enable TUN".to_owned());
     }
+    policy
+        .validate_for(
+            config.ipv6,
+            network_settings.dns_ipv4_address(),
+            network_settings.dns_ipv6_address(),
+        )
+        .map_err(str::to_owned)?;
 
     let environment = package_environment()?;
     let snapshot = SessionReference::publish(
@@ -193,8 +203,9 @@ fn start_vpn(payload: StartPayload) -> Result<Value, String> {
     )
     .map_err(display_error)?;
     let profile_configuration =
-        WindowsProfileConfiguration::new(&snapshot, config.ipv6, network_settings);
+        WindowsProfileConfiguration::new(&snapshot, config.ipv6, network_settings, policy);
     let profile_configuration_json = profile_configuration.to_json().map_err(display_error)?;
+    let always_on = profile_configuration.policy().always_on();
     let token = snapshot.token();
     let agent = VpnManagementAgent::new().map_err(display_error)?;
     let existing = find_profile(&agent, &environment.family_name)?;
@@ -207,7 +218,9 @@ fn start_vpn(payload: StartPayload) -> Result<Value, String> {
                     .CustomConfiguration()
                     .map_err(display_error)?
                     .to_string();
-                if current == profile_configuration_json {
+                if current == profile_configuration_json
+                    && existing.profile.AlwaysOn().map_err(display_error)? == always_on
+                {
                     return profile_status_data(Some(existing));
                 }
                 return Err("Windows VPN is connected with different session settings".to_owned());
@@ -236,6 +249,7 @@ fn start_vpn(payload: StartPayload) -> Result<Value, String> {
         &profile,
         &environment.family_name,
         &profile_configuration_json,
+        always_on,
     )?;
     let status = if existing.is_some() {
         agent
@@ -402,11 +416,13 @@ fn configure_profile(
     profile: &VpnPlugInProfile,
     family_name: &str,
     profile_configuration: &str,
+    always_on: bool,
 ) -> Result<(), String> {
     profile
         .SetProfileName(&PROFILE_NAME.into())
         .and_then(|()| profile.SetVpnPluginPackageFamilyName(&family_name.into()))
         .and_then(|()| profile.SetCustomConfiguration(&profile_configuration.into()))
+        .and_then(|()| profile.SetAlwaysOn(always_on))
         .map_err(display_error)?;
     let servers = profile.ServerUris().map_err(display_error)?;
     servers.Clear().map_err(display_error)?;
@@ -513,10 +529,18 @@ mod tests {
         }
     }
 
+    fn default_policy() -> Value {
+        json!({
+            "alwaysOn": false,
+            "allowLocalNetwork": true,
+            "excludedCidrs": []
+        })
+    }
+
     #[test]
-    fn rejects_unknown_bridge_versions_before_touching_winrt() {
+    fn rejects_obsolete_bridge_versions_before_touching_winrt() {
         assert_eq!(
-            invoke(r#"{"bridgeVersion":3,"method":"getEnvironment","payload":{}}"#),
+            invoke(r#"{"bridgeVersion":2,"method":"getEnvironment","payload":{}}"#),
             json!({
                 "success": false,
                 "data": null,
@@ -534,7 +558,8 @@ mod tests {
                 "ipv6Address": "fd00:8::2",
                 "dnsIpv4Address": "223.5.5.5",
                 "dnsIpv6Address": "2400:3200::1"
-            }
+            },
+            "policy": default_policy()
         }))
         .unwrap();
         assert_eq!(
@@ -548,7 +573,8 @@ mod tests {
 
         assert!(
             decode_payload::<StartPayload>(json!({
-                "configYaml": "tun:\n  enable: true\n"
+                "configYaml": "tun:\n  enable: true\n",
+                "policy": default_policy()
             }))
             .is_err()
         );
@@ -560,7 +586,37 @@ mod tests {
                     "ipv6Address": "fd00:8::2",
                     "dnsIpv4Address": "192.168.8.1",
                     "dnsIpv6Address": "2400:3200::1"
+                },
+                "policy": default_policy()
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn start_payload_requires_global_vpn_policy() {
+        let network_settings = json!({
+            "ipv4Address": "192.168.8.1",
+            "ipv6Address": "fd00:8::2",
+            "dnsIpv4Address": "223.5.5.5",
+            "dnsIpv6Address": "2400:3200::1"
+        });
+        assert!(
+            decode_payload::<StartPayload>(json!({
+                "configYaml": "tun:\n  enable: true\n",
+                "networkSettings": network_settings.clone(),
+                "policy": {
+                    "alwaysOn": false,
+                    "allowLocalNetwork": true,
+                    "excludedCidrs": []
                 }
+            }))
+            .is_ok()
+        );
+        assert!(
+            decode_payload::<StartPayload>(json!({
+                "configYaml": "tun:\n  enable: true\n",
+                "networkSettings": network_settings
             }))
             .is_err()
         );
@@ -577,6 +633,7 @@ mod tests {
         let payload: StartPayload = decode_payload(json!({
             "configYaml": "tun:\n  enable: true\n",
             "networkSettings": network_settings.clone(),
+            "policy": default_policy(),
             "sessionBackend": {
                 "processes": [{
                     "executableRelativePath": "bin\\proxy.exe",
@@ -590,6 +647,7 @@ mod tests {
             decode_payload::<StartPayload>(json!({
                 "configYaml": "tun:\n  enable: true\n",
                 "networkSettings": network_settings.clone(),
+                "policy": default_policy(),
                 "sessionBackend": null
             }))
             .is_err()
@@ -600,6 +658,7 @@ mod tests {
                 decode_payload::<StartPayload>(json!({
                     "configYaml": "tun:\n  enable: true\n",
                     "networkSettings": network_settings.clone(),
+                    "policy": default_policy(),
                     "sessionBackend": {
                         "processes": [{
                             "executableRelativePath": "bin\\proxy.exe",
@@ -617,13 +676,23 @@ mod tests {
     #[test]
     fn rejects_unknown_methods_without_exposing_profile_crud() {
         assert_eq!(
-            invoke(r#"{"bridgeVersion":2,"method":"deleteProfile","payload":{}}"#),
+            invoke(r#"{"bridgeVersion":3,"method":"deleteProfile","payload":{}}"#),
             json!({
                 "success": false,
                 "data": null,
                 "error": "unknown Windows bridge method"
             })
         );
+    }
+
+    #[test]
+    fn profile_configuration_applies_always_on_capability() {
+        let _winrt = WinRtGuard::enter().unwrap();
+        let profile = VpnPlugInProfile::new().unwrap();
+
+        configure_profile(&profile, "example.family", "{}", true).unwrap();
+
+        assert!(profile.AlwaysOn().unwrap());
     }
 
     #[test]

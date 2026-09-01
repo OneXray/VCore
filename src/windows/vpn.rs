@@ -3,7 +3,7 @@
 use std::{
     io,
     mem::size_of,
-    net::{Ipv4Addr, Ipv6Addr},
+    net::{IpAddr, Ipv4Addr, Ipv6Addr},
     num::NonZeroU32,
     panic::{AssertUnwindSafe, catch_unwind},
     path::PathBuf,
@@ -58,17 +58,19 @@ use windows_collections::IVectorView;
 use windows_core::{AgileReference, IUnknownImpl as _};
 
 use super::{
-    log,
+    WINDOWS_VPN_MTU, log,
     packet_channel::{
         AddressBindingV4, AddressBindingV6, PacketCounters, PhysicalBinding, ProviderPacketSession,
         remove_rendezvous,
     },
+    policy::WindowsVpnPolicy,
     profile::{WindowsNetworkSettings, WindowsProfileConfiguration},
 };
 use crate::platform::{TunIo, WindowsPacketAdapter, WindowsPacketStats};
 
 const CLASS_NAME: &str = "VCore.VpnBackgroundTask";
 const PACKET_QUEUE_CAPACITY: usize = 256;
+const WINDOWS_VPN_MAX_FRAME_SIZE: u32 = WINDOWS_VPN_MTU as u32 + 12;
 const FAIL_CLOSED_IDLE: u8 = 0;
 const FAIL_CLOSED_STOPPING: u8 = 1;
 const FAIL_CLOSED_CANCELLED: u8 = 2;
@@ -589,7 +591,7 @@ impl VpnProvider {
         let output = back_transport.OutputStream()?;
 
         let ipv6 = profile.ipv6_enabled();
-        let routes = vpn_routes(ipv6)?;
+        let routes = vpn_routes(ipv6, profile.policy())?;
         let (assigned_ipv4, assigned_ipv6) =
             vpn_client_addresses(profile.network_settings(), ipv6)?;
         let dns = vpn_dns_assignment(profile.network_settings(), ipv6)?;
@@ -643,8 +645,8 @@ impl VpnProvider {
             None::<&VpnInterfaceId>,
             &routes,
             &dns,
-            1500,
-            1512,
+            WINDOWS_VPN_MTU as u32,
+            WINDOWS_VPN_MAX_FRAME_SIZE,
             false,
             &transport,
         )?;
@@ -933,9 +935,9 @@ extern "system" fn DllGetActivationFactory(
     .unwrap_or(E_FAIL)
 }
 
-fn vpn_routes(ipv6: bool) -> Result<VpnRouteAssignment> {
+fn vpn_routes(ipv6: bool, policy: &WindowsVpnPolicy) -> Result<VpnRouteAssignment> {
     let routes = VpnRouteAssignment::new()?;
-    routes.SetExcludeLocalSubnets(true)?;
+    routes.SetExcludeLocalSubnets(policy.allow_local_network())?;
     for network in ["0.0.0.0", "128.0.0.0"] {
         routes
             .Ipv4InclusionRoutes()?
@@ -952,6 +954,16 @@ fn vpn_routes(ipv6: bool) -> Result<VpnRouteAssignment> {
                     &HostName::CreateHostName(&network.into())?,
                     1,
                 )?)?;
+        }
+    }
+    for cidr in policy.excluded_cidrs() {
+        let route = VpnRoute::CreateVpnRoute(
+            &HostName::CreateHostName(&cidr.network().to_string().into())?,
+            cidr.prefix_len(),
+        )?;
+        match cidr.network() {
+            IpAddr::V4(_) => routes.Ipv4ExclusionRoutes()?.Append(&route)?,
+            IpAddr::V6(_) => routes.Ipv6ExclusionRoutes()?.Append(&route)?,
         }
     }
     Ok(routes)
@@ -1117,11 +1129,11 @@ mod tests {
         let _winrt = WinRtGuard::enter();
         let digest = "0123456789abcdef".repeat(4);
         let profile = WindowsProfileConfiguration::parse(&format!(
-            r#"{{"version":3,"snapshotToken":"vcore-session-v2:{digest}","ipv6":true,"networkSettings":{{"ipv4Address":"192.168.8.1","ipv6Address":"fd00:8::2","dnsIpv4Address":"223.5.5.5","dnsIpv6Address":"2400:3200::1"}}}}"#
+            r#"{{"version":4,"snapshotToken":"vcore-session-v2:{digest}","ipv6":true,"networkSettings":{{"ipv4Address":"192.168.8.1","ipv6Address":"fd00:8::2","dnsIpv4Address":"223.5.5.5","dnsIpv6Address":"2400:3200::1"}},"policy":{{"alwaysOn":false,"allowLocalNetwork":true,"excludedCidrs":[]}}}}"#
         ))
         .unwrap();
 
-        let routes = vpn_routes(profile.ipv6_enabled()).unwrap();
+        let routes = vpn_routes(profile.ipv6_enabled(), profile.policy()).unwrap();
         assert_eq!(routes.Ipv4InclusionRoutes().unwrap().Size().unwrap(), 2);
         assert_eq!(routes.Ipv6InclusionRoutes().unwrap().Size().unwrap(), 2);
 
@@ -1144,15 +1156,36 @@ mod tests {
     }
 
     #[test]
+    fn provider_routes_apply_global_vpn_policy() {
+        let _winrt = WinRtGuard::enter();
+        let digest = "0123456789abcdef".repeat(4);
+        let profile = WindowsProfileConfiguration::parse(&format!(
+            r#"{{"version":4,"snapshotToken":"vcore-session-v2:{digest}","ipv6":true,"networkSettings":{{"ipv4Address":"192.168.8.1","ipv6Address":"fd00:8::2","dnsIpv4Address":"223.5.5.5","dnsIpv6Address":"2400:3200::1"}},"policy":{{"alwaysOn":true,"allowLocalNetwork":false,"excludedCidrs":["192.0.2.0/24","2001:db8::/64"]}}}}"#
+        ))
+        .unwrap();
+
+        let routes = vpn_routes(profile.ipv6_enabled(), profile.policy()).unwrap();
+        assert!(!routes.ExcludeLocalSubnets().unwrap());
+        assert_eq!(routes.Ipv4InclusionRoutes().unwrap().Size().unwrap(), 2);
+        assert_eq!(routes.Ipv6InclusionRoutes().unwrap().Size().unwrap(), 2);
+        let ipv4 = routes.Ipv4ExclusionRoutes().unwrap().GetAt(0).unwrap();
+        assert_eq!(ipv4.Address().unwrap().DisplayName().unwrap(), "192.0.2.0");
+        assert_eq!(ipv4.PrefixSize().unwrap(), 24);
+        let ipv6 = routes.Ipv6ExclusionRoutes().unwrap().GetAt(0).unwrap();
+        assert_eq!(ipv6.Address().unwrap().DisplayName().unwrap(), "2001:db8::");
+        assert_eq!(ipv6.PrefixSize().unwrap(), 64);
+    }
+
+    #[test]
     fn provider_omits_ipv6_assignments_when_disabled() {
         let _winrt = WinRtGuard::enter();
         let digest = "0123456789abcdef".repeat(4);
         let profile = WindowsProfileConfiguration::parse(&format!(
-            r#"{{"version":3,"snapshotToken":"vcore-session-v2:{digest}","ipv6":false,"networkSettings":{{"ipv4Address":"192.168.8.1","ipv6Address":"fd00:8::2","dnsIpv4Address":"223.5.5.5","dnsIpv6Address":"2400:3200::1"}}}}"#
+            r#"{{"version":4,"snapshotToken":"vcore-session-v2:{digest}","ipv6":false,"networkSettings":{{"ipv4Address":"192.168.8.1","ipv6Address":"fd00:8::2","dnsIpv4Address":"223.5.5.5","dnsIpv6Address":"2400:3200::1"}},"policy":{{"alwaysOn":false,"allowLocalNetwork":true,"excludedCidrs":[]}}}}"#
         ))
         .unwrap();
 
-        let routes = vpn_routes(profile.ipv6_enabled()).unwrap();
+        let routes = vpn_routes(profile.ipv6_enabled(), profile.policy()).unwrap();
         assert_eq!(routes.Ipv4InclusionRoutes().unwrap().Size().unwrap(), 2);
         assert_eq!(routes.Ipv6InclusionRoutes().unwrap().Size().unwrap(), 0);
 

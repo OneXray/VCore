@@ -26,7 +26,7 @@ vcore-windows-vpn-host.exe + vcore.dll（AppContainer Provider）
 
 | 文件 | 用途 |
 | --- | --- |
-| `demo.cpp` | 最小完全信任宿主；读取 YAML，调用 revision-2 Windows bridge |
+| `demo.cpp` | 最小完全信任宿主；读取 YAML，调用 revision-3 Windows bridge |
 | `demo.yaml` | 无真实凭据的生命周期示例；把流量交给 `127.0.0.1:1080` SOCKS5 |
 | `AppxManifest.xml.in` | 完整最小 MSIX manifest，包括 Provider、Session Host 和受限能力 |
 | `build.ps1` | 构建三项 VCore 产物、编译 demo、打包、签名并可选安装 |
@@ -114,7 +114,7 @@ if (response != nullptr) {
 约束：
 
 - 请求是 NUL 结尾 UTF-8 JSON，最大 1 MiB；
-- revision 固定为 `bridgeVersion: 2`；
+- revision 固定为 `bridgeVersion: 3`；
 - DTO 严格拒绝未知字段；
 - 返回内存必须由同一份 `vcore.dll` 的 `VCoreFree` 释放；
 - 桥接命令不能重叠；真实前台应在单进程内串行调用，本命令行 demo 额外用 session-local named mutex 串行化多个 alias 进程；
@@ -127,7 +127,7 @@ if (response != nullptr) {
 | --- | --- | --- |
 | `getEnvironment` | `{}` | 验证 package identity，返回 PFN 和 LocalState 路径 |
 | `getVpnStatus` | `{}` | 查询同包唯一 profile |
-| `startVpn` | `configYaml` + `networkSettings` + 可选 `sessionBackend` | 发布 Session Snapshot 并连接 |
+| `startVpn` | `configYaml` + `networkSettings` + `policy` + 可选 `sessionBackend` | 发布 Session Snapshot、配置全局 VPN policy 并连接 |
 | `stopVpn` | `{}` | 断开当前 profile |
 
 桥接还提供 `getStartupTaskStatus` 和 `setStartupTaskEnabled`。本 demo 故意不声明 StartupTask，避免登录时启动一个无 UI 的命令行工具；产品需要该能力时，再声明 `xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"`、把 `desktop` 加入 `IgnorableNamespaces`，并在前台 `<Application>` 下增加：
@@ -148,7 +148,7 @@ if (response != nullptr) {
 
 ```json
 {
-  "bridgeVersion": 2,
+  "bridgeVersion": 3,
   "method": "startVpn",
   "payload": {
     "configYaml": "tun:\n  enable: true\n...",
@@ -157,20 +157,29 @@ if (response != nullptr) {
       "ipv6Address": "fd00::2",
       "dnsIpv4Address": "223.5.5.5",
       "dnsIpv6Address": "2400:3200::1"
+    },
+    "policy": {
+      "alwaysOn": false,
+      "allowLocalNetwork": true,
+      "excludedCidrs": []
     }
   }
 }
 ```
 
-`networkSettings` 是 session settings，不属于用户 RAW YAML：
+`networkSettings` 和 `policy` 是 session settings，不属于用户 RAW YAML。Windows VPN 固定覆盖所有应用；policy 只控制 Always On capability、本地子网旁路和目标 CIDR 旁路。
+
+`networkSettings` 约束：
 
 - 四项都必填并且必须是对应地址族的合法单播地址；
 - TUN 地址不能与同地址族 DNS 地址相同；
 - 不能使用 unspecified、loopback、link-local、multicast，IPv4 也不能使用 broadcast；
 - 配置内容或任一地址变化时，活动会话不会 hot-swap，必须先 `stopVpn`；
-- 完全相同的配置和地址重复 `startVpn` 是幂等查询，不创建第二个 Session Host。
+- 完全相同的配置、地址和 policy 重复 `startVpn` 是幂等查询，不创建第二个 Session Host。
 
-VCore 会校验 YAML、发布 `vcore-session-v2:` 内容寻址 Session Snapshot，并只把 token、解析后的顶层 IPv6 开关和四个地址写入最大 1 KiB 的 profile custom configuration。调用方不要自行创建另一个 `VpnPlugInProfile` 或维护第二份 Snapshot。
+`policy.excludedCidrs` 最多 64 项，必须是规范 network/prefix；拒绝重复、host bits、`/0`、禁用 IPv6 时的 IPv6 项和 VPN DNS overlap。`alwaysOn` 只声明 profile capability，实际自动连接仍由 Windows 用户设置和 active profile 决定。
+
+VCore 会校验 YAML、发布 `vcore-session-v2:` 内容寻址 Session Snapshot，并把 token、解析后的顶层 IPv6 开关、四个地址和 policy 写入最大 4 KiB 的 profile custom configuration。调用方不要自行创建另一个 `VpnPlugInProfile` 或维护第二份 Snapshot。
 
 需要让 Session Host 同会话监督 package-local 进程时，可以额外提交 `sessionBackend.processes`；每项只有 `executableRelativePath` 和 `arguments`。第一版不管理端口、UDP、readiness 或进程业务配置，完整契约见 [Windows 会话运行时](../../docs/windows-session-runtime.md)。本 demo 不携带 backend。
 
@@ -223,7 +232,7 @@ broker 负责 JSON bridge、命令串行化和结果回传。UWP UI 不接触 YA
 
 1. 启动时调用 `getEnvironment`，确认运行在预期 package family；
 2. 调用 `getVpnStatus` 恢复系统真实状态；
-3. 用户连接时构造当前 YAML 和四个地址，调用 `startVpn`；
+3. 用户连接时构造当前 YAML、四个地址和完整 policy，调用 `startVpn`；
 4. UI 可以退出，VPN 与 Session Host 继续；
 5. UI 重启后再次以 `getVpnStatus` 为权威；
 6. 用户断开时调用 `stopVpn` 并等待结果；

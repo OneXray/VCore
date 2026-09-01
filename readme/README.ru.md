@@ -40,7 +40,7 @@ char *VCoreInvoke(const char *request_json);
 void VCoreFree(char *response);
 ```
 
-Пакеты Windows также используют host bridge ревизии 2 для profile, Session Snapshot и необязательного session backend:
+Пакеты Windows также используют host bridge ревизии 3 для глобальной VPN policy, profile, Session Snapshot и необязательного session backend:
 
 ```c
 char *VCoreWindowsVpnInvoke(const char *request_json);
@@ -98,6 +98,8 @@ DNS typed cache                  256 entries
 DNS opaque cache                 64 entries / 256 KiB
 GeoData allocation capacity      8 MiB
 ```
+
+Windows объявляет L3 MTU 1 400 байт согласно требованиям `StartWithMainTransport`; 1 500 байт остаётся межплатформенным пределом парсера.
 
 TCP sessions, обычные UDP associations, half-open connections, outbound handshakes и активные DNS transports создаются по запросу. Структурную безопасность обеспечивают bounded queues, buffers на flow, ограничения wire/parser, timeouts, idle cleanup и caches. Цели iOS 35/45 MiB являются best-effort наблюдениями и не меняют результаты жизненного цикла.
 

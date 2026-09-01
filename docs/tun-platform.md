@@ -44,6 +44,7 @@ Windows 使用 `Windows.Networking.Vpn` 回调，不使用文件描述符或适�
 
 - Provider 在回调内复制 `VpnPacketBuffer` 字节，不保存系统缓冲区的借用；
 - 顶层 `ipv6: false` 时，Provider 不向 Windows 分配 IPv6 TUN 地址，也不安装 IPv6 路由或 DNS；`startVpn` 的 IPv6 地址字段仍严格必填并经过验证；
+- Windows profile 固定覆盖所有应用；Provider 按 policy 设置本地子网旁路，并把最多 64 条规范目标 CIDR 加入 exclusion routes；
 - 系统和 Provider 创建的缓冲区都按 WinRT 所有权规则归还；
 - 回调不等待管道 I/O，入站和出站队列保持有界；
 - 空到非空的回环唤醒只通知 `Decapsulate` 排空响应队列；
@@ -55,7 +56,7 @@ Windows 使用 `Windows.Networking.Vpn` 回调，不使用文件描述符或适�
 
 ## MTU 与结构上限
 
-当前只接受 MTU 1500：
+用户 TUN 配置当前只接受 MTU 1500。Windows 因 `StartWithMainTransport` 平台上限对 L3 接口和 Session Host netstack 使用 1400；packet channel 仍保留 1500 字节解析上限：
 
 ```text
 原始 TUN 包                   1,500 字节
