@@ -54,6 +54,32 @@ pub(crate) struct WindowsVpnCidr {
 }
 
 impl WindowsVpnCidr {
+    pub(crate) fn from_address(address: IpAddr, prefix_len: u8) -> Option<Self> {
+        let network = match address {
+            IpAddr::V4(address) if prefix_len <= 32 => {
+                let mask = if prefix_len == 0 {
+                    0
+                } else {
+                    u32::MAX << (32 - u32::from(prefix_len))
+                };
+                IpAddr::V4(Ipv4Addr::from(u32::from(address) & mask))
+            }
+            IpAddr::V6(address) if prefix_len <= 128 => {
+                let mask = if prefix_len == 0 {
+                    0
+                } else {
+                    u128::MAX << (128 - u32::from(prefix_len))
+                };
+                IpAddr::V6(Ipv6Addr::from(u128::from(address) & mask))
+            }
+            _ => return None,
+        };
+        Some(Self {
+            network,
+            prefix_len,
+        })
+    }
+
     pub(crate) fn network(&self) -> IpAddr {
         self.network
     }
@@ -62,18 +88,40 @@ impl WindowsVpnCidr {
         self.prefix_len
     }
 
-    fn contains(&self, address: IpAddr) -> bool {
-        match (self.network, address) {
-            (IpAddr::V4(network), IpAddr::V4(address)) => {
-                let mask = u32::MAX << (32 - u32::from(self.prefix_len));
-                u32::from(address) & mask == u32::from(network)
-            }
-            (IpAddr::V6(network), IpAddr::V6(address)) => {
-                let mask = u128::MAX << (128 - u32::from(self.prefix_len));
-                u128::from(address) & mask == u128::from(network)
-            }
-            _ => false,
-        }
+    pub(crate) fn contains(&self, address: IpAddr) -> bool {
+        Self::from_address(address, self.prefix_len)
+            .is_some_and(|cidr| cidr.network == self.network)
+    }
+
+    pub(crate) fn contains_cidr(&self, other: &Self) -> bool {
+        self.prefix_len <= other.prefix_len && self.contains(other.network)
+    }
+
+    pub(crate) fn overlaps(&self, other: &Self) -> bool {
+        self.contains_cidr(other) || other.contains_cidr(self)
+    }
+
+    pub(crate) fn children(&self) -> Option<[Self; 2]> {
+        let child_prefix = self.prefix_len.checked_add(1)?;
+        let second = match self.network {
+            IpAddr::V4(network) if child_prefix <= 32 => IpAddr::V4(Ipv4Addr::from(
+                u32::from(network) | (1 << (32 - u32::from(child_prefix))),
+            )),
+            IpAddr::V6(network) if child_prefix <= 128 => IpAddr::V6(Ipv6Addr::from(
+                u128::from(network) | (1 << (128 - u32::from(child_prefix))),
+            )),
+            _ => return None,
+        };
+        Some([
+            Self {
+                network: self.network,
+                prefix_len: child_prefix,
+            },
+            Self {
+                network: second,
+                prefix_len: child_prefix,
+            },
+        ])
     }
 }
 
@@ -91,24 +139,13 @@ impl FromStr for WindowsVpnCidr {
         let prefix_len = prefix
             .parse::<u8>()
             .map_err(|_| "invalid Windows VPN exclusion CIDR")?;
-        let network = match address {
-            IpAddr::V4(address) if (1..=32).contains(&prefix_len) => {
-                let mask = u32::MAX << (32 - u32::from(prefix_len));
-                IpAddr::V4(Ipv4Addr::from(u32::from(address) & mask))
-            }
-            IpAddr::V6(address) if (1..=128).contains(&prefix_len) => {
-                let mask = u128::MAX << (128 - u32::from(prefix_len));
-                IpAddr::V6(Ipv6Addr::from(u128::from(address) & mask))
-            }
-            _ => return Err("invalid Windows VPN exclusion CIDR"),
-        };
-        if address != network {
+        let cidr = Self::from_address(address, prefix_len)
+            .filter(|_| prefix_len != 0)
+            .ok_or("invalid Windows VPN exclusion CIDR")?;
+        if address != cidr.network {
             return Err("invalid Windows VPN exclusion CIDR");
         }
-        Ok(Self {
-            network,
-            prefix_len,
-        })
+        Ok(cidr)
     }
 }
 

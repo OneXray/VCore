@@ -71,7 +71,7 @@ TCP 会话、普通 UDP 关联、半开连接和出站握手不设固定业务�
 ## 物理出口
 
 - Android：每个出站 TCP/UDP socket 在 connect 前调用宿主 protect；失败则当前连接失败关闭。
-- Windows：Provider 为当前会话选择不可变的物理网络绑定，并把每个地址族的源 IP 和接口索引交给 Session Host。普通出站 socket 必须同时绑定源地址和 WinSock 接口索引。
+- Windows：Provider 为当前会话选择不可变的物理网络绑定；每个地址族只选择一个源 IP 和接口索引交给 Session Host，同时保留物理适配器全部去重的 on-link prefixes 用于 VPN 路由。普通出站 socket 必须同时绑定源地址和 WinSock 接口索引。
 - Windows 只有配置中显式使用 `127.0.0.0/8` 范围内的 IPv4 字面量或 `::1` 的本地出站可以跳过物理绑定；物理代理服务器的域名解析到任何回环地址都会失败关闭。
 - 物理适配器、地址或网络身份变化后，Provider 等待 2 秒消抖并停止会话，不迁移 socket 或自动回退。
 

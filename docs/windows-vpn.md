@@ -95,8 +95,8 @@ IPv6: ::/1, 8000::/1
 Windows profile 固定覆盖所有应用，不使用 AppTriggers、traffic filters 或流量身份。每次会话还应用完整 policy：
 
 - `allowLocalNetwork: true` 设置 `VpnRouteAssignment.SetExcludeLocalSubnets(true)`；
-- `allowLocalNetwork: false` 清除该标志，并用物理子网的两个更具体子前缀覆盖本地 on-link route，避免 `/1` inclusion route 因优先级较低而旁路 VPN；
-- `excludedCidrs` 按地址族加入 exclusion routes，不修改两条 `/1` inclusion routes；
+- `allowLocalNetwork: false` 清除该标志，并为物理适配器的每个去重 on-link prefix 生成更具体的 inclusion routes，避免 `/1` inclusion route 因优先级较低而旁路 VPN；
+- `excludedCidrs` 按地址族加入 exclusion routes，不修改两条 `/1` inclusion routes；生成本地 inclusion routes 前先减去全部显式排除范围，确保排除项不会被更具体的本地 inclusion 覆盖；
 - `alwaysOn` 写入 profile capability；实际自动连接仍由 Windows 用户设置和 active profile 决定。
 
 排除项最多 64 条，必须是规范 network/prefix；重复、host bits、`/0`、禁用 IPv6 时的 IPv6 项和包含 VPN DNS 的项都会在接触 WinRT 前失败关闭。
@@ -118,8 +118,8 @@ Provider 在安装路由前选择不可变的：
 
 - 适配器 GUID；
 - 网络 profile 和 network identity；
-- 每个可用地址族的源 IP 和 on-link prefix；
-- 对应的非零接口索引。
+- 每个可用地址族选定的一个源 IP 和对应非零接口索引；
+- 物理适配器上全部去重的 on-link prefixes。
 
 Session Host 的每个非回环出站 socket 必须同时应用：
 
@@ -133,7 +133,7 @@ Session Host 的每个非回环出站 socket 必须同时应用：
 
 ## 网络变化
 
-Provider 是物理网络状态的唯一权威，并订阅 `NetworkStatusChanged`。事件到达后等待 2 秒，再复验适配器 GUID、地址、on-link prefix 和 network identity；任一项变化就停止当前 VPN。
+Provider 是物理网络状态的唯一权威，并订阅 `NetworkStatusChanged`。事件到达后等待 2 秒，再复验适配器 GUID、选定源地址、全部去重 on-link prefixes 和 network identity；任一项变化就停止当前 VPN。
 
 当前实现不迁移现有 socket、不重选接口，也不回退到未绑定 socket。Session Host 不自行更新物理绑定。
 

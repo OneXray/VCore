@@ -24,7 +24,7 @@
 - 规则、GeoData、HTTP/TLS/QUIC 嗅探；
 - ICMPv4/ICMPv6 Echo、校验和、分片、MTU 和队列满；
 - Apple/Android TUN 帧格式、文件描述符副本和关闭所有权；
-- Windows 单 Application manifest、Provider/Session Host token 绑定、控制/数据协议、Session Snapshot v2、会合记录、包队列、批量写入、物理网络绑定和 Job Object 多进程监督；
+- Windows 单 Application manifest、Provider/Session Host token 绑定、控制/数据协议、Session Snapshot v2、会合记录、包队列、批量写入、物理网络绑定、全部 on-link prefix 去重、显式排除优先的本地路由规划和 Job Object 多进程监督；
 - Controller 鉴权、速率和累计流量语义，以及代理组查询、实时选择和有界请求处理。
 
 常用命令：
@@ -127,11 +127,13 @@ vcore-uwp-demo.exe stop
 - 两种地址模式都观察到 Provider ingress/egress，显式 Stop 后 Session Host、route 和 interface 均归零；
 - `ipv6: false` 向 `StartWithMainTransport` 传 null IPv6 client-address 参数后通过；传空集合的对照包稳定返回 `0x8007000E`，且不启动 Session Host；
 - 主 transport 绑定当前物理地址后，目标 exclusion route 选择物理出口，而未排除的控制流量仍进入 VPN；回环绑定的对照包会使 exclusion traffic 超时；
-- `allowLocalNetwork: true` 时实机局域网 peer 选择物理出口；设为 `false` 后，两个更具体的物理子网 inclusion route 使同一 peer 进入 VPN，并完成外网双向流量；
+- `allowLocalNetwork: true` 时实机局域网 peer 选择物理出口；设为 `false` 后，Provider 为当前适配器全部去重的 on-link prefixes 安装更具体的 inclusion routes，路由总数由 6 增至 10，同一 peer 选择 `/25` VPN route，并完成外网双向流量；
 - profile 的 Always On capability 在连接时读回为启用，显式 Stop 后保持断开；随后用默认 policy 重建 profile 时读回为禁用；
 - 已有 profile/Snapshot 在前台启动命令退出、Provider/Session Host 均不存在时，由系统 profile connect 冷启动两个 native 进程并完成双向流量；
 - 类型错误的 policy 在 Provider 激活前被拒绝；运行中强制终止 Session Host 后 Provider 失败关闭，profile 变为 disconnected，route/interface 清零；
 - 每个 gate 结束时都确认无 Session Host、route 或 VPN interface 残留。Provider 的已停止 AppContainer 外壳可能暂留，验收脚本在各 case 之间显式结束它。
+
+路由规划修复后，同机开发签名包再次通过 IPv4-only/dual-stack lifecycle 与流量、LAN bypass、IPv4 exclusion/control、Always On、cold profile、失败关闭和零残留门禁。自动化同时覆盖多地址、多 IPv4/IPv6 on-link prefix、重复子网和显式 exclusion 与生成子前缀重叠；实机只探测到一个局域网 peer，未逐一验证每个 on-link prefix。
 
 该记录证明当前机器上的 IPv4 物理出口和 Windows 分配的双栈 VPN interface；主机没有物理 IPv6/default gateway，因此真实 IPv6 exclusion 仍未执行。
 
