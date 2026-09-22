@@ -1,0 +1,24 @@
+[project]
+name = "vcore-scripts"
+version = "0.1.0"
+description = "VCore build, validation, and interoperability commands"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+vcore-scripts = "vcore_scripts.cli:main"
+
+[dependency-groups]
+dev = ["ruff>=0.15,<0.16"]
+
+[build-system]
+requires = ["uv-build>=0.12,<0.13"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

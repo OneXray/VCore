@@ -1,0 +1,543 @@
+use std::{io, net::SocketAddr, sync::Arc};
+
+use async_trait::async_trait;
+use bytes::{BufMut as _, Bytes, BytesMut};
+use tokio::{
+    io::{AsyncRead, AsyncReadExt as _, AsyncWriteExt as _},
+    sync::mpsc,
+    task::JoinHandle,
+};
+use tokio_util::{sync::CancellationToken, task::TaskTracker};
+
+use crate::{
+    dispatch::{DatagramTransport, DispatchError},
+    session::{Datagram, Destination},
+    socks5::encode_address,
+};
+
+use super::stream::AnyTlsStream;
+
+pub(crate) const MAGIC_DESTINATION: &str = "sp.v2.udp-over-tcp.arpa";
+const UOT_ADDRESS_IPV4: u8 = 0x00;
+const UOT_ADDRESS_IPV6: u8 = 0x01;
+const UOT_ADDRESS_DOMAIN: u8 = 0x02;
+const RESPONSE_QUEUE_CAPACITY: usize = 1;
+const DRAIN_BUFFER_SIZE: usize = 2_048;
+
+#[derive(Debug, Clone)]
+struct ReceiveFailure {
+    kind: io::ErrorKind,
+    message: Arc<str>,
+}
+
+impl ReceiveFailure {
+    fn from_io(error: &io::Error) -> Self {
+        Self {
+            kind: error.kind(),
+            message: Arc::from(error.to_string()),
+        }
+    }
+
+    fn into_dispatch(self) -> DispatchError {
+        DispatchError::from(io::Error::new(self.kind, self.message.to_string()))
+    }
+}
+
+enum ReceiveEvent {
+    Datagram(Datagram),
+    Failed(ReceiveFailure),
+}
+
+struct SendGuard {
+    cancellation: CancellationToken,
+    committed: bool,
+}
+
+impl SendGuard {
+    fn new(cancellation: CancellationToken) -> Self {
+        Self {
+            cancellation,
+            committed: false,
+        }
+    }
+
+    fn commit(&mut self) {
+        self.committed = true;
+    }
+}
+
+impl Drop for SendGuard {
+    fn drop(&mut self) {
+        if !self.committed {
+            self.cancellation.cancel();
+        }
+    }
+}
+
+pub(crate) struct UotTransport {
+    writer: tokio::io::WriteHalf<AnyTlsStream>,
+    responses: mpsc::Receiver<ReceiveEvent>,
+    cancellation: CancellationToken,
+    reader_task: Option<JoinHandle<()>>,
+    first_write: bool,
+    closed: bool,
+}
+
+impl std::fmt::Debug for UotTransport {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("UotTransport")
+            .field("first_write", &self.first_write)
+            .field("closed", &self.closed)
+            .finish_non_exhaustive()
+    }
+}
+
+impl UotTransport {
+    pub(crate) fn new(
+        stream: AnyTlsStream,
+        max_response_payload_size: u16,
+        parent_cancellation: CancellationToken,
+        tracker: &TaskTracker,
+    ) -> Self {
+        let (reader, writer) = tokio::io::split(stream);
+        let cancellation = parent_cancellation.child_token();
+        let (responses, receiver) = mpsc::channel(RESPONSE_QUEUE_CAPACITY);
+        let reader_cancellation = cancellation.clone();
+        let reader_task = tracker.spawn(read_loop(
+            reader,
+            responses,
+            max_response_payload_size,
+            reader_cancellation,
+        ));
+        Self {
+            writer,
+            responses: receiver,
+            cancellation,
+            reader_task: Some(reader_task),
+            first_write: true,
+            closed: false,
+        }
+    }
+}
+
+#[async_trait]
+impl DatagramTransport for UotTransport {
+    async fn send(&mut self, datagram: Datagram) -> Result<(), DispatchError> {
+        if self.closed || self.cancellation.is_cancelled() {
+            return Err(DispatchError::Other(
+                "AnyTLS UoT association is closed".to_owned(),
+            ));
+        }
+        let packet = if self.first_write {
+            encode_first_packet(&datagram).map_err(DispatchError::from)?
+        } else {
+            encode_datagram(&datagram).map_err(DispatchError::from)?
+        };
+        let mut send_guard = SendGuard::new(self.cancellation.clone());
+        self.writer
+            .write_all(&packet)
+            .await
+            .map_err(DispatchError::from)?;
+        self.writer.flush().await.map_err(DispatchError::from)?;
+        self.first_write = false;
+        send_guard.commit();
+        Ok(())
+    }
+
+    async fn receive(&mut self) -> Result<Datagram, DispatchError> {
+        if self.closed || self.cancellation.is_cancelled() {
+            return Err(DispatchError::Other(
+                "AnyTLS UoT association is closed".to_owned(),
+            ));
+        }
+        match self.responses.recv().await {
+            Some(ReceiveEvent::Datagram(datagram)) => Ok(datagram),
+            Some(ReceiveEvent::Failed(error)) => {
+                self.closed = true;
+                Err(error.into_dispatch())
+            }
+            None => {
+                self.closed = true;
+                Err(DispatchError::from(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "AnyTLS UoT response stream ended",
+                )))
+            }
+        }
+    }
+
+    async fn close(&mut self) -> Result<(), DispatchError> {
+        if self.closed && self.reader_task.is_none() {
+            return Ok(());
+        }
+        self.cancellation.cancel();
+        if let Some(reader_task) = self.reader_task.take() {
+            let _ = reader_task.await;
+        }
+        let result = self.writer.shutdown().await.map_err(DispatchError::from);
+        self.closed = true;
+        result
+    }
+}
+
+impl Drop for UotTransport {
+    fn drop(&mut self) {
+        self.cancellation.cancel();
+        if let Some(reader_task) = self.reader_task.take() {
+            reader_task.abort();
+        }
+    }
+}
+
+async fn read_loop<R>(
+    mut reader: R,
+    responses: mpsc::Sender<ReceiveEvent>,
+    max_response_payload_size: u16,
+    cancellation: CancellationToken,
+) where
+    R: AsyncRead + Unpin,
+{
+    loop {
+        let outcome = tokio::select! {
+            biased;
+            () = cancellation.cancelled() => return,
+            datagram = read_datagram(&mut reader, max_response_payload_size) => datagram,
+        };
+        match outcome {
+            Ok(Some(datagram)) => {
+                tokio::select! {
+                    biased;
+                    () = cancellation.cancelled() => return,
+                    result = responses.send(ReceiveEvent::Datagram(datagram)) => {
+                        if result.is_err() {
+                            return;
+                        }
+                    }
+                }
+            }
+            Ok(None) => continue,
+            Err(error) => {
+                tokio::select! {
+                    biased;
+                    () = cancellation.cancelled() => {}
+                    _ = responses.send(ReceiveEvent::Failed(ReceiveFailure::from_io(&error))) => {}
+                }
+                return;
+            }
+        }
+    }
+}
+
+pub(crate) fn magic_destination() -> Destination {
+    Destination::Domain {
+        host: MAGIC_DESTINATION.to_owned(),
+        port: 0,
+    }
+}
+
+fn encode_first_packet(datagram: &Datagram) -> io::Result<Bytes> {
+    let request = encode_request(&datagram.remote)?;
+    let packet = encode_datagram(datagram)?;
+    let mut output = BytesMut::with_capacity(request.len() + packet.len());
+    output.extend_from_slice(&request);
+    output.extend_from_slice(&packet);
+    Ok(output.freeze())
+}
+
+fn encode_request(destination: &Destination) -> io::Result<Bytes> {
+    let mut output = Vec::with_capacity(260);
+    output.push(0); // Datagram mode; one association may carry many destinations.
+    encode_address(destination, &mut output)?;
+    Ok(Bytes::from(output))
+}
+
+fn encode_datagram(datagram: &Datagram) -> io::Result<Bytes> {
+    let payload_length = u16::try_from(datagram.payload.len()).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "AnyTLS UoT datagram exceeds 65535 bytes",
+        )
+    })?;
+    let mut output = BytesMut::with_capacity(259 + 2 + datagram.payload.len());
+    encode_uot_address(&datagram.remote, &mut output)?;
+    output.put_u16(payload_length);
+    output.extend_from_slice(&datagram.payload);
+    Ok(output.freeze())
+}
+
+fn encode_uot_address(destination: &Destination, output: &mut BytesMut) -> io::Result<()> {
+    match destination {
+        Destination::Ip(SocketAddr::V4(address)) => {
+            output.put_u8(UOT_ADDRESS_IPV4);
+            output.extend_from_slice(&address.ip().octets());
+            output.put_u16(address.port());
+        }
+        Destination::Ip(SocketAddr::V6(address)) => {
+            output.put_u8(UOT_ADDRESS_IPV6);
+            output.extend_from_slice(&address.ip().octets());
+            output.put_u16(address.port());
+        }
+        Destination::Domain { host, port } => {
+            let length = u8::try_from(host.len()).map_err(|_| {
+                io::Error::new(io::ErrorKind::InvalidInput, "UoT domain is too long")
+            })?;
+            if length == 0 || *port == 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "UoT destination is invalid",
+                ));
+            }
+            output.put_u8(UOT_ADDRESS_DOMAIN);
+            output.put_u8(length);
+            output.extend_from_slice(host.as_bytes());
+            output.put_u16(*port);
+        }
+    }
+    if destination.port() == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "UoT destination port is zero",
+        ));
+    }
+    Ok(())
+}
+
+async fn read_datagram<R>(
+    reader: &mut R,
+    max_response_payload_size: u16,
+) -> io::Result<Option<Datagram>>
+where
+    R: AsyncRead + Unpin + ?Sized,
+{
+    let remote = read_uot_address(reader).await?;
+    let payload_length = reader.read_u16().await?;
+    if payload_length > max_response_payload_size {
+        drain_exact(reader, usize::from(payload_length)).await?;
+        return Ok(None);
+    }
+    let mut payload = BytesMut::zeroed(usize::from(payload_length));
+    reader.read_exact(&mut payload).await?;
+    Ok(Some(Datagram {
+        remote,
+        payload: payload.freeze(),
+        sniffed_domain: None,
+    }))
+}
+
+async fn drain_exact<R>(reader: &mut R, mut remaining: usize) -> io::Result<()>
+where
+    R: AsyncRead + Unpin + ?Sized,
+{
+    let mut buffer = [0_u8; DRAIN_BUFFER_SIZE];
+    while remaining != 0 {
+        let length = remaining.min(buffer.len());
+        reader.read_exact(&mut buffer[..length]).await?;
+        remaining -= length;
+    }
+    Ok(())
+}
+
+async fn read_uot_address<R>(reader: &mut R) -> io::Result<Destination>
+where
+    R: AsyncRead + Unpin + ?Sized,
+{
+    let address_type = reader.read_u8().await?;
+    let destination = match address_type {
+        UOT_ADDRESS_IPV4 => {
+            let mut address = [0_u8; 4];
+            reader.read_exact(&mut address).await?;
+            let port = reader.read_u16().await?;
+            Destination::Ip(SocketAddr::from((address, port)))
+        }
+        UOT_ADDRESS_IPV6 => {
+            let mut address = [0_u8; 16];
+            reader.read_exact(&mut address).await?;
+            let port = reader.read_u16().await?;
+            Destination::Ip(SocketAddr::from((address, port)))
+        }
+        UOT_ADDRESS_DOMAIN => {
+            let length = usize::from(reader.read_u8().await?);
+            if length == 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "AnyTLS UoT response has an empty domain",
+                ));
+            }
+            let mut host = vec![0_u8; length];
+            reader.read_exact(&mut host).await?;
+            let host = String::from_utf8(host).map_err(|_| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "AnyTLS UoT response domain is not UTF-8",
+                )
+            })?;
+            let port = reader.read_u16().await?;
+            Destination::domain(host, port)?
+        }
+        _ => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "AnyTLS UoT response has an unknown address type",
+            ));
+        }
+    };
+    if destination.port() == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "AnyTLS UoT response port is zero",
+        ));
+    }
+    Ok(destination)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        net::{Ipv4Addr, Ipv6Addr},
+        time::Duration,
+    };
+
+    use tokio::io::AsyncWriteExt as _;
+
+    use super::*;
+
+    fn datagram(remote: Destination, payload: &'static [u8]) -> Datagram {
+        Datagram {
+            remote,
+            payload: Bytes::from_static(payload),
+            sniffed_domain: None,
+        }
+    }
+
+    #[test]
+    fn encodes_v2_address_families() {
+        let ipv4 = encode_datagram(&datagram(
+            Destination::Ip((Ipv4Addr::new(1, 2, 3, 4), 53).into()),
+            b"x",
+        ))
+        .unwrap();
+        assert_eq!(ipv4.as_ref(), &[0, 1, 2, 3, 4, 0, 53, 0, 1, b'x']);
+
+        let ipv6 = encode_datagram(&datagram(
+            Destination::Ip((Ipv6Addr::LOCALHOST, 443).into()),
+            b"",
+        ))
+        .unwrap();
+        assert_eq!(ipv6[0], UOT_ADDRESS_IPV6);
+        assert_eq!(&ipv6[17..], &[1, 187, 0, 0]);
+
+        let domain = encode_datagram(&datagram(
+            Destination::domain("dns.test", 853).unwrap(),
+            b"q",
+        ))
+        .unwrap();
+        assert_eq!(domain[0], UOT_ADDRESS_DOMAIN);
+        assert_eq!(domain[1], 8);
+        assert_eq!(&domain[2..10], b"dns.test");
+        assert_eq!(&domain[10..], &[3, 85, 0, 1, b'q']);
+    }
+
+    #[test]
+    fn first_packet_combines_request_and_datagram() {
+        let packet = encode_first_packet(&datagram(
+            Destination::domain("dns.test", 53).unwrap(),
+            b"abc",
+        ))
+        .unwrap();
+        assert_eq!(packet[0], 0);
+        assert_eq!(packet[1], 3); // Standard SOCKS domain address in Request.
+        assert_eq!(packet[2], 8);
+        let datagram_offset = 1 + 1 + 1 + 8 + 2;
+        assert_eq!(packet[datagram_offset], UOT_ADDRESS_DOMAIN);
+    }
+
+    #[tokio::test]
+    async fn reads_fragmented_datagram() {
+        let encoded = encode_datagram(&datagram(
+            Destination::domain("dns.test", 53).unwrap(),
+            b"reply",
+        ))
+        .unwrap();
+        let (mut writer, mut reader) = tokio::io::duplex(1);
+        let sending = tokio::spawn(async move {
+            for byte in encoded {
+                writer.write_all(&[byte]).await.unwrap();
+            }
+        });
+        let decoded = read_datagram(&mut reader, 64).await.unwrap().unwrap();
+        sending.await.unwrap();
+        assert_eq!(decoded.remote, Destination::domain("dns.test", 53).unwrap());
+        assert_eq!(decoded.payload.as_ref(), b"reply");
+    }
+
+    #[tokio::test]
+    async fn oversized_payload_is_drained_before_the_next_datagram() {
+        let oversized = encode_datagram(&datagram(
+            Destination::Ip((Ipv4Addr::new(1, 2, 3, 4), 53).into()),
+            b"oversized",
+        ))
+        .unwrap();
+        let expected = datagram(Destination::domain("dns.test", 53).unwrap(), b"accepted");
+        let accepted = encode_datagram(&expected).unwrap();
+        let mut input = std::io::Cursor::new([oversized.as_ref(), accepted.as_ref()].concat());
+
+        assert!(read_datagram(&mut input, 4).await.unwrap().is_none());
+        let decoded = read_datagram(&mut input, 64).await.unwrap().unwrap();
+        assert_eq!(decoded.remote, expected.remote);
+        assert_eq!(decoded.payload, expected.payload);
+    }
+
+    #[test]
+    fn cancelled_send_transaction_poisons_the_association() {
+        let cancellation = CancellationToken::new();
+        {
+            let _guard = SendGuard::new(cancellation.clone());
+        }
+        assert!(cancellation.is_cancelled());
+
+        let committed = CancellationToken::new();
+        {
+            let mut guard = SendGuard::new(committed.clone());
+            guard.commit();
+        }
+        assert!(!committed.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn read_loop_shutdown_is_not_blocked_by_a_full_response_queue() {
+        let first = encode_datagram(&datagram(
+            Destination::Ip((Ipv4Addr::new(1, 1, 1, 1), 53).into()),
+            b"first",
+        ))
+        .unwrap();
+        let second = encode_datagram(&datagram(
+            Destination::Ip((Ipv4Addr::new(8, 8, 8, 8), 53).into()),
+            b"second",
+        ))
+        .unwrap();
+        let (mut writer, reader) = tokio::io::duplex(256);
+        let (responses, _receiver) = mpsc::channel(1);
+        let capacity = responses.clone();
+        let cancellation = CancellationToken::new();
+        let task = tokio::spawn(read_loop(reader, responses, 64, cancellation.clone()));
+        writer.write_all(&first).await.unwrap();
+        writer.write_all(&second).await.unwrap();
+
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while capacity.capacity() != 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        for _ in 0..4 {
+            tokio::task::yield_now().await;
+        }
+        cancellation.cancel();
+        tokio::time::timeout(Duration::from_secs(1), task)
+            .await
+            .expect("read loop must observe cancellation while response send is pending")
+            .unwrap();
+    }
+}

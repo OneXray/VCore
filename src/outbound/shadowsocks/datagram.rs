@@ -1,0 +1,202 @@
+use super::{
+    packet_io::{MAX_WIRE_PACKET, PacketIo},
+    packet_window::PacketWindowFilter,
+};
+use crate::{
+    dispatch::{DatagramTransport, DispatchError},
+    session::{Datagram, Destination},
+};
+use async_trait::async_trait;
+use bytes::Bytes;
+use shadowsocks::{
+    ServerConfig,
+    context::SharedContext,
+    relay::udprelay::{ProxySocket, options::UdpSocketControlData, proxy_socket::UdpSocketType},
+};
+use std::{collections::VecDeque, time::Duration};
+use tokio::time::Instant;
+
+// Largest response: XChaCha nonce, IDs/type/time/length, optional padding,
+// maximum SOCKS address and AEAD tag. The payload is separately bounded.
+pub(super) const MAX_RESPONSE_HEADER: u16 = 24 + 16 + 1 + 8 + 8 + 2 + 900 + 259 + 16;
+const SESSION_RETENTION: Duration = Duration::from_secs(60);
+
+struct ServerSession {
+    id: u64,
+    last: Instant,
+    window: PacketWindowFilter,
+}
+
+pub(super) struct SsDatagram {
+    inner: Box<dyn DatagramTransport>,
+    server: Destination,
+    socket: ProxySocket<PacketIo>,
+    io: PacketIo,
+    control: UdpSocketControlData,
+    sessions: VecDeque<ServerSession>,
+    maximum: usize,
+    wire_maximum: usize,
+    buffer: Vec<u8>,
+    closed: bool,
+}
+
+impl SsDatagram {
+    pub(super) fn new(
+        inner: Box<dyn DatagramTransport>,
+        server: Destination,
+        context: SharedContext,
+        config: &ServerConfig,
+        maximum: u16,
+        wire_maximum: u16,
+    ) -> Self {
+        let io = PacketIo::default();
+        let mut control = UdpSocketControlData::default();
+        control.client_session_id = rand::random();
+        Self {
+            inner,
+            server,
+            socket: ProxySocket::from_socket(UdpSocketType::Client, context, config, io.clone()),
+            io,
+            control,
+            sessions: VecDeque::with_capacity(2),
+            maximum: usize::from(maximum),
+            wire_maximum: usize::from(wire_maximum).min(MAX_WIRE_PACKET),
+            buffer: vec![0; usize::from(wire_maximum).min(MAX_WIRE_PACKET)],
+            closed: false,
+        }
+    }
+
+    fn accept_control(&mut self, control: &UdpSocketControlData) -> bool {
+        if control.client_session_id != self.control.client_session_id
+            || control.packet_id == u64::MAX
+        {
+            return false;
+        }
+        let now = Instant::now();
+        let index = if let Some(index) = self
+            .sessions
+            .iter()
+            .position(|session| session.id == control.server_session_id)
+        {
+            index
+        } else {
+            // SIP022 permits an old and a current server session. Never evict
+            // the old replay window within one minute of its last valid packet.
+            if self.sessions.len() == 2 {
+                if now.duration_since(self.sessions[0].last) < SESSION_RETENTION {
+                    return false;
+                }
+                self.sessions.pop_front();
+            }
+            self.sessions.push_back(ServerSession {
+                id: control.server_session_id,
+                last: now,
+                window: PacketWindowFilter::new(),
+            });
+            self.sessions.len() - 1
+        };
+        let session = &mut self.sessions[index];
+        if !session
+            .window
+            .validate_packet_id(control.packet_id, u64::MAX)
+        {
+            return false;
+        }
+        session.last = now;
+        true
+    }
+
+    fn peer_matches(&self, peer: &Destination) -> bool {
+        self.server == *peer
+            || matches!((&self.server, peer),
+            (Destination::Domain { port, .. }, Destination::Ip(addr)) if *port == addr.port())
+    }
+}
+
+#[async_trait]
+impl DatagramTransport for SsDatagram {
+    async fn send(&mut self, datagram: Datagram) -> Result<(), DispatchError> {
+        if self.closed {
+            return Err(DispatchError::NotAllowed);
+        }
+        if datagram.payload.len() > MAX_WIRE_PACKET {
+            return Err(DispatchError::Other(
+                "Shadowsocks UDP payload exceeds wire limit".into(),
+            ));
+        }
+        // Reserve the ID before any cancellable write; an abandoned send must
+        // never cause the next packet to reuse an ID/session combination.
+        if self.control.packet_id == u64::MAX - 1 {
+            let previous = self.control.client_session_id;
+            loop {
+                self.control.client_session_id = rand::random();
+                if self.control.client_session_id != previous {
+                    break;
+                }
+            }
+            self.control.packet_id = 0;
+            self.sessions.clear();
+        }
+        self.control.packet_id += 1;
+        self.socket
+            .send_with_ctrl(
+                &super::address(&datagram.remote),
+                &self.control,
+                &datagram.payload,
+            )
+            .await
+            .map_err(|_| DispatchError::Other("Shadowsocks UDP encoding failed".into()))?;
+        let payload = self.io.take().map_err(DispatchError::from)?;
+        self.inner
+            .send(Datagram {
+                remote: self.server.clone(),
+                payload,
+                sniffed_domain: None,
+            })
+            .await
+    }
+
+    async fn receive(&mut self) -> Result<Datagram, DispatchError> {
+        if self.closed {
+            return Err(DispatchError::NotAllowed);
+        }
+        loop {
+            let wire = self.inner.receive().await?;
+            if !self.peer_matches(&wire.remote) || wire.payload.len() > self.wire_maximum {
+                continue;
+            }
+            self.io.put(wire.payload).map_err(DispatchError::from)?;
+            // The handoff is always Ready. The only cancellable receive is
+            // the shared transport above, so partial packets cannot survive.
+            let Ok((size, source, _, Some(control))) =
+                self.socket.recv_with_ctrl(&mut self.buffer).await
+            else {
+                continue;
+            };
+            if size > self.maximum {
+                continue;
+            }
+            let Ok(remote) = super::destination(source) else {
+                continue;
+            };
+            if !self.accept_control(&control) {
+                continue;
+            }
+            return Ok(Datagram {
+                remote,
+                payload: Bytes::copy_from_slice(&self.buffer[..size]),
+                sniffed_domain: None,
+            });
+        }
+    }
+
+    async fn close(&mut self) -> Result<(), DispatchError> {
+        self.closed = true;
+        self.sessions.clear();
+        self.inner.close().await
+    }
+}
+
+#[cfg(test)]
+#[path = "datagram_tests.rs"]
+mod tests;

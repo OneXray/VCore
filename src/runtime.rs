@@ -1,0 +1,2144 @@
+#![cfg_attr(not(feature = "ffi"), allow(dead_code))]
+
+#[cfg(all(test, unix, feature = "inbound-socks5", feature = "outbound-socks5"))]
+#[path = "runtime_lifecycle_tests.rs"]
+mod lifecycle_tests;
+
+use std::{
+    future::Future,
+    io,
+    net::SocketAddr,
+    sync::{Arc, atomic::AtomicUsize},
+    time::Duration,
+};
+
+use futures_util::future::{join_all, select_all};
+use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
+
+#[cfg(all(feature = "tun", any(unix, windows)))]
+use crate::{platform::TunIo, tun_runtime::TunRuntime};
+#[cfg(not(all(feature = "tun", any(unix, windows))))]
+type TunRuntime = ();
+
+#[cfg(any(feature = "inbound-http", feature = "inbound-socks5"))]
+use crate::controller::RuntimeController;
+#[cfg(not(any(feature = "inbound-http", feature = "inbound-socks5")))]
+type RuntimeController = ();
+
+#[cfg(feature = "ffi")]
+use crate::config::MeasureConfig;
+#[cfg(test)]
+use crate::config::ProxyId;
+#[cfg(feature = "inbound-http")]
+use crate::inbound::http::{HttpServer, HttpServerConfig};
+#[cfg(feature = "inbound-socks5")]
+use crate::inbound::socks5::Socks5Server;
+use crate::{
+    ResourceLimits,
+    config::{
+        Config, InboundConfig, ProxyConfig, ProxyGroupMemberTarget, ProxyProtocol, RouteTargetId,
+        SelectProxyGroupConfig, proxy_graph_order,
+    },
+    dialer::{Dialer, ResolvedEndpoint, Resolver},
+    dispatch::{Dispatcher, observe_handshakes_with_stats, observe_sessions_with_stats},
+    dns::runtime::RuntimeDns,
+    geodata::{
+        GeoDataManager, GeoDataRegistration, GeoRequirements, service::GeoDataUpdateService,
+    },
+    outbound::{
+        ConnectorDispatcher, DirectOutbound, OutboundConnector, SelectUpstream,
+        SelectUpstreamMember, UpstreamPath,
+    },
+    resources::RuntimeResourceStats,
+    routing::{GeoMatcher, ProxyGroups, RouteTargetDispatchers, RoutingDispatcher, RuleSet},
+    traffic::TunTrafficStats,
+};
+
+#[cfg(feature = "outbound-shadowsocks")]
+use crate::outbound::ShadowsocksOutbound;
+#[cfg(feature = "outbound-socks5")]
+use crate::outbound::Socks5Outbound;
+#[cfg(feature = "outbound-anytls")]
+use crate::outbound::{AnyTlsOutbound, server_destination};
+#[cfg(feature = "outbound-vless")]
+use crate::outbound::{VlessOutbound, VlessResourceLimits};
+#[cfg(feature = "outbound-anytls")]
+use crate::security::StandardTlsClient;
+#[cfg(any(feature = "outbound-anytls", feature = "outbound-vless"))]
+use crate::security::{SecurityContext, TLS_RESUMPTION_SESSION_BUDGET};
+
+/// Parsed configuration plus the bootstrap-resolved physical proxy roots.
+#[derive(Debug)]
+pub(crate) struct PreparedCore {
+    config: Config,
+    endpoints: Vec<PreparedProxyEndpoints>,
+    limits: ResourceLimits,
+    rules: RuleSet,
+    geodata_manager: Arc<GeoDataManager>,
+    geodata_registration: GeoDataRegistration,
+    traffic_stats: Option<Arc<TunTrafficStats>>,
+}
+
+/// A node-only outbound graph prepared for one built-in latency probe.
+///
+/// Unlike `PreparedCore`, this type never registers GeoData, compiles rules,
+/// builds DNS, or starts an inbound. Each value owns independent connector and
+/// security state and is dropped when its measurement item completes.
+#[cfg(feature = "ffi")]
+pub(crate) struct PreparedMeasurement {
+    config: MeasureConfig,
+    endpoints: Vec<PreparedProxyEndpoints>,
+    limits: ResourceLimits,
+}
+
+/// Bootstrap-resolved physical destinations for one proxy graph node.
+///
+/// Proxy-only upstreams keep both entries empty. Nodes with a possible DIRECT
+/// group path are also physical roots, regardless of initial selection. They retain a
+/// primary endpoint and, when XHTTP download settings are present, a second
+/// endpoint for the independent download leg.
+#[derive(Debug, Clone, Default)]
+struct PreparedProxyEndpoints {
+    upload: Option<ResolvedEndpoint>,
+    download: Option<ResolvedEndpoint>,
+}
+
+#[cfg(feature = "ffi")]
+pub(crate) struct MeasurementRuntime {
+    dispatcher: Arc<dyn Dispatcher>,
+    proxy_graph: BuiltProxyGraph,
+}
+
+#[cfg(feature = "ffi")]
+impl MeasurementRuntime {
+    #[must_use]
+    pub(crate) fn dispatcher(&self) -> Arc<dyn Dispatcher> {
+        self.dispatcher.clone()
+    }
+
+    pub(crate) async fn shutdown(self) {
+        self.proxy_graph.begin_shutdown();
+        self.proxy_graph.shutdown().await;
+    }
+}
+
+#[cfg(feature = "ffi")]
+impl Drop for MeasurementRuntime {
+    fn drop(&mut self) {
+        self.proxy_graph.begin_shutdown();
+    }
+}
+
+struct BuiltRuntimeParts {
+    dispatcher: Arc<dyn Dispatcher>,
+    dns: Option<Arc<RuntimeDns>>,
+    geodata_updater: Option<GeoDataUpdateService>,
+    proxy_groups: Arc<ProxyGroups>,
+    proxy_graph: BuiltProxyGraph,
+}
+
+struct BuiltProxyGraph {
+    nodes: Vec<Arc<dyn OutboundConnector>>,
+    lifecycle_order: Vec<BuiltRouteTarget>,
+    selections: Vec<Arc<AtomicUsize>>,
+}
+
+enum BuiltRouteTarget {
+    Proxy(Arc<dyn OutboundConnector>),
+    Group(Arc<SelectUpstream>),
+}
+
+impl BuiltProxyGraph {
+    fn get(&self, index: usize) -> Option<&Arc<dyn OutboundConnector>> {
+        self.nodes.get(index)
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.nodes.len()
+    }
+
+    fn connectors(&self) -> &[Arc<dyn OutboundConnector>] {
+        &self.nodes
+    }
+
+    fn begin_shutdown(&self) {
+        for target in self.lifecycle_order.iter().rev() {
+            if let BuiltRouteTarget::Proxy(connector) = target {
+                connector.begin_shutdown();
+            }
+        }
+    }
+
+    async fn shutdown(&self) {
+        for target in self.lifecycle_order.iter().rev() {
+            if let BuiltRouteTarget::Proxy(connector) = target {
+                connector.shutdown().await;
+            }
+        }
+    }
+}
+
+impl Drop for BuiltProxyGraph {
+    fn drop(&mut self) {
+        self.begin_shutdown();
+        self.nodes.clear();
+        while let Some(target) = self.lifecycle_order.pop() {
+            match target {
+                BuiltRouteTarget::Proxy(connector) => drop(connector),
+                BuiltRouteTarget::Group(group) => drop(group),
+            }
+        }
+    }
+}
+
+impl PreparedCore {
+    #[cfg(test)]
+    async fn prepare(
+        yaml: &[u8],
+        resolver: &dyn Resolver,
+        limits: ResourceLimits,
+    ) -> io::Result<Self> {
+        let config = Config::parse_yaml(yaml)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+        let directory = tempfile::tempdir()?;
+        let manager = GeoDataManager::open(directory.path(), Duration::from_secs(24 * 60 * 60))
+            .map_err(io::Error::other)?;
+        Self::prepare_config(config, manager, resolver, limits).await
+    }
+
+    /// Completes bootstrap preparation for a configuration that has already
+    /// passed strict schema validation. The Invoke layer uses this split to
+    /// claim runtime-local resources, notably the unique TUN lease, before a
+    /// potentially blocking DNS lookup.
+    pub(crate) async fn prepare_config(
+        mut config: Config,
+        geodata_manager: Arc<GeoDataManager>,
+        resolver: &dyn Resolver,
+        limits: ResourceLimits,
+    ) -> io::Result<Self> {
+        limits
+            .validate()
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+        let (rules, geodata_registration) = prepare_routing(&mut config, &geodata_manager)?;
+        let endpoints =
+            prepare_proxy_endpoints(&config.proxies, &config.proxy_groups, resolver, config.ipv6)
+                .await?;
+        let traffic_stats = config
+            .tun
+            .enable
+            .then(|| Arc::new(TunTrafficStats::default()));
+        Ok(Self {
+            config,
+            endpoints,
+            limits,
+            rules,
+            geodata_manager,
+            geodata_registration,
+            traffic_stats,
+        })
+    }
+
+    /// Performs every configuration-owned validation step without resolving
+    /// the proxy, opening GeoData files, or retaining a matcher.
+    pub(crate) fn validate_config(mut config: Config) -> io::Result<()> {
+        GeoRequirements::collect(&config.rules, &config.dns.nameserver_policies)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+        RuleSet::compile(std::mem::take(&mut config.rules))
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+        Ok(())
+    }
+
+    #[must_use]
+    #[cfg(test)]
+    fn proxy(&self, id: ProxyId) -> &ProxyConfig {
+        &self.config.proxies[id.index()]
+    }
+
+    #[must_use]
+    #[cfg(test)]
+    fn endpoint(&self, id: ProxyId) -> Option<&ResolvedEndpoint> {
+        self.endpoints
+            .get(id.index())
+            .and_then(|endpoints| endpoints.upload.as_ref())
+    }
+
+    #[must_use]
+    #[cfg(test)]
+    fn download_endpoint(&self, id: ProxyId) -> Option<&ResolvedEndpoint> {
+        self.endpoints
+            .get(id.index())
+            .and_then(|endpoints| endpoints.download.as_ref())
+    }
+
+    #[must_use]
+    pub(crate) fn has_tun(&self) -> bool {
+        self.config
+            .inbounds
+            .iter()
+            .any(|inbound| matches!(inbound, InboundConfig::Tun(_)))
+    }
+
+    #[must_use]
+    pub(crate) fn traffic_stats(&self) -> Option<Arc<TunTrafficStats>> {
+        self.traffic_stats.clone()
+    }
+
+    fn dns_redir_host_entries(&self) -> usize {
+        if self.has_tun() && self.rules.uses_domain_routing() {
+            self.limits.dns_redir_host_entries
+        } else {
+            0
+        }
+    }
+
+    fn domain_sniffer_config(&self) -> Option<Arc<crate::config::SnifferConfig>> {
+        (self.has_tun() && self.config.sniffer.enable && self.rules.uses_domain_routing())
+            .then(|| Arc::new(self.config.sniffer.clone()))
+    }
+
+    fn build_dispatcher(&self, dialer: Dialer) -> io::Result<BuiltRuntimeParts> {
+        let dialer = dialer.with_ipv6(self.config.ipv6);
+        let handshake_stats = RuntimeResourceStats::new("runtime_handshake_observation");
+        let proxy_graph = self.build_proxy_graph(dialer.clone())?;
+        let proxy_dispatchers =
+            self.wrap_proxy_dispatchers(proxy_graph.connectors(), &handshake_stats)?;
+        let direct_raw: Arc<dyn Dispatcher> = Arc::new(DirectOutbound::new(dialer));
+        let direct = observe_handshakes_with_stats(direct_raw, handshake_stats.clone());
+        let proxy_groups = ProxyGroups::with_selections(
+            &self.config.proxy_groups,
+            proxy_dispatchers.clone(),
+            direct.clone(),
+            &proxy_graph.selections,
+        )
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+        let route_targets =
+            RouteTargetDispatchers::with_proxy_groups(proxy_dispatchers, &proxy_groups)
+                .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+        let rules = self.rules.clone();
+        let redir_host_entries = self.dns_redir_host_entries();
+        let geo_matcher: Arc<dyn GeoMatcher> = self.geodata_registration.matcher();
+        let dns = self.config.dns.enable.then(|| {
+            Arc::new(RuntimeDns::new_routed_proxies_with_cache_limits(
+                &self.config.dns,
+                route_targets.clone(),
+                direct.clone(),
+                rules.clone(),
+                geo_matcher.clone(),
+                self.limits.dns_address_cache_entries,
+                redir_host_entries,
+            ))
+        });
+        let geodata_rules = RuleSet::compile(vec![crate::config::RuleSpec {
+            kind: crate::config::RuleKind::Match,
+            action: crate::config::RuleAction::Route(self.config.default_route_target),
+            no_resolve: false,
+        }])
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+        let geodata_dispatcher: Arc<dyn Dispatcher> = Arc::new(RoutingDispatcher::new_with_ipv6(
+            route_targets.clone(),
+            direct.clone(),
+            dns.clone(),
+            self.config.ipv6,
+            geodata_rules,
+            geo_matcher.clone(),
+        ));
+        let router: Arc<dyn Dispatcher> = Arc::new(RoutingDispatcher::new_with_ipv6(
+            route_targets,
+            direct,
+            dns.clone(),
+            self.config.ipv6,
+            rules,
+            geo_matcher,
+        ));
+        let session_stats = RuntimeResourceStats::new("runtime_session_observation");
+        Ok(BuiltRuntimeParts {
+            dispatcher: observe_sessions_with_stats(router, session_stats),
+            dns,
+            geodata_updater: {
+                let report = self.geodata_registration.initial_report();
+                let required = report.geosite.required || report.geoip.required;
+                self.config
+                    .geodata_update
+                    .as_ref()
+                    .filter(|update| update.auto_update && required)
+                    .map(|update| {
+                        GeoDataUpdateService::new(
+                            self.geodata_manager.clone(),
+                            geodata_dispatcher,
+                            self.geodata_registration.updater_lease(),
+                            update.urls.clone(),
+                        )
+                    })
+            },
+            proxy_groups,
+            proxy_graph,
+        })
+    }
+
+    fn build_proxy_graph(&self, dialer: Dialer) -> io::Result<BuiltProxyGraph> {
+        build_proxy_graph(
+            &self.config.proxies,
+            &self.config.proxy_groups,
+            &self.endpoints,
+            self.limits,
+            dialer,
+        )
+    }
+
+    fn wrap_proxy_dispatchers(
+        &self,
+        connectors: &[Arc<dyn OutboundConnector>],
+        handshake_stats: &RuntimeResourceStats,
+    ) -> io::Result<Vec<Arc<dyn Dispatcher>>> {
+        let mut dispatchers = Vec::with_capacity(connectors.len());
+        for (proxy, connector) in self.config.proxies.iter().zip(connectors) {
+            let mut dispatcher: Arc<dyn Dispatcher> = Arc::new(
+                ConnectorDispatcher::with_udp_capability(connector.clone(), proxy.udp),
+            );
+            dispatcher = observe_handshakes_with_stats(dispatcher, handshake_stats.clone());
+            dispatchers.push(dispatcher);
+        }
+        Ok(dispatchers)
+    }
+
+    async fn bind_controller(
+        &self,
+        traffic: Option<Arc<TunTrafficStats>>,
+        proxy_groups: Arc<ProxyGroups>,
+    ) -> io::Result<Option<RuntimeController>> {
+        let Some(config) = &self.config.external_controller else {
+            return Ok(None);
+        };
+        #[cfg(any(feature = "inbound-http", feature = "inbound-socks5"))]
+        {
+            RuntimeController::bind(config, traffic, proxy_groups)
+                .await
+                .map(Some)
+        }
+        #[cfg(not(any(feature = "inbound-http", feature = "inbound-socks5")))]
+        {
+            let _ = (config, traffic, proxy_groups);
+            Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "external controller support is disabled at build time",
+            ))
+        }
+    }
+
+    /// Starts configured local proxy listeners. TUN is started separately once
+    /// a platform descriptor and netstack are available.
+    pub(crate) async fn start_local(self, dialer: Dialer) -> io::Result<RunningCore> {
+        let BuiltRuntimeParts {
+            dispatcher,
+            geodata_updater,
+            proxy_groups,
+            proxy_graph,
+            ..
+        } = self.build_dispatcher(dialer)?;
+        let controller = self.bind_controller(None, proxy_groups).await?;
+        RunningCore::start_components(
+            &self.config.inbounds,
+            dispatcher,
+            None,
+            None,
+            controller,
+            geodata_updater,
+            self.geodata_registration,
+            proxy_graph,
+        )
+        .await
+    }
+
+    /// Starts the configured TUN listener and any loopback HTTP listener in the
+    /// same cancellation domain.
+    #[cfg(all(feature = "tun", any(unix, windows)))]
+    pub(crate) async fn start_tun(self, tun: TunIo, dialer: Dialer) -> io::Result<RunningCore> {
+        let tun_count = self
+            .config
+            .inbounds
+            .iter()
+            .filter(|inbound| matches!(inbound, InboundConfig::Tun(_)))
+            .count();
+        if tun_count != 1 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("start_tun requires exactly one TUN listener, found {tun_count}"),
+            ));
+        }
+        let BuiltRuntimeParts {
+            dispatcher,
+            dns,
+            geodata_updater,
+            proxy_groups,
+            proxy_graph,
+        } = self.build_dispatcher(dialer)?;
+        let sniffer = self.domain_sniffer_config();
+        let traffic_stats = self
+            .traffic_stats()
+            .unwrap_or_else(|| Arc::new(TunTrafficStats::default()));
+        let controller = self
+            .bind_controller(Some(traffic_stats.clone()), proxy_groups)
+            .await?;
+        let tun_runtime = TunRuntime::new_with_stats(
+            tun,
+            self.limits,
+            dispatcher.clone(),
+            dns,
+            self.config.ipv6,
+            true,
+            sniffer,
+            traffic_stats.clone(),
+        )?;
+        RunningCore::start_components(
+            &self.config.inbounds,
+            dispatcher,
+            Some(tun_runtime),
+            Some(traffic_stats),
+            controller,
+            geodata_updater,
+            self.geodata_registration,
+            proxy_graph,
+        )
+        .await
+    }
+}
+
+#[cfg(feature = "ffi")]
+impl PreparedMeasurement {
+    pub(crate) async fn prepare_config(
+        config: MeasureConfig,
+        resolver: &dyn Resolver,
+        limits: ResourceLimits,
+    ) -> io::Result<Self> {
+        limits
+            .validate()
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+        let endpoints = prepare_proxy_endpoints(&config.proxies, &[], resolver, true).await?;
+        Ok(Self {
+            config,
+            endpoints,
+            limits,
+        })
+    }
+
+    pub(crate) fn into_runtime(self, dialer: Dialer) -> io::Result<MeasurementRuntime> {
+        let proxy_graph = build_proxy_graph(
+            &self.config.proxies,
+            &[],
+            &self.endpoints,
+            self.limits,
+            dialer,
+        )?;
+        let connector = proxy_graph
+            .get(self.config.default_proxy.index())
+            .cloned()
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "default proxy is missing from the measurement graph",
+                )
+            })?;
+        let dispatcher: Arc<dyn Dispatcher> = Arc::new(ConnectorDispatcher::new(connector));
+        let handshake_stats = RuntimeResourceStats::new("measurement_handshake_observation");
+        let dispatcher = observe_handshakes_with_stats(dispatcher, handshake_stats);
+        let session_stats = RuntimeResourceStats::new("measurement_session_observation");
+        Ok(MeasurementRuntime {
+            dispatcher: observe_sessions_with_stats(dispatcher, session_stats),
+            proxy_graph,
+        })
+    }
+}
+
+fn build_proxy_graph(
+    proxies: &[ProxyConfig],
+    groups: &[SelectProxyGroupConfig],
+    endpoints: &[PreparedProxyEndpoints],
+    limits: ResourceLimits,
+    dialer: Dialer,
+) -> io::Result<BuiltProxyGraph> {
+    if endpoints.len() != proxies.len() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "proxy endpoint registry length does not match the proxy graph",
+        ));
+    }
+    let order = proxy_graph_order(proxies, groups)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+    #[cfg(any(feature = "outbound-anytls", feature = "outbound-vless"))]
+    let (security_client_count, standard_tls_count) = security_counts(proxies);
+    #[cfg(any(feature = "outbound-anytls", feature = "outbound-vless"))]
+    let security_context = (security_client_count != 0).then(SecurityContext::new);
+    #[cfg(any(feature = "outbound-anytls", feature = "outbound-vless"))]
+    let resumption_sessions = standard_tls_resumption_sessions(standard_tls_count);
+
+    // Declared before the temporary registries: even on partial construction
+    // failure they drop first, then this guard releases the DAG in reverse
+    // dependency order without recursive destruction of configuration-sized chains.
+    let mut graph = BuiltProxyGraph {
+        nodes: Vec::new(),
+        lifecycle_order: Vec::with_capacity(order.len()),
+        selections: groups
+            .iter()
+            .map(|group| Arc::new(AtomicUsize::new(group.initial_member)))
+            .collect(),
+    };
+    let mut nodes: Vec<Option<Arc<dyn OutboundConnector>>> = vec![None; proxies.len()];
+    let mut group_nodes: Vec<Option<Arc<SelectUpstream>>> = vec![None; groups.len()];
+    for target in order {
+        let index = match target {
+            RouteTargetId::Group(id) => {
+                let config = &groups[id.index()];
+                let members = config
+                    .members
+                    .iter()
+                    .map(|member| match member.target {
+                        ProxyGroupMemberTarget::Route(RouteTargetId::Proxy(id)) => {
+                            SelectUpstreamMember::Proxy(
+                                nodes[id.index()]
+                                    .as_ref()
+                                    .expect("dependency built")
+                                    .clone(),
+                            )
+                        }
+                        ProxyGroupMemberTarget::Route(RouteTargetId::Group(id)) => {
+                            SelectUpstreamMember::Group(
+                                group_nodes[id.index()]
+                                    .as_ref()
+                                    .expect("dependency built")
+                                    .clone(),
+                            )
+                        }
+                        ProxyGroupMemberTarget::Direct => SelectUpstreamMember::Direct,
+                        ProxyGroupMemberTarget::Reject => SelectUpstreamMember::Reject,
+                    })
+                    .collect();
+                let group = Arc::new(SelectUpstream::new(
+                    graph.selections[id.index()].clone(),
+                    members,
+                ));
+                group_nodes[id.index()] = Some(group.clone());
+                graph.lifecycle_order.push(BuiltRouteTarget::Group(group));
+                continue;
+            }
+            RouteTargetId::Proxy(id) => id.index(),
+        };
+        let proxy = &proxies[index];
+        let upstream = build_upstream_path(
+            proxy.dialer_proxy,
+            endpoints[index].upload.clone(),
+            &nodes,
+            &group_nodes,
+            &dialer,
+        )?;
+        let connector: Arc<dyn OutboundConnector> = match &proxy.protocol {
+            ProxyProtocol::Shadowsocks(config) => {
+                #[cfg(feature = "outbound-shadowsocks")]
+                {
+                    Arc::new(ShadowsocksOutbound::new_with_path(config, upstream)?)
+                }
+                #[cfg(not(feature = "outbound-shadowsocks"))]
+                {
+                    let _ = (config, upstream);
+                    return Err(io::Error::new(
+                        io::ErrorKind::Unsupported,
+                        "Shadowsocks outbound support is disabled at build time",
+                    ));
+                }
+            }
+            ProxyProtocol::Vless(config) => {
+                #[cfg(feature = "outbound-vless")]
+                {
+                    let download_upstream = config
+                        .xhttp
+                        .download
+                        .as_ref()
+                        .map(|_| {
+                            build_upstream_path(
+                                proxy.dialer_proxy,
+                                endpoints[index].download.clone(),
+                                &nodes,
+                                &group_nodes,
+                                &dialer,
+                            )
+                        })
+                        .transpose()?;
+                    Arc::new(VlessOutbound::new_with_shared_security(
+                        config,
+                        upstream,
+                        download_upstream,
+                        security_context
+                            .as_ref()
+                            .expect("VLESS graph has shared security material"),
+                        resumption_sessions,
+                        VlessResourceLimits::new(
+                            limits.tls_buffer_limit,
+                            limits.xhttp_send_buffer_size,
+                            limits.xhttp_upload_chunk_size,
+                        ),
+                    )?)
+                }
+                #[cfg(not(feature = "outbound-vless"))]
+                {
+                    let _ = (config, upstream);
+                    return Err(io::Error::new(
+                        io::ErrorKind::Unsupported,
+                        "VLESS outbound support is disabled at build time",
+                    ));
+                }
+            }
+            ProxyProtocol::Socks5(config) => {
+                #[cfg(feature = "outbound-socks5")]
+                {
+                    Arc::new(Socks5Outbound::new_with_path(config, upstream)?)
+                }
+                #[cfg(not(feature = "outbound-socks5"))]
+                {
+                    let _ = (config, upstream);
+                    return Err(io::Error::new(
+                        io::ErrorKind::Unsupported,
+                        "SOCKS5 outbound support is disabled at build time",
+                    ));
+                }
+            }
+            ProxyProtocol::AnyTls(config) => {
+                #[cfg(feature = "outbound-anytls")]
+                {
+                    let tls = StandardTlsClient::for_anytls(
+                        security_context
+                            .as_ref()
+                            .expect("AnyTLS graph has shared security material"),
+                        &config.server_name,
+                        &config.tls,
+                        resumption_sessions,
+                        limits.tls_buffer_limit,
+                    )?;
+                    Arc::new(AnyTlsOutbound::new(
+                        server_destination(&config.address, config.port)?,
+                        upstream,
+                        &config.password,
+                        Arc::new(tls),
+                        limits.tcp_buffer_per_direction,
+                    )?)
+                }
+                #[cfg(not(feature = "outbound-anytls"))]
+                {
+                    let _ = (config, upstream);
+                    return Err(io::Error::new(
+                        io::ErrorKind::Unsupported,
+                        "AnyTLS outbound support is disabled at build time",
+                    ));
+                }
+            }
+        };
+
+        graph
+            .lifecycle_order
+            .push(BuiltRouteTarget::Proxy(connector.clone()));
+        nodes[index] = Some(connector);
+    }
+    graph.nodes = nodes
+        .into_iter()
+        .map(|node| node.expect("every validated proxy graph node was built"))
+        .collect();
+    Ok(graph)
+}
+
+fn build_upstream_path(
+    parent: Option<RouteTargetId>,
+    endpoint: Option<ResolvedEndpoint>,
+    nodes: &[Option<Arc<dyn OutboundConnector>>],
+    groups: &[Option<Arc<SelectUpstream>>],
+    dialer: &Dialer,
+) -> io::Result<UpstreamPath> {
+    match parent {
+        Some(RouteTargetId::Proxy(id)) => Ok(UpstreamPath::proxy(
+            nodes[id.index()]
+                .as_ref()
+                .expect("dependency built")
+                .clone(),
+        )),
+        Some(RouteTargetId::Group(id)) => Ok(UpstreamPath::Group {
+            group: groups[id.index()]
+                .as_ref()
+                .expect("dependency built")
+                .clone(),
+            endpoint,
+            dialer: dialer.clone(),
+        }),
+        None => endpoint
+            .map(|endpoint| UpstreamPath::direct(endpoint, dialer.clone()))
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "physical proxy root has no prepared endpoint",
+                )
+            }),
+    }
+}
+
+async fn prepare_proxy_endpoints(
+    proxies: &[ProxyConfig],
+    groups: &[SelectProxyGroupConfig],
+    resolver: &dyn Resolver,
+    ipv6: bool,
+) -> io::Result<Vec<PreparedProxyEndpoints>> {
+    let order = proxy_graph_order(proxies, groups)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+    let mut direct_groups = vec![false; groups.len()];
+    for target in order {
+        if let RouteTargetId::Group(id) = target {
+            direct_groups[id.index()] =
+                groups[id.index()]
+                    .members
+                    .iter()
+                    .any(|member| match member.target {
+                        ProxyGroupMemberTarget::Direct => true,
+                        ProxyGroupMemberTarget::Route(RouteTargetId::Group(child)) => {
+                            direct_groups[child.index()]
+                        }
+                        _ => false,
+                    });
+        }
+    }
+    let lookups = proxies
+        .iter()
+        .enumerate()
+        .filter(|(_, proxy)| match proxy.dialer_proxy {
+            None => true,
+            Some(RouteTargetId::Group(id)) => direct_groups[id.index()],
+            Some(RouteTargetId::Proxy(_)) => false,
+        })
+        .map(|(index, proxy)| async move {
+            let upload_address = proxy.address();
+            let upload_port = proxy.port();
+            let download = match &proxy.protocol {
+                ProxyProtocol::Vless(config) => config.xhttp.download.as_deref(),
+                ProxyProtocol::Socks5(_)
+                | ProxyProtocol::AnyTls(_)
+                | ProxyProtocol::Shadowsocks(_) => None,
+            };
+
+            let (upload, download) = match download {
+                Some(download)
+                    if download.address != upload_address || download.port != upload_port =>
+                {
+                    let (upload, download) = tokio::join!(
+                        resolver.resolve(upload_address, upload_port),
+                        resolver.resolve(&download.address, download.port),
+                    );
+                    (upload?, Some(download?))
+                }
+                Some(_) => {
+                    let upload = resolver.resolve(upload_address, upload_port).await?;
+                    (upload.clone(), Some(upload))
+                }
+                None => (resolver.resolve(upload_address, upload_port).await?, None),
+            };
+            let upload = restrict_endpoint_addresses(upload, ipv6)?;
+            let download = download
+                .map(|endpoint| restrict_endpoint_addresses(endpoint, ipv6))
+                .transpose()?;
+            Ok::<_, io::Error>((
+                index,
+                PreparedProxyEndpoints {
+                    upload: Some(upload),
+                    download,
+                },
+            ))
+        });
+    let resolved = tokio::time::timeout(Duration::from_secs(10), join_all(lookups))
+        .await
+        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "bootstrap DNS timed out"))?;
+    let mut endpoints = vec![PreparedProxyEndpoints::default(); proxies.len()];
+    for endpoint in resolved {
+        let (index, endpoint) = endpoint?;
+        endpoints[index] = endpoint;
+    }
+    Ok(endpoints)
+}
+
+fn restrict_endpoint_addresses(
+    mut endpoint: ResolvedEndpoint,
+    ipv6: bool,
+) -> io::Result<ResolvedEndpoint> {
+    if ipv6 {
+        return Ok(endpoint);
+    }
+    endpoint.addresses.retain(SocketAddr::is_ipv4);
+    if endpoint.addresses.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "proxy server did not resolve to a permitted address",
+        ));
+    }
+    Ok(endpoint)
+}
+
+#[cfg(any(feature = "outbound-anytls", feature = "outbound-vless"))]
+fn security_counts(proxies: &[ProxyConfig]) -> (usize, usize) {
+    proxies.iter().fold(
+        (0, 0),
+        |(client_count, standard_count), proxy| match &proxy.protocol {
+            ProxyProtocol::Vless(config) => {
+                let download = config.xhttp.download.as_deref();
+                (
+                    client_count + 1 + usize::from(download.is_some()),
+                    standard_count
+                        + usize::from(matches!(
+                            &config.security,
+                            crate::config::SecurityConfig::Tls(_)
+                        ))
+                        + download.map_or(0, |download| {
+                            usize::from(matches!(
+                                &download.security,
+                                crate::config::SecurityConfig::Tls(_)
+                            ))
+                        }),
+                )
+            }
+            ProxyProtocol::AnyTls(_) => (client_count + 1, standard_count + 1),
+            ProxyProtocol::Socks5(_) | ProxyProtocol::Shadowsocks(_) => {
+                (client_count, standard_count)
+            }
+        },
+    )
+}
+
+#[cfg(any(feature = "outbound-anytls", feature = "outbound-vless"))]
+fn standard_tls_resumption_sessions(standard_tls_count: usize) -> usize {
+    if standard_tls_count == 0 || standard_tls_count > TLS_RESUMPTION_SESSION_BUDGET {
+        0
+    } else {
+        TLS_RESUMPTION_SESSION_BUDGET / standard_tls_count
+    }
+}
+
+fn prepare_routing(
+    config: &mut Config,
+    geodata_manager: &Arc<GeoDataManager>,
+) -> io::Result<(RuleSet, GeoDataRegistration)> {
+    let requirements = GeoRequirements::collect(&config.rules, &config.dns.nameserver_policies)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+    let geodata_registration = geodata_manager
+        .register(requirements)
+        .map_err(io::Error::other)?;
+    // GeoData must inspect the normalized rule specifications first. Once that
+    // borrowing load is complete, move the rules directly into the compiled
+    // set so PreparedCore does not retain a second owned rule graph.
+    let rules = RuleSet::compile(std::mem::take(&mut config.rules))
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+    Ok((rules, geodata_registration))
+}
+
+pub(crate) struct RunningCore {
+    cancellation: CancellationToken,
+    tasks: Vec<JoinHandle<io::Result<()>>>,
+    traffic_stats: Option<Arc<TunTrafficStats>>,
+    proxy_graph: BuiltProxyGraph,
+    _geodata_registration: GeoDataRegistration,
+}
+
+impl std::fmt::Debug for RunningCore {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("RunningCore")
+            .field("task_count", &self.tasks.len())
+            .field("has_traffic_stats", &self.traffic_stats.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+impl RunningCore {
+    // Runtime construction keeps ownership transfers explicit; grouping these
+    // independent components into another one-use container would only hide
+    // the shutdown responsibilities enforced below.
+    #[allow(clippy::too_many_arguments)]
+    async fn start_components(
+        inbounds: &[InboundConfig],
+        dispatcher: Arc<dyn Dispatcher>,
+        tun_runtime: Option<TunRuntime>,
+        traffic_stats: Option<Arc<TunTrafficStats>>,
+        controller: Option<RuntimeController>,
+        geodata_updater: Option<GeoDataUpdateService>,
+        geodata_registration: GeoDataRegistration,
+        proxy_graph: BuiltProxyGraph,
+    ) -> io::Result<Self> {
+        let cancellation = CancellationToken::new();
+        let mut tasks = Vec::with_capacity(
+            inbounds.len()
+                + usize::from(tun_runtime.is_some())
+                + usize::from(controller.is_some())
+                + usize::from(geodata_updater.is_some()),
+        );
+        #[cfg(not(any(feature = "inbound-http", feature = "inbound-socks5")))]
+        let _ = &dispatcher;
+
+        // Bind every listener before spawning anything. All acquired sockets,
+        // the already-bound Controller and the untouched graph roll back by RAII.
+        #[cfg(feature = "inbound-http")]
+        let mut http_servers = Vec::new();
+        #[cfg(feature = "inbound-socks5")]
+        let mut socks_servers = Vec::new();
+
+        for inbound in inbounds {
+            match inbound {
+                InboundConfig::Http(config) => {
+                    #[cfg(not(feature = "inbound-http"))]
+                    {
+                        let _ = config;
+                        cancellation.cancel();
+                        abort_and_join(&mut tasks).await;
+                        return Err(io::Error::new(
+                            io::ErrorKind::Unsupported,
+                            "HTTP listener support is disabled at build time",
+                        ));
+                    }
+                    #[cfg(feature = "inbound-http")]
+                    {
+                        let server = HttpServer::bind(
+                            HttpServerConfig::proxy(
+                                config.port,
+                                config.access,
+                                config.auth.clone(),
+                            )?,
+                            dispatcher.clone(),
+                        )
+                        .await?;
+                        http_servers.push(server);
+                    }
+                }
+                InboundConfig::Socks5(config) => {
+                    #[cfg(not(feature = "inbound-socks5"))]
+                    {
+                        let _ = config;
+                        return Err(io::Error::new(
+                            io::ErrorKind::Unsupported,
+                            "SOCKS5 listener support is disabled at build time",
+                        ));
+                    }
+                    #[cfg(feature = "inbound-socks5")]
+                    socks_servers.push(Socks5Server::bind(config.clone(), dispatcher.clone())?);
+                }
+                InboundConfig::Tun(_) => {
+                    if tun_runtime.is_none() {
+                        cancellation.cancel();
+                        abort_and_join(&mut tasks).await;
+                        return Err(io::Error::new(
+                            io::ErrorKind::Unsupported,
+                            "TUN listener requires start_tun with a platform descriptor",
+                        ));
+                    }
+                }
+            }
+        }
+
+        #[cfg(feature = "inbound-http")]
+        for server in http_servers {
+            let child = cancellation.clone();
+            tasks.push(tokio::spawn(server.serve(child)));
+        }
+        #[cfg(feature = "inbound-socks5")]
+        for server in socks_servers {
+            let child = cancellation.clone();
+            tasks.push(tokio::spawn(server.serve(child)));
+        }
+
+        #[cfg(all(feature = "tun", any(unix, windows)))]
+        if let Some(tun_runtime) = tun_runtime {
+            let child = cancellation.clone();
+            tasks.push(tokio::spawn(tun_runtime.run(child)));
+        }
+
+        #[cfg(any(feature = "inbound-http", feature = "inbound-socks5"))]
+        if let Some(controller) = controller {
+            let child = cancellation.clone();
+            tasks.push(tokio::spawn(controller.serve(child)));
+        }
+
+        #[cfg(not(any(feature = "inbound-http", feature = "inbound-socks5")))]
+        debug_assert!(controller.is_none());
+
+        if let Some(geodata_updater) = geodata_updater {
+            let child = cancellation.clone();
+            tasks.push(tokio::spawn(geodata_updater.run(child)));
+        }
+
+        Ok(Self {
+            cancellation,
+            tasks,
+            traffic_stats,
+            proxy_graph,
+            _geodata_registration: geodata_registration,
+        })
+    }
+
+    pub(crate) async fn stop(self) -> io::Result<()> {
+        self.run_until_shutdown(std::future::ready(Ok(()))).await
+    }
+
+    /// Runs until the host requests shutdown or any long-lived component
+    /// exits. A component that ends before shutdown is always treated as a
+    /// core failure, even when it returned `Ok(())`.
+    pub(crate) async fn run_until_shutdown<F>(mut self, shutdown: F) -> io::Result<()>
+    where
+        F: Future<Output = io::Result<()>>,
+    {
+        tokio::pin!(shutdown);
+        let (completed, shutdown_error) = tokio::select! {
+            biased;
+            result = &mut shutdown => (None, result.err()),
+            completed = wait_first_task(&mut self.tasks), if !self.tasks.is_empty() => (completed, None),
+        };
+        self.proxy_graph.begin_shutdown();
+        self.cancellation.cancel();
+        let mut first_error = shutdown_error.or_else(|| completed.map(component_completion_error));
+        for task in self.tasks.drain(..) {
+            match task.await {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) if first_error.is_none() => first_error = Some(error),
+                Err(error) if first_error.is_none() => {
+                    first_error = Some(io::Error::other(error));
+                }
+                _ => {}
+            }
+        }
+        self.proxy_graph.shutdown().await;
+        first_error.map_or(Ok(()), Err)
+    }
+}
+
+async fn wait_first_task(
+    tasks: &mut Vec<JoinHandle<io::Result<()>>>,
+) -> Option<Result<io::Result<()>, tokio::task::JoinError>> {
+    if tasks.is_empty() {
+        return None;
+    }
+    let (result, index, remaining) = select_all(tasks.iter_mut()).await;
+    drop(remaining);
+    drop(tasks.swap_remove(index));
+    Some(result)
+}
+
+fn component_completion_error(result: Result<io::Result<()>, tokio::task::JoinError>) -> io::Error {
+    match result {
+        Ok(Ok(())) => io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "VCore runtime component stopped unexpectedly",
+        ),
+        Ok(Err(error)) => error,
+        Err(error) => io::Error::other(error),
+    }
+}
+
+impl Drop for RunningCore {
+    fn drop(&mut self) {
+        self.proxy_graph.begin_shutdown();
+        self.cancellation.cancel();
+        for task in &self.tasks {
+            task.abort();
+        }
+    }
+}
+
+async fn abort_and_join(tasks: &mut Vec<JoinHandle<io::Result<()>>>) {
+    for task in tasks.iter() {
+        task.abort();
+    }
+    for task in tasks.drain(..) {
+        let _ = task.await;
+    }
+}
+
+#[cfg(test)]
+#[path = "runtime_group_tests.rs"]
+mod group_tests;
+
+#[cfg(all(test, feature = "inbound-socks5", feature = "outbound-socks5"))]
+#[path = "runtime_socks_tests.rs"]
+mod socks_tests;
+
+#[cfg(test)]
+mod tests {
+    use std::net::{IpAddr, SocketAddr};
+    use std::sync::{
+        Mutex,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    #[cfg(all(feature = "tun", any(unix, windows)))]
+    use std::net::Ipv4Addr;
+
+    #[cfg(all(unix, feature = "tun"))]
+    use std::{os::fd::AsRawFd, os::unix::net::UnixDatagram};
+
+    use async_trait::async_trait;
+    use tempfile::tempdir;
+    #[cfg(all(unix, feature = "tun"))]
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    use super::*;
+    #[cfg(all(unix, feature = "tun"))]
+    use crate::config::TunInboundConfig;
+    use crate::dialer::ResolvedEndpoint;
+    #[cfg(all(windows, feature = "tun"))]
+    use crate::platform::TunIo;
+
+    struct FixedResolver;
+
+    #[async_trait]
+    impl Resolver for FixedResolver {
+        async fn resolve(&self, host: &str, port: u16) -> io::Result<ResolvedEndpoint> {
+            Ok(ResolvedEndpoint {
+                logical_host: host.to_owned(),
+                port,
+                addresses: vec![SocketAddr::new(IpAddr::from([127, 0, 0, 1]), port)],
+            })
+        }
+    }
+
+    #[derive(Default)]
+    struct RecordingResolver {
+        hosts: Mutex<Vec<String>>,
+    }
+
+    #[async_trait]
+    impl Resolver for RecordingResolver {
+        async fn resolve(&self, host: &str, port: u16) -> io::Result<ResolvedEndpoint> {
+            self.hosts.lock().unwrap().push(host.to_owned());
+            Ok(ResolvedEndpoint {
+                logical_host: host.to_owned(),
+                port,
+                addresses: vec![SocketAddr::new(IpAddr::from([127, 0, 0, 1]), port)],
+            })
+        }
+    }
+
+    #[derive(Default)]
+    struct ConcurrentResolver {
+        active: AtomicUsize,
+        peak: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl Resolver for ConcurrentResolver {
+        async fn resolve(&self, host: &str, port: u16) -> io::Result<ResolvedEndpoint> {
+            let active = self.active.fetch_add(1, Ordering::AcqRel) + 1;
+            self.peak.fetch_max(active, Ordering::AcqRel);
+            tokio::time::sleep(Duration::from_millis(25)).await;
+            self.active.fetch_sub(1, Ordering::AcqRel);
+            Ok(ResolvedEndpoint {
+                logical_host: host.to_owned(),
+                port,
+                addresses: vec![SocketAddr::new(IpAddr::from([127, 0, 0, 1]), port)],
+            })
+        }
+    }
+
+    const CONFIG: &str = r#"port: 18080
+authentication:
+  - measure:secret
+proxies:
+  - name: proxy
+    type: vless
+    server: server.test
+    port: 443
+    uuid: 00000000-0000-4000-8000-000000000001
+    udp: true
+    tls: true
+    network: xhttp
+    encryption: none
+    servername: example.com
+    alpn: [h2]
+    xhttp-opts:
+      path: /x
+      mode: packet-up
+rules:
+  - MATCH,proxy
+"#;
+
+    #[test]
+    fn disabled_ipv6_filters_proxy_bootstrap_addresses() {
+        let endpoint = ResolvedEndpoint {
+            logical_host: "proxy.example".to_owned(),
+            port: 443,
+            addresses: vec![
+                "[2001:db8::1]:443".parse().unwrap(),
+                "192.0.2.1:443".parse().unwrap(),
+            ],
+        };
+        let filtered = restrict_endpoint_addresses(endpoint, false).unwrap();
+        assert_eq!(filtered.addresses, vec!["192.0.2.1:443".parse().unwrap()]);
+
+        let ipv6_only = ResolvedEndpoint {
+            logical_host: "proxy.example".to_owned(),
+            port: 443,
+            addresses: vec!["[2001:db8::1]:443".parse().unwrap()],
+        };
+        assert_eq!(
+            restrict_endpoint_addresses(ipv6_only, false)
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::NotFound
+        );
+    }
+
+    fn config_with_rules(rules: &str) -> String {
+        CONFIG.replacen("rules:\n  - MATCH,proxy\n", rules, 1)
+    }
+
+    fn config_with_download(fields: &str) -> String {
+        CONFIG.replace(
+            "      mode: packet-up\n",
+            &format!("      mode: packet-up\n      download-settings:\n{fields}\n"),
+        )
+    }
+
+    #[tokio::test]
+    async fn prepare_resolves_the_sole_outbound() {
+        let prepared =
+            PreparedCore::prepare(CONFIG.as_bytes(), &FixedResolver, ResourceLimits::default())
+                .await
+                .unwrap();
+        let id = ProxyId::new(0).unwrap();
+        assert_eq!(prepared.proxy(id).tag, "proxy");
+        assert!(matches!(
+            prepared.proxy(id).protocol,
+            ProxyProtocol::Vless(_)
+        ));
+        assert_eq!(prepared.endpoint(id).unwrap().logical_host, "server.test");
+        assert!(!prepared.has_tun());
+        assert!(
+            prepared.config.rules.is_empty(),
+            "normalized rules must be moved out of the retained config"
+        );
+        assert_eq!(prepared.rules.len(), 1);
+        assert_eq!(
+            prepared.rules.rule(0).map(|rule| rule.action),
+            Some(crate::config::RuleAction::Route(
+                crate::config::RouteTargetId::Proxy(id)
+            )),
+            "moving the normalized rules must preserve the compiled default route"
+        );
+    }
+
+    #[tokio::test]
+    async fn prepare_reuses_one_resolution_for_an_identical_download_server() {
+        let resolver = RecordingResolver::default();
+        let yaml = CONFIG.replace(
+            "      mode: packet-up\n",
+            "      mode: packet-up\n      download-settings: {}\n",
+        );
+        let prepared = PreparedCore::prepare(yaml.as_bytes(), &resolver, ResourceLimits::default())
+            .await
+            .unwrap();
+        assert_eq!(*resolver.hosts.lock().unwrap(), ["server.test".to_owned()]);
+
+        let id = ProxyId::new(0).unwrap();
+        let upload = prepared.endpoint(id).unwrap();
+        let download = prepared.download_endpoint(id).unwrap();
+        assert_eq!(upload, download);
+        assert_eq!(
+            prepared.build_proxy_graph(Dialer::default()).unwrap().len(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn prepare_resolves_distinct_download_server_concurrently() {
+        let resolver = ConcurrentResolver::default();
+        let yaml = config_with_download("        server: download.test\n        port: 8443");
+        let prepared = PreparedCore::prepare(yaml.as_bytes(), &resolver, ResourceLimits::default())
+            .await
+            .unwrap();
+        assert_eq!(resolver.peak.load(Ordering::Acquire), 2);
+
+        let id = ProxyId::new(0).unwrap();
+        assert_eq!(prepared.endpoint(id).unwrap().logical_host, "server.test");
+        let download = prepared.download_endpoint(id).unwrap();
+        assert_eq!(download.logical_host, "download.test");
+        assert_eq!(download.port, 8443);
+        assert_eq!(
+            prepared.build_proxy_graph(Dialer::default()).unwrap().len(),
+            1
+        );
+    }
+
+    #[test]
+    #[cfg(any(feature = "outbound-anytls", feature = "outbound-vless"))]
+    fn security_budget_counts_every_vless_transport_leg() {
+        let yaml = config_with_download("        server: download.test\n        port: 8443");
+        let config = Config::parse_yaml(yaml.as_bytes()).unwrap();
+        assert_eq!(security_counts(&config.proxies), (2, 2));
+        assert_eq!(standard_tls_resumption_sessions(2), 2);
+    }
+
+    #[tokio::test]
+    async fn production_redir_host_store_requires_tun_and_domain_rules() {
+        let domain_rules = r#"
+rules:
+  - DOMAIN-SUFFIX,example.com,DIRECT
+  - MATCH,proxy
+"#;
+        let tun = r#"
+tun:
+  enable: true
+  mtu: 1500
+"#;
+
+        let no_tun = PreparedCore::prepare(
+            config_with_rules(domain_rules).as_bytes(),
+            &FixedResolver,
+            ResourceLimits::default(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(no_tun.dns_redir_host_entries(), 0);
+
+        let no_domain_rules = PreparedCore::prepare(
+            format!("{CONFIG}{tun}").as_bytes(),
+            &FixedResolver,
+            ResourceLimits::default(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(no_domain_rules.dns_redir_host_entries(), 0);
+
+        let enabled = PreparedCore::prepare(
+            format!("{}{tun}", config_with_rules(domain_rules)).as_bytes(),
+            &FixedResolver,
+            ResourceLimits::default(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            enabled.dns_redir_host_entries(),
+            ResourceLimits::default().dns_redir_host_entries
+        );
+        assert!(
+            enabled.domain_sniffer_config().is_none(),
+            "redir-host remains available when the optional sniffer is omitted"
+        );
+    }
+
+    #[tokio::test]
+    async fn production_domain_sniffer_requires_tun_enable_and_domain_rules() {
+        let domain_rules = r#"
+rules:
+  - DOMAIN-SUFFIX,example.com,DIRECT
+  - MATCH,proxy
+"#;
+        let tun = r#"
+tun:
+  enable: true
+  mtu: 1500
+"#;
+        let sniffer = r#"
+sniffer:
+  enable: true
+  sniff:
+    HTTP:
+      ports: [8080]
+    TLS:
+      ports: ["8443-8444"]
+"#;
+
+        let no_tun = PreparedCore::prepare(
+            format!("{}{sniffer}", config_with_rules(domain_rules)).as_bytes(),
+            &FixedResolver,
+            ResourceLimits::default(),
+        )
+        .await
+        .unwrap();
+        assert!(no_tun.domain_sniffer_config().is_none());
+
+        let no_domain_rules = PreparedCore::prepare(
+            format!("{CONFIG}{tun}{sniffer}").as_bytes(),
+            &FixedResolver,
+            ResourceLimits::default(),
+        )
+        .await
+        .unwrap();
+        assert!(no_domain_rules.domain_sniffer_config().is_none());
+
+        let disabled = PreparedCore::prepare(
+            format!(
+                "{}{tun}sniffer:\n  enable: false\n  sniff:\n    HTTP: {{}}\n",
+                config_with_rules(domain_rules)
+            )
+            .as_bytes(),
+            &FixedResolver,
+            ResourceLimits::default(),
+        )
+        .await
+        .unwrap();
+        assert!(disabled.domain_sniffer_config().is_none());
+        assert_eq!(
+            disabled.dns_redir_host_entries(),
+            ResourceLimits::default().dns_redir_host_entries,
+            "sniffer disablement must not remove DNS routing hints"
+        );
+
+        let enabled = PreparedCore::prepare(
+            format!("{}{tun}{sniffer}", config_with_rules(domain_rules)).as_bytes(),
+            &FixedResolver,
+            ResourceLimits::default(),
+        )
+        .await
+        .unwrap();
+        let normalized = enabled
+            .domain_sniffer_config()
+            .expect("all three production sniffer gates are enabled");
+        assert!(normalized.matches_http_port(8080));
+        assert!(!normalized.matches_http_port(80));
+        assert!(normalized.matches_tls_port(8444));
+        assert!(!normalized.matches_tls_port(443));
+    }
+
+    #[test]
+    fn nameserver_policy_validation_does_not_require_geosite_asset() {
+        let yaml = format!(
+            r#"{CONFIG}
+dns:
+  enable: true
+  nameserver: ["tcp://1.1.1.1:53#proxy"]
+  nameserver-policy:
+    "geosite:private,cn,apple":
+      - "tcp://223.5.5.5:53#DIRECT"
+"#
+        );
+        let config = Config::parse_yaml(yaml.as_bytes()).unwrap();
+        PreparedCore::validate_config(config).unwrap();
+    }
+
+    #[cfg(feature = "outbound-vless")]
+    #[tokio::test]
+    async fn geodata_updater_requires_enabled_config_and_actual_demand() {
+        fn configured(auto_update: bool, geodata_rule: bool) -> String {
+            let fields = format!(
+                r#"geox-url:
+  geoip: https://downloads.example.test/custom-geoip.dat
+  geosite: https://downloads.example.test/custom-geosite.dat
+geo-auto-update: {auto_update}
+geo-update-interval: 24
+"#
+            );
+            if geodata_rule {
+                config_with_rules("rules:\n  - GEOSITE,cn,proxy\n  - MATCH,proxy\n").replacen(
+                    "port: 18080\n",
+                    &format!("{fields}port: 18080\n"),
+                    1,
+                )
+            } else {
+                CONFIG.replacen("port: 18080\n", &format!("{fields}port: 18080\n"), 1)
+            }
+        }
+
+        async fn updater_for(yaml: &str) -> Option<GeoDataUpdateService> {
+            PreparedCore::prepare(yaml.as_bytes(), &FixedResolver, ResourceLimits::default())
+                .await
+                .unwrap()
+                .build_dispatcher(Dialer::default())
+                .unwrap()
+                .geodata_updater
+        }
+
+        let missing_config_with_demand =
+            config_with_rules("rules:\n  - GEOIP,cn,proxy\n  - MATCH,proxy\n");
+        assert!(updater_for(&missing_config_with_demand).await.is_none());
+        assert!(updater_for(&configured(false, true)).await.is_none());
+        assert!(updater_for(&configured(true, false)).await.is_none());
+
+        let updater = updater_for(&configured(true, true))
+            .await
+            .expect("enabled explicit GeoData config plus demand starts the updater");
+        assert_eq!(
+            updater.urls().geoip,
+            "https://downloads.example.test/custom-geoip.dat"
+        );
+        assert_eq!(
+            updater.urls().geosite,
+            "https://downloads.example.test/custom-geosite.dat"
+        );
+    }
+
+    #[cfg(feature = "outbound-vless")]
+    #[tokio::test]
+    async fn a_manager_rejects_a_second_prepared_configuration() {
+        fn configured(auto_update: bool, rule: &str, source: &str) -> String {
+            let fields = format!(
+                r#"geox-url:
+  geoip: https://{source}/geoip.dat
+  geosite: https://{source}/geosite.dat
+geo-auto-update: {auto_update}
+geo-update-interval: 24
+"#
+            );
+            config_with_rules(&format!("rules:\n  - {rule},proxy\n  - MATCH,proxy\n")).replacen(
+                "port: 18080\n",
+                &format!("{fields}port: 18080\n"),
+                1,
+            )
+        }
+
+        let directory = tempdir().unwrap();
+        let manager =
+            GeoDataManager::open(directory.path(), Duration::from_secs(24 * 60 * 60)).unwrap();
+        let _active = PreparedCore::prepare_config(
+            Config::parse_yaml(
+                configured(true, "GEOSITE,enabled", "enabled.example.test").as_bytes(),
+            )
+            .unwrap(),
+            manager.clone(),
+            &FixedResolver,
+            ResourceLimits::default(),
+        )
+        .await
+        .unwrap();
+        let second = PreparedCore::prepare_config(
+            Config::parse_yaml(
+                configured(false, "GEOIP,disabled", "disabled.example.test").as_bytes(),
+            )
+            .unwrap(),
+            manager.clone(),
+            &FixedResolver,
+            ResourceLimits::default(),
+        )
+        .await
+        .unwrap_err();
+
+        assert!(second.to_string().contains("active registration"));
+    }
+
+    fn two_socks_config(chained: bool) -> String {
+        let dialer = if chained {
+            "    dialer-proxy: node-b\n"
+        } else {
+            ""
+        };
+        format!(
+            r#"port: 18080
+authentication:
+  - measure:secret
+proxies:
+  - name: node-a
+    type: socks5
+{dialer}    server: a.test
+    port: 1080
+  - name: node-b
+    type: socks5
+    server: b.test
+    port: 1081
+rules:
+  - MATCH,node-a
+"#
+        )
+    }
+
+    #[tokio::test]
+    async fn prepare_resolves_both_independent_proxy_roots() {
+        let resolver = RecordingResolver::default();
+        let prepared = PreparedCore::prepare(
+            two_socks_config(false).as_bytes(),
+            &resolver,
+            ResourceLimits::default(),
+        )
+        .await
+        .unwrap();
+        let mut hosts = resolver.hosts.lock().unwrap().clone();
+        hosts.sort();
+        assert_eq!(hosts, ["a.test".to_owned(), "b.test".to_owned()]);
+        assert!(prepared.endpoint(ProxyId::new(0).unwrap()).is_some());
+        assert!(prepared.endpoint(ProxyId::new(1).unwrap()).is_some());
+    }
+
+    #[cfg(feature = "outbound-socks5")]
+    #[tokio::test]
+    async fn prepare_resolves_only_the_physical_chain_root() {
+        let resolver = RecordingResolver::default();
+        let prepared = PreparedCore::prepare(
+            two_socks_config(true).as_bytes(),
+            &resolver,
+            ResourceLimits::default(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(*resolver.hosts.lock().unwrap(), ["b.test".to_owned()]);
+        assert!(prepared.endpoint(ProxyId::new(0).unwrap()).is_none());
+        assert!(prepared.endpoint(ProxyId::new(1).unwrap()).is_some());
+        assert_eq!(
+            prepared.build_proxy_graph(Dialer::default()).unwrap().len(),
+            2
+        );
+    }
+
+    #[cfg(all(feature = "outbound-socks5", feature = "outbound-vless"))]
+    #[tokio::test]
+    async fn split_vless_behind_dialer_proxy_does_not_resolve_either_child_leg() {
+        let yaml = r#"port: 18080
+authentication:
+  - measure:secret
+proxies:
+  - name: vless-child
+    type: vless
+    server: upload-child.test
+    port: 443
+    uuid: 00000000-0000-4000-8000-000000000001
+    udp: true
+    tls: true
+    network: xhttp
+    encryption: none
+    servername: upload-child.test
+    alpn: [h2]
+    dialer-proxy: socks-root
+    xhttp-opts:
+      host: upload-child.test
+      path: /upload
+      mode: packet-up
+      download-settings:
+        server: download-child.test
+        port: 8443
+  - name: socks-root
+    type: socks5
+    server: socks-root.test
+    port: 1080
+rules:
+  - MATCH,vless-child
+"#;
+        let resolver = RecordingResolver::default();
+        let prepared = PreparedCore::prepare(yaml.as_bytes(), &resolver, ResourceLimits::default())
+            .await
+            .unwrap();
+        assert_eq!(
+            *resolver.hosts.lock().unwrap(),
+            ["socks-root.test".to_owned()]
+        );
+        let child = ProxyId::new(0).unwrap();
+        assert!(prepared.endpoint(child).is_none());
+        assert!(prepared.download_endpoint(child).is_none());
+        assert_eq!(
+            prepared.build_proxy_graph(Dialer::default()).unwrap().len(),
+            2
+        );
+    }
+
+    #[cfg(all(
+        feature = "outbound-anytls",
+        feature = "outbound-socks5",
+        feature = "outbound-vless"
+    ))]
+    #[tokio::test]
+    async fn proxy_graph_builds_protocol_combinations_and_long_chains() {
+        assert_eq!(standard_tls_resumption_sessions(1), 4);
+        assert_eq!(standard_tls_resumption_sessions(2), 2);
+        assert_eq!(standard_tls_resumption_sessions(3), 1);
+        assert_eq!(standard_tls_resumption_sessions(4), 1);
+        assert_eq!(standard_tls_resumption_sessions(5), 0);
+        assert_eq!(standard_tls_resumption_sessions(64), 0);
+
+        fn vless(tag: &str) -> ProxyConfig {
+            let mut proxy = Config::parse_yaml(CONFIG.as_bytes())
+                .unwrap()
+                .proxies
+                .into_iter()
+                .next()
+                .unwrap();
+            proxy.tag = tag.to_owned();
+            proxy
+        }
+
+        fn socks5(tag: &str) -> ProxyConfig {
+            ProxyConfig {
+                tag: tag.to_owned(),
+                dialer_proxy: None,
+                udp: false,
+                protocol: ProxyProtocol::Socks5(crate::config::Socks5OutboundConfig {
+                    address: "127.0.0.1".to_owned(),
+                    port: 1080,
+                    username: None,
+                    password: None,
+                }),
+            }
+        }
+
+        fn anytls(tag: &str) -> ProxyConfig {
+            ProxyConfig {
+                tag: tag.to_owned(),
+                dialer_proxy: None,
+                udp: true,
+                protocol: ProxyProtocol::AnyTls(crate::config::AnyTlsOutboundConfig {
+                    address: "127.0.0.1".to_owned(),
+                    port: 443,
+                    password: "secret".to_owned(),
+                    server_name: "example.com".to_owned(),
+                    tls: Default::default(),
+                }),
+            }
+        }
+
+        let mut mixed_security = vec![vless("tls")];
+        for index in 0..8 {
+            let mut reality = vless(&format!("reality-{index}"));
+            let ProxyProtocol::Vless(config) = &mut reality.protocol else {
+                unreachable!("vless test helper always creates VLESS")
+            };
+            config.security =
+                crate::config::SecurityConfig::Reality(crate::config::RealityConfig {
+                    server_name: "example.com".to_owned(),
+                    public_key: [7; 32],
+                    short_id: vec![1, 2, 3, 4],
+                });
+            mixed_security.push(reality);
+        }
+        mixed_security.push(anytls("anytls"));
+        let (security_client_count, standard_tls_count) = security_counts(&mixed_security);
+        assert_eq!(security_client_count, 10);
+        assert_eq!(standard_tls_count, 2);
+        assert_eq!(standard_tls_resumption_sessions(standard_tls_count), 2);
+
+        async fn build(proxies: Vec<ProxyConfig>) -> usize {
+            let mut config = Config::parse_yaml(CONFIG.as_bytes()).unwrap();
+            config.proxies = proxies;
+            let directory = tempdir().unwrap();
+            let geodata_manager =
+                GeoDataManager::open(directory.path(), Duration::from_secs(24 * 60 * 60)).unwrap();
+            let prepared = PreparedCore::prepare_config(
+                config,
+                geodata_manager,
+                &FixedResolver,
+                ResourceLimits::default(),
+            )
+            .await
+            .unwrap();
+            prepared.build_proxy_graph(Dialer::default()).unwrap().len()
+        }
+
+        assert_eq!(build(vec![vless("selected")]).await, 1);
+        assert_eq!(build(vec![socks5("selected")]).await, 1);
+        assert_eq!(build(vec![anytls("selected")]).await, 1);
+
+        for (mut selected, upstream) in [
+            (vless("selected"), vless("upstream")),
+            (vless("selected"), socks5("upstream")),
+            (vless("selected"), anytls("upstream")),
+            (socks5("selected"), vless("upstream")),
+            (socks5("selected"), socks5("upstream")),
+            (socks5("selected"), anytls("upstream")),
+            (anytls("selected"), vless("upstream")),
+            (anytls("selected"), socks5("upstream")),
+            (anytls("selected"), anytls("upstream")),
+        ] {
+            // `selected -> upstream` means selected.dialer-proxy references
+            // the second node; the wire path reaches upstream first.
+            selected.dialer_proxy = ProxyId::new(1).map(RouteTargetId::Proxy);
+            assert_eq!(build(vec![selected, upstream]).await, 2);
+        }
+
+        let mut chain = (0..6)
+            .map(|index| socks5(&format!("node-{index}")))
+            .collect::<Vec<_>>();
+        for (index, proxy) in chain.iter_mut().take(5).enumerate() {
+            proxy.dialer_proxy = ProxyId::new(index + 1).map(RouteTargetId::Proxy);
+        }
+        assert_eq!(build(chain).await, 6);
+    }
+
+    #[cfg(all(windows, feature = "tun"))]
+    #[tokio::test]
+    async fn windows_packet_adapter_runs_the_tun_runtime() {
+        let prepared = PreparedCore::prepare(
+            CURRENT_TUN_CONFIG.as_bytes(),
+            &FixedResolver,
+            ResourceLimits::default(),
+        )
+        .await
+        .unwrap();
+        let (tun, adapter) = TunIo::new(4, || Ok(()));
+        let running = prepared.start_tun(tun, Dialer::default()).await.unwrap();
+
+        assert!(adapter.try_send(icmpv4_echo_request()));
+        let reply = tokio::time::timeout(Duration::from_millis(100), async {
+            loop {
+                if let Some(reply) = adapter.pop_egress() {
+                    break reply;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("Windows packet adapter did not return the ICMP reply");
+        assert_eq!(reply[20], 0);
+
+        running.stop().await.unwrap();
+    }
+
+    #[cfg(all(unix, feature = "tun"))]
+    #[tokio::test]
+    async fn start_tun_requires_exactly_one_tun_listener() {
+        let prepared =
+            PreparedCore::prepare(CONFIG.as_bytes(), &FixedResolver, ResourceLimits::default())
+                .await
+                .unwrap();
+        let (tun, _peer) = test_tun();
+        let error = prepared
+            .start_tun(tun, Dialer::default())
+            .await
+            .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+
+        let mut prepared =
+            PreparedCore::prepare(CONFIG.as_bytes(), &FixedResolver, ResourceLimits::default())
+                .await
+                .unwrap();
+        prepared.config.inbounds.extend([
+            InboundConfig::Tun(TunInboundConfig {
+                tag: "tun-a".to_owned(),
+                mtu: 1_500,
+            }),
+            InboundConfig::Tun(TunInboundConfig {
+                tag: "tun-b".to_owned(),
+                mtu: 1_500,
+            }),
+        ]);
+        let (tun, _peer) = test_tun();
+        let error = prepared
+            .start_tun(tun, Dialer::default())
+            .await
+            .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+
+        let mut prepared =
+            PreparedCore::prepare(CONFIG.as_bytes(), &FixedResolver, ResourceLimits::default())
+                .await
+                .unwrap();
+        prepared
+            .config
+            .inbounds
+            .push(InboundConfig::Tun(TunInboundConfig {
+                tag: "tun".to_owned(),
+                mtu: 1_500,
+            }));
+        let (tun, _peer) = test_tun();
+        let running = prepared.start_tun(tun, Dialer::default()).await.unwrap();
+        running.stop().await.unwrap();
+    }
+
+    #[cfg(all(unix, feature = "tun"))]
+    #[tokio::test]
+    async fn current_tun_enables_local_icmp_echo() {
+        let prepared = PreparedCore::prepare(
+            CURRENT_TUN_CONFIG.as_bytes(),
+            &FixedResolver,
+            ResourceLimits::default(),
+        )
+        .await
+        .unwrap();
+        let reply = tun_echo_reply(prepared)
+            .await
+            .expect("TUN did not answer ICMP echo");
+        assert_eq!(reply[0], 0x45);
+        assert_eq!(reply[8], 64);
+        assert_eq!(reply[9], 1);
+        assert_eq!(&reply[12..16], &[198, 51, 100, 20]);
+        assert_eq!(&reply[16..20], &[192, 0, 2, 10]);
+        assert_eq!(reply[20], 0);
+        assert_eq!(&reply[24..], &[0x12, 0x34, 0x56, 0x78, b'o', b'd', b'd']);
+    }
+
+    #[cfg(all(unix, feature = "tun"))]
+    #[tokio::test]
+    async fn tun_controller_shares_lifecycle_and_reports_raw_ip_bytes() {
+        let reservation = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let controller_address = reservation.local_addr().unwrap();
+        drop(reservation);
+        let yaml = CURRENT_TUN_CONFIG.replacen(
+            "tun:\n",
+            &format!("external-controller: \"{controller_address}\"\nsecret: test-token\ntun:\n"),
+            1,
+        );
+        let prepared =
+            PreparedCore::prepare(yaml.as_bytes(), &FixedResolver, ResourceLimits::default())
+                .await
+                .unwrap();
+        let stats = prepared
+            .traffic_stats()
+            .expect("TUN preparation allocates one statistics object");
+        let (tun, peer) = test_tun();
+        peer.set_nonblocking(true).unwrap();
+        let peer = tokio::net::UnixDatagram::from_std(peer).unwrap();
+        let running = prepared.start_tun(tun, Dialer::default()).await.unwrap();
+
+        let request = icmpv4_echo_request();
+        peer.send(&request).await.unwrap();
+        let mut reply = vec![0_u8; 1_500];
+        let reply_length = tokio::time::timeout(Duration::from_millis(100), peer.recv(&mut reply))
+            .await
+            .unwrap()
+            .unwrap();
+
+        let mut controller = tokio::net::TcpStream::connect(controller_address)
+            .await
+            .unwrap();
+        controller
+            .write_all(
+                b"GET /traffic HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer test-token\r\n\r\n",
+            )
+            .await
+            .unwrap();
+        let mut response = Vec::new();
+        controller.read_to_end(&mut response).await.unwrap();
+        let response = String::from_utf8(response).unwrap();
+        assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+        let body = response.split_once("\r\n\r\n").unwrap().1;
+        let snapshot = serde_json::from_str::<serde_json::Value>(body).unwrap();
+        assert_eq!(snapshot["upTotal"].as_u64(), Some(request.len() as u64));
+        assert_eq!(snapshot["downTotal"].as_u64(), Some(reply_length as u64));
+        assert_eq!(stats.snapshot().up_total, request.len() as u64);
+        assert_eq!(stats.snapshot().down_total, reply_length as u64);
+
+        running.stop().await.unwrap();
+        let reconnect = tokio::time::timeout(
+            Duration::from_millis(100),
+            tokio::net::TcpStream::connect(controller_address),
+        )
+        .await
+        .unwrap();
+        assert!(reconnect.is_err());
+    }
+
+    #[cfg(all(unix, feature = "tun", feature = "inbound-socks5"))]
+    #[tokio::test]
+    async fn socks5_and_tun_share_lifecycle_but_only_raw_ip_counts_as_traffic() {
+        let reserved = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = reserved.local_addr().unwrap();
+        let yaml = format!(
+            "socks-port: {}\nipv6: false\n{CURRENT_TUN_CONFIG}",
+            address.port()
+        );
+        drop(reserved);
+        let prepared =
+            PreparedCore::prepare(yaml.as_bytes(), &FixedResolver, ResourceLimits::default())
+                .await
+                .unwrap();
+        let stats = prepared.traffic_stats().unwrap();
+        let (tun, peer) = test_tun();
+        peer.set_nonblocking(true).unwrap();
+        let peer = tokio::net::UnixDatagram::from_std(peer).unwrap();
+        let running = prepared.start_tun(tun, Dialer::default()).await.unwrap();
+        let mut control = tokio::net::TcpStream::connect(address).await.unwrap();
+        control
+            .write_all(&[5, 1, 0, 5, 3, 0, 1, 0, 0, 0, 0, 0, 0])
+            .await
+            .unwrap();
+        let mut response = [0; 12];
+        tokio::time::timeout(Duration::from_secs(2), control.read_exact(&mut response))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(response[..5], [5, 0, 5, 0, 0]);
+        assert_eq!(stats.snapshot().up_total, 0);
+        assert_eq!(stats.snapshot().down_total, 0);
+        let request = icmpv4_echo_request();
+        peer.send(&request).await.unwrap();
+        let mut packet = [0; 1500];
+        let size = tokio::time::timeout(Duration::from_secs(2), peer.recv(&mut packet))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stats.snapshot().up_total, request.len() as u64);
+        assert_eq!(stats.snapshot().down_total, size as u64);
+        running.stop().await.unwrap();
+        drop(crate::inbound::listen::bind_tcp(address).unwrap());
+        drop(crate::inbound::listen::bind_udp(address).unwrap());
+    }
+
+    #[cfg(all(feature = "tun", any(unix, windows)))]
+    const CURRENT_TUN_CONFIG: &str = r#"tun:
+  enable: true
+proxies:
+  - name: proxy
+    type: vless
+    server: server.test
+    port: 443
+    uuid: 00000000-0000-4000-8000-000000000001
+    udp: true
+    tls: true
+    network: xhttp
+    encryption: none
+    servername: example.com
+    alpn: [h2]
+    xhttp-opts:
+      path: /x
+      mode: packet-up
+rules:
+  - MATCH,proxy
+"#;
+
+    #[cfg(all(unix, feature = "tun"))]
+    async fn tun_echo_reply(prepared: PreparedCore) -> Option<Vec<u8>> {
+        let (tun, peer) = test_tun();
+        peer.set_nonblocking(true).unwrap();
+        let peer = tokio::net::UnixDatagram::from_std(peer).unwrap();
+        let running = prepared.start_tun(tun, Dialer::default()).await.unwrap();
+        peer.send(&icmpv4_echo_request()).await.unwrap();
+
+        let mut reply = vec![0_u8; 1_500];
+        let received =
+            tokio::time::timeout(Duration::from_millis(100), peer.recv(&mut reply)).await;
+        running.stop().await.unwrap();
+        match received {
+            Ok(Ok(length)) => {
+                reply.truncate(length);
+                Some(reply)
+            }
+            Ok(Err(error)) => panic!("TUN peer receive failed: {error}"),
+            Err(_) => None,
+        }
+    }
+
+    #[cfg(all(feature = "tun", any(unix, windows)))]
+    fn icmpv4_echo_request() -> Vec<u8> {
+        let mut message = vec![8, 0, 0, 0, 0x12, 0x34, 0x56, 0x78, b'o', b'd', b'd'];
+        let checksum = test_checksum(&message);
+        message[2..4].copy_from_slice(&checksum.to_be_bytes());
+
+        let mut packet = vec![0_u8; 20 + message.len()];
+        packet[0] = 0x45;
+        let packet_len = u16::try_from(packet.len()).unwrap();
+        packet[2..4].copy_from_slice(&packet_len.to_be_bytes());
+        packet[6..8].copy_from_slice(&0x4000_u16.to_be_bytes());
+        packet[8] = 32;
+        packet[9] = 1;
+        packet[12..16].copy_from_slice(&Ipv4Addr::new(192, 0, 2, 10).octets());
+        packet[16..20].copy_from_slice(&Ipv4Addr::new(198, 51, 100, 20).octets());
+        packet[20..].copy_from_slice(&message);
+        let checksum = test_checksum(&packet[..20]);
+        packet[10..12].copy_from_slice(&checksum.to_be_bytes());
+        packet
+    }
+
+    #[cfg(all(feature = "tun", any(unix, windows)))]
+    fn test_checksum(bytes: &[u8]) -> u16 {
+        let mut sum = 0_u32;
+        let mut chunks = bytes.chunks_exact(2);
+        for chunk in &mut chunks {
+            sum += u32::from(u16::from_be_bytes([chunk[0], chunk[1]]));
+        }
+        if let Some(byte) = chunks.remainder().first() {
+            sum += u32::from(*byte) << 8;
+        }
+        while sum >> 16 != 0 {
+            sum = (sum & 0xffff) + (sum >> 16);
+        }
+        !u16::try_from(sum).unwrap()
+    }
+
+    #[cfg(all(unix, feature = "tun"))]
+    fn test_tun() -> (TunIo, UnixDatagram) {
+        let (host, peer) = UnixDatagram::pair().unwrap();
+        host.set_nonblocking(true).unwrap();
+        let fd = crate::platform::TunFd::duplicate(host.as_raw_fd()).unwrap();
+        (TunIo::new(fd, crate::TunFraming::RawIp).unwrap(), peer)
+    }
+}
