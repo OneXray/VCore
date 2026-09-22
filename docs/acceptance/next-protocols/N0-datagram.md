@@ -4,6 +4,8 @@
 
 **结论仅限 N0-B/D/G 的公共接口子项。** 已真实编译和执行 packet API / QUIC 注入测试；没有实现生产协议，也没有完成 N0-D 或 N0-G 的官方服务端互通。主 `Cargo.toml`、主 `Cargo.lock`、第三方源码、宿主路由/DNS/VPN 均未修改。
 
+本文保留首轮实验范围。后续 [HY2 受控数据报互通](N0-hysteria2.md) 已完成 Mihomo DIRECT/SOCKS5 UDP auth/stream、protect 拒绝和官方 Hysteria UDP=false 协商，并记录原生半关闭失败；该独立实验也完成 iOS/Android arm64 交叉 check。它不升级本文 WG、原生跳端口、Xray H3 或其他目标平台的未执行状态。
+
 ## 状态与边界
 
 | 子项 | 状态 | 本次证据 |
