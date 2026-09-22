@@ -35,13 +35,15 @@
 cargo test --locked --release --all-features --all-targets
 ```
 
-后续外部互操作以 mihomo 为对端，不从单元测试推断：
+后续外部互操作以 mihomo 官方最新稳定版预编译包为对端，不从单元测试推断。入口从官方 `latest/download/version.txt` 获取资产文件名所需的 release，再下载到本仓库的 `target/interop/`，通过二进制 `-v` 记录实际版本；不调用 GitHub API、不固定版本、不从本地源码编译、不依赖项目外目录。下载或解压失败不能使用旧缓存宣称通过：
 
 ```bash
 bash tests/run_mihomo_interop.sh
 ```
 
 该入口当前覆盖 8 个 HTTP 场景、8 个 SOCKS5 TCP/UDP 双向 IPv4/IPv6 场景及 17 个 AnyTLS 检查（12 个 TCP/UoT 数据场景、3 个独立测速、2 个证书拒绝）。版本、二进制 hash、超时及清理见 [scripts](../scripts/README.md#mihomo-协议互通)。既有 Xray / anytls-go 脚本保留为历史专用入口，未迁移的协议场景仍需补充 mihomo 证据，不能自动继承旧对端结果。
+
+2026-09-22 在 macOS ARM64 / Apple Container 1.4.1 执行 `uv run --project scripts --locked --offline vcore-scripts check mihomo-interop --container` 通过基础互通，包括上述 HTTP/SOCKS5/AnyTLS、SS 三算法、代理链、受控 EIH 中继、负例与生命周期清理；这里的 `--offline` 仅限制 uv 依赖解析，mihomo 仍在线下载。通过固定 `latest/download/version.txt` 下载到的官方原生和 Linux ARM64 程序，`-v` 均输出 `v1.19.31` / Go 1.26.8 / `with_gvisor`。程序 SHA-256 分别为 `fae1f37e28ee53fcf5be7a8bb121099db1fe442e44205734ed49c62579364090` 和 `1b315bc038d05f84ee86d232f3c3d2b020b5044e9b971bb8fe215b6e6a2148f3`；下载日志另记录压缩包摘要。本次未执行 `--extended`、30 分钟长测或设备/安装包验收，不继承下文旧自编译对端的扩展结果。自建对端和临时配置已清理。
 
 ## 协议与数据面
 

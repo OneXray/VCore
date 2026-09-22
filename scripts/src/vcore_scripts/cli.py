@@ -9,6 +9,7 @@ from pathlib import Path
 from .builds import build_android, build_apple, build_windows
 from .checks import check_c_header, check_tls_dependencies
 from .mihomo import run_mihomo_interop
+from .mihomo_release import SUPPORTED_TARGETS, download_mihomo
 from .tun2socks import run_demo
 
 
@@ -25,6 +26,13 @@ def _parser() -> argparse.ArgumentParser:
     platforms.add_parser("android", help="build Android libvcore.so artifacts")
     platforms.add_parser("windows", help="build packaged Windows artifacts")
 
+    download = commands.add_parser("download", help="download official test peers")
+    downloads = download.add_subparsers(dest="download", required=True)
+    peer = downloads.add_parser("mihomo", help="download the latest stable mihomo")
+    peer.add_argument(
+        "--target", choices=SUPPORTED_TARGETS, help="default: host platform"
+    )
+
     check = commands.add_parser("check", help="run repository checks")
     checks = check.add_subparsers(dest="check", required=True)
     checks.add_parser("c-header", help="compile vcore.h as C and C++")
@@ -32,11 +40,10 @@ def _parser() -> argparse.ArgumentParser:
     mihomo = checks.add_parser(
         "mihomo-interop", help="run local protocol interoperability against mihomo"
     )
-    mihomo.add_argument("--binary", type=Path)
     mihomo.add_argument(
-        "--container-binary",
-        type=Path,
-        help="run upstream/terminal peers in Apple Container (Linux ARM64 binary)",
+        "--container",
+        action="store_true",
+        help="download Linux ARM64 peers for Apple Container as well as native peers",
     )
     mihomo.add_argument(
         "--extended",
@@ -55,7 +62,8 @@ def _parser() -> argparse.ArgumentParser:
     tun2socks = demos.add_parser(
         "windows-tun2socks", help="run VCore TUN through an external Xray SOCKS inbound"
     )
-    tun2socks.add_argument("config", nargs="?", type=Path)
+    tun2socks.add_argument("config", type=Path)
+    tun2socks.add_argument("--xray-source", type=Path, required=True)
     return parser
 
 
@@ -69,23 +77,21 @@ def main(argv: Sequence[str] | None = None) -> int:
                 build_android()
             else:
                 build_windows()
+        elif args.command == "download":
+            download_mihomo(args.target)
         elif args.command == "check":
             if args.check == "c-header":
                 check_c_header()
             elif args.check == "mihomo-interop":
-                if args.extended or args.soak_seconds or args.container_binary:
-                    run_mihomo_interop(
-                        args.binary,
-                        extended=args.extended,
-                        soak_seconds=args.soak_seconds,
-                        container_binary=args.container_binary,
-                    )
-                else:
-                    run_mihomo_interop(args.binary)
+                run_mihomo_interop(
+                    extended=args.extended,
+                    soak_seconds=args.soak_seconds,
+                    container=args.container,
+                )
             else:
                 check_tls_dependencies()
         else:
-            run_demo(args.config)
+            run_demo(args.config, xray_source=args.xray_source)
     except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
         print(f"vcore-scripts: {error}", file=sys.stderr)
         return 1

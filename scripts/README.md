@@ -9,6 +9,8 @@ uv run --project scripts --locked vcore-scripts --help
 
 运行时只使用 Python 标准库；`ruff` 是由 `uv.lock` 固定的开发依赖。
 
+Mihomo 下载产物统一放在 VCore 仓库内、被 Git 忽略的 `target/interop/`。测试脚本不推断项目外目录布局；历史专用入口需要外部源码目录或配置文件时，必须显式传入。旧 Xray 二进制仍通过 `XRAY_BIN` 或标准 `PATH` 定位。
+
 ## 平台构建
 
 ```bash
@@ -58,11 +60,10 @@ uv run --project scripts --locked ruff format --check scripts
 后续协议互通统一使用下节的 mihomo harness。已有 Xray / anytls-go 脚本及本节的 Windows demo 保留为历史、显式专用入口，不作为新一轮协议互通的默认对端。
 
 ```powershell
-uv run --project scripts --locked vcore-scripts demo windows-tun2socks
-uv run --project scripts --locked vcore-scripts demo windows-tun2socks C:\path\to\xray-config.json
+uv run --project scripts --locked vcore-scripts demo windows-tun2socks C:\path\to\xray-config.json --xray-source C:\path\to\Xray-core
 ```
 
-该命令仍是显式互操作验收：它临时构建 `references/Xray-core`，使用已安装的 `VCore.UwpDemo.Dev` 示例 package，并在结束时停止测试 VPN 和删除临时文件。源配置不会被修改。真实配置、凭据和临时访问日志不得提交。
+该命令仍是显式互操作验收：它临时构建 `--xray-source` 指定的 checkout，使用已安装的 `VCore.UwpDemo.Dev` 示例 package，并在结束时停止测试 VPN 和删除临时文件。不再读取约定的兄弟目录或用户主目录配置；源配置不会被修改。历史 anytls-go 入口同样要求显式设置 `ANYTLS_GO_DIR`。真实配置、凭据和临时访问日志不得提交。
 
 ## mihomo 协议互通
 
@@ -80,26 +81,28 @@ SS 使用三个独立 2022 listener 和合成 PSK，检查 TCP/UDP × IPv4/IPv6/
 该 mihomo 服务端不暴露 EIH 用户配置；`tests/mihomo/eih.rs` 的受控中继独立校验并剥离 AES 的 1/2 层身份头，业务密文仍交给 mihomo，明确区别于原生 EIH 服务端。错误身份/密钥/算法有 TCP/UDP 负例。另通过公开 Invoke 验证各算法的活动 TCP/UDP Stop、绑定失败回滚和独立测速，macOS 记录清理前后的 `/dev/fd` 数量；这些不替代完整压力与物理设备验收。
 
 ```bash
+# 可先单独下载当前宿主平台的官方最新稳定版：
+uv run --project scripts --locked vcore-scripts download mihomo
+# 互通入口也会自动下载官方最新稳定版：
 uv run --project scripts --locked vcore-scripts check mihomo-interop
-# 或传入现有独立对端二进制：
-bash tests/run_mihomo_interop.sh --binary /absolute/path/to/mihomo
+# 等价的 shell 入口：
+bash tests/run_mihomo_interop.sh
 # 跨协议组合、Controller 切组、合成 utun 和重复生命周期：
 uv run --project scripts --locked vcore-scripts check mihomo-interop --extended
 # 30 分钟持续测试（单次通过不等于完整阶段签收，见下方限制）：
 uv run --project scripts --locked vcore-scripts check mihomo-interop --extended --soak-seconds 1800
 # macOS 推荐：上游和末端对端使用 Apple Container 独立 Linux VM：
 uv run --project scripts --locked vcore-scripts check mihomo-interop \
-  --container-binary references/mihomo-linux-arm64 --extended --soak-seconds 1800
+  --container --extended --soak-seconds 1800
 ```
 
-默认读取 `VCORE_MIHOMO_BIN` 或 `references/mihomo-test`。缺少二进制会明确失败并提示 NOT RUN，不进行下载或空跑。对已有参考 checkout，可自行构建：
+对端只使用 [MetaCubeX/mihomo 官方 Releases](https://github.com/MetaCubeX/mihomo/releases/latest) 的预编译包，不调用 Go 编译或读取研究 checkout。每次下载命令或互通运行都从固定的 [latest/download/version.txt](https://github.com/MetaCubeX/mihomo/releases/latest/download/version.txt) 下载小型版本文件，仅用于拼接官方带版本号的资产文件名；不调用 GitHub API、不固定版本。单次互通的原生与容器对端使用同一次解析的下载地址，避免下载期间发布新版本导致混用。实际运行版本由各自二进制的 `-v` 输出确认。
 
-```bash
-git -C references/mihomo rev-parse HEAD
-go -C references/mihomo build -trimpath -o ../mihomo-test .
-```
+每次通过 HTTPS 重新下载并解压到仓库内的 `target/interop/mihomo/<release>/<平台>/`，不以已有文件跳过下载。限制下载大小、解压大小和等待时间，完成后原子替换程序；下载或解压失败直接终止，不使用旧缓存或源码编译兜底。输出压缩包和程序的 SHA-256 供验收留证，但不将本地计算的摘要称为官方摘要校验。宿主支持 macOS / Windows / Linux 的 ARM64 与 x86_64 产物选择，Linux 下载支持仅用于测试对端，不改变 VCore 的平台支持范围。
 
-验收时记录源码完整 revision、Go 版本、构建 features 和 harness 输出的二进制版本 / SHA-256，不能只依赖自定义版本字符串。参考代码和二进制是独立研究对端，不加入 VCore 的生产依赖。
+`download mihomo --target linux-arm64` 可单独准备容器程序；省略 `--target` 自动识别宿主。旧 `--binary`、`--container-binary` 和 `VCORE_MIHOMO_BIN` 不再用于选择对端，容器模式改用 `--container`。下载需要网络；普通 Python 单元测试使用离线夹具，不下载程序或启动对端。
+
+验收时记录实际 release tag、官方 asset URL、压缩包 SHA-256 和 harness 输出的程序版本 / SHA-256，不能只依赖版本字符串。最新版会变化，每次验收单独留证；旧的本地编译版本、hash 和历史通过结果仍保留为当时证据，不转记为官方最新版的验证。下载包不加入 VCore 的生产依赖。
 
 默认模式四个对端仅开放本机回环，使用临时测试凭据、配置和 dataDir；origin 使用 IPv4/IPv6 回环，不启用系统 TUN，不改变系统代理或现有 mihomo 服务。容器模式的边界见下节。就绪期限 10 秒、socket I/O 与 Invoke 清理看门狗 5 秒、测试进程总期限 `300 + soak-seconds` 秒；退出或测试失败时停止并等待全部对端，必要时在 5 秒后强制结束，再移除本次临时目录。Invoke Stop 返回后检查 VCore TCP/UDP 端口可重绑。
 
@@ -119,25 +122,23 @@ UDP 失败时，macOS 夹具在退出前用有界 `lsof` 采样，仅检查本�
 
 ### Apple Container 对端
 
-需要已安装并运行的 Apple `container`（当前实际使用 1.4.1，macOS 27 / arm64）。先准备一次专用 host-only 网络、固定摘要的基础镜像及未修改的 mihomo Linux ARM64 程序；若同名网络已存在，先检查其 `mode=hostOnly` 和 `purpose=vcore-mihomo-interop` 标签，不覆盖其他网络：
+需要已安装并运行的 Apple `container`（历史实际使用 1.4.1，macOS 27 / arm64）。先准备一次专用 host-only 网络和固定摘要的基础镜像；mihomo Linux ARM64 程序由脚本从官方最新稳定版下载。若同名网络已存在，先检查其 `mode=hostOnly` 和 `purpose=vcore-mihomo-interop` 标签，不覆盖其他网络：
 
 ```bash
 container network inspect vcore-mihomo-interop
 # 仅在该网络不存在时创建：
 container network create --internal --label purpose=vcore-mihomo-interop vcore-mihomo-interop
 container image pull --arch arm64 docker.io/library/alpine@sha256:fd791d74b68913cbb027c6546007b3f0d3bc45125f797758156952bc2d6daf40
-git -C references/mihomo rev-parse HEAD
-CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go -C references/mihomo build -trimpath \
-  -ldflags '-X github.com/metacubex/mihomo/constant.Version=vcore-interop-ab405bad' \
-  -o ../mihomo-linux-arm64 .
+uv run --project scripts --locked vcore-scripts download mihomo --target linux-arm64
+uv run --project scripts --locked vcore-scripts check mihomo-interop --container --extended
 ```
 
-本次源码完整 revision 为 `ab405bad5beeeac8b003bb01f60f134f6df54471`，Go 1.27.1、未添加 build tags，Linux 程序 SHA-256 为 `eb35562be501dd6cd9e1f8bdf3ba43162bf6abb6a3946cd1f1ec0511462feab2`。`--binary` / `VCORE_MIHOMO_BIN` 仍指定原生 macOS 程序，`--container-binary` 单独指定 Linux 程序。缺少基础镜像、网络或二进制会失败，不降级到本机、不自行拉取不同版本。
+下述历史验收使用的本地编译源码 revision 为 `ab405bad5beeeac8b003bb01f60f134f6df54471`，Go 1.27.1、未添加 build tags，Linux 程序 SHA-256 为 `eb35562be501dd6cd9e1f8bdf3ba43162bf6abb6a3946cd1f1ec0511462feab2`，不是当前官方下载产物的 hash。当前 `--container` 自动获取同一官方 release 的原生与 Linux ARM64 程序；缺少基础镜像、网络或下载/解压失败时终止，不降级到本机、不回退旧版本。
 
 - 首跳与末跳分别在两个 Linux VM 中，每个 1 CPU / 256 MiB；只读根和夹具挂载，临时可写 dataDir。直接访问隔离网络 IP，不发布宿主端口，不配置系统 DNS/PF、代理或 TUN，不关闭 mihomo 回环保护。
 - origin 和 REALITY 伪装站点只绑定该 host-only bridge 的地址，保留 IPv4 / IPv6 数据校验；启动时发现实际地址，不硬编码 DHCP 或 SLAAC 地址。排除尚处于 DAD、重复或失效状态的 IPv6 地址，再验证可绑定及两个容器可达，全部发生在业务测试前。域名 origin 和末端节点分别映射，避免把容器回环当成宿主。
 - 反向 HTTP/SOCKS5 入站测试仍使用两个原生 mihomo 进程，VCore 保持仅回环监听和原有认证。这不是四个对端全容器化，也不是 LAN 共享或物理 IPv6 验收。
-- 每次分配唯一容器名；成功、断言失败、超时或启动失败均只清理本次已创建且带标签的容器及临时目录。保留专用网络、缓存镜像和研究二进制供下次使用，不执行全局 stop/prune。
+- 每次分配唯一容器名；成功、断言失败、超时或启动失败均只清理本次已创建且带标签的容器及临时目录。保留专用网络、缓存镜像和仓库内下载产物，不执行全局 stop/prune。
 
 网络行为依据 [Apple Container 1.4.1 networking](https://github.com/apple/container/blob/1.4.1/docs/networking.md)。虚拟网络通过只证明该受控环境，不等于已经修复 macOS 同内核碰撞或第三方实现。
 

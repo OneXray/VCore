@@ -20,8 +20,6 @@ import time
 from pathlib import Path
 from urllib.parse import urlparse
 
-ROOT = Path(__file__).resolve().parents[3]
-XRAY_SOURCE = ROOT / "references" / "Xray-core"
 PACKAGE_NAME = "VCore.UwpDemo.Dev"
 SOCKS_PORT = 19080
 TUN_IPV4 = "192.168.8.1"
@@ -328,11 +326,12 @@ rules:
 """
 
 
-def run_demo(source_config: Path | None = None) -> None:
+def run_demo(source_config: Path, *, xray_source: Path) -> None:
     if os.name != "nt":
         raise RuntimeError("This demo requires Windows")
-    source_config = source_config or Path.home() / "lib" / "xray" / "config.json"
-    if not source_config.is_file() or not (XRAY_SOURCE / "go.mod").is_file():
+    source_config = source_config.resolve()
+    xray_source = xray_source.resolve()
+    if not source_config.is_file() or not (xray_source / "go.mod").is_file():
         raise RuntimeError("Xray source checkout or source config is missing")
 
     package = package_info()
@@ -356,13 +355,13 @@ def run_demo(source_config: Path | None = None) -> None:
                 str(xray_exe),
                 "./main",
             ],
-            cwd=XRAY_SOURCE,
+            cwd=xray_source,
             env=env,
             check=True,
         )
         revision = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
-            cwd=XRAY_SOURCE,
+            cwd=xray_source,
             check=True,
             capture_output=True,
             text=True,

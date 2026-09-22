@@ -16,6 +16,7 @@ from pathlib import Path
 
 from .builds import CORE_DIR
 from .mihomo_isolation import exclusive_run, reserve_port
+from .mihomo_release import download_mihomo, latest_release
 
 
 def _stop_peer(peer: subprocess.Popen) -> None:
@@ -42,23 +43,21 @@ def _wait_ready(peer, port: int, host: str = "127.0.0.1") -> None:
 
 
 def run_mihomo_interop(
-    binary: Path | None = None,
     *,
     extended: bool = False,
     soak_seconds: int = 0,
-    container_binary: Path | None = None,
+    container: bool = False,
 ) -> None:
     if not 0 <= soak_seconds <= 7200 or (soak_seconds and not extended):
         raise ValueError("soak seconds must be 0..7200 and require --extended")
-    binary = (
-        binary
-        or Path(os.environ.get("VCORE_MIHOMO_BIN", CORE_DIR / "references/mihomo-test"))
-    ).resolve()
-    if not binary.is_file():
-        raise RuntimeError(
-            "mihomo binary is missing; build the reference or pass --binary (NOT RUN)"
-        )
     with exclusive_run():
+        # One fresh release snapshot per run keeps native and container peers
+        # aligned even if upstream publishes another release during downloads.
+        release = latest_release()
+        binary = download_mihomo(release=release)
+        container_binary = (
+            download_mihomo("linux-arm64", release=release) if container else None
+        )
         _run_mihomo_interop(
             binary,
             extended=extended,
