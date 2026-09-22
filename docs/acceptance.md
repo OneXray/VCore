@@ -13,6 +13,8 @@
 
 ## 自动化覆盖
 
+下一版协议从独立 N0 基线开始，进度见 [N0 基线与可行性门禁](acceptance/next-protocols/N0.md)。2026-09-22 的新基线与接口实验不继承本页历史通过状态，也不代表新五协议或平台交付已经完成；当前混合 REALITY 前置条件仍有明确阻塞。
+
 当前 source/tests 覆盖：
 
 - Invoke API v5、单实例生命周期、Debug/Release 运行时线程重入拒绝、panic 与同步清理；

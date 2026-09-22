@@ -1,0 +1,26 @@
+[package]
+name = "vcore-n0-datagram-spike"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "MIT"
+
+# Keep N0-only candidate dependencies out of VCore's production dependency graph.
+
+[workspace]
+
+[dependencies]
+boringtun = { version = "=0.7.1", default-features = false }
+gotatun = { version = "=0.9.2", default-features = false, features = ["ring"] }
+quinn = { version = "=0.11.12", default-features = false, features = ["runtime-tokio", "rustls-ring"] }
+quinn-proto = { version = "0.11", default-features = false, features = ["rustls-ring"] }
+h3 = { version = "=0.0.8" }
+h3-quinn = { version = "=0.0.10" }
+rustls = { version = "=0.23.43", default-features = false, features = ["ring", "std", "tls12"] }
+rcgen = { version = "=0.14.8", default-features = false, features = ["crypto", "ring"] }
+tokio = { version = "1", features = ["macros", "rt", "time", "sync"] }
+bytes = "1"
+vcore = { path = "../../../..", default-features = false, features = ["outbound-socks5"] }
+
+[patch.crates-io]
+rustls = { git = "https://github.com/OneVCore/rustls", rev = "df261c84cbac4f708e63ac8644ce70daa90d771c" }

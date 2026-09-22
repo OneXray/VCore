@@ -1,0 +1,2932 @@
+{
+  "schema_version": 1,
+  "kind": "planned-combination-catalog",
+  "baseline_date": "2026-09-22",
+  "status": "NOT RUN",
+  "classification_semantics": {
+    "supported-required": "Required target category with an identified native route. This is not an implemented-feature or successful-wire-test claim.",
+    "rejected-by-contract": "Required negative category. Rejection phase is explicit; dynamic dispatch failures are not YAML parsing failures.",
+    "required-but-peer-unproven": "Target remains required; do not allow stage sign-off before native compatibility/topology proof. A BLOCKED delivery gate is not an executed test result."
+  },
+  "selection_semantics": "Apply contract rejection rules first. Each category expands only its stated legal modes. Unknown categories remain separate obligations; broad categories do not promote an unknown combination.",
+  "common_expansion": {
+    "address_targets": [
+      "ipv4",
+      "ipv6",
+      "domain"
+    ],
+    "traffic": [
+      "tcp",
+      "udp"
+    ],
+    "udp_aliases": {
+      "vmess": {
+        "omitted": "raw",
+        "empty": "raw"
+      },
+      "vless": {
+        "omitted": "xudp",
+        "none": "raw",
+        "packet": "packetaddr"
+      }
+    },
+    "strictly_required": [
+      "every finite field enum/default/alias",
+      "every legal transport/security class",
+      "each UDP codec",
+      "crossed inner/outer IP families for WireGuard",
+      "strongly coupled security, download inheritance and auto branches"
+    ],
+    "pairwise_policy": "Only independent tuning parameters after each field's boundary/default tests; never a substitute for the categories above.",
+    "lifecycle": "Each consumer protocol additionally requires cancellation, 20 lifecycle cycles, group snapshot, failure closure and current-session ownership.",
+    "reporting": "Source inspection is provenance only. Concrete case IDs, commands, native binary identity, observations and cleanup are added by later harness work; no inferred PASS."
+  },
+  "peers": {
+    "M": {
+      "implementation": "Mihomo",
+      "source": "https://github.com/MetaCubeX/mihomo",
+      "artifact_policy": "official latest binary; record actual version and hashes; never build locally"
+    },
+    "W": {
+      "implementation": "WireGuard Linux kernel with wg-tools, or official wireguard-go",
+      "source": "https://www.wireguard.com/install/",
+      "artifact_policy": "record official package/source provenance, kernel/module, tools and isolated topology"
+    },
+    "H": {
+      "implementation": "Hysteria 2",
+      "source": "https://github.com/apernet/hysteria",
+      "artifact_policy": "official latest binary; record actual version and hashes"
+    },
+    "XR": {
+      "implementation": "Xray-core",
+      "source": "https://github.com/XTLS/Xray-core",
+      "artifact_policy": "official latest binary; record actual version and hashes"
+    },
+    "V2": {
+      "implementation": "V2Ray-core",
+      "source": "https://github.com/v2fly/v2ray-core",
+      "artifact_policy": "official latest binary; record actual version and hashes"
+    }
+  },
+  "sources": {
+    "M-TR-IN": "https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/listener/trojan/server.go",
+    "CR-TR": "https://github.com/Watfaq/clash-rs/tree/39d06a49ccb5c812ed7cd70b3028f3efcebeae6b/clash-lib/src/proxy/trojan",
+    "M-WS": "https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/transport/vmess/websocket.go",
+    "M-GUN": "https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/transport/gun/gun.go",
+    "V2-WS": "https://github.com/v2fly/v2ray-core/blob/58073c8ea61c115c15ec52098f1e6fba18760507/transport/internet/websocket/hub.go",
+    "M-VM-IN": "https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/listener/sing_vmess/server.go",
+    "M-VM-CODEC": "https://github.com/MetaCubeX/sing-vmess/blob/9b7fdbf462a5cf6366628631ef426c1a91f5df82/protocol.go",
+    "M-PACKET": "https://github.com/MetaCubeX/sing-vmess/blob/9b7fdbf462a5cf6366628631ef426c1a91f5df82/packetaddr/packetaddr.go",
+    "CR-VM": "https://github.com/Watfaq/clash-rs/tree/39d06a49ccb5c812ed7cd70b3028f3efcebeae6b/clash-lib/src/proxy/vmess/vmess_impl",
+    "M-HTTP": "https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/transport/vmess/http.go",
+    "V2-CFG": "https://github.com/v2fly/v2ray-core/blob/58073c8ea61c115c15ec52098f1e6fba18760507/infra/conf/v4/transport_internet.go",
+    "V2-H2": "https://github.com/v2fly/v2ray-core/blob/58073c8ea61c115c15ec52098f1e6fba18760507/transport/internet/http/hub.go",
+    "V2-MUX-FRAME": "https://github.com/v2fly/v2ray-core/blob/58073c8ea61c115c15ec52098f1e6fba18760507/common/mux/frame.go",
+    "V2-MUX-SERVER": "https://github.com/v2fly/v2ray-core/blob/58073c8ea61c115c15ec52098f1e6fba18760507/common/mux/server.go",
+    "vcore-xudp": "src/xudp.rs",
+    "V2-PACKET-INTERCEPT": "https://github.com/v2fly/v2ray-core/blob/58073c8ea61c115c15ec52098f1e6fba18760507/app/proxyman/outbound/handler.go",
+    "V2-PACKET-ADAPTER": "https://github.com/v2fly/v2ray-core/blob/58073c8ea61c115c15ec52098f1e6fba18760507/common/net/packetaddr/connection_adaptor.go",
+    "V2-PACKET-CODEC": "https://github.com/v2fly/v2ray-core/blob/58073c8ea61c115c15ec52098f1e6fba18760507/common/net/packetaddr/packetaddr.go",
+    "M-VL": "https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/adapter/outbound/vless.go",
+    "M-VL-IN": "https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/listener/sing_vless/server.go",
+    "M-VL-SVC": "https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/listener/sing_vless/service.go",
+    "M-VISION": "https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/transport/vless/vision/vision.go",
+    "CR-SPLICE": "https://github.com/Watfaq/clash-rs/blob/39d06a49ccb5c812ed7cd70b3028f3efcebeae6b/clash-lib/src/proxy/transport/splice_tls.rs",
+    "X-CFG": "https://github.com/XTLS/Xray-core/blob/d562d8947d3175db86b4fa849742433a9876cb63/infra/conf/transport_internet.go",
+    "X-VLESS-IN": "https://github.com/XTLS/Xray-core/blob/d562d8947d3175db86b4fa849742433a9876cb63/proxy/vless/inbound/inbound.go",
+    "vcore-tls": "src/security/tls.rs",
+    "M-XCFG": "https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/transport/xhttp/config.go",
+    "M-XSERVER": "https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/transport/xhttp/server.go",
+    "M-XCLIENT": "https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/transport/xhttp/client.go",
+    "M-XREUSE": "https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/transport/xhttp/reuse.go",
+    "X-XHTTP": "https://github.com/XTLS/Xray-core/blob/d562d8947d3175db86b4fa849742433a9876cb63/transport/internet/splithttp/hub.go",
+    "M-MUX": "https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/adapter/outbound/singmux.go",
+    "M-MUX-CLIENT": "https://github.com/MetaCubeX/sing-mux/blob/v0.3.10/client.go",
+    "R-HPKE": "https://github.com/OneVCore/rustls/blob/df261c84cbac4f708e63ac8644ce70daa90d771c/provider-example/src/hpke.rs",
+    "M-HY-IN": "https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/listener/sing_hysteria2/server.go",
+    "M-HY-CLIENT": "https://github.com/MetaCubeX/sing-quic/blob/1c242664697a/hysteria2/client.go",
+    "M-HY-SVC": "https://github.com/MetaCubeX/sing-quic/blob/1c242664697a/hysteria2/service.go",
+    "M-HY": "https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/adapter/outbound/hysteria2.go",
+    "H-HOP-DOC": "https://v2.hysteria.network/docs/advanced/Port-Hopping/",
+    "H-SERVER": "https://github.com/HyNetworks/hysteria/blob/e1366b173ccf5706e1e4630fe8aa654a4b574085/app/cmd/server.go",
+    "H-CLIENT": "https://github.com/HyNetworks/hysteria/blob/e1366b173ccf5706e1e4630fe8aa654a4b574085/app/cmd/client.go",
+    "H-AUTH": "https://github.com/HyNetworks/hysteria/blob/e1366b173ccf5706e1e4630fe8aa654a4b574085/core/server/server.go",
+    "WG-PROTOCOL": "https://www.wireguard.com/protocol/",
+    "WG-MAN": "https://git.zx2c4.com/wireguard-tools/about/src/man/wg.8",
+    "M-WG": "https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/adapter/outbound/wireguard.go",
+    "vcore-connector": "src/outbound/connector.rs",
+    "VCORE-CONTRACT": "fields.json"
+  },
+  "combinations": [
+    {
+      "id": "TR-TCP",
+      "classification": "supported-required",
+      "protocols": [
+        "trojan"
+      ],
+      "networks": [
+        "tcp"
+      ],
+      "security_modes": [
+        "tls"
+      ],
+      "udp_codecs": [
+        "trojan"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "M"
+      ],
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "C06",
+        "T01",
+        "T03",
+        "T04",
+        "T05",
+        "TR01",
+        "TR02"
+      ],
+      "stages": [
+        "N2"
+      ],
+      "required_observation": "TLS authentication and native Trojan TCP/UDP framing; wrong password delivers zero target bytes.",
+      "sources": [
+        "M-TR-IN",
+        "CR-TR"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "TR-WS",
+      "classification": "supported-required",
+      "protocols": [
+        "trojan"
+      ],
+      "networks": [
+        "ws"
+      ],
+      "security_modes": [
+        "tls"
+      ],
+      "udp_codecs": [
+        "trojan"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "M"
+      ],
+      "row_ids": [
+        "TR02",
+        "W01",
+        "W02",
+        "W03",
+        "W04",
+        "W05"
+      ],
+      "stages": [
+        "N2"
+      ],
+      "required_observation": "Ordinary WS plus no early data/default Sec-WebSocket-Protocol early data; verify exact first-byte ordering.",
+      "sources": [
+        "M-TR-IN",
+        "M-WS"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "TR-GRPC",
+      "classification": "supported-required",
+      "protocols": [
+        "trojan"
+      ],
+      "networks": [
+        "grpc"
+      ],
+      "security_modes": [
+        "tls"
+      ],
+      "udp_codecs": [
+        "trojan"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "M"
+      ],
+      "row_ids": [
+        "TR02",
+        "G01",
+        "T03"
+      ],
+      "stages": [
+        "N2"
+      ],
+      "required_observation": "Native gRPC service framing, wrong service and stream cancellation.",
+      "sources": [
+        "M-TR-IN",
+        "M-GUN"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "TR-WS-ED-EXTENDED",
+      "classification": "supported-required",
+      "protocols": [
+        "trojan"
+      ],
+      "networks": [
+        "ws"
+      ],
+      "security_modes": [
+        "tls"
+      ],
+      "udp_codecs": [
+        "trojan"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "V2"
+      ],
+      "row_ids": [
+        "W01",
+        "W04",
+        "W05",
+        "TR02"
+      ],
+      "stages": [
+        "N2"
+      ],
+      "required_observation": "Custom-header and path-suffix early data are separate native V2Ray cases; not HTTPUpgrade.",
+      "sources": [
+        "V2-WS"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "VM-BASE",
+      "classification": "supported-required",
+      "protocols": [
+        "vmess"
+      ],
+      "networks": [
+        "tcp",
+        "ws",
+        "grpc"
+      ],
+      "security_modes": [
+        "plain",
+        "tls"
+      ],
+      "udp_codecs": [
+        "raw",
+        "xudp",
+        "packetaddr"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "M"
+      ],
+      "row_ids": [
+        "VM01",
+        "VM02",
+        "VM03",
+        "VM04",
+        "VM05",
+        "VM06",
+        "C05",
+        "T02",
+        "T03"
+      ],
+      "stages": [
+        "N3"
+      ],
+      "required_observation": "Each network/security/codec path independently transfers data; packetaddr resolves domains through the controlled resolver.",
+      "sources": [
+        "M-VM-IN",
+        "M-VM-CODEC",
+        "M-PACKET"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "VM-AEAD-BODY",
+      "classification": "supported-required",
+      "protocols": [
+        "vmess"
+      ],
+      "networks": [
+        "tcp"
+      ],
+      "security_modes": [
+        "plain",
+        "tls"
+      ],
+      "udp_codecs": [
+        "raw",
+        "xudp",
+        "packetaddr"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "M"
+      ],
+      "row_ids": [
+        "VM01",
+        "VM02",
+        "VM03",
+        "VM07",
+        "VM08"
+      ],
+      "stages": [
+        "N3"
+      ],
+      "required_observation": "Expand auto/AES-GCM/ChaCha with padding/length 00/01/10/11. none/zero retains AEAD identity/response authentication, without padding/length.",
+      "sources": [
+        "M-VM-CODEC",
+        "CR-VM"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "VM-HTTP-RAW",
+      "classification": "supported-required",
+      "protocols": [
+        "vmess"
+      ],
+      "networks": [
+        "http"
+      ],
+      "security_modes": [
+        "plain",
+        "tls"
+      ],
+      "udp_codecs": [
+        "raw"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "V2"
+      ],
+      "row_ids": [
+        "VM04",
+        "VM05",
+        "VM06",
+        "H01",
+        "H02",
+        "H03",
+        "H04"
+      ],
+      "stages": [
+        "N3"
+      ],
+      "required_observation": "Native network=tcp + tcpSettings.header.type=http; verify method/path/Host and byte stream after the first header.",
+      "sources": [
+        "M-HTTP",
+        "V2-CFG"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "VM-H2-RAW",
+      "classification": "supported-required",
+      "protocols": [
+        "vmess"
+      ],
+      "networks": [
+        "h2"
+      ],
+      "security_modes": [
+        "plain",
+        "tls"
+      ],
+      "udp_codecs": [
+        "raw"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "V2"
+      ],
+      "row_ids": [
+        "VM04",
+        "VM05",
+        "VM06",
+        "H05",
+        "H06",
+        "T03"
+      ],
+      "stages": [
+        "N3"
+      ],
+      "required_observation": "Native network=http + httpSettings; HTTP/2 PUT body, not gRPC; cleartext prior knowledge and TLS h2.",
+      "sources": [
+        "V2-CFG",
+        "V2-H2"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "VM-WS-ED-RAW",
+      "classification": "supported-required",
+      "protocols": [
+        "vmess"
+      ],
+      "networks": [
+        "ws"
+      ],
+      "security_modes": [
+        "plain",
+        "tls"
+      ],
+      "udp_codecs": [
+        "raw"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "V2"
+      ],
+      "row_ids": [
+        "W01",
+        "W04",
+        "W05",
+        "VM04",
+        "VM06"
+      ],
+      "stages": [
+        "N3"
+      ],
+      "required_observation": "Custom-header/path ED first proves transport with explicit raw UDP; this does not prove either extended codec.",
+      "sources": [
+        "V2-WS"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "VM-V2-XUDP",
+      "classification": "required-but-peer-unproven",
+      "protocols": [
+        "vmess"
+      ],
+      "networks": [
+        "http",
+        "h2",
+        "ws-custom-ed",
+        "ws-path-ed"
+      ],
+      "security_modes": [
+        "plain",
+        "tls"
+      ],
+      "udp_codecs": [
+        "xudp"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "V2"
+      ],
+      "row_ids": [
+        "VM04",
+        "VM06",
+        "W05",
+        "H01",
+        "H06"
+      ],
+      "stages": [
+        "N0",
+        "N3"
+      ],
+      "required_observation": "V2Ray mux only parses targets on New; Keep does not consume per-datagram target changes. Prove exact VCore frame/address behavior rather than treating CommandMux as XUDP compatibility.",
+      "sources": [
+        "V2-MUX-FRAME",
+        "V2-MUX-SERVER",
+        "vcore-xudp"
+      ],
+      "behavior_status": "NOT RUN",
+      "blocked_on": "N0-F: multi-destination and response-address wire proof"
+    },
+    {
+      "id": "VM-V2-PACKETADDR",
+      "classification": "required-but-peer-unproven",
+      "protocols": [
+        "vmess"
+      ],
+      "networks": [
+        "http",
+        "h2",
+        "ws-custom-ed",
+        "ws-path-ed"
+      ],
+      "security_modes": [
+        "plain",
+        "tls"
+      ],
+      "udp_codecs": [
+        "packetaddr"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "V2"
+      ],
+      "row_ids": [
+        "VM04",
+        "VM06",
+        "W05",
+        "H01",
+        "H06"
+      ],
+      "stages": [
+        "N0",
+        "N3"
+      ],
+      "required_observation": "V2Ray has native magic-destination interception. Prove packet/stream variant, address types, framing and return path using the released binary; source presence is not a wire PASS.",
+      "sources": [
+        "V2-PACKET-INTERCEPT",
+        "V2-PACKET-ADAPTER",
+        "V2-PACKET-CODEC"
+      ],
+      "behavior_status": "NOT RUN",
+      "blocked_on": "N0-F: released native codec proof"
+    },
+    {
+      "id": "VL-BASE",
+      "classification": "supported-required",
+      "protocols": [
+        "vless"
+      ],
+      "networks": [
+        "tcp",
+        "ws",
+        "grpc"
+      ],
+      "security_modes": [
+        "plain",
+        "tls"
+      ],
+      "udp_codecs": [
+        "raw",
+        "xudp",
+        "packetaddr"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "M"
+      ],
+      "row_ids": [
+        "VL01",
+        "VL02",
+        "VL04",
+        "VL05",
+        "T02",
+        "T03",
+        "C05"
+      ],
+      "stages": [
+        "N4"
+      ],
+      "required_observation": "Empty flow; keep omitted packet-encoding=xudp. raw is explicit none; packet is a packetaddr alias.",
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-VL-SVC",
+        "vcore-xudp"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "VL-REALITY",
+      "classification": "supported-required",
+      "protocols": [
+        "vless"
+      ],
+      "networks": [
+        "tcp",
+        "ws",
+        "grpc"
+      ],
+      "security_modes": [
+        "reality-classic"
+      ],
+      "udp_codecs": [
+        "raw",
+        "xudp",
+        "packetaddr"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "M"
+      ],
+      "row_ids": [
+        "VL02",
+        "VL04",
+        "VL05",
+        "S01",
+        "S02"
+      ],
+      "stages": [
+        "N4"
+      ],
+      "required_observation": "Empty flow and one security wrapper; native listener authentication and wrong-key negatives, not TLS skip verification.",
+      "sources": [
+        "M-VL-IN",
+        "M-VL-SVC"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "VL-VISION-TLS",
+      "classification": "supported-required",
+      "protocols": [
+        "vless"
+      ],
+      "networks": [
+        "tcp"
+      ],
+      "security_modes": [
+        "tls13"
+      ],
+      "udp_codecs": [
+        "xudp"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "M"
+      ],
+      "row_ids": [
+        "VL03",
+        "VL04",
+        "VL05",
+        "T02"
+      ],
+      "stages": [
+        "N0",
+        "N4"
+      ],
+      "required_observation": "Prove actual Vision direct mode for inner TLS1.3 and safe non-splice behavior for non-TLS/TLS1.2; only XUDP for business UDP.",
+      "sources": [
+        "M-VISION",
+        "M-VL-SVC",
+        "CR-SPLICE"
+      ],
+      "behavior_status": "NOT RUN",
+      "flow": "xtls-rprx-vision"
+    },
+    {
+      "id": "VL-VISION-REALITY",
+      "classification": "supported-required",
+      "protocols": [
+        "vless"
+      ],
+      "networks": [
+        "tcp"
+      ],
+      "security_modes": [
+        "reality-classic"
+      ],
+      "udp_codecs": [
+        "xudp"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "M"
+      ],
+      "row_ids": [
+        "VL03",
+        "VL04",
+        "S01",
+        "S02"
+      ],
+      "stages": [
+        "N0",
+        "N4"
+      ],
+      "required_observation": "Independent REALITY + Vision public-interface/direct-mode proof; ordinary padding-only success is insufficient.",
+      "sources": [
+        "M-VISION",
+        "M-VL-SVC",
+        "CR-SPLICE"
+      ],
+      "behavior_status": "NOT RUN",
+      "flow": "xtls-rprx-vision"
+    },
+    {
+      "id": "VL-WS-HTTPUPGRADE",
+      "classification": "supported-required",
+      "protocols": [
+        "vless"
+      ],
+      "networks": [
+        "ws-httpupgrade"
+      ],
+      "security_modes": [
+        "plain",
+        "tls",
+        "reality-classic"
+      ],
+      "udp_codecs": [
+        "raw",
+        "xudp",
+        "packetaddr"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "M"
+      ],
+      "row_ids": [
+        "VL02",
+        "W04",
+        "W05",
+        "W06",
+        "W07"
+      ],
+      "stages": [
+        "N4"
+      ],
+      "required_observation": "Normal/fast-open and default-header ED; upgrade rejection cannot be reported as a successful stream.",
+      "sources": [
+        "M-WS",
+        "M-VL-IN"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "VL-GRPC-EXTENSIONS",
+      "classification": "supported-required",
+      "protocols": [
+        "vless"
+      ],
+      "networks": [
+        "grpc"
+      ],
+      "security_modes": [
+        "plain",
+        "tls",
+        "reality-classic"
+      ],
+      "udp_codecs": [
+        "raw",
+        "xudp",
+        "packetaddr"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "M"
+      ],
+      "row_ids": [
+        "G01",
+        "G02",
+        "G03",
+        "G04",
+        "G05",
+        "G06"
+      ],
+      "stages": [
+        "N4"
+      ],
+      "required_observation": "UA/PING plus both scheduler branches, cancellation, bounded waiters and identity-isolated pools.",
+      "sources": [
+        "M-GUN",
+        "M-VL-IN"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "VL-HTTP-RAW-XUDP",
+      "classification": "supported-required",
+      "protocols": [
+        "vless"
+      ],
+      "networks": [
+        "http"
+      ],
+      "security_modes": [
+        "plain",
+        "tls"
+      ],
+      "udp_codecs": [
+        "raw",
+        "xudp"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "XR"
+      ],
+      "row_ids": [
+        "VL02",
+        "VL04",
+        "H01",
+        "H02",
+        "H03",
+        "H04"
+      ],
+      "stages": [
+        "N4"
+      ],
+      "required_observation": "Native TCP header.type=http; no-flow transport and separate UDP codecs.",
+      "sources": [
+        "X-CFG",
+        "X-VLESS-IN",
+        "M-HTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "VL-HTTP-PACKETADDR",
+      "classification": "required-but-peer-unproven",
+      "protocols": [
+        "vless"
+      ],
+      "networks": [
+        "http"
+      ],
+      "security_modes": [
+        "plain",
+        "tls"
+      ],
+      "udp_codecs": [
+        "packetaddr"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "XR",
+        "V2"
+      ],
+      "row_ids": [
+        "VL02",
+        "VL04",
+        "H01",
+        "H04"
+      ],
+      "stages": [
+        "N0",
+        "N4"
+      ],
+      "required_observation": "Xray source has no identified packetaddr magic-destination handler. V2Ray interception is a candidate but must prove VLESS inbound-to-native-UDP dispatch without silently changing the codec.",
+      "sources": [
+        "X-VLESS-IN",
+        "V2-PACKET-INTERCEPT",
+        "V2-PACKET-ADAPTER"
+      ],
+      "behavior_status": "NOT RUN",
+      "blocked_on": "N0-F: native packetaddr decoder plus HTTP transport"
+    },
+    {
+      "id": "VL-H2-RAW",
+      "classification": "supported-required",
+      "protocols": [
+        "vless"
+      ],
+      "networks": [
+        "h2"
+      ],
+      "security_modes": [
+        "plain",
+        "tls"
+      ],
+      "udp_codecs": [
+        "raw"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "V2"
+      ],
+      "row_ids": [
+        "VL02",
+        "VL04",
+        "H05",
+        "H06",
+        "T03"
+      ],
+      "stages": [
+        "N4"
+      ],
+      "required_observation": "Explicit packet-encoding=none; native V2Ray legacy H2 only, never a claim that default XUDP works.",
+      "sources": [
+        "V2-CFG",
+        "V2-H2"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "VL-WS-ED-RAW",
+      "classification": "supported-required",
+      "protocols": [
+        "vless"
+      ],
+      "networks": [
+        "ws-custom-ed",
+        "ws-path-ed"
+      ],
+      "security_modes": [
+        "plain",
+        "tls"
+      ],
+      "udp_codecs": [
+        "raw"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "V2"
+      ],
+      "row_ids": [
+        "VL02",
+        "VL04",
+        "W01",
+        "W04",
+        "W05"
+      ],
+      "stages": [
+        "N4"
+      ],
+      "required_observation": "Extended standard WS ED with explicit raw codec; first-byte order and authentication retained.",
+      "sources": [
+        "V2-WS"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "VL-V2-XUDP",
+      "classification": "required-but-peer-unproven",
+      "protocols": [
+        "vless"
+      ],
+      "networks": [
+        "h2",
+        "ws-custom-ed",
+        "ws-path-ed"
+      ],
+      "security_modes": [
+        "plain",
+        "tls"
+      ],
+      "udp_codecs": [
+        "xudp"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "V2"
+      ],
+      "row_ids": [
+        "VL02",
+        "VL04",
+        "W05",
+        "H05",
+        "H06"
+      ],
+      "stages": [
+        "N0",
+        "N4"
+      ],
+      "required_observation": "Prove New/Keep framing, target changes and reply addresses against V2Ray. Default XUDP is never silently replaced with raw.",
+      "sources": [
+        "V2-MUX-FRAME",
+        "V2-MUX-SERVER",
+        "vcore-xudp"
+      ],
+      "behavior_status": "NOT RUN",
+      "blocked_on": "N0-F: exact XUDP semantics"
+    },
+    {
+      "id": "VL-V2-PACKETADDR",
+      "classification": "required-but-peer-unproven",
+      "protocols": [
+        "vless"
+      ],
+      "networks": [
+        "h2",
+        "ws-custom-ed",
+        "ws-path-ed"
+      ],
+      "security_modes": [
+        "plain",
+        "tls"
+      ],
+      "udp_codecs": [
+        "packetaddr"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "V2"
+      ],
+      "row_ids": [
+        "VL02",
+        "VL04",
+        "W05",
+        "H05",
+        "H06"
+      ],
+      "stages": [
+        "N0",
+        "N4"
+      ],
+      "required_observation": "Native interception exists but requires released VLESS + transport + packetaddr data evidence, not VMess evidence.",
+      "sources": [
+        "V2-PACKET-INTERCEPT",
+        "V2-PACKET-ADAPTER",
+        "V2-PACKET-CODEC"
+      ],
+      "behavior_status": "NOT RUN",
+      "blocked_on": "N0-F: released native VLESS packetaddr proof"
+    },
+    {
+      "id": "VL-TLS-IDENTITY",
+      "classification": "supported-required",
+      "protocols": [
+        "vless"
+      ],
+      "networks": [
+        "tcp",
+        "ws",
+        "grpc"
+      ],
+      "security_modes": [
+        "tls"
+      ],
+      "udp_codecs": [
+        "raw",
+        "xudp",
+        "packetaddr"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "M"
+      ],
+      "row_ids": [
+        "T06",
+        "T07",
+        "T08",
+        "T04",
+        "T05"
+      ],
+      "stages": [
+        "N4"
+      ],
+      "required_observation": "Separate SNI/verification name, mTLS identities, pin/skip precedence and cache isolation; no permissive negative cases.",
+      "sources": [
+        "M-VL-IN",
+        "vcore-tls"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "VL-XHTTP-H1H2",
+      "classification": "supported-required",
+      "protocols": [
+        "vless"
+      ],
+      "networks": [
+        "xhttp-h1",
+        "xhttp-h2"
+      ],
+      "security_modes": [
+        "plain",
+        "tls",
+        "reality-classic"
+      ],
+      "udp_codecs": [
+        "raw",
+        "xudp",
+        "packetaddr"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "M"
+      ],
+      "row_ids": [
+        "VL02",
+        "VL04",
+        "X01",
+        "X02",
+        "X03",
+        "X04",
+        "X05"
+      ],
+      "stages": [
+        "N0",
+        "N5"
+      ],
+      "required_observation": "Expand auto/packet-up/stream-up/stream-one only with legal fields; prove resolved mode and same-handler sessions.",
+      "sources": [
+        "M-VL-IN",
+        "M-XCFG",
+        "M-XSERVER"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "VL-XHTTP-PLACEMENTS",
+      "classification": "supported-required",
+      "protocols": [
+        "vless"
+      ],
+      "networks": [
+        "xhttp-h1",
+        "xhttp-h2"
+      ],
+      "security_modes": [
+        "plain",
+        "tls",
+        "reality-classic"
+      ],
+      "udp_codecs": [
+        "raw",
+        "xudp",
+        "packetaddr"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "M"
+      ],
+      "row_ids": [
+        "X06",
+        "X07",
+        "X08",
+        "X09",
+        "X10",
+        "X11",
+        "X12",
+        "X13",
+        "X14",
+        "X15",
+        "X16",
+        "X17",
+        "X18",
+        "X19",
+        "X20",
+        "X21",
+        "X22",
+        "X23"
+      ],
+      "stages": [
+        "N5"
+      ],
+      "required_observation": "Every legal padding/session/seq/data placement, method, table/length, chunk/post budget and pacing branch needs a specific assertion.",
+      "sources": [
+        "M-XCFG",
+        "M-XSERVER",
+        "M-XCLIENT"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "VL-XHTTP-DUAL-BASE",
+      "classification": "supported-required",
+      "protocols": [
+        "vless"
+      ],
+      "networks": [
+        "xhttp-h1",
+        "xhttp-h2"
+      ],
+      "security_modes": [
+        "plain",
+        "tls",
+        "reality-classic"
+      ],
+      "udp_codecs": [
+        "raw",
+        "xudp",
+        "packetaddr"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "M"
+      ],
+      "row_ids": [
+        "D01",
+        "D02",
+        "D03",
+        "D04",
+        "D05",
+        "D06",
+        "D07",
+        "D08",
+        "D09",
+        "D10",
+        "D11",
+        "D12",
+        "D13",
+        "D14",
+        "D15"
+      ],
+      "stages": [
+        "N0",
+        "N5"
+      ],
+      "required_observation": "Same real handler session table; aliases/ports/SAN and identity variation only when supported by that handler. Omission, false, empty and whole-object replacement are distinct.",
+      "sources": [
+        "M-VL-IN",
+        "M-VL",
+        "M-XSERVER"
+      ],
+      "behavior_status": "NOT RUN",
+      "constraints": [
+        "Both legs use compatible security of the one handler.",
+        "stream-one has no download-settings."
+      ]
+    },
+    {
+      "id": "VL-XHTTP-REUSE",
+      "classification": "supported-required",
+      "protocols": [
+        "vless"
+      ],
+      "networks": [
+        "xhttp-h1",
+        "xhttp-h2"
+      ],
+      "security_modes": [
+        "plain",
+        "tls",
+        "reality-classic"
+      ],
+      "udp_codecs": [
+        "raw",
+        "xudp",
+        "packetaddr"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "M"
+      ],
+      "row_ids": [
+        "X24",
+        "X25",
+        "X26",
+        "X27",
+        "X28",
+        "X29",
+        "D27",
+        "D28",
+        "D29",
+        "D30",
+        "D31",
+        "D32"
+      ],
+      "stages": [
+        "N5"
+      ],
+      "required_observation": "Main/download pool identity, omission versus empty manager, acquisition counters and retirement without killing active requests. Nondefault keepalive is H2 only.",
+      "sources": [
+        "M-XREUSE",
+        "M-XCLIENT"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "VL-XHTTP-H3",
+      "classification": "supported-required",
+      "protocols": [
+        "vless"
+      ],
+      "networks": [
+        "xhttp-h3"
+      ],
+      "security_modes": [
+        "tls13"
+      ],
+      "udp_codecs": [
+        "raw",
+        "xudp"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "XR"
+      ],
+      "row_ids": [
+        "VL02",
+        "VL04",
+        "T03",
+        "X03",
+        "X29"
+      ],
+      "stages": [
+        "N0",
+        "N5"
+      ],
+      "required_observation": "Native H3 listener, explicit h3 with no H2 fallback, protected upstream datagrams, per-mode data/keepalive proof.",
+      "sources": [
+        "X-XHTTP",
+        "M-XCLIENT"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "VL-XHTTP-H3-ALL-LEAVES",
+      "classification": "required-but-peer-unproven",
+      "protocols": [
+        "vless"
+      ],
+      "networks": [
+        "xhttp-h3"
+      ],
+      "security_modes": [
+        "tls13"
+      ],
+      "udp_codecs": [
+        "raw",
+        "xudp"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "XR"
+      ],
+      "row_ids": [
+        "X01",
+        "X02",
+        "X03",
+        "X04",
+        "X05",
+        "X06",
+        "X07",
+        "X08",
+        "X09",
+        "X10",
+        "X11",
+        "X12",
+        "X13",
+        "X14",
+        "X15",
+        "X16",
+        "X17",
+        "X18",
+        "X19",
+        "X20",
+        "X21",
+        "X22",
+        "X23",
+        "X24",
+        "X25",
+        "X26",
+        "X27",
+        "X28",
+        "X29"
+      ],
+      "stages": [
+        "N0",
+        "N5"
+      ],
+      "required_observation": "Compare each XHTTP field/value with actual latest Xray H3 request consumption; a basic H3 handshake cannot discharge all leaf-field obligations.",
+      "sources": [
+        "X-XHTTP",
+        "M-XCFG"
+      ],
+      "behavior_status": "NOT RUN",
+      "blocked_on": "N0-F/N0-D: H3 per-extension peer capability"
+    },
+    {
+      "id": "VL-XHTTP-H3-DUAL",
+      "classification": "required-but-peer-unproven",
+      "protocols": [
+        "vless"
+      ],
+      "networks": [
+        "xhttp-h3"
+      ],
+      "security_modes": [
+        "tls13"
+      ],
+      "udp_codecs": [
+        "raw",
+        "xudp"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "XR"
+      ],
+      "row_ids": [
+        "D01",
+        "D02",
+        "D03",
+        "D04",
+        "D05",
+        "D06",
+        "D07",
+        "D08",
+        "D09",
+        "D10",
+        "D11",
+        "D12",
+        "D13",
+        "D27",
+        "D28",
+        "D29",
+        "D30",
+        "D31",
+        "D32"
+      ],
+      "stages": [
+        "N0",
+        "N5"
+      ],
+      "required_observation": "Native H3 dual legs must demonstrably reach one handler; distinguish TLS identity/pool overrides from independent native listeners.",
+      "sources": [
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN",
+      "blocked_on": "N0-F: actual shared H3 session topology"
+    },
+    {
+      "id": "VL-XHTTP-H3-PACKETADDR",
+      "classification": "required-but-peer-unproven",
+      "protocols": [
+        "vless"
+      ],
+      "networks": [
+        "xhttp-h3"
+      ],
+      "security_modes": [
+        "tls13"
+      ],
+      "udp_codecs": [
+        "packetaddr"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "XR"
+      ],
+      "row_ids": [
+        "VL04",
+        "X03",
+        "D08"
+      ],
+      "stages": [
+        "N0",
+        "N5"
+      ],
+      "required_observation": "No packetaddr decoder has been identified in the researched Xray source. Require an official peer topology decoding both H3 and packetaddr; no default-codec substitution or custom server.",
+      "sources": [
+        "X-XHTTP",
+        "X-VLESS-IN",
+        "M-PACKET"
+      ],
+      "behavior_status": "NOT RUN",
+      "blocked_on": "N0-F: official H3 + packetaddr decoder"
+    },
+    {
+      "id": "VL-XHTTP-CROSS-LEG",
+      "classification": "required-but-peer-unproven",
+      "protocols": [
+        "vless"
+      ],
+      "networks": [
+        "xhttp-dual-leg"
+      ],
+      "security_modes": [
+        "different-security-or-http-version"
+      ],
+      "udp_codecs": [
+        "raw",
+        "xudp",
+        "packetaddr"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "M",
+        "XR"
+      ],
+      "row_ids": [
+        "D01",
+        "D04",
+        "D05",
+        "D06",
+        "D08",
+        "D14",
+        "D16",
+        "D17",
+        "D20",
+        "D22",
+        "D25"
+      ],
+      "stages": [
+        "N0",
+        "N5",
+        "N7"
+      ],
+      "required_observation": "Only promote a concrete combination after an official native topology shares a session table. Two independent listeners or a transport relay do not create shared decoder state.",
+      "sources": [
+        "M-VL-IN",
+        "M-XSERVER",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN",
+      "blocked_on": "N0-F/N0-E: deployable common handler"
+    },
+    {
+      "id": "VL-SING-MUX",
+      "classification": "supported-required",
+      "protocols": [
+        "vless"
+      ],
+      "networks": [
+        "tcp",
+        "ws",
+        "grpc",
+        "xhttp-h1",
+        "xhttp-h2"
+      ],
+      "security_modes": [
+        "plain",
+        "tls",
+        "reality-classic"
+      ],
+      "udp_codecs": [
+        "sing-mux",
+        "raw",
+        "xudp",
+        "packetaddr"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "M"
+      ],
+      "row_ids": [
+        "M01",
+        "M02",
+        "M03",
+        "M04",
+        "M05",
+        "M06",
+        "M07"
+      ],
+      "stages": [
+        "N0",
+        "N5"
+      ],
+      "required_observation": "Expand h2mux/smux/yamux and padding on/off; only-tcp=false sends business UDP via mux, true preserves the selected VLESS codec. No Vision.",
+      "sources": [
+        "M-MUX",
+        "M-MUX-CLIENT",
+        "M-VL-IN"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "VL-NATIVE-SING-MUX",
+      "classification": "required-but-peer-unproven",
+      "protocols": [
+        "vless"
+      ],
+      "networks": [
+        "http",
+        "h2",
+        "ws-custom-ed",
+        "ws-path-ed",
+        "xhttp-h3"
+      ],
+      "security_modes": [
+        "plain",
+        "tls"
+      ],
+      "udp_codecs": [
+        "sing-mux",
+        "raw",
+        "xudp",
+        "packetaddr"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "V2",
+        "XR"
+      ],
+      "row_ids": [
+        "M01",
+        "M02",
+        "M07",
+        "VL02",
+        "VL04"
+      ],
+      "stages": [
+        "N0",
+        "N5"
+      ],
+      "required_observation": "Do not equate native CommandMux/XUDP with sing-mux. Prove an official native decoder for the transport plus each sing-mux variant and only-tcp branch.",
+      "sources": [
+        "M-MUX",
+        "M-MUX-CLIENT",
+        "V2-MUX-SERVER",
+        "X-VLESS-IN"
+      ],
+      "behavior_status": "NOT RUN",
+      "blocked_on": "N0-F: sing-mux native decoder combinations"
+    },
+    {
+      "id": "VL-ENCRYPTION-BASE",
+      "classification": "supported-required",
+      "protocols": [
+        "vless"
+      ],
+      "networks": [
+        "tcp"
+      ],
+      "security_modes": [
+        "vless-encryption"
+      ],
+      "udp_codecs": [
+        "raw",
+        "xudp",
+        "packetaddr"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "M"
+      ],
+      "row_ids": [
+        "VL06",
+        "VL01",
+        "VL04"
+      ],
+      "stages": [
+        "N0",
+        "N7"
+      ],
+      "required_observation": "Three appearances native/xorpub/random × 1rtt/0rtt; full key/padding chains, tickets, rejection and replay cases.",
+      "sources": [
+        "M-VL-IN",
+        "M-VL-SVC"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "VL-ENCRYPTION-VISION",
+      "classification": "required-but-peer-unproven",
+      "protocols": [
+        "vless"
+      ],
+      "networks": [
+        "tcp"
+      ],
+      "security_modes": [
+        "vless-encryption"
+      ],
+      "udp_codecs": [
+        "xudp"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "M"
+      ],
+      "row_ids": [
+        "VL03",
+        "VL04",
+        "VL06"
+      ],
+      "stages": [
+        "N0",
+        "N7"
+      ],
+      "required_observation": "A separate Vision direct-mode proof over the protocol encryption layer is required; do not infer it from TLS/REALITY.",
+      "sources": [
+        "M-VISION",
+        "M-VL-SVC"
+      ],
+      "behavior_status": "NOT RUN",
+      "flow": "xtls-rprx-vision",
+      "blocked_on": "N0-E/N0-C: direct-mode combination"
+    },
+    {
+      "id": "VL-ENCRYPTION-WRAPPERS",
+      "classification": "required-but-peer-unproven",
+      "protocols": [
+        "vless"
+      ],
+      "networks": [
+        "tcp",
+        "ws",
+        "grpc",
+        "http",
+        "h2",
+        "xhttp-h1",
+        "xhttp-h2",
+        "xhttp-h3"
+      ],
+      "security_modes": [
+        "vless-encryption-plus-one-outer-security"
+      ],
+      "udp_codecs": [
+        "raw",
+        "xudp",
+        "packetaddr"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "M",
+        "XR",
+        "V2"
+      ],
+      "row_ids": [
+        "VL06",
+        "VL05",
+        "S01",
+        "S03",
+        "S04",
+        "S07",
+        "S09",
+        "S12",
+        "D14",
+        "D16",
+        "D17",
+        "D20",
+        "D22",
+        "D25"
+      ],
+      "stages": [
+        "N0",
+        "N7"
+      ],
+      "required_observation": "Enumerate only concrete legal single-wrapper compositions; every native-only transport/codec gap remains unresolved rather than generating arbitrary Cartesian products.",
+      "sources": [
+        "M-VL-IN",
+        "M-VL-SVC",
+        "X-VLESS-IN",
+        "V2-MUX-SERVER"
+      ],
+      "behavior_status": "NOT RUN",
+      "blocked_on": "N0-E/N0-F: exact outer-security and codec compatibility"
+    },
+    {
+      "id": "VL-REALITY-HYBRID",
+      "classification": "supported-required",
+      "protocols": [
+        "vless"
+      ],
+      "networks": [
+        "tcp"
+      ],
+      "security_modes": [
+        "reality-x25519mlkem768"
+      ],
+      "udp_codecs": [
+        "raw",
+        "xudp",
+        "packetaddr"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "M"
+      ],
+      "row_ids": [
+        "S01",
+        "S02",
+        "S03"
+      ],
+      "stages": [
+        "N0",
+        "N7"
+      ],
+      "required_observation": "A captured/observed genuine hybrid key share is required; classic REALITY evidence does not count and explicit hybrid demand fails closed.",
+      "sources": [
+        "M-VL",
+        "M-VL-IN"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "VL-ECH",
+      "classification": "supported-required",
+      "protocols": [
+        "vless"
+      ],
+      "networks": [
+        "tcp",
+        "ws",
+        "grpc",
+        "xhttp-h1",
+        "xhttp-h2"
+      ],
+      "security_modes": [
+        "tls-with-ech"
+      ],
+      "udp_codecs": [
+        "raw",
+        "xudp",
+        "packetaddr"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "M"
+      ],
+      "row_ids": [
+        "S04",
+        "S05",
+        "S06",
+        "T02",
+        "T04",
+        "T05"
+      ],
+      "stages": [
+        "N0",
+        "N7"
+      ],
+      "required_observation": "Explicit config and independent HTTPS-RR bootstrap, ECH accepted, refusal/refresh and cache isolation; no plaintext success fallback.",
+      "sources": [
+        "M-VL-IN",
+        "M-VL",
+        "R-HPKE"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "VL-SHADOWTLS",
+      "classification": "supported-required",
+      "protocols": [
+        "vless"
+      ],
+      "networks": [
+        "tcp",
+        "ws",
+        "grpc",
+        "xhttp-h1",
+        "xhttp-h2"
+      ],
+      "security_modes": [
+        "shadowtls-v1",
+        "shadowtls-v2",
+        "shadowtls-v3"
+      ],
+      "udp_codecs": [
+        "raw",
+        "xudp",
+        "packetaddr"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "M"
+      ],
+      "row_ids": [
+        "S07",
+        "S08",
+        "VL05"
+      ],
+      "stages": [
+        "N0",
+        "N7"
+      ],
+      "required_observation": "Each version independently authenticates and passes data using public APIs; v1/password differences and v2/v3 rejection.",
+      "sources": [
+        "M-VL-IN",
+        "M-VL"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "VL-RESTLS",
+      "classification": "supported-required",
+      "protocols": [
+        "vless"
+      ],
+      "networks": [
+        "tcp",
+        "ws",
+        "grpc",
+        "xhttp-h1",
+        "xhttp-h2"
+      ],
+      "security_modes": [
+        "restls-tls12",
+        "restls-tls13"
+      ],
+      "udp_codecs": [
+        "raw",
+        "xudp",
+        "packetaddr"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "M"
+      ],
+      "row_ids": [
+        "S09",
+        "S10",
+        "S11",
+        "VL05"
+      ],
+      "stages": [
+        "N0",
+        "N7"
+      ],
+      "required_observation": "Matching native handshake target, bounded scripts/records, wrong-authentication failure, no third-party source patch.",
+      "sources": [
+        "M-VL-IN",
+        "M-VL",
+        "CR-SPLICE"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "VL-JLS",
+      "classification": "supported-required",
+      "protocols": [
+        "vless"
+      ],
+      "networks": [
+        "tcp",
+        "ws",
+        "grpc",
+        "xhttp-h1",
+        "xhttp-h2"
+      ],
+      "security_modes": [
+        "jls"
+      ],
+      "udp_codecs": [
+        "raw",
+        "xudp",
+        "packetaddr"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "M"
+      ],
+      "row_ids": [
+        "S12",
+        "S13",
+        "VL05"
+      ],
+      "stages": [
+        "N0",
+        "N7"
+      ],
+      "required_observation": "User/password pairing, real record authentication, ticket/cache identity and cancellation.",
+      "sources": [
+        "M-VL-IN",
+        "M-VL"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "VL-ADVANCED-NATIVE-TRANSPORT",
+      "classification": "required-but-peer-unproven",
+      "protocols": [
+        "vless"
+      ],
+      "networks": [
+        "http",
+        "h2",
+        "ws-custom-ed",
+        "ws-path-ed",
+        "xhttp-h3"
+      ],
+      "security_modes": [
+        "reality-classic",
+        "reality-x25519mlkem768",
+        "tls-with-ech",
+        "shadowtls-v1",
+        "shadowtls-v2",
+        "shadowtls-v3",
+        "restls-tls12",
+        "restls-tls13",
+        "jls"
+      ],
+      "udp_codecs": [
+        "raw",
+        "xudp",
+        "packetaddr"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "XR",
+        "V2"
+      ],
+      "row_ids": [
+        "VL02",
+        "VL04",
+        "S01",
+        "S03",
+        "S04",
+        "S07",
+        "S09",
+        "S12"
+      ],
+      "stages": [
+        "N0",
+        "N7"
+      ],
+      "required_observation": "First apply contract rejections, especially H3 wrapper restrictions. Remaining native-only transport/security/codec compositions need their own official decoder proof; no claim that Xray/V2Ray replace Mihomo-specific extensions.",
+      "sources": [
+        "X-XHTTP",
+        "X-CFG",
+        "V2-CFG",
+        "V2-WS",
+        "M-VL-IN"
+      ],
+      "behavior_status": "NOT RUN",
+      "blocked_on": "N0-E/N0-F: precise legal composition and peer"
+    },
+    {
+      "id": "VL-ADVANCED-DOWNLOAD",
+      "classification": "required-but-peer-unproven",
+      "protocols": [
+        "vless"
+      ],
+      "networks": [
+        "xhttp-h1",
+        "xhttp-h2"
+      ],
+      "security_modes": [
+        "reality-x25519mlkem768",
+        "tls-with-ech",
+        "shadowtls-v1",
+        "shadowtls-v2",
+        "shadowtls-v3",
+        "restls-tls12",
+        "restls-tls13",
+        "jls"
+      ],
+      "udp_codecs": [
+        "raw",
+        "xudp",
+        "packetaddr"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "M"
+      ],
+      "row_ids": [
+        "D16",
+        "D17",
+        "D18",
+        "D19",
+        "D20",
+        "D21",
+        "D22",
+        "D23",
+        "D24",
+        "D25",
+        "D26"
+      ],
+      "stages": [
+        "N0",
+        "N7"
+      ],
+      "required_observation": "Separate whole-object inheritance/replacement/clear proofs from same-handler wire proof, including each leg authentication and identity-specific pool.",
+      "sources": [
+        "M-VL-IN",
+        "M-VL",
+        "M-XSERVER"
+      ],
+      "behavior_status": "NOT RUN",
+      "blocked_on": "N0-E/N0-F: real shared-handler advanced legs"
+    },
+    {
+      "id": "HY-BASE",
+      "classification": "supported-required",
+      "protocols": [
+        "hysteria2"
+      ],
+      "networks": [
+        "quic"
+      ],
+      "security_modes": [
+        "tls13"
+      ],
+      "udp_codecs": [
+        "hysteria2-datagram"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "M"
+      ],
+      "row_ids": [
+        "HY01",
+        "HY04",
+        "HY05",
+        "HY06",
+        "C05",
+        "T01",
+        "T03",
+        "T04",
+        "T05",
+        "T07",
+        "T08"
+      ],
+      "stages": [
+        "N0",
+        "N6"
+      ],
+      "required_observation": "Authentication, multiplexed TCP streams, DATAGRAM fragmentation and mTLS; actual fixed/auto controller branches and limits.",
+      "sources": [
+        "M-HY-IN",
+        "M-HY-CLIENT",
+        "M-HY-SVC"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "HY-SALAMANDER",
+      "classification": "supported-required",
+      "protocols": [
+        "hysteria2"
+      ],
+      "networks": [
+        "quic"
+      ],
+      "security_modes": [
+        "tls13-plus-salamander"
+      ],
+      "udp_codecs": [
+        "hysteria2-datagram"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "M"
+      ],
+      "row_ids": [
+        "HY01",
+        "HY02",
+        "HY03",
+        "HY06"
+      ],
+      "stages": [
+        "N6"
+      ],
+      "required_observation": "Dual-side enabled/disabled, mismatched obfs and wrong obfs key; authenticate separately from traffic password.",
+      "sources": [
+        "M-HY-IN",
+        "M-HY"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "HY-HOPPING",
+      "classification": "supported-required",
+      "protocols": [
+        "hysteria2"
+      ],
+      "networks": [
+        "quic-multi-port"
+      ],
+      "security_modes": [
+        "tls13",
+        "tls13-plus-salamander"
+      ],
+      "udp_codecs": [
+        "hysteria2-datagram"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "H"
+      ],
+      "row_ids": [
+        "HY02",
+        "HY03",
+        "HY07",
+        "HY08",
+        "C04",
+        "C06"
+      ],
+      "stages": [
+        "N0",
+        "N6"
+      ],
+      "required_observation": "Fixed 5s/random 5-7s × outer IPv4/IPv6 × obfs on/off; at least 60s, 8 ticks, 3 distinct ports; one authenticated QUIC connection, not identical CID bytes.",
+      "sources": [
+        "H-HOP-DOC",
+        "H-SERVER",
+        "H-CLIENT"
+      ],
+      "behavior_status": "NOT RUN",
+      "constraints": [
+        "Isolated server-only firewall changes; no host firewall modifications.",
+        "Every new client physical socket uses Dialer protection and initial group selection snapshot."
+      ]
+    },
+    {
+      "id": "HY-SERVER-UDP-DISABLED",
+      "classification": "supported-required",
+      "protocols": [
+        "hysteria2"
+      ],
+      "networks": [
+        "quic"
+      ],
+      "security_modes": [
+        "tls13"
+      ],
+      "udp_codecs": [
+        "hysteria2-datagram"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "H"
+      ],
+      "row_ids": [
+        "C05",
+        "HY01",
+        "HY06"
+      ],
+      "stages": [
+        "N6"
+      ],
+      "required_observation": "Native disableUDP=true authentication: TCP succeeds and business UDP fails explicitly; local udp=false is a separate case.",
+      "sources": [
+        "H-AUTH"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "WG-SINGLE-PEER",
+      "classification": "supported-required",
+      "protocols": [
+        "wireguard"
+      ],
+      "networks": [
+        "wireguard"
+      ],
+      "security_modes": [
+        "wireguard",
+        "wireguard-plus-psk"
+      ],
+      "udp_codecs": [
+        "wireguard-inner-udp"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "W"
+      ],
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "C06",
+        "WG01",
+        "WG02",
+        "WG03",
+        "WG04",
+        "WG05",
+        "WG06",
+        "WG07"
+      ],
+      "stages": [
+        "N0",
+        "N8"
+      ],
+      "required_observation": "Official peer handshake, active TCP and UDP, single/dual-stack and inner/outer crossed families, MTU including padding, keepalive 0/25 and genuine rekey.",
+      "sources": [
+        "WG-PROTOCOL",
+        "WG-MAN",
+        "M-WG"
+      ],
+      "behavior_status": "NOT RUN",
+      "constraints": [
+        "Do not create a host WireGuard interface or change host routes.",
+        "The independent native peer is not the selected Rust client crypto library."
+      ]
+    },
+    {
+      "id": "ALL-UPSTREAMS",
+      "classification": "supported-required",
+      "protocols": [
+        "trojan",
+        "vmess",
+        "vless",
+        "hysteria2",
+        "wireguard"
+      ],
+      "networks": [
+        "protocol-appropriate"
+      ],
+      "security_modes": [
+        "protocol-appropriate"
+      ],
+      "udp_codecs": [
+        "protocol-appropriate"
+      ],
+      "business": [
+        "tcp",
+        "udp"
+      ],
+      "peers": [
+        "M",
+        "W",
+        "H",
+        "XR",
+        "V2"
+      ],
+      "row_ids": [
+        "C06",
+        "C05",
+        "C03"
+      ],
+      "stages": [
+        "N9"
+      ],
+      "required_observation": "All 8×8 ordered two-hop protocol pairs including existing SOCKS5/AnyTLS/SS2022, using distinct nodes. Expand positive and minimum-budget/capability negatives; independent DIRECT/REJECT/select cases.",
+      "sources": [
+        "vcore-connector"
+      ],
+      "behavior_status": "NOT RUN",
+      "existing_protocols": [
+        "socks5",
+        "anytls",
+        "ss2022"
+      ],
+      "ordered_pairs": 64
+    },
+    {
+      "id": "REJECT-VISION-TRANSPORT",
+      "classification": "rejected-by-contract",
+      "protocols": [
+        "vless"
+      ],
+      "when": "Vision with WS, HTTPUpgrade, gRPC, HTTP camouflage, legacy H2, XHTTP or sing-mux.",
+      "row_ids": [
+        "VL02",
+        "VL03",
+        "M01"
+      ],
+      "stages": [
+        "N4",
+        "N5"
+      ],
+      "rejection_phase": "prepare",
+      "required_observation": "Reject before creating resources; do not silently remove flow.",
+      "sources": [
+        "VCORE-CONTRACT"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "REJECT-VISION-UDP-CODEC",
+      "classification": "rejected-by-contract",
+      "protocols": [
+        "vless"
+      ],
+      "when": "Vision with raw or packetaddr UDP encoding.",
+      "row_ids": [
+        "VL03",
+        "VL04"
+      ],
+      "stages": [
+        "N4"
+      ],
+      "rejection_phase": "prepare",
+      "required_observation": "Only XUDP is allowed.",
+      "sources": [
+        "VCORE-CONTRACT"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "REJECT-TROJAN-PLAINTEXT",
+      "classification": "rejected-by-contract",
+      "protocols": [
+        "trojan"
+      ],
+      "when": "Attempt to disable mandatory TLS or provide an unsupported tls switch.",
+      "row_ids": [
+        "TR02",
+        "T01"
+      ],
+      "stages": [
+        "N2"
+      ],
+      "rejection_phase": "prepare",
+      "required_observation": "Strict schema; no cleartext Trojan path.",
+      "sources": [
+        "VCORE-CONTRACT"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "REJECT-SECURITY-MUTEX",
+      "classification": "rejected-by-contract",
+      "protocols": [
+        "vless"
+      ],
+      "when": "Two or more certificate TLS, REALITY, ShadowTLS, Restls or JLS wrappers on the same leg; includes conflicting inherited download objects.",
+      "row_ids": [
+        "VL05",
+        "S01",
+        "S07",
+        "S09",
+        "S12",
+        "D14",
+        "D20",
+        "D22",
+        "D25"
+      ],
+      "stages": [
+        "N4",
+        "N5",
+        "N7"
+      ],
+      "rejection_phase": "prepare",
+      "required_observation": "Reject rather than choosing one or clearing an inherited object implicitly.",
+      "sources": [
+        "VCORE-CONTRACT"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "REJECT-ECH-MTLS-WRAPPER",
+      "classification": "rejected-by-contract",
+      "protocols": [
+        "vless"
+      ],
+      "when": "ECH/mTLS on a non-standard-TLS wrapper.",
+      "row_ids": [
+        "S04",
+        "T07",
+        "T08",
+        "D12",
+        "D13",
+        "D17"
+      ],
+      "stages": [
+        "N4",
+        "N5",
+        "N7"
+      ],
+      "rejection_phase": "prepare",
+      "required_observation": "Bind these options only to certificate TLS.",
+      "sources": [
+        "VCORE-CONTRACT"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "REJECT-H3-SECURITY",
+      "classification": "rejected-by-contract",
+      "protocols": [
+        "vless"
+      ],
+      "when": "XHTTP H3 with cleartext, REALITY, ShadowTLS, Restls or JLS on that leg.",
+      "row_ids": [
+        "T03",
+        "X03",
+        "D06",
+        "D08",
+        "S01",
+        "S07",
+        "S09",
+        "S12"
+      ],
+      "stages": [
+        "N5",
+        "N7"
+      ],
+      "rejection_phase": "prepare",
+      "required_observation": "H3 requires standard TLS1.3; no H3-to-TCP fallback.",
+      "sources": [
+        "VCORE-CONTRACT"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "REJECT-STREAM-ONE-DOWNLOAD",
+      "classification": "rejected-by-contract",
+      "protocols": [
+        "vless"
+      ],
+      "when": "Resolved stream-one with download-settings.",
+      "row_ids": [
+        "X03",
+        "D01"
+      ],
+      "stages": [
+        "N5"
+      ],
+      "rejection_phase": "prepare",
+      "required_observation": "Configuration error; do not ignore the download leg.",
+      "sources": [
+        "VCORE-CONTRACT"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "REJECT-GRPC-SCHEDULERS",
+      "classification": "rejected-by-contract",
+      "protocols": [
+        "vless"
+      ],
+      "when": "Explicit positive max-connections and positive max-streams together.",
+      "row_ids": [
+        "G04",
+        "G06"
+      ],
+      "stages": [
+        "N4"
+      ],
+      "rejection_phase": "prepare",
+      "required_observation": "Reject shadowed scheduling settings rather than accepting ineffective input.",
+      "sources": [
+        "VCORE-CONTRACT"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "REJECT-SMUX-SCHEDULERS",
+      "classification": "rejected-by-contract",
+      "protocols": [
+        "vless"
+      ],
+      "when": "Explicit positive smux.max-connections and positive smux.max-streams together.",
+      "row_ids": [
+        "M03",
+        "M05"
+      ],
+      "stages": [
+        "N5"
+      ],
+      "rejection_phase": "prepare",
+      "required_observation": "Reject shadowed scheduling settings.",
+      "sources": [
+        "VCORE-CONTRACT"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "REJECT-VMESS-NONE-PADDING",
+      "classification": "rejected-by-contract",
+      "protocols": [
+        "vmess"
+      ],
+      "when": "cipher none/zero with global-padding=true or authenticated-length=true; or alterId != 0.",
+      "row_ids": [
+        "VM02",
+        "VM03",
+        "VM07",
+        "VM08"
+      ],
+      "stages": [
+        "N3"
+      ],
+      "rejection_phase": "prepare",
+      "required_observation": "No ignored flags and no legacy identity fallback.",
+      "sources": [
+        "VCORE-CONTRACT"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "REJECT-HTTPUPGRADE-EXTENDED-ED",
+      "classification": "rejected-by-contract",
+      "protocols": [
+        "vless"
+      ],
+      "when": "HTTPUpgrade with custom-header/path ED, or fast-open without HTTPUpgrade.",
+      "row_ids": [
+        "W05",
+        "W06",
+        "W07"
+      ],
+      "stages": [
+        "N4"
+      ],
+      "rejection_phase": "prepare",
+      "required_observation": "Only the declared default-header ED mode is in the HTTPUpgrade contract.",
+      "sources": [
+        "VCORE-CONTRACT"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "REJECT-WS-PATH-ED-QUERY",
+      "classification": "rejected-by-contract",
+      "protocols": [
+        "trojan",
+        "vmess",
+        "vless"
+      ],
+      "when": "Path-suffix early data with a query in the configured WS path.",
+      "row_ids": [
+        "W01",
+        "W05"
+      ],
+      "stages": [
+        "N1",
+        "N2",
+        "N3",
+        "N4"
+      ],
+      "rejection_phase": "prepare",
+      "required_observation": "Ambiguous path construction is rejected.",
+      "sources": [
+        "VCORE-CONTRACT"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "REJECT-TRANSPORT-ORPHAN",
+      "classification": "rejected-by-contract",
+      "protocols": [
+        "trojan",
+        "vmess",
+        "vless"
+      ],
+      "when": "ws/grpc/http/h2 option objects on a different network, or ineffective TLS-only options with tls=false.",
+      "row_ids": [
+        "TR02",
+        "VM04",
+        "VM05",
+        "VL02",
+        "VL05",
+        "W01",
+        "G01",
+        "H01",
+        "H05"
+      ],
+      "stages": [
+        "N1",
+        "N2",
+        "N3",
+        "N4"
+      ],
+      "rejection_phase": "prepare",
+      "required_observation": "Do not parse and ignore a field.",
+      "sources": [
+        "VCORE-CONTRACT"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "REJECT-XHTTP-INERT-FIELDS",
+      "classification": "rejected-by-contract",
+      "protocols": [
+        "vless"
+      ],
+      "when": "Packet-up with no-grpc-header=true; stream modes with seq overrides; body uplink with chunk/key overrides; H1 with nondefault keepalive; false obfs with tokenish; ambiguous placement keys.",
+      "row_ids": [
+        "X05",
+        "X08",
+        "X09",
+        "X10",
+        "X11",
+        "X17",
+        "X18",
+        "X19",
+        "X20",
+        "X21",
+        "X29",
+        "D32"
+      ],
+      "stages": [
+        "N5"
+      ],
+      "rejection_phase": "prepare",
+      "required_observation": "Strict conditional validation; all individual cases are expanded from the field contracts.",
+      "sources": [
+        "VCORE-CONTRACT"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "REJECT-UDP-DISABLED",
+      "classification": "rejected-by-contract",
+      "protocols": [
+        "trojan",
+        "vmess",
+        "vless",
+        "hysteria2",
+        "wireguard"
+      ],
+      "when": "Business UDP requested when local udp=false.",
+      "row_ids": [
+        "C05"
+      ],
+      "stages": [
+        "N2",
+        "N3",
+        "N4",
+        "N6",
+        "N8"
+      ],
+      "rejection_phase": "dispatch",
+      "required_observation": "Deny business UDP but keep required outer HY2/WG/H3 UDP transport for TCP; no alternate route.",
+      "sources": [
+        "VCORE-CONTRACT"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "REJECT-UPSTREAM-DATAGRAM",
+      "classification": "rejected-by-contract",
+      "protocols": [
+        "hysteria2",
+        "wireguard",
+        "vless"
+      ],
+      "when": "Selected upstream lacks datagram support or effective payload budget is below QUIC/WireGuard requirements.",
+      "row_ids": [
+        "C06",
+        "WG06",
+        "HY06",
+        "T03"
+      ],
+      "stages": [
+        "N1",
+        "N5",
+        "N6",
+        "N8",
+        "N9"
+      ],
+      "rejection_phase": "establish",
+      "required_observation": "Fail under the shared establishment deadline; never open a bypass socket.",
+      "sources": [
+        "VCORE-CONTRACT"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "REJECT-HOP-INTERVAL",
+      "classification": "rejected-by-contract",
+      "protocols": [
+        "hysteria2"
+      ],
+      "when": "hop-interval without ports, interval below 5s, inverted range, zero or unrepresentable timer.",
+      "row_ids": [
+        "HY07",
+        "HY08"
+      ],
+      "stages": [
+        "N6"
+      ],
+      "rejection_phase": "prepare",
+      "required_observation": "Reject instead of Mihomo-style clamping.",
+      "sources": [
+        "VCORE-CONTRACT"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "REJECT-WG-ADDRESSES",
+      "classification": "rejected-by-contract",
+      "protocols": [
+        "wireguard"
+      ],
+      "when": "Neither address family configured, malformed address/key, inner MTU below 1280 or missing target family.",
+      "row_ids": [
+        "WG01",
+        "WG02",
+        "WG03",
+        "WG04",
+        "WG05",
+        "WG06"
+      ],
+      "stages": [
+        "N8"
+      ],
+      "rejection_phase": "prepare-or-establish",
+      "required_observation": "Static malformed configuration fails at prepare; dynamic budget/target-family failures fail at establish, never DIRECT.",
+      "sources": [
+        "VCORE-CONTRACT"
+      ],
+      "behavior_status": "NOT RUN"
+    }
+  ]
+}
