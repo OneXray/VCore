@@ -22,7 +22,7 @@ pub use credentials::{ProxyAccess, ProxyCredentials};
 mod shadowsocks;
 pub use shadowsocks::{ShadowsocksCipher, ShadowsocksOutboundConfig};
 mod trojan;
-pub use trojan::TrojanOutboundConfig;
+pub use trojan::{TrojanOutboundConfig, TrojanTransport};
 
 #[cfg(feature = "ffi")]
 mod measure;

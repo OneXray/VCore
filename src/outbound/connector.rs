@@ -128,6 +128,8 @@ fn diagnostic_stage(operation: &'static str) -> &'static str {
         "AnyTLS session open" => "anytls-stream",
         "Trojan TLS handshake" => "trojan-tls",
         "Trojan request header" => "trojan-request",
+        "Trojan WebSocket upgrade" => "trojan-websocket",
+        "Trojan gRPC handshake" => "trojan-grpc",
         _ => "outbound",
     }
 }

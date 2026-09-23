@@ -87,3 +87,112 @@ fn trojan_invalid_configuration_is_rejected_without_exposing_credentials() {
         );
     }
 }
+
+#[test]
+fn trojan_ws_and_grpc_configuration_applies_transport_specific_defaults() {
+    let config = Config::parse_yaml(&document(json!({"network":"ws"}))).unwrap();
+    let ProxyProtocol::Trojan(node) = &config.proxies[0].protocol else {
+        unreachable!()
+    };
+    assert_eq!(node.tls.alpn, [b"http/1.1".to_vec()]);
+    assert_eq!(node.server_name, "localhost");
+    let config = Config::parse_yaml(&document(json!({"network":"ws","ws-opts":{"path":"/edge?q=1","headers":{"Host":"cover.example:443","X-Fixture":"yes"},"max-early-data":2048}}))).unwrap();
+    let ProxyProtocol::Trojan(node) = &config.proxies[0].protocol else {
+        unreachable!()
+    };
+    assert_eq!(
+        node.server_name, "localhost",
+        "Trojan SNI must not fall back to WS Host"
+    );
+    let config = Config::parse_yaml(&document(
+        json!({"network":"grpc","grpc-opts":{"grpc-service-name":"edge"}}),
+    ))
+    .unwrap();
+    let ProxyProtocol::Trojan(node) = &config.proxies[0].protocol else {
+        unreachable!()
+    };
+    assert_eq!(node.tls.alpn, [b"h2".to_vec()]);
+    for service in ["Edge", "/custom/Tun"] {
+        assert!(
+            Config::parse_yaml(&document(
+                json!({"network":"grpc","grpc-opts":{"grpc-service-name":service}})
+            ))
+            .is_ok()
+        );
+    }
+}
+
+#[test]
+fn trojan_transport_boundaries_fail_before_runtime_io() {
+    for fields in [
+        json!({"ws-opts":null}),
+        json!({"grpc-opts":null}),
+        json!({"network":"grpc"}),
+        json!({"network":"grpc","grpc-opts":{"grpc-service-name":""}}),
+        json!({"network":"grpc","grpc-opts":{"grpc-service-name":"edge?query=1"}}),
+        json!({"network":"grpc","grpc-opts":{"grpc-service-name":null}}),
+        json!({"network":"grpc","grpc-opts":{"grpc-service-name":"edge","max-connections":1}}),
+        json!({"network":"ws","grpc-opts":{"grpc-service-name":"edge"}}),
+        json!({"network":"grpc","ws-opts":{},"grpc-opts":{"grpc-service-name":"edge"}}),
+        json!({"network":"ws","alpn":[]}),
+        json!({"network":"ws","alpn":["h2"]}),
+        json!({"network":"grpc","alpn":["http/1.1"],"grpc-opts":{"grpc-service-name":"edge"}}),
+    ] {
+        assert!(
+            Config::parse_yaml(&document(fields.clone())).is_err(),
+            "accepted {fields}"
+        );
+    }
+    for opts in [
+        json!({"path":"relative"}),
+        json!({"path":null}),
+        json!({"path":"/bad\r\nheader"}),
+        json!({"path":"/bad#fragment"}),
+        json!({"path":"/".repeat(16385)}),
+        json!({"headers":null}),
+        json!({"headers":{"Host":"user:secret@example.com"}}),
+        json!({"headers":{"Host":"a.example", "host":"b.example"}}),
+        json!({"headers":{"X-Foo":null}}),
+        json!({"headers":{"X-Foo":"bad\r\nheader"}}),
+        json!({"headers":{"Connection":"keep-alive"}}),
+        json!({"headers":{"Upgrade":"websocket"}}),
+        json!({"headers":{"Sec-WebSocket-Key":"override"}}),
+        json!({"headers":{"Sec-WebSocket-Protocol":"override"}}),
+        json!({"headers":{"Content-Length":"1"}}),
+        json!({"max-early-data":2049}),
+        json!({"max-early-data":-1}),
+        json!({"max-early-data":null}),
+        json!({"early-data-header-name":"x-ed"}),
+        json!({"max-early-data":1,"early-data-header-name":"Host"}),
+        json!({"max-early-data":1,"early-data-header-name":"Connection"}),
+        json!({"max-early-data":1,"early-data-header-name":null}),
+        json!({"max-early-data":1,"early-data-header-name":"x-ed","headers":{"X-ED":"duplicate"}}),
+        json!({"max-early-data":1,"early-data-header-name":"","path":"/edge?q=1"}),
+        json!({"v2ray-http-upgrade":true}),
+    ] {
+        assert!(
+            Config::parse_yaml(&document(json!({"network":"ws","ws-opts":opts.clone()}))).is_err(),
+            "accepted WS options {opts}"
+        );
+    }
+    for max in [0, 1, 2048] {
+        for header in [None, Some("x-vcore-ed"), Some("")] {
+            if max == 0 && header.is_some() {
+                continue;
+            }
+            let mut opts = json!({"max-early-data":max});
+            if let Some(name) = header {
+                opts["early-data-header-name"] = json!(name);
+            }
+            assert!(Config::parse_yaml(&document(json!({"network":"ws","ws-opts":opts}))).is_ok());
+        }
+    }
+    for host in ["cover.example:443", "[::1]:443"] {
+        assert!(
+            Config::parse_yaml(&document(
+                json!({"network":"ws","ws-opts":{"headers":{"Host":host}}})
+            ))
+            .is_ok()
+        );
+    }
+}

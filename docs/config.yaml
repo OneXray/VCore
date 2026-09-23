@@ -108,8 +108,11 @@ sniffer:
 # 客户端 -> socks-hop -> vless-edge -> 目标。
 proxies:
   # Trojan（outbound-trojan feature）：固定 TLS，不接受 tls 开关。
-  # password 必须非空，按原始 UTF-8 字节认证，不 trim。network 默认 tcp。
-  # sni 默认 server；TCP alpn 默认空，显式列表保留顺序。
+  # password 必须非空，按原始 UTF-8 字节认证，不 trim。
+  # network 接受 tcp（默认）、ws、grpc。sni 默认 server，不回退 WS Host；
+  # alpn 默认 tcp=[]、ws=[http/1.1]、grpc=[h2]。显式列表保留顺序，WS/gRPC
+  # 必须包含适用协议并校验实际协商结果。上传 EOF 保留下载侧，直到对端结束；
+  # Stop / 取消仍关闭全部会话及自有 driver，不更改 XHTTP 的全关闭约定。
   # skip-cert-verify 默认 false；fingerprint 沿用 AnyTLS 的证书 SHA-256
   # pin 语义，pin 与 skip 同时存在仍必须匹配 pin。udp 默认 false。
   # UDP 在 TLS 流内传输；单包负载最多 8192 字节并与入口预算取较小值，
@@ -123,6 +126,19 @@ proxies:
     network: tcp
     sni: trojan.example.com
     udp: true
+    # network: ws
+    # ws-opts:
+    #   path: /edge?query=1       # 默认 /，必须绝对路径
+    #   headers: {Host: cover.example:443, X-Custom: value}
+    #   max-early-data: 2048    # 0–2048，默认 0
+    #   early-data-header-name: Sec-WebSocket-Protocol
+    # W04>0 时头名缺省为 Sec-WebSocket-Protocol；可显式自定义头，或空字符串
+    # 使用路径后缀（此时 path 不可含 query）。禁用 ED 时不接受无效的头名选项。
+    # 不接受保留握手头、重复大小写头、CR/LF、userinfo 或超限 HTTP 头。
+    # network: grpc
+    # grpc-opts:
+    #   grpc-service-name: edge # 必填；普通名映射 /edge/Tun；/ 开头使用完整路径
+    # ws-opts / grpc-opts 仅可用于对应 network；本阶段不提供 gRPC 连接池。
 
   - name: vless-edge
     type: vless

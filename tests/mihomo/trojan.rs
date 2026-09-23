@@ -95,11 +95,7 @@ fn udp_base(proxy: SocketAddr, ipv6: bool, domain: bool) {
     // length + CRLF + payload). Mihomo's literal path permits 8192 payload.
     // Exercise each real path's maximum; VCore's 8192/8193 codec boundary is
     // separately tested, never inferred from a peer's smaller buffer.
-    let maximum = if domain {
-        8192 - (response_header.len() - 3) - 4
-    } else {
-        8192
-    };
+    let maximum = fixture()["udp_payload_max"].as_u64().unwrap() as usize;
     for size in [1, 64, 512, 1200, maximum] {
         for sequence in 0..100u8 {
             let payload: Vec<u8> = (0..size)
@@ -180,6 +176,46 @@ fn public_trojan_native_udp_domain() {
     core.stop();
     drop(TcpListener::bind((Ipv4Addr::LOCALHOST, port)).unwrap());
     drop(UdpSocket::bind((Ipv4Addr::LOCALHOST, port)).unwrap());
+}
+
+#[test]
+#[ignore = "requires the owned N2 native-peer runner"]
+fn public_trojan_native_extended_early_data() {
+    let fixture = fixture();
+    invoke("initialize", None, json!({"dataDir":fixture["data_dir"]}));
+    let port = free_port();
+    let core = Core::start(&config(fixture["node"].clone(), port).to_string());
+    let proxy = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
+    for (ipv6, domain) in [(false, false), (true, false), (false, true)] {
+        for server_first in [false, true] {
+            probe_socks_tcp_target(proxy, false, ipv6, domain, server_first);
+        }
+        udp_base(proxy, ipv6, domain);
+    }
+    core.stop();
+    measurement(&fixture["node"]);
+}
+
+#[test]
+#[ignore = "requires the owned N2 native-peer runner"]
+fn public_trojan_native_transport_negative() {
+    let fixture = fixture();
+    invoke("initialize", None, json!({"dataDir":fixture["data_dir"]}));
+    let mut node = fixture["node"].clone();
+    match fixture["mode"].as_str().unwrap() {
+        "ws" => {
+            node["ws-opts"]["path"] = json!("/wrong");
+            assert_no_origin_bytes(node.clone());
+            node = fixture["node"].clone();
+            node["ws-opts"]["headers"]["Host"] = json!("wrong.example");
+        }
+        "grpc" => {
+            node["grpc-opts"]["grpc-service-name"] = json!("wrong");
+        }
+        "ws-alpn" => {}
+        _ => panic!("invalid negative fixture"),
+    }
+    assert_no_origin_bytes(node);
 }
 
 fn assert_no_origin_bytes(node: Value) {

@@ -7,10 +7,10 @@ use std::{
 
 use async_trait::async_trait;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
-use tokio_util::sync::CancellationToken;
+use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 use crate::{
-    config::TrojanOutboundConfig,
+    config::{TrojanOutboundConfig, TrojanTransport},
     dispatch::{BoxStream, DatagramTransport, DispatchError},
     outbound::{
         ConnectedStream, DatagramRequest, EstablishContext, OutboundConnector, UpstreamPath,
@@ -22,6 +22,7 @@ use crate::{
         TlsClientOptions,
     },
     session::{Destination, StreamSession},
+    transport::{WebSocketOptions, connect_websocket, grpc_duplex},
 };
 
 use super::{TrojanAuth, TrojanCommand, TrojanDatagram};
@@ -32,6 +33,14 @@ pub struct TrojanOutbound {
     auth: TrojanAuth,
     tls: StandardTlsClient,
     cancellation: CancellationToken,
+    transport: Transport,
+    tasks: TaskTracker,
+}
+
+enum Transport {
+    Tcp,
+    WebSocket(Box<WebSocketOptions>),
+    Grpc(String),
 }
 
 impl std::fmt::Debug for TrojanOutbound {
@@ -62,6 +71,17 @@ impl TrojanOutbound {
         buffer_limit: usize,
     ) -> io::Result<Self> {
         Ok(Self {
+            transport: match &config.transport {
+                TrojanTransport::Tcp => Transport::Tcp,
+                TrojanTransport::WebSocket { .. } => Transport::WebSocket(Box::new(
+                    config
+                        .transport
+                        .websocket_options()?
+                        .expect("WebSocket config"),
+                )),
+                TrojanTransport::Grpc { uri } => Transport::Grpc(uri.clone()),
+            },
+            tasks: TaskTracker::new(),
             server: server_destination(&config.address, config.port)?,
             upstream,
             auth: TrojanAuth::new(&config.password)?,
@@ -70,6 +90,7 @@ impl TrojanOutbound {
                 &config.server_name,
                 TlsClientOptions {
                     alpn: config.tls.alpn.clone(),
+                    required_alpn: config.transport.required_alpn().map(<[u8]>::to_vec),
                     certificate: TlsCertificatePolicy {
                         skip_cert_verify: config.tls.skip_cert_verify,
                         fingerprint: config.tls.fingerprint,
@@ -90,18 +111,44 @@ impl TrojanOutbound {
         command: TrojanCommand,
         context: &EstablishContext,
     ) -> Result<BoxStream, DispatchError> {
+        // timeout_at may poll an immediately-ready future before its timer.
+        // A previously expired chain deadline must not even create a socket.
+        if tokio::time::Instant::now() >= context.deadline() {
+            return Err(DispatchError::TimedOut);
+        }
         let request = self.auth.request(command, &session.destination)?;
         tokio::select! {
             biased;
             () = self.cancellation.cancelled() => Err(DispatchError::NotAllowed),
             connected = async {
                 let raw = self.upstream.connect_server(session, &self.server, context).await?;
-                let mut stream = context.run_io("Trojan TLS handshake", self.tls.connect(raw.io)).await?;
-                context.run_io("Trojan request header", async {
+                let stream = context.run_io("Trojan TLS handshake", self.tls.connect(raw.io)).await?;
+                let token = self.cancellation.child_token();
+                let setup_guard = token.clone().drop_guard();
+                let stream = match &self.transport {
+                    Transport::Tcp => stream,
+                    Transport::WebSocket(options) => context.run_io("Trojan WebSocket upgrade",connect_websocket(stream,options,&request,context.deadline())).await?,
+                    Transport::Grpc(uri) => {
+                        let (stream, driver) = context.run_io("Trojan gRPC handshake",grpc_duplex(stream,uri,context.deadline())).await?;
+                        let token = token.clone();
+                        let observation = observation::track(ResourceKind::Task);
+                        self.tasks.spawn(observation::bind(async move {
+                            let _observation = observation;
+                            token.cancelled().await;
+                            let _ = driver.stop().await;
+                        }));
+                        stream
+                    },
+                };
+                let mut stream = OwnedStream::new(stream, token);
+                setup_guard.disarm();
+                if !matches!(self.transport,Transport::WebSocket(_)) {
+                    context.run_io("Trojan request header", async {
                     stream.write_all(&request).await?;
                     stream.flush().await
-                }).await?;
-                Ok(Box::new(OwnedStream::new(stream, self.cancellation.child_token())) as BoxStream)
+                    }).await?;
+                }
+                Ok(Box::new(stream) as BoxStream)
             } => connected,
         }
     }
@@ -145,6 +192,8 @@ impl OutboundConnector for TrojanOutbound {
     }
     async fn shutdown(&self) {
         self.begin_shutdown();
+        self.tasks.close();
+        self.tasks.wait().await;
     }
 }
 

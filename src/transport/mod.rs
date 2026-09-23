@@ -21,7 +21,7 @@ pub use http_head::{HTTP_HEAD_BYTES, HTTP_HEADER_COUNT};
 #[cfg(feature = "stream-transport")]
 mod grpc;
 #[cfg(feature = "stream-transport")]
-pub use grpc::{Driver as StreamDriver, grpc, legacy_h2};
+pub use grpc::{Driver as StreamDriver, grpc, grpc_duplex, legacy_h2};
 
 #[cfg(feature = "stream-transport")]
 mod http_obfs;

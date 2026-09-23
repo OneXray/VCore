@@ -68,7 +68,19 @@ pub async fn grpc(
     uri: &str,
     deadline: Instant,
 ) -> io::Result<(BoxStream, Driver)> {
-    connect(stream, uri, deadline, Framing::Gun).await
+    connect(stream, uri, deadline, Framing::Gun, false).await
+}
+
+/// A protocol carrying a bidirectional TCP stream needs upload END_STREAM,
+/// not RST_STREAM, when its application half-closes. The read half and driver
+/// remain owned until the session is dropped or its owner explicitly stops.
+/// This does not change the whole-close contract of `grpc` or legacy H2.
+pub async fn grpc_duplex(
+    stream: BoxStream,
+    uri: &str,
+    deadline: Instant,
+) -> io::Result<(BoxStream, Driver)> {
+    connect(stream, uri, deadline, Framing::Gun, true).await
 }
 
 /// Legacy VMess/VLESS H2: PUT with an unframed byte stream, not gRPC.
@@ -77,7 +89,7 @@ pub async fn legacy_h2(
     uri: &str,
     deadline: Instant,
 ) -> io::Result<(BoxStream, Driver)> {
-    connect(stream, uri, deadline, Framing::Plain).await
+    connect(stream, uri, deadline, Framing::Plain, false).await
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -91,6 +103,7 @@ async fn connect(
     uri: &str,
     deadline: Instant,
     framing: Framing,
+    half_close: bool,
 ) -> io::Result<(BoxStream, Driver)> {
     let uri: http::Uri = uri
         .parse()
@@ -170,6 +183,8 @@ async fn connect(
                 crate::resources::observation::ResourceKind::Session,
             ),
             framing,
+            half_close,
+            upload_closed: false,
             response: Some(response),
             receive: None,
             send,
@@ -190,6 +205,8 @@ async fn connect(
 struct Grpc {
     _observation: crate::resources::observation::Guard,
     framing: Framing,
+    half_close: bool,
+    upload_closed: bool,
     response: Option<ResponseFuture>,
     receive: Option<RecvStream>,
     send: SendStream<Bytes>,
@@ -401,7 +418,7 @@ impl AsyncWrite for Grpc {
         cx: &mut Context<'_>,
         input: &[u8],
     ) -> Poll<io::Result<usize>> {
-        if self.close.stopped.load(Ordering::SeqCst) {
+        if self.close.stopped.load(Ordering::SeqCst) || self.upload_closed {
             return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
         }
         ready!(self.drain(cx))?;
@@ -431,7 +448,17 @@ impl AsyncWrite for Grpc {
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         self.drain(cx)
     }
-    fn poll_shutdown(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        if self.half_close {
+            if !self.upload_closed {
+                ready!(self.drain(cx))?;
+                self.send
+                    .send_data(Bytes::new(), true)
+                    .map_err(|_| invalid())?;
+                self.upload_closed = true;
+            }
+            return Poll::Ready(Ok(()));
+        }
         // Mihomo gun.Conn.Close and h2Conn.Close cancel the whole connection,
         // not just HTTP/2 END_STREAM. The owner's stop is the join barrier.
         self.close.stop();

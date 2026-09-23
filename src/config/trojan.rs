@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use std::collections::BTreeMap;
 
 use super::{
     AnyTlsCertificatePolicy, ProxyProtocol, deserialize_present_option, invalid, validate_host,
@@ -13,6 +14,130 @@ pub struct TrojanOutboundConfig {
     pub password: String,
     pub server_name: String,
     pub tls: AnyTlsCertificatePolicy,
+    pub transport: TrojanTransport,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub enum TrojanTransport {
+    Tcp,
+    WebSocket {
+        uri: String,
+        headers: BTreeMap<String, String>,
+        max_early_data: u16,
+        early_data_header_name: String,
+    },
+    Grpc {
+        uri: String,
+    },
+}
+
+impl std::fmt::Debug for TrojanTransport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Tcp => "Tcp",
+            Self::WebSocket { .. } => "WebSocket",
+            Self::Grpc { .. } => "Grpc",
+        })
+    }
+}
+
+impl TrojanTransport {
+    pub fn required_alpn(&self) -> Option<&'static [u8]> {
+        match self {
+            Self::Tcp => None,
+            Self::WebSocket { .. } => Some(b"http/1.1"),
+            Self::Grpc { .. } => Some(b"h2"),
+        }
+    }
+
+    #[cfg(feature = "stream-transport")]
+    pub fn websocket_options(&self) -> std::io::Result<Option<crate::transport::WebSocketOptions>> {
+        use crate::transport::{WebSocketEarlyData, WebSocketOptions};
+        let Self::WebSocket {
+            uri,
+            headers,
+            max_early_data,
+            early_data_header_name,
+        } = self
+        else {
+            return Ok(None);
+        };
+        let invalid = || {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "invalid Trojan WebSocket options",
+            )
+        };
+        let mut map = http::HeaderMap::new();
+        for (name, value) in headers {
+            let name = http::HeaderName::from_bytes(name.as_bytes()).map_err(|_| invalid())?;
+            if map
+                .insert(name, value.parse().map_err(|_| invalid())?)
+                .is_some()
+            {
+                return Err(invalid());
+            }
+        }
+        let early = if *max_early_data == 0 {
+            None
+        } else if early_data_header_name.is_empty() {
+            Some(WebSocketEarlyData::Path {
+                max_bytes: usize::from(*max_early_data),
+            })
+        } else {
+            Some(WebSocketEarlyData::Header {
+                name: early_data_header_name.parse().map_err(|_| invalid())?,
+                max_bytes: usize::from(*max_early_data),
+            })
+        };
+        Ok(Some(WebSocketOptions::new(uri, map, early)?))
+    }
+}
+
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawWebSocket {
+    #[serde(default, deserialize_with = "deserialize_present_option")]
+    path: Option<String>,
+    #[serde(default)]
+    headers: BTreeMap<String, String>,
+    #[serde(rename = "max-early-data", default)]
+    max_early_data: u16,
+    #[serde(
+        rename = "early-data-header-name",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    early_data_header_name: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawGrpc {
+    #[serde(rename = "grpc-service-name")]
+    service: String,
+}
+
+fn uri(scheme: &str, server: &str, port: u16, path: &str) -> Result<String> {
+    if !path.starts_with('/') || path.contains(['\r', '\n', '#']) {
+        return invalid("invalid Trojan transport path");
+    }
+    let authority = if server.parse::<std::net::Ipv6Addr>().is_ok() {
+        format!("[{server}]:{port}")
+    } else {
+        format!("{server}:{port}")
+    };
+    let uri = http::Uri::builder()
+        .scheme(scheme)
+        .authority(authority)
+        .path_and_query(path)
+        .build()
+        .map_err(|_| crate::VCoreError::InvalidConfig("invalid Trojan transport URI".into()))?;
+    // Same bounded HTTP head envelope as the shared stream adapters.
+    if uri.to_string().len() > 16 * 1024 - 256 {
+        return invalid("Trojan transport URI exceeds HTTP head limit");
+    }
+    Ok(uri.to_string())
 }
 
 impl std::fmt::Debug for TrojanOutboundConfig {
@@ -33,6 +158,18 @@ pub(super) struct RawTrojan {
     udp: bool,
     #[serde(default, deserialize_with = "deserialize_present_option")]
     network: Option<String>,
+    #[serde(
+        rename = "ws-opts",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    ws: Option<RawWebSocket>,
+    #[serde(
+        rename = "grpc-opts",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    grpc: Option<RawGrpc>,
     #[serde(default, deserialize_with = "deserialize_present_option")]
     sni: Option<String>,
     #[serde(default, deserialize_with = "deserialize_present_option")]
@@ -65,14 +202,59 @@ impl RawTrojan {
         if self.password.is_empty() {
             return invalid("Trojan password must not be empty");
         }
-        if self.network.as_deref().unwrap_or("tcp") != "tcp" {
-            return invalid("Trojan network must be tcp");
-        }
+        let transport = match (self.network.as_deref().unwrap_or("tcp"), self.ws, self.grpc) {
+            ("tcp", None, None) => TrojanTransport::Tcp,
+            ("ws", ws, None) => {
+                let ws = ws.unwrap_or_default();
+                if ws.max_early_data > 2048
+                    || (ws.max_early_data == 0 && ws.early_data_header_name.is_some())
+                {
+                    return invalid("invalid Trojan WebSocket early-data options");
+                }
+                let transport = TrojanTransport::WebSocket {
+                    uri: uri(
+                        "wss",
+                        &self.server,
+                        self.port,
+                        ws.path.as_deref().unwrap_or("/"),
+                    )?,
+                    headers: ws.headers,
+                    max_early_data: ws.max_early_data,
+                    early_data_header_name: ws
+                        .early_data_header_name
+                        .unwrap_or_else(|| "Sec-WebSocket-Protocol".into()),
+                };
+                #[cfg(feature = "stream-transport")]
+                if transport.websocket_options().is_err() {
+                    return invalid("invalid Trojan WebSocket options");
+                }
+                transport
+            }
+            ("grpc", None, Some(grpc)) if !grpc.service.is_empty() => {
+                let path = if grpc.service.starts_with('/') {
+                    grpc.service
+                } else {
+                    format!("/{}/Tun", grpc.service)
+                };
+                if path.contains('?') {
+                    return invalid("invalid Trojan gRPC service path");
+                }
+                TrojanTransport::Grpc {
+                    uri: uri("https", &self.server, self.port, &path)?,
+                }
+            }
+            _ => return invalid("Trojan requires tcp, ws with ws-opts, or grpc with grpc-opts"),
+        };
         let server_name = self.sni.unwrap_or_else(|| self.server.clone());
         validate_host(&server_name, "Trojan sni")?;
         let alpn: Vec<Vec<u8>> = self
             .alpn
-            .unwrap_or_default()
+            .unwrap_or_else(|| {
+                transport
+                    .required_alpn()
+                    .map(|value| vec![String::from_utf8(value.to_vec()).unwrap()])
+                    .unwrap_or_default()
+            })
             .into_iter()
             .map(String::into_bytes)
             .collect();
@@ -82,6 +264,12 @@ impl RawTrojan {
             || alpn.iter().map(|value| value.len() + 1).sum::<usize>() > 65_533
         {
             return invalid("invalid Trojan ALPN list");
+        }
+        if transport
+            .required_alpn()
+            .is_some_and(|required| !alpn.iter().any(|value| value == required))
+        {
+            return invalid("Trojan ALPN does not include the selected transport");
         }
         let fingerprint = self
             .fingerprint
@@ -108,6 +296,7 @@ impl RawTrojan {
                 port: self.port,
                 password: self.password,
                 server_name,
+                transport,
                 tls: AnyTlsCertificatePolicy {
                     alpn,
                     skip_cert_verify: self.skip_cert_verify,

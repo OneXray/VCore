@@ -18,8 +18,25 @@ from .protocol_streams import certificates
 
 CASES = {
     "N2-M-TCP": ("M", "tcp", "public_trojan_native_base"),
+    "N2-M-WS": ("M", "ws", "public_trojan_native_base"),
+    "N2-M-GRPC": ("M", "grpc", "public_trojan_native_base"),
+    "N2-M-WS-ED-1": ("M", "ws-ed-1", "public_trojan_native_base"),
+    "N2-M-WS-ED-2048": ("M", "ws-ed-2048", "public_trojan_native_base"),
+    "N2-M-WS-POLICY": ("M", "ws", "public_trojan_native_policy_and_group_snapshots"),
+    "N2-M-GRPC-POLICY": (
+        "M",
+        "grpc",
+        "public_trojan_native_policy_and_group_snapshots",
+    ),
+    "N2-M-WS-NEGATIVE": ("M", "ws", "public_trojan_native_transport_negative"),
+    "N2-M-GRPC-NEGATIVE": ("M", "grpc", "public_trojan_native_transport_negative"),
+    "N2-M-ALPN-NEGATIVE": ("M", "ws-alpn", "public_trojan_native_transport_negative"),
+    "N2-V2-WS-HEADER": ("V2", "ws-header", "public_trojan_native_extended_early_data"),
+    "N2-V2-WS-PATH": ("V2", "ws-path", "public_trojan_native_extended_early_data"),
     "N2-M-TCP-POLICY": ("M", "tcp", "public_trojan_native_policy_and_group_snapshots"),
     "N2-XR-UDP-DOMAIN": ("XR", "tcp", "public_trojan_native_udp_domain"),
+    "N2-XR-WS-UDP-DOMAIN": ("XR", "ws", "public_trojan_native_udp_domain"),
+    "N2-XR-GRPC-UDP-DOMAIN": ("XR", "grpc", "public_trojan_native_udp_domain"),
 }
 
 
@@ -34,6 +51,12 @@ def peer_config(kind, mode, port, password, cert, key):
             "certificate": str(cert),
             "private-key": str(key),
         }
+        if mode.startswith("ws"):
+            listener["ws-path"] = "cover.example/n2-ws"
+        if mode == "grpc":
+            listener["grpc-service-name"] = "n2-grpc"
+        if mode == "ws-alpn":
+            listener["grpc-service-name"] = "unrelated-service"
         return {
             "mode": "rule",
             "log-level": "silent",
@@ -42,6 +65,24 @@ def peer_config(kind, mode, port, password, cert, key):
             "listeners": [listener],
             "rules": ["MATCH,DIRECT"],
         }
+    stream = {
+        "network": "tcp",
+        "security": "tls",
+        "tlsSettings": {
+            "certificates": [{"certificateFile": str(cert), "keyFile": str(key)}]
+        },
+    }
+    if mode.startswith("ws"):
+        stream.update(network="ws", wsSettings={"path": "/n2-ws/"})
+        stream["tlsSettings"]["alpn"] = ["http/1.1"]
+        if kind == "V2":
+            stream["wsSettings"].update(
+                maxEarlyData=2048,
+                earlyDataHeaderName="x-vcore-ed" if mode == "ws-header" else "",
+            )
+    if mode == "grpc":
+        stream.update(network="grpc", grpcSettings={"serviceName": "n2-grpc"})
+        stream["tlsSettings"]["alpn"] = ["h2"]
     return {
         "log": {"loglevel": "none"},
         "dns": {"hosts": {"vcore-fixture.test": "127.0.0.1"}},
@@ -51,15 +92,7 @@ def peer_config(kind, mode, port, password, cert, key):
                 "port": port,
                 "protocol": "trojan",
                 "settings": {"clients": [{"password": password}]},
-                "streamSettings": {
-                    "network": "tcp",
-                    "security": "tls",
-                    "tlsSettings": {
-                        "certificates": [
-                            {"certificateFile": str(cert), "keyFile": str(key)}
-                        ]
-                    },
-                },
+                "streamSettings": stream,
             }
         ],
         "outbounds": [{"protocol": "freedom", "settings": {"domainStrategy": "UseIP"}}],
@@ -125,6 +158,34 @@ def run(output: Path, selected=None, *, artifacts=None):
                     "sni": "localhost",
                     "fingerprint": pin,
                 }
+                if mode.startswith("ws"):
+                    node.update(
+                        network="ws",
+                        **{
+                            "ws-opts": {
+                                "path": "/n2-ws?q=1",
+                                "headers": {
+                                    "Host": "cover.example:443",
+                                    "X-N2": "fixture",
+                                },
+                            }
+                        },
+                    )
+                if mode == "grpc":
+                    node.update(
+                        network="grpc",
+                        **{"grpc-opts": {"grpc-service-name": "n2-grpc"}},
+                    )
+                if mode.startswith("ws") and kind != "M":
+                    node["ws-opts"]["path"] = "/n2-ws/"
+                if mode in {"ws-ed-1", "ws-ed-2048", "ws-header", "ws-path"}:
+                    node["ws-opts"]["max-early-data"] = 1 if mode == "ws-ed-1" else 2048
+                if mode in {"ws-header", "ws-path"}:
+                    node["ws-opts"]["early-data-header-name"] = (
+                        "x-vcore-ed" if mode == "ws-header" else ""
+                    )
+                if mode == "ws-alpn":
+                    node["alpn"] = ["h2", "http/1.1"]
                 command = (
                     [str(artifacts[kind].binary), "-d", str(directory), "-f", str(path)]
                     if kind == "M"
@@ -174,6 +235,12 @@ def run(output: Path, selected=None, *, artifacts=None):
                             {
                                 "node": node,
                                 "hop": hop,
+                                "mode": mode,
+                                "udp_payload_max": 2048
+                                if kind == "V2"
+                                else 8166
+                                if kind == "XR"
+                                else 8192,
                                 "data_dir": str(directory / "core"),
                             }
                         ),
