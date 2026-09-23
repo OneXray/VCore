@@ -44,6 +44,8 @@ class Echo(socketserver.BaseRequestHandler):
             self.request.shutdown(socket.SHUT_WR)
         except OSError:
             self.server.failed = True
+        finally:
+            self.server.finished.set()
 
 
 @contextlib.contextmanager
@@ -52,6 +54,7 @@ def origin(half_close=True, *, host="127.0.0.1"):
         server.accepted = 0
         server.received = 0
         server.failed = False
+        server.finished = threading.Event()
         server.half_close = half_close
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()

@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import socket
 import subprocess
 import tempfile
 import time
@@ -15,7 +16,17 @@ import urllib.request
 import uuid
 import zipfile
 
-from run import CORE, SPIKE, PAYLOAD_BYTES, certificates, origin, peer, download_mihomo
+from run import (
+    CORE,
+    SPIKE,
+    PAYLOAD_BYTES,
+    GREETING,
+    TRAILER,
+    certificates,
+    origin,
+    peer,
+    download_mihomo,
+)
 from vcore_scripts.mihomo_isolation import exclusive_run, reserve_port
 
 CLIENT_ID = "b831381d-6324-4d53-ad4f-8cda48b30811"  # Public synthetic fixture only.
@@ -106,12 +117,112 @@ def xray_peer(binary, directory, config, output):
                     process.wait(timeout=5)
 
 
+def recv_exact(stream, count):
+    result = bytearray()
+    while len(result) < count:
+        chunk = stream.recv(count - len(result))
+        if not chunk:
+            raise RuntimeError("Mihomo closed before the expected response")
+        result.extend(chunk)
+    return bytes(result)
+
+
+def compare_mihomo_close(binary, directory, cert, xray_port, socks_port):
+    """Use the official client, not just a Mihomo server, as the close oracle."""
+    config = {
+        "mode": "rule",
+        "log-level": "warning",
+        "allow-lan": False,
+        "bind-address": "127.0.0.1",
+        "socks-port": socks_port,
+        "tls": {"custom-certifactes": [cert.read_text()]},
+        "proxies": [
+            {
+                "name": "xhttp",
+                "type": "vless",
+                "server": "127.0.0.1",
+                "port": xray_port,
+                "uuid": CLIENT_ID,
+                "network": "xhttp",
+                "tls": True,
+                "servername": "localhost",
+                "alpn": ["h3"],
+                "xhttp-opts": {
+                    "host": "localhost",
+                    "path": "/n0-xhttp/",
+                    "mode": "stream-one",
+                },
+            }
+        ],
+        "rules": ["MATCH,xhttp"],
+    }
+    results = []
+    with peer(binary, directory / "mihomo-client", config, socks_port):
+        for close in (False, True):
+            with origin(half_close=close) as echo:
+                with socket.create_connection(("127.0.0.1", socks_port), 5) as stream:
+                    stream.settimeout(5)
+                    stream.sendall(b"\x05\x01\x00")
+                    assert recv_exact(stream, 2) == b"\x05\x00"
+                    stream.sendall(
+                        b"\x05\x01\x00\x01"
+                        + socket.inet_aton("127.0.0.1")
+                        + echo.server_address[1].to_bytes(2, "big")
+                    )
+                    reply = recv_exact(stream, 4)
+                    assert reply[:3] == b"\x05\x00\x00"
+                    assert reply[3] in (1, 4)
+                    recv_exact(stream, (4 if reply[3] == 1 else 16) + 2)
+                    assert recv_exact(stream, len(GREETING)) == GREETING
+                    payload = bytes(index % 251 for index in range(PAYLOAD_BYTES))
+                    stream.sendall(payload)
+                    assert recv_exact(stream, PAYLOAD_BYTES) == payload
+                    if close:
+                        # The same application upload EOF which makes VCore's
+                        # relay call shutdown makes Mihomo fall back to Close.
+                        started = time.monotonic()
+                        stream.shutdown(socket.SHUT_WR)
+                        try:
+                            assert stream.recv(1) == b""
+                        except ConnectionResetError:
+                            pass
+                        close_ms = (time.monotonic() - started) * 1000
+                    else:
+                        assert recv_exact(stream, len(TRAILER)) == TRAILER
+                        assert stream.recv(1) == b""
+                        close_ms = None
+                assert echo.finished.wait(5), "Mihomo left the target connection open"
+                assert echo.accepted == 1 and echo.received == PAYLOAD_BYTES
+                if not close:
+                    assert not echo.failed
+                results.append(
+                    {
+                        "name": "mihomo-client-h3-close"
+                        if close
+                        else "mihomo-client-h3-response",
+                        "outcome": "closed" if close else "pass",
+                        "payload_bytes": PAYLOAD_BYTES,
+                        "server_first": True,
+                        "response_after_close": False if close else None,
+                        "origin_finished": True,
+                        "origin_failed": echo.failed,
+                        "close_ms": close_ms,
+                    }
+                )
+    return results
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--half-close",
         action="store_true",
         help="add the separate request-EOF/response-tail diagnostic gate",
+    )
+    parser.add_argument(
+        "--compare-mihomo-close",
+        action="store_true",
+        help="compare with an official Mihomo XHTTP/H3 client against the same Xray",
     )
     args = parser.parse_args()
     artifact = CORE / "target/interop/n0-xray-h3"
@@ -169,6 +280,7 @@ def main():
             cert, key = certificates(directory, "openssl")
             port, guard = reserve_port(ports)
             socks, socks_guard = reserve_port(ports)
+            client_socks, client_guard = reserve_port(ports)
             config = {
                 "log": {"loglevel": "warning"},
                 "inbounds": [
@@ -201,6 +313,7 @@ def main():
             }
             guard.release_ipv4()
             socks_guard.release_ipv4()
+            client_guard.release_ipv4()
             upstream_config = {
                 "mode": "rule",
                 "log-level": "warning",
@@ -259,12 +372,22 @@ def main():
                         2,
                         None,
                     ),
+                    (
+                        "xray-h3-close",
+                        {"close_after_echo": True},
+                        "closed",
+                        1,
+                        200,
+                    ),
                 ] + (
                     [("xray-h3-half-close", {"half_close": True}, "pass", 1, 200)]
                     if args.half_close
                     else []
                 ):
-                    with origin(changes.get("half_close", False)) as echo:
+                    with origin(
+                        changes.get("half_close", False)
+                        or changes.get("close_after_echo", False)
+                    ) as echo:
                         fixture = {
                             "protocol": "xray-h3",
                             "peer": f"127.0.0.1:{port}",
@@ -315,6 +438,17 @@ def main():
                                 and echo.received == PAYLOAD_BYTES
                                 and not echo.failed
                             )
+                        elif outcome == "closed":
+                            assert result["vless_response"] is True
+                            assert result["payload_bytes"] == PAYLOAD_BYTES
+                            assert result["response_after_close"] is False
+                            assert echo.finished.wait(5), (
+                                "VCore left the target connection open"
+                            )
+                            assert echo.accepted == 1 and echo.received == PAYLOAD_BYTES
+                            result["origin_finished"] = True
+                            result["origin_failed"] = echo.failed
+                            save()
                         else:
                             assert (
                                 echo.accepted == 0
@@ -330,6 +464,13 @@ def main():
                             and result.get("peak_outgoing", 0) <= 32
                         ), result
                         print(f"PASS {name}", flush=True)
+                if args.compare_mihomo_close:
+                    for result in compare_mihomo_close(
+                        upstream_binary, directory, cert, port, client_socks
+                    ):
+                        report["cases"].append(result)
+                        save()
+                        print(f"PASS {result['name']}", flush=True)
         report["status"] = "pass"
     except BaseException:
         report["status"] = "fail"

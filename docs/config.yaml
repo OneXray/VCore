@@ -98,6 +98,9 @@ sniffer:
 #   下行连接标准 TLS”；解析器不会猜测该语义。
 #   auto 为 TLS -> packet-up、REALITY +
 #   download-settings -> stream-up、REALITY 无 download-settings -> stream-one；
+# - XHTTP 关闭语义与 Mihomo 一致：应用上传 EOF / shutdown 结束整条逻辑连接，
+#   同时关闭下载腿，不提供 TCP 半关闭后继续读取尾包的保证；packet-up 的待完成
+#   上传最多等待 1 秒。需要完整响应的应用须在关闭前读完响应。
 # - 不接受 packet-encoding、headers/reuse-settings、fingerprint、client-fingerprint、
 #   skip-cert-verify、ECH、mTLS、shadow-tls-opts、restls-opts 或 jls-opts。
 #

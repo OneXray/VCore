@@ -80,19 +80,41 @@ owners stop/join. `--reject-hop` refuses the second protect call: only the first
 This is one deterministic IPv4 hop, not the full N6 timer/overlap/UDP matrix.
 
 `native_h3.py` currently runs on macOS ARM64 and freshly downloads official
-Xray plus Mihomo (SOCKS5 upstream only). One VLESS/XHTTP `stream-one` POST over
+Xray plus Mihomo (SOCKS5 upstream, and optionally an XHTTP reference client).
+One VLESS/XHTTP `stream-one` POST over
 H3 uses the same controlled adapter, validates HTTP status **and** the VLESS
 response, and verifies server-first / full 64 KiB echo / EOF. The eight normal
 cases cover DIRECT, SOCKS5 UDP, wrong SNI/path/UUID, and three protect failures.
 Mihomo's XHTTP listener has no H3 UDP entry, hence the native Xray peer.
 
-The separate Xray request-EOF/tail diagnostic also remains a failing gate:
+The ninth case implements Mihomo's connection-close contract: after reading the
+server-first bytes and exact echo, application upload EOF closes both request
+and response directions. It must not wait for an EOF-triggered downstream tail;
+the target connection and all owned drivers must finish within their deadlines.
+This is not TCP half-close support or a production H3 implementation.
+
+Use the official Mihomo **client** against the same Xray server as a differential
+oracle (two additional cases, eleven total):
+
+```sh
+uv run --project scripts --locked python tests/protocols/spikes/hysteria2/native_h3.py --compare-mihomo-close
+```
+
+The reference client trusts only the generated fixture certificate in addition
+to its normal roots; certificate verification is not skipped. Both clients must
+receive the exact normal response before close and terminate on application EOF
+without delivering a post-close tail. Production H2 tests exercise the public
+`XHttpClient` stream in all three modes and independent download connections;
+see the [close contract and evidence](../../../../docs/acceptance/next-protocols/XHTTP-close.md).
+
+The separate raw Xray request-EOF/tail diagnostic remains a failing capability
+probe, **not a required Mihomo-compatible XHTTP close gate**:
 
 ```sh
 uv run --project scripts --locked python tests/protocols/spikes/hysteria2/native_h3.py --half-close
 ```
 
-It adds a ninth case after the normal eight. With Xray 26.3.27, the client
+It adds a tenth case after the normal nine. With Xray 26.3.27, the client
 receives the payload but loses the target's 14-byte EOF-triggered tail. Do not
 call ordinary response EOF half-close support, swallow FIN, patch third-party
 code or convert this diagnostic to an expected success. See the

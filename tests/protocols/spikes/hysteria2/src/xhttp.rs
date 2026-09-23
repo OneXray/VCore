@@ -122,6 +122,11 @@ pub async fn exercise(
         .map(|index| (index % 251) as u8)
         .collect();
     let half_close = config["half_close"].as_bool().unwrap_or(false);
+    let close_after_echo = config["close_after_echo"].as_bool().unwrap_or(false);
+    if half_close && close_after_echo {
+        return Err("invalid_fixture");
+    }
+    let echo_len = header_len + GREETING.len() + PAYLOAD_BYTES;
     let transfer_started = Instant::now();
     *phase = "xhttp_data";
     let upload = async {
@@ -142,11 +147,37 @@ pub async fn exercise(
             .map_err(|_| "xhttp_data_receive")?
         {
             append(&mut output, chunk)?;
+            if close_after_echo && output.len() >= echo_len {
+                break;
+            }
         }
         Ok::<_, &'static str>(())
     };
     tokio::try_join!(upload, download)?;
     let body = &output[header_len..];
+    if close_after_echo {
+        if body.len() != GREETING.len() + PAYLOAD_BYTES || body[GREETING.len()..] != payload {
+            return Err("xhttp_echo_mismatch");
+        }
+        let transfer_ms = transfer_started.elapsed().as_secs_f64() * 1000.0;
+        let closing = Instant::now();
+        // Mihomo's XHTTP connection has Close, not CloseWrite: application
+        // upload EOF ends the logical connection, including its download.
+        // This is separate from the optional raw request-EOF/tail diagnostic.
+        let finish = send.finish().await;
+        receive.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);
+        drop(receive);
+        drop(send);
+        drop(requests);
+        finish.map_err(|_| "xhttp_close")?;
+        return Ok(json!({
+            "outcome": "closed", "http_status": status, "vless_response": true,
+            "payload_bytes": PAYLOAD_BYTES, "server_first": true,
+            "tcp_half_close": false, "response_after_close": false,
+            "setup_ms": setup_ms, "transfer_ms": transfer_ms,
+            "close_ms": closing.elapsed().as_secs_f64() * 1000.0,
+        }));
+    }
     if body.len() != GREETING.len() + PAYLOAD_BYTES + TRAILER.len()
         || &body[..GREETING.len()] != GREETING
         || body[GREETING.len()..GREETING.len() + PAYLOAD_BYTES] != payload
