@@ -1344,7 +1344,7 @@ dependencies = [
 [[package]]
 name = "rustls"
 version = "0.23.45"
-source = "git+https://github.com/OneXray/rustls?rev=26f3efe5946dbe96410e85b8541ccf5fe7c244a5#26f3efe5946dbe96410e85b8541ccf5fe7c244a5"
+source = "git+https://github.com/OneXray/rustls?rev=bb4092cc32a101869406d0b8242b173372a9d3ea#bb4092cc32a101869406d0b8242b173372a9d3ea"
 dependencies = [
  "once_cell",
  "ring",

@@ -31,7 +31,7 @@
 
 [N1.3 共享流传输](acceptance/next-protocols/N1-stream.md)提供WS/gRPC/HTTP/legacy H2与独立XUDP帧层；15项定向测试、9项官方Mihomo/V2Ray传输用例、旧协议扩展互通及Apple/Android构建通过。该记录是独立历史子包，不代表新协议YAML已开放。
 
-[N1公共基础汇总](acceptance/next-protocols/N1.md)记录后续定向数据报预算、受控QUIC、runtime/测量resolver、测试作用域RAII观测、独立feature和统一执行/证据门禁。21组required/139项观察、Debug/Release、原生传输与旧协议回归通过；自有fork的密码依赖版本决定仍待确认，整体N1未签收。WireGuard预检仅因隔离内核缺设备类型而BLOCKED，不抵扣或阻塞无关公共机制。
+[N1公共基础汇总](acceptance/next-protocols/N1.md)记录定向数据报预算、受控QUIC、runtime/测量resolver、测试作用域RAII观测、独立feature和统一执行/证据门禁。最后的fork密码依赖升级已在单独分支获准发布并接入，[最终N1复验](acceptance/next-protocols/N1-x25519.md)完成21组required/139项断言、Debug/Release、原生传输、旧协议及Apple/Android构建，N1签收。WireGuard预检仍因隔离内核缺设备类型而BLOCKED，只影响依赖它的N8；新协议YAML、物理平台和发布不提前签收。
 
 当前 source/tests 覆盖：
 

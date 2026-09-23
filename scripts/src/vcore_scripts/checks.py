@@ -14,7 +14,7 @@ CRATES_IO_SOURCES = {
     "registry+https://index.crates.io/",
 }
 RUSTLS_GIT_SOURCE_PREFIX = (
-    "git+https://github.com/OneXray/rustls?branch=vcore/reality-0.23#"
+    "git+https://github.com/OneXray/rustls?branch=chore/x25519-dalek-3#"
 )
 SHADOWSOCKS_REVISION = "ab388c7466d21f979430e33cc9ef10e22fb05955"
 SHADOWSOCKS_GIT_SOURCE = (
@@ -200,7 +200,7 @@ def _tls_dependency_errors(metadata: dict[str, Any]) -> list[str]:
             character not in "0123456789abcdef" for character in revision
         ):
             errors.append(
-                "rustls must come from the vcore/reality-0.23 GitHub branch; "
+                "rustls must come from the chore/x25519-dalek-3 GitHub branch; "
                 f"resolved source: {rustls_source or 'path'}"
             )
 
@@ -237,6 +237,27 @@ def _tls_dependency_errors(metadata: dict[str, Any]) -> list[str]:
                     "rustls enables forbidden provider features: "
                     f"{', '.join(sorted(forbidden))}"
                 )
+            # Check the fork's actual edge, not an unrelated newer copy elsewhere.
+            dependencies = {dep["pkg"] for dep in rustls_node.get("deps", [])}
+            x25519 = [p for p in named("x25519-dalek") if p["id"] in dependencies]
+            if (
+                len(x25519) != 1
+                or x25519[0]["version"] != "3.0.0"
+                or x25519[0].get("source") not in CRATES_IO_SOURCES
+            ):
+                errors.append(
+                    "rustls REALITY must directly use registry x25519-dalek 3.0.0"
+                )
+            else:
+                x25519_node = next(
+                    (node for node in nodes if node["id"] == x25519[0]["id"]), None
+                )
+                x25519_features = set((x25519_node or {}).get("features", []))
+                if not {"static_secrets", "zeroize"} <= x25519_features:
+                    errors.append(
+                        "rustls REALITY x25519-dalek requires "
+                        "static_secrets and zeroize"
+                    )
 
     errors.extend(_shadowsocks_aws_lc_errors(metadata))
     return errors
@@ -275,8 +296,9 @@ def check_tls_dependencies() -> None:
     )
     revision = rustls["source"].rsplit("#", 1)[1]
     print("TLS dependency check passed:")
-    print(f"- one OneXray/rustls 0.23.45 vcore/reality-0.23 @ {revision[:12]}")
+    print(f"- one OneXray/rustls 0.23.45 chore/x25519-dalek-3 @ {revision[:12]}")
     print("- one official tokio-rustls 0.26.5")
+    print("- REALITY directly uses registry x25519-dalek 3.0.0 with zeroize")
     print(f"- one registry ring {ring['version']} provider")
     print("- no Watfaq or second rustls version; TLS uses ring only")
     if any(p["name"] == "aws-lc-rs" for p in metadata["packages"]):

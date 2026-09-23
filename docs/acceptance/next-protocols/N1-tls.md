@@ -2,6 +2,8 @@
 
 日期：2026-09-23。TLS 依赖子包已接入并完成下列本机回归；**不代表完整 N1、全依赖升级或正式发布签收**。生产仍使用 ring、classic REALITY 和 Invoke API v5 / schema revision 14，没有新增 YAML 字段或协议功能。
 
+本文是0.23.45接入时的历史子包。后续密码依赖已在另一个获准分支升级；当前fork revision与完整N1复验见[N1-x25519](N1-x25519.md)，历史Clippy失败、版本与产物不被新结果覆盖。
+
 ## 来源与版本
 
 在独立同步分支完成验证后，经授权将 `chore/sync-rustls-0.23.45` 快进合入并推送到 [OneXray/rustls 的 vcore/reality-0.23](https://github.com/OneXray/rustls/tree/vcore/reality-0.23)。推送前远端为 `df261c84cbac4f708e63ac8644ce70daa90d771c`；推送后通过 `git ls-remote` 确认完整 revision 为 `26f3efe5946dbe96410e85b8541ccf5fe7c244a5`。没有 force push 或改写提交历史；VCore 本轮只本地提交。

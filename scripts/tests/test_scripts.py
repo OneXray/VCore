@@ -444,7 +444,7 @@ except RuntimeError as error:
                     "id": "rustls-id",
                     "name": "rustls",
                     "version": "0.23.45",
-                    "source": "git+https://github.com/OneXray/rustls?branch=vcore/reality-0.23#"
+                    "source": "git+https://github.com/OneXray/rustls?branch=chore/x25519-dalek-3#"
                     + "a" * 40,
                 },
                 {
@@ -459,23 +459,64 @@ except RuntimeError as error:
                     "version": "0.17.14",
                     "source": registry,
                 },
+                {
+                    "id": "x25519-id",
+                    "name": "x25519-dalek",
+                    "version": "3.0.0",
+                    "source": registry,
+                },
             ],
             "resolve": {
                 "nodes": [
                     {
                         "id": "rustls-id",
                         "features": ["reality", "ring", "std", "tls12"],
-                    }
+                        "deps": [{"pkg": "x25519-id"}],
+                    },
+                    {
+                        "id": "x25519-id",
+                        "features": ["static_secrets", "zeroize"],
+                    },
                 ]
             },
         }
         self.assertEqual(_tls_dependency_errors(metadata), [])
 
-        for index, old_version in [(0, "0.23.43"), (1, "0.26.4")]:
+        for index, old_version in [(0, "0.23.43"), (1, "0.26.4"), (3, "2.0.1")]:
             with self.subTest(outdated_version=old_version):
                 outdated = copy.deepcopy(metadata)
                 outdated["packages"][index]["version"] = old_version
                 self.assertTrue(_tls_dependency_errors(outdated))
+
+        for source in [None, "git+https://example.invalid/x25519#" + "a" * 40]:
+            with self.subTest(x25519_source=source):
+                invalid = copy.deepcopy(metadata)
+                invalid["packages"][3]["source"] = source
+                self.assertTrue(_tls_dependency_errors(invalid))
+
+        for required in ["static_secrets", "zeroize"]:
+            with self.subTest(x25519_feature=required):
+                invalid = copy.deepcopy(metadata)
+                invalid["resolve"]["nodes"][1]["features"].remove(required)
+                self.assertTrue(_tls_dependency_errors(invalid))
+
+        for missing in ["edge", "node", "package"]:
+            with self.subTest(x25519_missing=missing):
+                invalid = copy.deepcopy(metadata)
+                if missing == "edge":
+                    invalid["resolve"]["nodes"][0]["deps"] = []
+                elif missing == "node":
+                    invalid["resolve"]["nodes"].pop()
+                else:
+                    invalid["packages"].pop()
+                self.assertTrue(_tls_dependency_errors(invalid))
+
+        old_branch = copy.deepcopy(metadata)
+        old_branch["packages"][0]["source"] = (
+            "git+https://github.com/OneXray/rustls?branch=vcore/reality-0.23#"
+            + "a" * 40
+        )
+        self.assertTrue(_tls_dependency_errors(old_branch))
 
         old_origin = copy.deepcopy(metadata)
         old_origin["packages"][0]["source"] = (
@@ -484,7 +525,7 @@ except RuntimeError as error:
         )
         self.assertTrue(
             any(
-                "vcore/reality-0.23 GitHub branch" in error
+                "chore/x25519-dalek-3 GitHub branch" in error
                 for error in _tls_dependency_errors(old_origin)
             )
         )
@@ -507,7 +548,7 @@ except RuntimeError as error:
         metadata["packages"][0]["source"] = None
         self.assertTrue(
             any(
-                "vcore/reality-0.23 GitHub branch" in error
+                "chore/x25519-dalek-3 GitHub branch" in error
                 for error in _tls_dependency_errors(metadata)
             )
         )

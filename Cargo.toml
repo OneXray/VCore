@@ -146,7 +146,7 @@ rcgen = { version = "=0.14.10", default-features = false, features = ["crypto", 
 tempfile = "3"
 
 [patch.crates-io]
-rustls = { git = "https://github.com/OneXray/rustls", branch = "vcore/reality-0.23" }
+rustls = { git = "https://github.com/OneXray/rustls", branch = "chore/x25519-dalek-3" }
 
 [profile.release]
 codegen-units = 1
