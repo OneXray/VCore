@@ -170,6 +170,12 @@ def load_manifest(path: Path = CATALOG_DIR / "cases.json") -> list[dict]:
         case["case_id"] for case in cases if case["stage"] == "N1" and case["required"]
     } != N1_REQUIRED_IDS:
         raise ValueError("N1 required set was removed, renamed or downgraded")
+    from .protocol_trojan_acceptance import REQUIRED_IDS
+
+    if {
+        case["case_id"] for case in cases if case["stage"] == "N2" and case["required"]
+    } != REQUIRED_IDS:
+        raise ValueError("N2 required set was removed, renamed or downgraded")
     return cases
 
 
@@ -259,13 +265,18 @@ def validate_results(required: list[dict], results: list[dict]) -> None:
         if (
             result.get("row_ids") != case["row_ids"]
             or result.get("peer_kind") != case["peer_kind"]
-            or result.get("scope") != "foundation-only"
+            or result.get("scope")
+            != ("protocol-consumer" if case["stage"] == "N2" else "foundation-only")
         ):
             raise ValueError("case mapping or evidence scope differs from manifest")
 
 
 def rust_results(case: dict, events: list[dict], returncode: int) -> dict:
-    observed = [event for event in events if event.get("suite") == case["case_id"]]
+    observed = [
+        event
+        for event in events
+        if event.get("suite") == case.get("event_suite", case["case_id"])
+    ]
     names = case["expected_observation"]
     assertions = {name: False for name in names}
     unknown = any(
@@ -298,7 +309,7 @@ def new_result(case: dict) -> dict:
         "case_id": case["case_id"],
         "row_ids": case["row_ids"],
         "peer_kind": case["peer_kind"],
-        "scope": "foundation-only",
+        "scope": "protocol-consumer" if case["stage"] == "N2" else "foundation-only",
         "status": "NOT RUN",
         "assertions": {},
         "evidence": [],
@@ -351,6 +362,13 @@ def check_run(
     paths = [entry["path"] for entry in artifacts]
     if len(paths) != len(set(paths)):
         raise ValueError("duplicate evidence artifact")
+    if stage == "N2":
+        from .protocol_trojan_acceptance import check
+
+        for evidence in artifacts:
+            artifact(run_dir, evidence["path"], evidence["sha256"])
+        check(run_dir, required, run, result, peers, paths)
+        return
     necessary = {
         "cases.json",
         "peers.json",

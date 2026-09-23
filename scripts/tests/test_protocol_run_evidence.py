@@ -17,7 +17,7 @@ from vcore_scripts.protocol_harness import SCRIPT_OBSERVATIONS
 
 class RunEvidenceTest(unittest.TestCase):
     def fixture(self):
-        cases = load_manifest()
+        cases = [case for case in load_manifest() if case["stage"] == "N1"]
         idle = {
             "counts": [
                 {"kind": name, "current": 0, "peak": 1}

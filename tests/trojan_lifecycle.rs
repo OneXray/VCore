@@ -1,4 +1,6 @@
-#![cfg(all(feature = "outbound-trojan", feature = "interop-test"))]
+// These probes exercise the Unix fd protector. Windows uses its separate
+// physical-interface binding contract, not this callback.
+#![cfg(all(unix, feature = "outbound-trojan", feature = "interop-test"))]
 
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -10,7 +12,7 @@ use std::{
     },
     time::Duration,
 };
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use vcore::{
     config::{Config, ProxyProtocol},
     dialer::{Dialer, ResolvedEndpoint, SocketProtector},
@@ -26,6 +28,139 @@ use vcore::{
 struct Protect {
     calls: AtomicUsize,
     reject: bool,
+}
+
+#[tokio::test]
+#[ignore = "requires the owned N2 native-peer runner"]
+async fn trojan_native_owned_resources() {
+    use bytes::Bytes;
+    use vcore::{
+        outbound::DatagramRequest,
+        session::{Datagram, DatagramSession},
+    };
+    let _case = Case::new("N2-NATIVE", "trojan_native_owned_resources");
+    let fixture: serde_json::Value =
+        serde_json::from_str(&std::env::var("VCORE_TROJAN_FIXTURE").unwrap()).unwrap();
+    let node = &fixture["node"];
+    let config = Config::parse_yaml(
+        json!({"socks-port":1080,"proxies":[node],"rules":["MATCH,peer"]})
+            .to_string()
+            .as_bytes(),
+    )
+    .unwrap();
+    let ProxyProtocol::Trojan(config) = &config.proxies[0].protocol else {
+        unreachable!()
+    };
+    for _ in 0..20 {
+        let mut cycle = Case::new("N2-OWNED-CYCLE", "stop_and_remain_quiet");
+        let probe = ResourceProbe::default();
+        cycle.checkpoint("baseline", probe.snapshot());
+        probe
+            .scope(async {
+                let address = std::net::SocketAddr::new(
+                    node["server"].as_str().unwrap().parse().unwrap(),
+                    node["port"].as_u64().unwrap() as u16,
+                );
+                let endpoint = ResolvedEndpoint {
+                    logical_host: node["server"].as_str().unwrap().into(),
+                    port: address.port(),
+                    addresses: vec![address],
+                };
+                let protect = Arc::new(Protect::default());
+                let outbound = TrojanOutbound::new_with_path(
+                    config,
+                    UpstreamPath::direct(
+                        endpoint,
+                        Dialer::default().with_protector(protect.clone()),
+                    ),
+                )
+                .unwrap();
+                let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let mut request = session();
+                request.destination = Destination::Ip(listener.local_addr().unwrap());
+                let mut first = outbound
+                    .connect_stream(request.clone(), &EstablishContext::default())
+                    .await
+                    .unwrap()
+                    .io;
+                first.write_all(b"one").await.unwrap();
+                first.flush().await.unwrap();
+                let (mut remote1, _) = listener.accept().await.unwrap();
+                assert_eq!(&remote1.read_u8().await.unwrap(), &b'o');
+                let mut second = outbound
+                    .connect_stream(request, &EstablishContext::default())
+                    .await
+                    .unwrap()
+                    .io;
+                second.write_all(b"two").await.unwrap();
+                second.flush().await.unwrap();
+                let (mut remote2, _) = listener.accept().await.unwrap();
+                let mut bytes = [0; 3];
+                remote2.read_exact(&mut bytes).await.unwrap();
+                assert_eq!(&bytes, b"two");
+                drop(first);
+                remote2.write_all(b"live").await.unwrap();
+                let mut reply = [0; 4];
+                second.read_exact(&mut reply).await.unwrap();
+                assert_eq!(&reply, b"live");
+                let origin = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+                let datagram = DatagramRequest::new(DatagramSession::new(
+                    InboundKind::InternalMeasure,
+                    "127.0.0.1:1".parse().unwrap(),
+                ));
+                let mut udp = outbound
+                    .open_datagram(datagram, &EstablishContext::default())
+                    .await
+                    .unwrap();
+                udp.send(Datagram {
+                    remote: Destination::Ip(origin.local_addr().unwrap()),
+                    payload: Bytes::from_static(b"udp"),
+                    sniffed_domain: None,
+                })
+                .await
+                .unwrap();
+                let (n, source) = origin.recv_from(&mut bytes).await.unwrap();
+                assert_eq!(&bytes[..n], b"udp");
+                origin.send_to(b"udp", source).await.unwrap();
+                assert_eq!(udp.receive().await.unwrap().payload.as_ref(), b"udp");
+                assert!(probe.snapshot().peak(ResourceKind::Association) > 0);
+                assert!(probe.snapshot().peak(ResourceKind::Session) > 0);
+                assert!(probe.snapshot().peak(ResourceKind::Socket) > 0);
+                if node["network"] == "grpc" {
+                    assert!(probe.snapshot().peak(ResourceKind::Task) > 0);
+                }
+                // RunningCore first cancels and joins inbound owners, dropping
+                // their streams/associations, then joins protocol-owned drivers.
+                outbound.begin_shutdown();
+                assert!(second.read_u8().await.is_err());
+                drop(second);
+                udp.close().await.unwrap();
+                drop(udp);
+                tokio::time::timeout(Duration::from_secs(5), outbound.shutdown())
+                    .await
+                    .unwrap();
+                assert!(
+                    probe.snapshot().is_idle(),
+                    "Stop retained owned resources: {:?}",
+                    probe.snapshot()
+                );
+                cycle.checkpoint("after-stop", probe.snapshot());
+                let calls = protect.calls.load(Ordering::SeqCst);
+                assert_eq!(calls, 3);
+                let stopped = probe.snapshot();
+                let quiet = tokio::time::Instant::now();
+                while quiet.elapsed() < Duration::from_secs(5) {
+                    assert_eq!(probe.snapshot(), stopped);
+                    assert_eq!(protect.calls.load(Ordering::SeqCst), calls);
+                    tokio::time::sleep(Duration::from_millis(25)).await;
+                }
+                cycle.checkpoint("quiet", probe.snapshot());
+                drop(outbound);
+                assert_eq!(Arc::strong_count(&protect), 1);
+            })
+            .await;
+        cycle.resources(probe.snapshot());
+    }
 }
 impl SocketProtector for Protect {
     fn protect(&self, _: i32) -> io::Result<()> {

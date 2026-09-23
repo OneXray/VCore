@@ -1,7 +1,8 @@
 #![cfg(all(
     feature = "stream-transport",
     feature = "quic-transport",
-    feature = "outbound-vless"
+    feature = "outbound-vless",
+    feature = "outbound-trojan"
 ))]
 use std::collections::BTreeMap;
 
@@ -34,6 +35,10 @@ fn registry_matches_live_production_constants_and_has_owned_boundary_cases() {
         ("http-head", transport::HTTP_HEAD_BYTES),
         ("http-headers", transport::HTTP_HEADER_COUNT),
         ("ws-early-data", transport::MAX_EARLY_DATA_BYTES),
+        (
+            "trojan-udp-payload",
+            usize::from(vcore::outbound::trojan::MAX_DATAGRAM_PAYLOAD),
+        ),
         ("xudp-metadata", vcore::xudp::MAX_METADATA_LENGTH),
         ("io-poll", vcore::limits::IO_POLL_BUDGET),
         ("quic-queue", transport::quic::QUEUE_LIMIT),

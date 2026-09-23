@@ -17,7 +17,7 @@ EXPECTED_IDENTITY = (
 )
 DEFAULT_FEATURES = (
     "ffi,tun,inbound-http,inbound-socks5,outbound-anytls,"
-    "outbound-socks5,outbound-shadowsocks,outbound-vless"
+    "outbound-socks5,outbound-shadowsocks,outbound-trojan,outbound-vless"
 )
 
 

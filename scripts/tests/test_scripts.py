@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import subprocess
 import sys
@@ -401,9 +402,7 @@ except RuntimeError as error:
                         root / "dist/windows/arm64/vcore-windows-artifacts.json"
                     ).read_text()
                 )
-                expected_digest = (
-                    "bfb78d72918e79702c425f161b4889064a68981ce9f5e69da78166f4ad56e3e8"
-                )
+                expected_digest = hashlib.sha256(_windows_pe(0xAA64)).hexdigest()
                 self.assertEqual(
                     manifest,
                     {

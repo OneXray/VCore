@@ -4,11 +4,11 @@
   <a href="../README.md">English</a> · 简体中文 · <a href="./README.ru.md">Русский</a>
 </p>
 
-VCore 是独立且不绑定特定宿主应用的 Rust 客户端代理 core。它通过严格 YAML 配置和 Invoke API v5 提供代理图、静态 `select` 代理组、DNS、规则、GeoData、HTTP/SOCKS5 listener、TUN 数据面与回环 Controller。内部配置 schema revision 为 14；revision 只出现在 `version` 响应和 `buildIdentity` 中，不写入 YAML。
+VCore 是独立且不绑定特定宿主应用的 Rust 客户端代理 core。它通过严格 YAML 配置和 Invoke API v5 提供代理图、静态 `select` 代理组、DNS、规则、GeoData、HTTP/SOCKS5 listener、TUN 数据面与回环 Controller。内部配置 schema revision 为 15；revision 只出现在 `version` 响应和 `buildIdentity` 中，不写入 YAML。
 
 ## 能力
 
-- Outbound：VLESS + XHTTP + TLS/REALITY、SOCKS5 CONNECT/UDP ASSOCIATE、AnyTLS TCP/UoT、DIRECT。
+- Outbound：VLESS + XHTTP + TLS/REALITY、SOCKS5 CONNECT/UDP ASSOCIATE、AnyTLS TCP/UoT、Shadowsocks 2022、[Trojan TCP/UDP（TLS/WS/gRPC）](../docs/trojan.md)、DIRECT。
 - 代理链：`dialer-proxy` 组成任意长度的有向无环图；节点 A 指向 B 时，物理路径为 `client -> B -> A -> target`。
 - 代理组：静态 `select` 组保留有序成员，可包含具体节点、嵌套组、`DIRECT` 与 `REJECT`；当前 session 的选择可通过 Controller 实时修改。`dialer-proxy` 可引用节点或组；上游组的 DIRECT 连接当前节点预解析的服务器。
 - 路由：顺序执行 `DOMAIN`、`DOMAIN-SUFFIX`、`DOMAIN-KEYWORD`、`GEOSITE`、`GEOIP`、`IP-CIDR`、`IP-CIDR6`、`DST-PORT`、`NETWORK` 和最终 `MATCH`。
@@ -111,6 +111,7 @@ TCP session、普通 UDP association、half-open、outbound handshake 和 active
 - [HTTP 代理入站](../docs/http-proxy.md)
 - [SOCKS5 代理入站](../docs/socks5-proxy.md)
 - [AnyTLS 出站](../docs/anytls.md)
+- [Trojan 出站](../docs/trojan.md)
 - [REALITY V1 客户端协议](../docs/reality-wire-protocol.md)
 - [rustls REALITY 依赖与发布要求](../docs/rustls-reality-release.md)
 - [运行时 Controller](../docs/controller-api.md)

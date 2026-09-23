@@ -19,6 +19,9 @@ class PortReservation:
         # IPv4-only peers take these ports; IPv6 guards remain owned until exit.
         self.ipv4.close()
 
+    def release_ipv6(self) -> None:
+        self.ipv6.close()
+
     def close(self) -> None:
         self.ipv4.close()
         self.ipv6.close()

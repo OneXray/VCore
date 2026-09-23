@@ -48,7 +48,7 @@ jobs:
       - name: Minimal and individual protocol features
         run: |
           cargo check --locked --no-default-features --lib
-          for features in inbound-http inbound-socks5 outbound-anytls outbound-socks5 outbound-shadowsocks outbound-vless inbound-http,inbound-socks5 ffi; do
+          for features in inbound-http inbound-socks5 outbound-anytls outbound-socks5 outbound-shadowsocks outbound-trojan outbound-vless inbound-http,inbound-socks5 ffi; do
             cargo check --locked --no-default-features --features "$features" --lib
           done
       - name: Debug and Release runtime tests

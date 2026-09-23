@@ -4,6 +4,15 @@
   "scope": "N1 shared foundations and inherited ResourceLimits defaults; per-object bounds, not global admission caps",
   "limits": [
     {
+      "id": "trojan-udp-payload",
+      "value": 8192,
+      "unit": "bytes",
+      "owner": "outbound::trojan::MAX_DATAGRAM_PAYLOAD",
+      "saturation": "reject oversize send before write; invalid receive closes the stream; bounded caller-budget drops never truncate",
+      "cancellation": "drop partial receive buffer and poison any partially written frame on cancelled send",
+      "boundary_cases": ["N2-CODEC", "N2-M-TCP-UDP-ISOLATION", "N2-M-WS-UDP-ISOLATION", "N2-M-GRPC-UDP-ISOLATION"]
+    },
+    {
       "id": "config-bytes",
       "value": 262144,
       "unit": "bytes",

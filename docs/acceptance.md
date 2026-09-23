@@ -33,15 +33,18 @@
 
 [N1公共基础汇总](acceptance/next-protocols/N1.md)记录定向数据报预算、受控QUIC、runtime/测量resolver、测试作用域RAII观测、独立feature和统一执行/证据门禁。最后的fork密码依赖升级已在单独分支获准发布并接入，[最终N1复验](acceptance/next-protocols/N1-x25519.md)完成21组required/139项断言、Debug/Release、原生传输、旧协议及Apple/Android构建，N1签收。WireGuard预检仍因隔离内核缺设备类型而BLOCKED，只影响依赖它的N8；新协议YAML、物理平台和发布不提前签收。
 
+[N2 Trojan](acceptance/next-protocols/N2.md)于同日完成 TCP/UDP 与 TCP/WS/gRPC 生产接线及阶段签收：41 组 required、18 个适用字段、120 轮生命周期/资源检查、独立 coverage、旧协议回归及 Apple/Android Release 构建通过。Mihomo listener 是默认对端，域名 UDP 缺口由 Xray、扩展 WS ED 由 V2Ray 单独补验并保留原失败。配置修订升至 15，Invoke v5 不变；不抵扣 N3–N10、Windows 原生、真机或发布。
+
 当前 source/tests 覆盖：
 
 - Invoke API v5、单实例生命周期、Debug/Release 运行时线程重入拒绝、panic 与同步清理；
-- schema revision 14、IPv6、严格 YAML、节点 / `select` 组上游混合 DAG 和 node-only 测速；
+- schema revision 15、IPv6、严格 YAML、节点 / `select` 组上游混合 DAG 和 node-only 测速；
 - 组上游与路由的共享选择、SOCKS5 UDP 建链快照、潜在 DIRECT 首跳准备、独立下载端点和深图回收；
 - HTTP 本机 / 认证共享、双栈监听回滚、逐请求认证与分发、Keep-Alive / 正文定界、CONNECT / Upgrade、10 MiB 双向摘要与活动连接 Stop；
 - SOCKS5 入站认证、三类目标、半关闭、TCP 授权 UDP、源端口学习/隔离、IPv6 作用域固定端口/学习端口匹配与跨接口隔离、过期/满队列/慢上游取消及纯 SOCKS5 Controller（作用域匹配为合成地址测试，不代表物理 LAN 验证）；
 - VLESS/XHTTP/TLS/REALITY、SOCKS5、AnyTLS、代理链、DNS、规则、GeoData 和 HTTP/TLS/QUIC 嗅探；
 - AnyTLS 有序 ALPN、WebPKI / 跳过 / 叶与非叶 pin、TLS 1.2/1.3 伪造签名拒绝、节点间策略隔离和精确恢复票据预算；
+- Trojan TLS/WS/gRPC、TCP 半关闭、原生 UDP 的有界帧与来源隔离、strict 配置、具体/组上游、独立测速及同步资源回收；
 - SS 2022 三算法白名单、同库 TCP/UDP 回环、有界 TCP 首写、首次传输前半关闭及 Pending 空握手续写、响应时间/认证/请求盐、UDP Pending/取消、重放/乱序/会话轮换、封装上限与来源检查，socket protect 失败关闭；
 - ICMPv4/v6、校验和、分片、MTU、队列与 Apple/Android 帧/fd/protect 所有权；
 - Windows 单 Application、token 绑定、Snapshot/profile、控制/数据协议、会合记录、
@@ -73,6 +76,7 @@ bash tests/run_mihomo_interop.sh
 | SOCKS5 CONNECT / UDP ASSOCIATE 出站 | 已覆盖 | mihomo TCP/UDP、IPv4/IPv6 | Windows ARM64 历史开发包已覆盖 |
 | SOCKS5 CONNECT / TCP 授权 UDP 入站 | 已覆盖 | mihomo 双向 TCP/UDP、IPv4/IPv6 | 真实 LAN / 物理 IPv6 未验证 |
 | AnyTLS TCP / UoT v2、ALPN / 证书策略 | 已覆盖 | mihomo 公开 YAML，TCP/UoT IPv4/IPv6、测速及证书拒绝 | 旧能力有 Windows ARM64 历史开发包记录；新 TLS 字段未做设备验证 |
+| Trojan TCP/UDP + TLS/WS/gRPC | 严格配置、codec/取消、独立 feature 和公共运行时；[N2 证据](acceptance/next-protocols/N2.md) | Mihomo 基础/组/证书/入口/资源；Xray 域名 UDP；V2Ray 扩展 WS ED | 未验证；仅 Apple/Android 构建通过 |
 | SS 2022 | 三算法配置与 I/O/安全边界；活动 Stop、绑定失败回滚、独立测速和进程 FD 回收 | mihomo TCP/UDP × IPv4/IPv6/域名及服务器先发；具体/嵌套组/DIRECT 链；AES 1/2 层受控 EIH 中继 → mihomo；错误密钥/算法/身份拒绝 | 未验证 |
 | HTTP 本机 / 认证共享、消息定界与隧道 | 已覆盖 | mihomo 双向 harness（8 个场景） | 真实 LAN / 物理 IPv6 未验证 |
 | DIRECT 与代理链 | 已覆盖 | 本地 fixture | Windows ARM64 开发包已覆盖 |

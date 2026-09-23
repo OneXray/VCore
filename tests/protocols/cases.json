@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "kind": "executable-case-manifest",
-  "scope": "N1 foundation mechanisms only. Field consumers remain NOT RUN until their protocol stages; row_ids do not sign off production fields.",
+  "scope": "N1 foundation-only and N2 Trojan consumer cases. Other protocol consumers remain NOT RUN.",
   "cases": [
     {
       "case_id": "N1-SCHEMA",
@@ -1009,6 +1009,2205 @@
       ],
       "runner": "scripts",
       "timeout_seconds": 300
+    },
+    {
+      "case_id": "N2-CODEC",
+      "stage": "N2",
+      "substage": "N2.1",
+      "required": true,
+      "row_ids": [
+        "TR01",
+        "TR02",
+        "C03",
+        "C04"
+      ],
+      "protocol": "trojan",
+      "network": "per-assertion",
+      "security": "standard-tls",
+      "udp_codec": "trojan-native",
+      "field_values": {
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "per-assertion",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "direct/concrete/select/DIRECT/REJECT",
+      "peer_kind": "unit",
+      "peer_config": {
+        "selector": "trojan"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "request_matches_the_official_sha224_and_socks_address_wire_format",
+        "authentication_and_requests_are_strict_and_never_debug_credentials",
+        "invalid_truncated_and_oversized_frames_fail_closed_without_payload_leaks",
+        "datagram_limits_preserve_messages_and_drain_over_budget_responses",
+        "datagram_sends_one_frame_and_receives_fragmented_consecutive_frames",
+        "cancelled_receive_preserves_partial_frames_and_does_not_block_send",
+        "cancelled_partial_send_poison_closes_without_replaying_or_waiting"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup"
+      ],
+      "prerequisites": [
+        "N1-shared-foundations"
+      ],
+      "runner": "rust",
+      "timeout_seconds": 600
+    },
+    {
+      "case_id": "N2-CFG",
+      "stage": "N2",
+      "substage": "N2.2",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "C06",
+        "T01",
+        "T03",
+        "T04",
+        "T05",
+        "W01",
+        "W02",
+        "W03",
+        "W04",
+        "W05",
+        "G01",
+        "TR01",
+        "TR02"
+      ],
+      "protocol": "trojan",
+      "network": "per-assertion",
+      "security": "standard-tls",
+      "udp_codec": "trojan-native",
+      "field_values": {
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "per-assertion",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "direct/concrete/select/DIRECT/REJECT",
+      "peer_kind": "unit",
+      "peer_config": {
+        "selector": "trojan_config"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "trojan_tcp_configuration_and_node_graph_accept_the_approved_fields",
+        "trojan_tcp_defaults_preserve_credentials_and_address_policy",
+        "trojan_invalid_configuration_is_rejected_without_exposing_credentials",
+        "trojan_ws_and_grpc_configuration_applies_transport_specific_defaults",
+        "trojan_transport_boundaries_fail_before_runtime_io"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup"
+      ],
+      "prerequisites": [
+        "N1-shared-foundations"
+      ],
+      "runner": "rust",
+      "timeout_seconds": 600
+    },
+    {
+      "case_id": "N2-CANCEL",
+      "stage": "N2",
+      "substage": "N2.3",
+      "required": true,
+      "row_ids": [
+        "C06",
+        "T01",
+        "T03",
+        "W01",
+        "W02",
+        "W03",
+        "G01",
+        "TR02"
+      ],
+      "protocol": "trojan",
+      "network": "per-assertion",
+      "security": "standard-tls",
+      "udp_codec": "trojan-native",
+      "field_values": {
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "per-assertion",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "direct/concrete/select/DIRECT/REJECT",
+      "peer_kind": "unit",
+      "peer_config": {
+        "selector": "trojan_lifecycle"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "trojan_handshake_deadlines_cancel_tls_ws_and_grpc_without_retaining_io",
+        "trojan_protect_rejection_and_expired_deadline_send_no_network_bytes"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "resources"
+      ],
+      "prerequisites": [
+        "N1-shared-foundations"
+      ],
+      "runner": "rust",
+      "timeout_seconds": 600
+    },
+    {
+      "case_id": "N2-M-TCP",
+      "stage": "N2",
+      "substage": "N2.4",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "TR01",
+        "TR02"
+      ],
+      "protocol": "trojan",
+      "network": "tcp",
+      "security": "standard-tls",
+      "udp_codec": "trojan-native",
+      "field_values": {
+        "network": "tcp",
+        "udp": true,
+        "password": "raw-UTF8-with-surrounding-whitespace",
+        "early_data": 0,
+        "udp_payload_max": 8192
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "direct/concrete/select/DIRECT/REJECT",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "tcp",
+        "test": "public_trojan_native_base"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "public_trojan_native_base"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity"
+      ],
+      "prerequisites": [
+        "N1-shared-foundations"
+      ],
+      "runner": "native-trojan",
+      "timeout_seconds": 240,
+      "event_suite": "N2-NATIVE"
+    },
+    {
+      "case_id": "N2-M-WS",
+      "stage": "N2",
+      "substage": "N2.4",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "TR01",
+        "TR02",
+        "T03",
+        "W01",
+        "W02",
+        "W03"
+      ],
+      "protocol": "trojan",
+      "network": "ws",
+      "security": "standard-tls",
+      "udp_codec": "trojan-native",
+      "field_values": {
+        "network": "ws",
+        "udp": true,
+        "password": "raw-UTF8-with-surrounding-whitespace",
+        "early_data": 0,
+        "udp_payload_max": 8192
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "direct/concrete/select/DIRECT/REJECT",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "ws",
+        "test": "public_trojan_native_base"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "public_trojan_native_base"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity"
+      ],
+      "prerequisites": [
+        "N1-shared-foundations"
+      ],
+      "runner": "native-trojan",
+      "timeout_seconds": 240,
+      "event_suite": "N2-NATIVE"
+    },
+    {
+      "case_id": "N2-M-GRPC",
+      "stage": "N2",
+      "substage": "N2.4",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "TR01",
+        "TR02",
+        "T03",
+        "G01"
+      ],
+      "protocol": "trojan",
+      "network": "grpc",
+      "security": "standard-tls",
+      "udp_codec": "trojan-native",
+      "field_values": {
+        "network": "grpc",
+        "udp": true,
+        "password": "raw-UTF8-with-surrounding-whitespace",
+        "early_data": 0,
+        "udp_payload_max": 8192
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "direct/concrete/select/DIRECT/REJECT",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "grpc",
+        "test": "public_trojan_native_base"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "public_trojan_native_base"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity"
+      ],
+      "prerequisites": [
+        "N1-shared-foundations"
+      ],
+      "runner": "native-trojan",
+      "timeout_seconds": 240,
+      "event_suite": "N2-NATIVE"
+    },
+    {
+      "case_id": "N2-M-WS-ED-1",
+      "stage": "N2",
+      "substage": "N2.4",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "TR01",
+        "TR02",
+        "T03",
+        "W01",
+        "W02",
+        "W03",
+        "W04",
+        "W05"
+      ],
+      "protocol": "trojan",
+      "network": "ws",
+      "security": "standard-tls",
+      "udp_codec": "trojan-native",
+      "field_values": {
+        "network": "ws-ed-1",
+        "udp": true,
+        "password": "raw-UTF8-with-surrounding-whitespace",
+        "early_data": 1,
+        "udp_payload_max": 8192
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "direct/concrete/select/DIRECT/REJECT",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "ws-ed-1",
+        "test": "public_trojan_native_base"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "public_trojan_native_base"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity"
+      ],
+      "prerequisites": [
+        "N1-shared-foundations"
+      ],
+      "runner": "native-trojan",
+      "timeout_seconds": 240,
+      "event_suite": "N2-NATIVE"
+    },
+    {
+      "case_id": "N2-M-WS-ED-2048",
+      "stage": "N2",
+      "substage": "N2.4",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "TR01",
+        "TR02",
+        "T03",
+        "W01",
+        "W02",
+        "W03",
+        "W04",
+        "W05"
+      ],
+      "protocol": "trojan",
+      "network": "ws",
+      "security": "standard-tls",
+      "udp_codec": "trojan-native",
+      "field_values": {
+        "network": "ws-ed-2048",
+        "udp": true,
+        "password": "raw-UTF8-with-surrounding-whitespace",
+        "early_data": 2048,
+        "udp_payload_max": 8192
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "direct/concrete/select/DIRECT/REJECT",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "ws-ed-2048",
+        "test": "public_trojan_native_base"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "public_trojan_native_base"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity"
+      ],
+      "prerequisites": [
+        "N1-shared-foundations"
+      ],
+      "runner": "native-trojan",
+      "timeout_seconds": 240,
+      "event_suite": "N2-NATIVE"
+    },
+    {
+      "case_id": "N2-M-WS-POLICY",
+      "stage": "N2",
+      "substage": "N2.4",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "TR01",
+        "TR02",
+        "C06",
+        "T01",
+        "T04",
+        "T05",
+        "T03",
+        "W01",
+        "W02",
+        "W03"
+      ],
+      "protocol": "trojan",
+      "network": "ws",
+      "security": "standard-tls",
+      "udp_codec": "trojan-native",
+      "field_values": {
+        "network": "ws",
+        "udp": true,
+        "password": "raw-UTF8-with-surrounding-whitespace",
+        "early_data": 0,
+        "udp_payload_max": 8192
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "direct/concrete/select/DIRECT/REJECT",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "ws",
+        "test": "public_trojan_native_policy_and_group_snapshots"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "public_trojan_native_policy_and_group_snapshots"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity"
+      ],
+      "prerequisites": [
+        "N1-shared-foundations"
+      ],
+      "runner": "native-trojan",
+      "timeout_seconds": 240,
+      "event_suite": "N2-NATIVE"
+    },
+    {
+      "case_id": "N2-M-GRPC-POLICY",
+      "stage": "N2",
+      "substage": "N2.4",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "TR01",
+        "TR02",
+        "C06",
+        "T01",
+        "T04",
+        "T05",
+        "T03",
+        "G01"
+      ],
+      "protocol": "trojan",
+      "network": "grpc",
+      "security": "standard-tls",
+      "udp_codec": "trojan-native",
+      "field_values": {
+        "network": "grpc",
+        "udp": true,
+        "password": "raw-UTF8-with-surrounding-whitespace",
+        "early_data": 0,
+        "udp_payload_max": 8192
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "direct/concrete/select/DIRECT/REJECT",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "grpc",
+        "test": "public_trojan_native_policy_and_group_snapshots"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "public_trojan_native_policy_and_group_snapshots"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity"
+      ],
+      "prerequisites": [
+        "N1-shared-foundations"
+      ],
+      "runner": "native-trojan",
+      "timeout_seconds": 240,
+      "event_suite": "N2-NATIVE"
+    },
+    {
+      "case_id": "N2-M-WS-NEGATIVE",
+      "stage": "N2",
+      "substage": "N2.4",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "TR01",
+        "TR02",
+        "T03",
+        "W01",
+        "W02",
+        "W03"
+      ],
+      "protocol": "trojan",
+      "network": "ws",
+      "security": "standard-tls",
+      "udp_codec": "trojan-native",
+      "field_values": {
+        "network": "ws",
+        "udp": true,
+        "password": "raw-UTF8-with-surrounding-whitespace",
+        "early_data": 0,
+        "udp_payload_max": 8192
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "direct/concrete/select/DIRECT/REJECT",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "ws",
+        "test": "public_trojan_native_transport_negative"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "public_trojan_native_transport_negative"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity"
+      ],
+      "prerequisites": [
+        "N1-shared-foundations"
+      ],
+      "runner": "native-trojan",
+      "timeout_seconds": 240,
+      "event_suite": "N2-NATIVE"
+    },
+    {
+      "case_id": "N2-M-GRPC-NEGATIVE",
+      "stage": "N2",
+      "substage": "N2.4",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "TR01",
+        "TR02",
+        "T03",
+        "G01"
+      ],
+      "protocol": "trojan",
+      "network": "grpc",
+      "security": "standard-tls",
+      "udp_codec": "trojan-native",
+      "field_values": {
+        "network": "grpc",
+        "udp": true,
+        "password": "raw-UTF8-with-surrounding-whitespace",
+        "early_data": 0,
+        "udp_payload_max": 8192
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "direct/concrete/select/DIRECT/REJECT",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "grpc",
+        "test": "public_trojan_native_transport_negative"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "public_trojan_native_transport_negative"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity"
+      ],
+      "prerequisites": [
+        "N1-shared-foundations"
+      ],
+      "runner": "native-trojan",
+      "timeout_seconds": 240,
+      "event_suite": "N2-NATIVE"
+    },
+    {
+      "case_id": "N2-M-ALPN-NEGATIVE",
+      "stage": "N2",
+      "substage": "N2.4",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "TR01",
+        "TR02",
+        "T03",
+        "W01",
+        "W02",
+        "W03"
+      ],
+      "protocol": "trojan",
+      "network": "ws",
+      "security": "standard-tls",
+      "udp_codec": "trojan-native",
+      "field_values": {
+        "network": "ws-alpn",
+        "udp": true,
+        "password": "raw-UTF8-with-surrounding-whitespace",
+        "early_data": 0,
+        "udp_payload_max": 8192
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "direct/concrete/select/DIRECT/REJECT",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "ws-alpn",
+        "test": "public_trojan_native_transport_negative"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "public_trojan_native_transport_negative"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity"
+      ],
+      "prerequisites": [
+        "N1-shared-foundations"
+      ],
+      "runner": "native-trojan",
+      "timeout_seconds": 240,
+      "event_suite": "N2-NATIVE"
+    },
+    {
+      "case_id": "N2-V2-WS-HEADER",
+      "stage": "N2",
+      "substage": "N2.4",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "TR01",
+        "TR02",
+        "T03",
+        "W01",
+        "W02",
+        "W03",
+        "W04",
+        "W05"
+      ],
+      "protocol": "trojan",
+      "network": "ws",
+      "security": "standard-tls",
+      "udp_codec": "trojan-native",
+      "field_values": {
+        "network": "ws-header",
+        "udp": true,
+        "password": "raw-UTF8-with-surrounding-whitespace",
+        "early_data": 2048,
+        "udp_payload_max": 2048
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "direct/concrete/select/DIRECT/REJECT",
+      "peer_kind": "V2",
+      "peer_config": {
+        "mode": "ws-header",
+        "test": "public_trojan_native_extended_early_data"
+      },
+      "gap_source": {
+        "url": "https://github.com/v2fly/v2ray-core/blob/master/transport/internet/websocket/config.proto",
+        "limitation": "M listener only decodes Sec-WebSocket-Protocol ED; V2Ray maxEarlyData/earlyDataHeaderName covers custom-header and path suffix."
+      },
+      "expected_observation": [
+        "public_trojan_native_extended_early_data"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity"
+      ],
+      "prerequisites": [
+        "N1-shared-foundations"
+      ],
+      "runner": "native-trojan",
+      "timeout_seconds": 240,
+      "event_suite": "N2-NATIVE"
+    },
+    {
+      "case_id": "N2-V2-WS-PATH",
+      "stage": "N2",
+      "substage": "N2.4",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "TR01",
+        "TR02",
+        "T03",
+        "W01",
+        "W02",
+        "W03",
+        "W04",
+        "W05"
+      ],
+      "protocol": "trojan",
+      "network": "ws",
+      "security": "standard-tls",
+      "udp_codec": "trojan-native",
+      "field_values": {
+        "network": "ws-path",
+        "udp": true,
+        "password": "raw-UTF8-with-surrounding-whitespace",
+        "early_data": 2048,
+        "udp_payload_max": 2048
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "direct/concrete/select/DIRECT/REJECT",
+      "peer_kind": "V2",
+      "peer_config": {
+        "mode": "ws-path",
+        "test": "public_trojan_native_extended_early_data"
+      },
+      "gap_source": {
+        "url": "https://github.com/v2fly/v2ray-core/blob/master/transport/internet/websocket/config.proto",
+        "limitation": "M listener only decodes Sec-WebSocket-Protocol ED; V2Ray maxEarlyData/earlyDataHeaderName covers custom-header and path suffix."
+      },
+      "expected_observation": [
+        "public_trojan_native_extended_early_data"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity"
+      ],
+      "prerequisites": [
+        "N1-shared-foundations"
+      ],
+      "runner": "native-trojan",
+      "timeout_seconds": 240,
+      "event_suite": "N2-NATIVE"
+    },
+    {
+      "case_id": "N2-M-TCP-POLICY",
+      "stage": "N2",
+      "substage": "N2.4",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "TR01",
+        "TR02",
+        "C06",
+        "T01",
+        "T04",
+        "T05"
+      ],
+      "protocol": "trojan",
+      "network": "tcp",
+      "security": "standard-tls",
+      "udp_codec": "trojan-native",
+      "field_values": {
+        "network": "tcp",
+        "udp": true,
+        "password": "raw-UTF8-with-surrounding-whitespace",
+        "early_data": 0,
+        "udp_payload_max": 8192
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "direct/concrete/select/DIRECT/REJECT",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "tcp",
+        "test": "public_trojan_native_policy_and_group_snapshots"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "public_trojan_native_policy_and_group_snapshots"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity"
+      ],
+      "prerequisites": [
+        "N1-shared-foundations"
+      ],
+      "runner": "native-trojan",
+      "timeout_seconds": 240,
+      "event_suite": "N2-NATIVE"
+    },
+    {
+      "case_id": "N2-XR-UDP-DOMAIN",
+      "stage": "N2",
+      "substage": "N2.4",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "TR01",
+        "TR02"
+      ],
+      "protocol": "trojan",
+      "network": "tcp",
+      "security": "standard-tls",
+      "udp_codec": "trojan-native",
+      "field_values": {
+        "network": "tcp",
+        "udp": true,
+        "password": "raw-UTF8-with-surrounding-whitespace",
+        "early_data": 0,
+        "udp_payload_max": 8166
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "direct/concrete/select/DIRECT/REJECT",
+      "peer_kind": "XR",
+      "peer_config": {
+        "mode": "tcp",
+        "test": "public_trojan_native_udp_domain"
+      },
+      "gap_source": {
+        "url": "https://github.com/MetaCubeX/mihomo/blob/Meta/transport/trojan/trojan.go",
+        "limitation": "WaitReadFrom calls socks5.Addr.UDPAddr(), which returns nil for a domain; actual M failure retained in N2-tcp.md; Xray owns domain UDP supplement."
+      },
+      "expected_observation": [
+        "public_trojan_native_udp_domain"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity"
+      ],
+      "prerequisites": [
+        "N1-shared-foundations"
+      ],
+      "runner": "native-trojan",
+      "timeout_seconds": 240,
+      "event_suite": "N2-NATIVE"
+    },
+    {
+      "case_id": "N2-XR-WS-UDP-DOMAIN",
+      "stage": "N2",
+      "substage": "N2.4",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "TR01",
+        "TR02",
+        "T03",
+        "W01",
+        "W02",
+        "W03"
+      ],
+      "protocol": "trojan",
+      "network": "ws",
+      "security": "standard-tls",
+      "udp_codec": "trojan-native",
+      "field_values": {
+        "network": "ws",
+        "udp": true,
+        "password": "raw-UTF8-with-surrounding-whitespace",
+        "early_data": 0,
+        "udp_payload_max": 8166
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "direct/concrete/select/DIRECT/REJECT",
+      "peer_kind": "XR",
+      "peer_config": {
+        "mode": "ws",
+        "test": "public_trojan_native_udp_domain"
+      },
+      "gap_source": {
+        "url": "https://github.com/MetaCubeX/mihomo/blob/Meta/transport/trojan/trojan.go",
+        "limitation": "WaitReadFrom calls socks5.Addr.UDPAddr(), which returns nil for a domain; actual M failure retained in N2-tcp.md; Xray owns domain UDP supplement."
+      },
+      "expected_observation": [
+        "public_trojan_native_udp_domain"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity"
+      ],
+      "prerequisites": [
+        "N1-shared-foundations"
+      ],
+      "runner": "native-trojan",
+      "timeout_seconds": 240,
+      "event_suite": "N2-NATIVE"
+    },
+    {
+      "case_id": "N2-XR-GRPC-UDP-DOMAIN",
+      "stage": "N2",
+      "substage": "N2.4",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "TR01",
+        "TR02",
+        "T03",
+        "G01"
+      ],
+      "protocol": "trojan",
+      "network": "grpc",
+      "security": "standard-tls",
+      "udp_codec": "trojan-native",
+      "field_values": {
+        "network": "grpc",
+        "udp": true,
+        "password": "raw-UTF8-with-surrounding-whitespace",
+        "early_data": 0,
+        "udp_payload_max": 8166
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "direct/concrete/select/DIRECT/REJECT",
+      "peer_kind": "XR",
+      "peer_config": {
+        "mode": "grpc",
+        "test": "public_trojan_native_udp_domain"
+      },
+      "gap_source": {
+        "url": "https://github.com/MetaCubeX/mihomo/blob/Meta/transport/trojan/trojan.go",
+        "limitation": "WaitReadFrom calls socks5.Addr.UDPAddr(), which returns nil for a domain; actual M failure retained in N2-tcp.md; Xray owns domain UDP supplement."
+      },
+      "expected_observation": [
+        "public_trojan_native_udp_domain"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity"
+      ],
+      "prerequisites": [
+        "N1-shared-foundations"
+      ],
+      "runner": "native-trojan",
+      "timeout_seconds": 240,
+      "event_suite": "N2-NATIVE"
+    },
+    {
+      "case_id": "N2-M-TCP-LIFE",
+      "stage": "N2",
+      "substage": "N2.4",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "TR01",
+        "TR02"
+      ],
+      "protocol": "trojan",
+      "network": "tcp",
+      "security": "standard-tls",
+      "udp_codec": "trojan-native",
+      "field_values": {
+        "network": "tcp",
+        "udp": true,
+        "password": "raw-UTF8-with-surrounding-whitespace",
+        "early_data": 0,
+        "udp_payload_max": 8192
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "direct/concrete/select/DIRECT/REJECT",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "tcp",
+        "test": "runtime::public_trojan_native_lifecycle"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "runtime::public_trojan_native_lifecycle"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "twenty-quiet-cycles"
+      ],
+      "prerequisites": [
+        "N1-shared-foundations"
+      ],
+      "runner": "native-trojan",
+      "timeout_seconds": 240,
+      "event_suite": "N2-NATIVE"
+    },
+    {
+      "case_id": "N2-M-TCP-ENTRYPOINTS",
+      "stage": "N2",
+      "substage": "N2.4",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "TR01",
+        "TR02"
+      ],
+      "protocol": "trojan",
+      "network": "tcp",
+      "security": "standard-tls",
+      "udp_codec": "trojan-native",
+      "field_values": {
+        "network": "tcp",
+        "udp": true,
+        "password": "raw-UTF8-with-surrounding-whitespace",
+        "early_data": 0,
+        "udp_payload_max": 8192
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "direct/concrete/select/DIRECT/REJECT",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "tcp",
+        "test": "runtime::public_trojan_native_entrypoints"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "runtime::public_trojan_native_entrypoints"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity"
+      ],
+      "prerequisites": [
+        "N1-shared-foundations"
+      ],
+      "runner": "native-trojan",
+      "timeout_seconds": 240,
+      "event_suite": "N2-NATIVE"
+    },
+    {
+      "case_id": "N2-M-TCP-UDP-ISOLATION",
+      "stage": "N2",
+      "substage": "N2.4",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "TR01",
+        "TR02"
+      ],
+      "protocol": "trojan",
+      "network": "tcp",
+      "security": "standard-tls",
+      "udp_codec": "trojan-native",
+      "field_values": {
+        "network": "tcp",
+        "udp": true,
+        "password": "raw-UTF8-with-surrounding-whitespace",
+        "early_data": 0,
+        "udp_payload_max": 8192
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "direct/concrete/select/DIRECT/REJECT",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "tcp",
+        "test": "runtime::public_trojan_native_udp_isolation_and_limit"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "runtime::public_trojan_native_udp_isolation_and_limit"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity"
+      ],
+      "prerequisites": [
+        "N1-shared-foundations"
+      ],
+      "runner": "native-trojan",
+      "timeout_seconds": 240,
+      "event_suite": "N2-NATIVE"
+    },
+    {
+      "case_id": "N2-M-TCP-IPV6",
+      "stage": "N2",
+      "substage": "N2.4",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "TR01",
+        "TR02"
+      ],
+      "protocol": "trojan",
+      "network": "tcp",
+      "security": "standard-tls",
+      "udp_codec": "trojan-native",
+      "field_values": {
+        "network": "tcp-ipv6",
+        "udp": true,
+        "password": "raw-UTF8-with-surrounding-whitespace",
+        "early_data": 0,
+        "udp_payload_max": 8192
+      },
+      "outer_family": "IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "direct/concrete/select/DIRECT/REJECT",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "tcp-ipv6",
+        "test": "public_trojan_native_base"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "public_trojan_native_base"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity"
+      ],
+      "prerequisites": [
+        "N1-shared-foundations"
+      ],
+      "runner": "native-trojan",
+      "timeout_seconds": 240,
+      "event_suite": "N2-NATIVE"
+    },
+    {
+      "case_id": "N2-M-TCP-OWNED",
+      "stage": "N2",
+      "substage": "N2.4",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "TR01",
+        "TR02"
+      ],
+      "protocol": "trojan",
+      "network": "tcp",
+      "security": "standard-tls",
+      "udp_codec": "trojan-native",
+      "field_values": {
+        "network": "tcp",
+        "udp": true,
+        "password": "raw-UTF8-with-surrounding-whitespace",
+        "early_data": 0,
+        "udp_payload_max": 8192
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "direct/concrete/select/DIRECT/REJECT",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "tcp",
+        "test": "trojan_native_owned_resources"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "trojan_native_owned_resources"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "resources",
+        "twenty-quiet-cycles"
+      ],
+      "prerequisites": [
+        "N1-shared-foundations"
+      ],
+      "runner": "native-trojan",
+      "timeout_seconds": 240,
+      "event_suite": "N2-NATIVE"
+    },
+    {
+      "case_id": "N2-M-TCP-CERTIFICATE",
+      "stage": "N2",
+      "substage": "N2.4",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "TR01",
+        "TR02",
+        "T01",
+        "T04",
+        "T05"
+      ],
+      "protocol": "trojan",
+      "network": "tcp",
+      "security": "standard-tls",
+      "udp_codec": "trojan-native",
+      "field_values": {
+        "network": "tcp-ca",
+        "udp": true,
+        "password": "raw-UTF8-with-surrounding-whitespace",
+        "early_data": 0,
+        "udp_payload_max": 8192
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "direct/concrete/select/DIRECT/REJECT",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "tcp-ca",
+        "test": "runtime::public_trojan_native_certificate_names"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "runtime::public_trojan_native_certificate_names"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity"
+      ],
+      "prerequisites": [
+        "N1-shared-foundations"
+      ],
+      "runner": "native-trojan",
+      "timeout_seconds": 240,
+      "event_suite": "N2-NATIVE"
+    },
+    {
+      "case_id": "N2-M-WS-LIFE",
+      "stage": "N2",
+      "substage": "N2.4",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "TR01",
+        "TR02",
+        "T03",
+        "W01",
+        "W02",
+        "W03"
+      ],
+      "protocol": "trojan",
+      "network": "ws",
+      "security": "standard-tls",
+      "udp_codec": "trojan-native",
+      "field_values": {
+        "network": "ws",
+        "udp": true,
+        "password": "raw-UTF8-with-surrounding-whitespace",
+        "early_data": 0,
+        "udp_payload_max": 8192
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "direct/concrete/select/DIRECT/REJECT",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "ws",
+        "test": "runtime::public_trojan_native_lifecycle"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "runtime::public_trojan_native_lifecycle"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "twenty-quiet-cycles"
+      ],
+      "prerequisites": [
+        "N1-shared-foundations"
+      ],
+      "runner": "native-trojan",
+      "timeout_seconds": 240,
+      "event_suite": "N2-NATIVE"
+    },
+    {
+      "case_id": "N2-M-WS-ENTRYPOINTS",
+      "stage": "N2",
+      "substage": "N2.4",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "TR01",
+        "TR02",
+        "T03",
+        "W01",
+        "W02",
+        "W03"
+      ],
+      "protocol": "trojan",
+      "network": "ws",
+      "security": "standard-tls",
+      "udp_codec": "trojan-native",
+      "field_values": {
+        "network": "ws",
+        "udp": true,
+        "password": "raw-UTF8-with-surrounding-whitespace",
+        "early_data": 0,
+        "udp_payload_max": 8192
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "direct/concrete/select/DIRECT/REJECT",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "ws",
+        "test": "runtime::public_trojan_native_entrypoints"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "runtime::public_trojan_native_entrypoints"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity"
+      ],
+      "prerequisites": [
+        "N1-shared-foundations"
+      ],
+      "runner": "native-trojan",
+      "timeout_seconds": 240,
+      "event_suite": "N2-NATIVE"
+    },
+    {
+      "case_id": "N2-M-WS-UDP-ISOLATION",
+      "stage": "N2",
+      "substage": "N2.4",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "TR01",
+        "TR02",
+        "T03",
+        "W01",
+        "W02",
+        "W03"
+      ],
+      "protocol": "trojan",
+      "network": "ws",
+      "security": "standard-tls",
+      "udp_codec": "trojan-native",
+      "field_values": {
+        "network": "ws",
+        "udp": true,
+        "password": "raw-UTF8-with-surrounding-whitespace",
+        "early_data": 0,
+        "udp_payload_max": 8192
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "direct/concrete/select/DIRECT/REJECT",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "ws",
+        "test": "runtime::public_trojan_native_udp_isolation_and_limit"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "runtime::public_trojan_native_udp_isolation_and_limit"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity"
+      ],
+      "prerequisites": [
+        "N1-shared-foundations"
+      ],
+      "runner": "native-trojan",
+      "timeout_seconds": 240,
+      "event_suite": "N2-NATIVE"
+    },
+    {
+      "case_id": "N2-M-WS-IPV6",
+      "stage": "N2",
+      "substage": "N2.4",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "TR01",
+        "TR02",
+        "T03",
+        "W01",
+        "W02",
+        "W03"
+      ],
+      "protocol": "trojan",
+      "network": "ws",
+      "security": "standard-tls",
+      "udp_codec": "trojan-native",
+      "field_values": {
+        "network": "ws-ipv6",
+        "udp": true,
+        "password": "raw-UTF8-with-surrounding-whitespace",
+        "early_data": 0,
+        "udp_payload_max": 8192
+      },
+      "outer_family": "IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "direct/concrete/select/DIRECT/REJECT",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "ws-ipv6",
+        "test": "public_trojan_native_base"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "public_trojan_native_base"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity"
+      ],
+      "prerequisites": [
+        "N1-shared-foundations"
+      ],
+      "runner": "native-trojan",
+      "timeout_seconds": 240,
+      "event_suite": "N2-NATIVE"
+    },
+    {
+      "case_id": "N2-M-WS-OWNED",
+      "stage": "N2",
+      "substage": "N2.4",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "TR01",
+        "TR02",
+        "T03",
+        "W01",
+        "W02",
+        "W03"
+      ],
+      "protocol": "trojan",
+      "network": "ws",
+      "security": "standard-tls",
+      "udp_codec": "trojan-native",
+      "field_values": {
+        "network": "ws",
+        "udp": true,
+        "password": "raw-UTF8-with-surrounding-whitespace",
+        "early_data": 0,
+        "udp_payload_max": 8192
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "direct/concrete/select/DIRECT/REJECT",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "ws",
+        "test": "trojan_native_owned_resources"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "trojan_native_owned_resources"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "resources",
+        "twenty-quiet-cycles"
+      ],
+      "prerequisites": [
+        "N1-shared-foundations"
+      ],
+      "runner": "native-trojan",
+      "timeout_seconds": 240,
+      "event_suite": "N2-NATIVE"
+    },
+    {
+      "case_id": "N2-M-WS-CERTIFICATE",
+      "stage": "N2",
+      "substage": "N2.4",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "TR01",
+        "TR02",
+        "T01",
+        "T04",
+        "T05",
+        "T03",
+        "W01",
+        "W02",
+        "W03"
+      ],
+      "protocol": "trojan",
+      "network": "ws",
+      "security": "standard-tls",
+      "udp_codec": "trojan-native",
+      "field_values": {
+        "network": "ws-ca",
+        "udp": true,
+        "password": "raw-UTF8-with-surrounding-whitespace",
+        "early_data": 0,
+        "udp_payload_max": 8192
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "direct/concrete/select/DIRECT/REJECT",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "ws-ca",
+        "test": "runtime::public_trojan_native_certificate_names"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "runtime::public_trojan_native_certificate_names"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity"
+      ],
+      "prerequisites": [
+        "N1-shared-foundations"
+      ],
+      "runner": "native-trojan",
+      "timeout_seconds": 240,
+      "event_suite": "N2-NATIVE"
+    },
+    {
+      "case_id": "N2-M-GRPC-LIFE",
+      "stage": "N2",
+      "substage": "N2.4",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "TR01",
+        "TR02",
+        "T03",
+        "G01"
+      ],
+      "protocol": "trojan",
+      "network": "grpc",
+      "security": "standard-tls",
+      "udp_codec": "trojan-native",
+      "field_values": {
+        "network": "grpc",
+        "udp": true,
+        "password": "raw-UTF8-with-surrounding-whitespace",
+        "early_data": 0,
+        "udp_payload_max": 8192
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "direct/concrete/select/DIRECT/REJECT",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "grpc",
+        "test": "runtime::public_trojan_native_lifecycle"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "runtime::public_trojan_native_lifecycle"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "twenty-quiet-cycles"
+      ],
+      "prerequisites": [
+        "N1-shared-foundations"
+      ],
+      "runner": "native-trojan",
+      "timeout_seconds": 240,
+      "event_suite": "N2-NATIVE"
+    },
+    {
+      "case_id": "N2-M-GRPC-ENTRYPOINTS",
+      "stage": "N2",
+      "substage": "N2.4",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "TR01",
+        "TR02",
+        "T03",
+        "G01"
+      ],
+      "protocol": "trojan",
+      "network": "grpc",
+      "security": "standard-tls",
+      "udp_codec": "trojan-native",
+      "field_values": {
+        "network": "grpc",
+        "udp": true,
+        "password": "raw-UTF8-with-surrounding-whitespace",
+        "early_data": 0,
+        "udp_payload_max": 8192
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "direct/concrete/select/DIRECT/REJECT",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "grpc",
+        "test": "runtime::public_trojan_native_entrypoints"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "runtime::public_trojan_native_entrypoints"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity"
+      ],
+      "prerequisites": [
+        "N1-shared-foundations"
+      ],
+      "runner": "native-trojan",
+      "timeout_seconds": 240,
+      "event_suite": "N2-NATIVE"
+    },
+    {
+      "case_id": "N2-M-GRPC-UDP-ISOLATION",
+      "stage": "N2",
+      "substage": "N2.4",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "TR01",
+        "TR02",
+        "T03",
+        "G01"
+      ],
+      "protocol": "trojan",
+      "network": "grpc",
+      "security": "standard-tls",
+      "udp_codec": "trojan-native",
+      "field_values": {
+        "network": "grpc",
+        "udp": true,
+        "password": "raw-UTF8-with-surrounding-whitespace",
+        "early_data": 0,
+        "udp_payload_max": 8192
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "direct/concrete/select/DIRECT/REJECT",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "grpc",
+        "test": "runtime::public_trojan_native_udp_isolation_and_limit"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "runtime::public_trojan_native_udp_isolation_and_limit"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity"
+      ],
+      "prerequisites": [
+        "N1-shared-foundations"
+      ],
+      "runner": "native-trojan",
+      "timeout_seconds": 240,
+      "event_suite": "N2-NATIVE"
+    },
+    {
+      "case_id": "N2-M-GRPC-IPV6",
+      "stage": "N2",
+      "substage": "N2.4",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "TR01",
+        "TR02",
+        "T03",
+        "G01"
+      ],
+      "protocol": "trojan",
+      "network": "grpc",
+      "security": "standard-tls",
+      "udp_codec": "trojan-native",
+      "field_values": {
+        "network": "grpc-ipv6",
+        "udp": true,
+        "password": "raw-UTF8-with-surrounding-whitespace",
+        "early_data": 0,
+        "udp_payload_max": 8192
+      },
+      "outer_family": "IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "direct/concrete/select/DIRECT/REJECT",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "grpc-ipv6",
+        "test": "public_trojan_native_base"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "public_trojan_native_base"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity"
+      ],
+      "prerequisites": [
+        "N1-shared-foundations"
+      ],
+      "runner": "native-trojan",
+      "timeout_seconds": 240,
+      "event_suite": "N2-NATIVE"
+    },
+    {
+      "case_id": "N2-M-GRPC-OWNED",
+      "stage": "N2",
+      "substage": "N2.4",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "TR01",
+        "TR02",
+        "T03",
+        "G01"
+      ],
+      "protocol": "trojan",
+      "network": "grpc",
+      "security": "standard-tls",
+      "udp_codec": "trojan-native",
+      "field_values": {
+        "network": "grpc",
+        "udp": true,
+        "password": "raw-UTF8-with-surrounding-whitespace",
+        "early_data": 0,
+        "udp_payload_max": 8192
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "direct/concrete/select/DIRECT/REJECT",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "grpc",
+        "test": "trojan_native_owned_resources"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "trojan_native_owned_resources"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "resources",
+        "twenty-quiet-cycles"
+      ],
+      "prerequisites": [
+        "N1-shared-foundations"
+      ],
+      "runner": "native-trojan",
+      "timeout_seconds": 240,
+      "event_suite": "N2-NATIVE"
+    },
+    {
+      "case_id": "N2-M-GRPC-CERTIFICATE",
+      "stage": "N2",
+      "substage": "N2.4",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "TR01",
+        "TR02",
+        "T01",
+        "T04",
+        "T05",
+        "T03",
+        "G01"
+      ],
+      "protocol": "trojan",
+      "network": "grpc",
+      "security": "standard-tls",
+      "udp_codec": "trojan-native",
+      "field_values": {
+        "network": "grpc-ca",
+        "udp": true,
+        "password": "raw-UTF8-with-surrounding-whitespace",
+        "early_data": 0,
+        "udp_payload_max": 8192
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "direct/concrete/select/DIRECT/REJECT",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "grpc-ca",
+        "test": "runtime::public_trojan_native_certificate_names"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "runtime::public_trojan_native_certificate_names"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity"
+      ],
+      "prerequisites": [
+        "N1-shared-foundations"
+      ],
+      "runner": "native-trojan",
+      "timeout_seconds": 240,
+      "event_suite": "N2-NATIVE"
+    },
+    {
+      "case_id": "N2-M-GRPC-CUSTOM",
+      "stage": "N2",
+      "substage": "N2.4",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "TR01",
+        "TR02",
+        "T03",
+        "G01"
+      ],
+      "protocol": "trojan",
+      "network": "grpc",
+      "security": "standard-tls",
+      "udp_codec": "trojan-native",
+      "field_values": {
+        "network": "grpc-custom",
+        "udp": true,
+        "password": "raw-UTF8-with-surrounding-whitespace",
+        "early_data": 0,
+        "udp_payload_max": 8192
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "direct/concrete/select/DIRECT/REJECT",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "grpc-custom",
+        "test": "public_trojan_native_base"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "public_trojan_native_base"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity"
+      ],
+      "prerequisites": [
+        "N1-shared-foundations"
+      ],
+      "runner": "native-trojan",
+      "timeout_seconds": 240,
+      "event_suite": "N2-NATIVE"
+    },
+    {
+      "case_id": "N2-FEATURES",
+      "stage": "N2",
+      "substage": "N2.4",
+      "required": true,
+      "row_ids": [],
+      "protocol": "trojan",
+      "network": "none",
+      "security": "none",
+      "udp_codec": "none",
+      "field_values": {
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "none",
+      "inner_family": "none",
+      "target_type": "none",
+      "upstream_graph": "none",
+      "peer_kind": "unit",
+      "peer_config": {
+        "runner": "features"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "independent-features",
+        "default-feature",
+        "no-default-feature",
+        "build-identity"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup"
+      ],
+      "prerequisites": [
+        "rust-toolchain"
+      ],
+      "runner": "features",
+      "timeout_seconds": 1200,
+      "event_suite": "N1-FEATURES"
+    },
+    {
+      "case_id": "N2-SCRIPTS",
+      "stage": "N2",
+      "substage": "N2.4",
+      "required": true,
+      "row_ids": [],
+      "protocol": "trojan",
+      "network": "none",
+      "security": "none",
+      "udp_codec": "none",
+      "field_values": {
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "none",
+      "inner_family": "none",
+      "target_type": "none",
+      "upstream_graph": "none",
+      "peer_kind": "unit",
+      "peer_config": {
+        "runner": "scripts"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "offline-success",
+        "missing-duplicate-unknown-case",
+        "download-failure",
+        "timeout",
+        "sigint",
+        "partial-start",
+        "permission",
+        "peer-exit",
+        "cleanup-failure",
+        "redaction"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup"
+      ],
+      "prerequisites": [
+        "python-toolchain"
+      ],
+      "runner": "scripts",
+      "timeout_seconds": 300,
+      "event_suite": "N1-SCRIPTS"
+    },
+    {
+      "case_id": "N2-REGRESSION",
+      "stage": "N2",
+      "substage": "N2.4",
+      "required": true,
+      "row_ids": [],
+      "protocol": "trojan",
+      "network": "supplied-io-or-loopback",
+      "security": "per-assertion",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "per-assertion",
+      "inner_family": "per-assertion",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "selector": "mihomo_interop"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "public_client_inbounds_interoperate_with_mihomo_in_both_directions"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity"
+      ],
+      "prerequisites": [
+        "rust-toolchain",
+        "M",
+        "apple-container"
+      ],
+      "runner": "mihomo-legacy",
+      "timeout_seconds": 900,
+      "event_suite": "N1-REGRESSION"
     }
   ]
 }

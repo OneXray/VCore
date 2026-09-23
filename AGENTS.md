@@ -1,6 +1,6 @@
 # Project Overview
 
-VCore is a standalone Rust proxy core. The current public contract is Invoke API v5 with internal schema revision 14. Runtime configuration uses the strict schema documented in `docs/config.yaml` and is passed inline as `configYaml` / `configYamls`; YAML contains neither `configVersion` nor `default-proxy`. Public lifecycle state is runtime-local and single-instance.
+VCore is a standalone Rust proxy core. The current public contract is Invoke API v5 with internal schema revision 15. Runtime configuration uses the strict schema documented in `docs/config.yaml` and is passed inline as `configYaml` / `configYamls`; YAML contains neither `configVersion` nor `default-proxy`. Public lifecycle state is runtime-local and single-instance.
 
 Apple and Android use host-owned TUN fds through the Unix `rust-tun` adapter. Windows uses `windows-rs` / `Windows.Networking.Vpn`; the packaged ARM64 foreground, AppContainer provider, per-session full-trust runtime, lifecycle, pressure, and packet-channel gates pass on Windows 11. Windows 10, native x64, physical IPv6, WACK, and Store publishing remain release gates. Linux remains unsupported.
 
@@ -14,6 +14,7 @@ Read the relevant document completely before changing that area:
 - YAML, proxy graph, proxy groups, DNS, rules, or sniffer: `docs/config.yaml`, `docs/tun-icmp-dns.md`, and `src/config/`.
 - HTTP/SOCKS5 inbound, authentication, or client listener policy: `docs/http-proxy.md`, `docs/socks5-proxy.md`, and `src/inbound/`.
 - AnyTLS: `docs/anytls.md`.
+- Trojan TCP/WS/gRPC, UDP framing, or shutdown: `docs/trojan.md`.
 - Shadowsocks 2022 and its narrowly scoped AWS-LC dependency exception: `docs/shadowsocks.md`.
 - Runtime Controller, proxy-group selection, or TUN traffic metrics: `docs/controller-api.md` and `src/controller.rs`.
 - GeoData: `docs/geodata.md`.

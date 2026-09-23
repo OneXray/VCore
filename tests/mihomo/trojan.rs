@@ -1,17 +1,49 @@
 //! Trojan consumer checks through public YAML and Invoke, owned by the N2 runner.
 use super::*;
 use sha2::{Digest, Sha256};
+use vcore::resources::case_events::Case;
+
+#[path = "trojan_runtime.rs"]
+mod runtime;
 
 fn fixture() -> Value {
     serde_json::from_str(&env::var("VCORE_TROJAN_FIXTURE").expect("use the N2 runner")).unwrap()
 }
 
 fn free_port() -> u16 {
-    TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
+    for _ in 0..32 {
+        let tcp = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = tcp.local_addr().unwrap().port();
+        match reserve_runtime_families(tcp) {
+            Ok(_reservation) => return port,
+            Err(error) if error.kind() == io::ErrorKind::AddrInUse => {}
+            Err(error) => panic!("runtime fixture port reservation: {error}"),
+        }
+        // Only pre-traffic reservation retries, never failed runtime starts.
+    }
+    panic!("could not reserve a dual-family TCP/UDP runtime fixture port");
+}
+
+fn reserve_runtime_families(tcp: TcpListener) -> io::Result<(TcpListener, TcpListener, UdpSocket)> {
+    let address = tcp.local_addr()?;
+    let tcp_v6 = TcpListener::bind((Ipv6Addr::LOCALHOST, address.port()))?;
+    let udp = UdpSocket::bind(address)?;
+    Ok((tcp, tcp_v6, udp))
+}
+
+#[test]
+fn fixture_runtime_port_rejects_occupied_udp_and_ipv6_tcp() {
+    for udp_busy in [true, false] {
+        let tcp = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = tcp.local_addr().unwrap();
+        if udp_busy {
+            let _occupied = UdpSocket::bind(address).unwrap();
+            assert!(reserve_runtime_families(tcp).is_err());
+        } else {
+            let _occupied = TcpListener::bind((Ipv6Addr::LOCALHOST, address.port())).unwrap();
+            assert!(reserve_runtime_families(tcp).is_err());
+        }
+    }
 }
 
 fn config(node: Value, port: u16) -> Value {
@@ -147,6 +179,7 @@ fn measurement(node: &Value) {
 #[test]
 #[ignore = "requires the owned N2 native-peer runner"]
 fn public_trojan_native_base() {
+    let _case = Case::new("N2-NATIVE", "public_trojan_native_base");
     let fixture = fixture();
     invoke("initialize", None, json!({"dataDir":fixture["data_dir"]}));
     let port = free_port();
@@ -168,6 +201,7 @@ fn public_trojan_native_base() {
 #[test]
 #[ignore = "requires the owned N2 native-peer runner"]
 fn public_trojan_native_udp_domain() {
+    let _case = Case::new("N2-NATIVE", "public_trojan_native_udp_domain");
     let fixture = fixture();
     invoke("initialize", None, json!({"dataDir":fixture["data_dir"]}));
     let port = free_port();
@@ -181,6 +215,7 @@ fn public_trojan_native_udp_domain() {
 #[test]
 #[ignore = "requires the owned N2 native-peer runner"]
 fn public_trojan_native_extended_early_data() {
+    let _case = Case::new("N2-NATIVE", "public_trojan_native_extended_early_data");
     let fixture = fixture();
     invoke("initialize", None, json!({"dataDir":fixture["data_dir"]}));
     let port = free_port();
@@ -199,6 +234,7 @@ fn public_trojan_native_extended_early_data() {
 #[test]
 #[ignore = "requires the owned N2 native-peer runner"]
 fn public_trojan_native_transport_negative() {
+    let _case = Case::new("N2-NATIVE", "public_trojan_native_transport_negative");
     let fixture = fixture();
     invoke("initialize", None, json!({"dataDir":fixture["data_dir"]}));
     let mut node = fixture["node"].clone();
@@ -254,6 +290,10 @@ fn assert_no_origin_bytes(node: Value) {
 #[test]
 #[ignore = "requires the owned N2 native-peer runner"]
 fn public_trojan_native_policy_and_group_snapshots() {
+    let _case = Case::new(
+        "N2-NATIVE",
+        "public_trojan_native_policy_and_group_snapshots",
+    );
     let fixture = fixture();
     invoke("initialize", None, json!({"dataDir":fixture["data_dir"]}));
     let original = fixture["node"].clone();
@@ -282,6 +322,9 @@ fn public_trojan_native_policy_and_group_snapshots() {
     let hop = fixture["hop"].clone();
     let mut leaf = original.clone();
     leaf["dialer-proxy"] = json!("hop");
+    // Only the concrete upstream resolves this synthetic server name. VCore
+    // must not turn it into a local direct socket or invoke system DNS.
+    leaf["server"] = json!("vcore-fixture.test");
     let mut document = config(leaf.clone(), port);
     document["proxies"]
         .as_array_mut()
@@ -293,6 +336,7 @@ fn public_trojan_native_policy_and_group_snapshots() {
     probe_socks_tcp(proxy, false, false);
     probe_socks_udp(proxy, false, false);
     core.stop();
+    leaf["server"] = original["server"].clone();
     leaf["dialer-proxy"] = json!("outer");
     let document = json!({"socks-port":port,"ipv6":true,"external-controller":controller.to_string(),"secret":"fixture-controller-only","proxies":[leaf,hop],"proxy-groups":[{"name":"outer","type":"select","proxies":["inner"]},{"name":"inner","type":"select","proxies":["hop","DIRECT","REJECT"]}],"rules":["MATCH,peer"]});
     let core = Core::start(&document.to_string());

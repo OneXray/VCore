@@ -109,12 +109,12 @@ class OwnedProcess:
             self.record["unexpected_exit"] = self.process.returncode
             raise RuntimeError("native peer exited before case completion")
 
-    def wait_tcp(self, port: int, seconds: float = 10):
+    def wait_tcp(self, port: int, seconds: float = 10, *, host: str = "127.0.0.1"):
         deadline = time.monotonic() + seconds
         while time.monotonic() < deadline:
             self.ensure_alive()
             try:
-                with socket.create_connection(("127.0.0.1", port), 0.1):
+                with socket.create_connection((host, port), 0.1):
                     self.record["ready"] = True
                     return
             except OSError:

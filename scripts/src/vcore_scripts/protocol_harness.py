@@ -1,4 +1,4 @@
-"""Unified N1 runner. Public protocol consumer acceptance belongs to later stages."""
+"""Unified foundation and implemented protocol-consumer acceptance runner."""
 
 from __future__ import annotations
 
@@ -81,7 +81,7 @@ def _command(
     env.pop("VCORE_CASE_EVENTS", None)
     if events:
         env["VCORE_CASE_EVENTS"] = str(events)
-    print(f"N1: {name}", flush=True)
+    print(f"{run.get('stage', 'N1')}: {name}", flush=True)
     result = run_command(
         command, cwd=CORE_DIR, env=env, timeout=seconds, limit=4 * 1024 * 1024
     )
@@ -458,7 +458,12 @@ def run_protocol_interop(
                         "some independent peer prerequisites are BLOCKED"
                     )
             else:
-                _execute(selected, run, output, records)
+                if stage == "N2":
+                    from .protocol_trojan_acceptance import execute
+
+                    execute(selected, run, output, records)
+                else:
+                    _execute(selected, run, output, records)
     except BaseException as caught:
         error = caught
         run["failure_kind"] = type(caught).__name__
@@ -477,7 +482,7 @@ def run_protocol_interop(
         (output / "cases.json").write_text(json.dumps(results, indent=2) + "\n")
         resources = []
         try:
-            for path in output.glob("*-events.jsonl"):
+            for path in output.rglob("*-events.jsonl"):
                 for event in _events(path):
                     if event.get("resources") is not None:
                         resources.append(event)
@@ -507,8 +512,13 @@ def run_protocol_interop(
             else "FAIL"
         )
         (output / "summary.md").write_text(
-            f"# {stage}: {status}\n\nFoundation-only evidence; "
-            "production protocol field consumers remain NOT RUN.\n\n"
+            f"# {stage}: {status}\n\n"
+            + (
+                "Trojan protocol consumer evidence; other protocols remain NOT RUN.\n\n"
+                if stage == "N2"
+                else "Foundation-only evidence; "
+                "production protocol field consumers remain NOT RUN.\n\n"
+            )
             + "\n".join(
                 f"- {result['case_id']}: {result['status']}" for result in results
             )

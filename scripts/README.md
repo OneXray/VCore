@@ -22,15 +22,15 @@ uv run --project scripts --locked vcore-scripts build windows
 - Apple 命令只能在 macOS 运行，输出 `dist/apple/LibVCore.xcframework`。
 - Android 命令在 macOS/Linux 运行，默认输出 `dist/android/{arm64-v8a,x86_64}/libvcore.so`。
 - Windows 命令只能在已安装 Visual Studio C++ 工具的 Windows 运行；命令从系统注册表读取原生 ARM64/x64 处理器架构，通过 `vswhere` 加载对应的 MSVC 环境，验证三项 PE 的 machine type 后输出 `dist/windows/<architecture>` 下的 DLL、Provider Host、Session Host 和记录 package integration revision、架构及三项 SHA-256 的 `vcore-windows-artifacts.json`。
-- 所有构建都使用 `Cargo.lock`，并检查产物内的 Invoke API v5/config revision 14 身份。
-- 标准 Apple、Android、Windows 构建显式包含两种客户端入站和四种出站，不依赖 `ffi` / `tun` 的传递 feature 来隐式补齐；不包含 `interop-test`。Apple/Android 的自定义 `VCORE_FEATURES` 不得将测试信任注入用于交付。
+- 所有构建都使用 `Cargo.lock`，并检查产物内的 Invoke API v5/config revision 15 身份。
+- 标准 Apple、Android、Windows 构建显式包含两种客户端入站和五种出站，不依赖 `ffi` / `tun` 的传递 feature 来隐式补齐；不包含 `interop-test`。Apple/Android 的自定义 `VCORE_FEATURES` 不得将测试信任注入用于交付。
 
 Apple/Android 继续接受现有环境变量：
 
 | 变量 | 默认值 |
 | --- | --- |
 | `VCORE_BUILD_PROFILE` | `release`，也可为 `debug` |
-| `VCORE_FEATURES` | `ffi,tun,inbound-http,inbound-socks5,outbound-anytls,outbound-socks5,outbound-shadowsocks,outbound-vless` |
+| `VCORE_FEATURES` | `ffi,tun,inbound-http,inbound-socks5,outbound-anytls,outbound-socks5,outbound-shadowsocks,outbound-trojan,outbound-vless` |
 | `VCORE_APPLE_DIST_DIR` | `dist/apple` |
 | `VCORE_IOS_DEPLOYMENT_TARGET` | `13.0` |
 | `VCORE_MACOS_DEPLOYMENT_TARGET` | `10.15` |
@@ -73,9 +73,13 @@ uv run --project scripts --locked vcore-scripts check protocol-interop --stage N
 uv run --project scripts --locked vcore-scripts check protocol-interop --stage N1 --preflight
 uv run --project scripts --locked vcore-scripts check protocol-interop --stage N1
 uv run --project scripts --locked vcore-scripts check protocol-coverage --stage N1 --run-dir target/interop/runs/<run-id>
+uv run --project scripts --locked vcore-scripts check protocol-interop --stage N2
+uv run --project scripts --locked vcore-scripts check protocol-coverage --stage N2 --run-dir target/interop/runs/<run-id>
 ```
 
-统一入口目前只执行N1公共基础，`cases.json`冻结21组required case，逐组列出断言、字段关联、对端、期限和证据类型；`limits.json`引用可执行边界case，Rust测试核对真实常量。未来阶段没有可执行required集合时非零返回NOT RUN。N1通过不是新协议或完整字段签收，正式消费者仍在后续阶段实现。
+统一入口执行N1公共基础（21组required）和N2 Trojan消费者（41组required、18个适用字段）。`cases.json`逐组列出断言、字段关联、对端、期限和证据类型；`limits.json`引用可执行边界case，Rust测试核对真实常量。未来阶段没有可执行required集合时非零返回NOT RUN。N1通过不是新协议签收，N2也不抵扣其他协议。
+
+N2三种传输分别执行真实Mihomo TCP/UDP、上游/组、HTTP/模拟TUN/DNS、外层IPv6、证书/路径负例和UDP隔离；公共Invoke生命周期、协议自有资源各20轮，每轮Stop返回即检查，再静默5秒。域名UDP因Mihomo listener缺口由Xray单独补验，自定义头/路径ED由V2Ray补验；失败与对端缓冲限制保留在[N2.2记录](../docs/acceptance/next-protocols/N2-tcp.md)。`fields.json`按row ID汇总，只有完整执行、原始事件和所有必需项通过才可签收；单独运行原生子工具用于开发定位，不替代统一门禁。
 
 `--case`可重复，`--protocol`与其取交集；未知、重复、矛盾或空选择拒绝。`--list`只列清单，不下载/启动；`--preflight`独立检查M/W/H/XR/V2，任一缺环境则非零并保留其他能力结果，不执行业务。W探测仅创建本轮唯一Apple Container VM，安装当前官方发行渠道工具、尝试内核WG及内外双栈；不会修改宿主VPN/路由。完整N1只依赖自身实际使用的M/V2，W/H/XR的未来能力不足不伪造通过，也不阻塞无关case。版本命令就绪不证明H跳端口或XR具体协议模式已验证。
 

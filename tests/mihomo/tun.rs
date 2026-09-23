@@ -13,7 +13,7 @@ fn checksum(bytes: &[u8]) -> u16 {
     !(sum as u16)
 }
 
-fn packet(
+pub(super) fn packet(
     target: SocketAddr,
     protocol: u8,
     seq_ack_flags: (u32, u32, u8),
@@ -60,7 +60,7 @@ fn packet(
     framed
 }
 
-fn receive(peer: &UnixDatagram, protocol: u8) -> Vec<u8> {
+pub(super) fn receive(peer: &UnixDatagram, protocol: u8) -> Vec<u8> {
     let deadline = Instant::now() + IO_TIMEOUT;
     loop {
         assert!(Instant::now() < deadline, "TUN packet deadline");
@@ -76,7 +76,7 @@ fn receive(peer: &UnixDatagram, protocol: u8) -> Vec<u8> {
     }
 }
 
-fn traffic(controller: SocketAddr) -> Value {
+pub(super) fn traffic(controller: SocketAddr) -> Value {
     let mut stream = buffered(TcpStream::connect_timeout(&controller, IO_TIMEOUT).unwrap());
     stream.get_mut().write_all(b"GET /traffic HTTP/1.1\r\nHost: fixture\r\nAuthorization: Bearer fixture-controller-only\r\nConnection: close\r\n\r\n").unwrap();
     assert!(head(&mut stream).starts_with("HTTP/1.1 200"));
