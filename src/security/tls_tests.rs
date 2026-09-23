@@ -32,6 +32,10 @@ fn ca(name: &str) -> CertificateParams {
 }
 
 fn chain(expired: bool) -> Chain {
+    chain_with_usage(expired, ExtendedKeyUsagePurpose::ServerAuth)
+}
+
+fn chain_with_usage(expired: bool, usage: ExtendedKeyUsagePurpose) -> Chain {
     let root =
         CertifiedIssuer::self_signed(ca("fixture root"), KeyPair::generate().unwrap()).unwrap();
     let intermediate = CertifiedIssuer::signed_by(
@@ -44,7 +48,7 @@ fn chain(expired: bool) -> Chain {
     let mut params = CertificateParams::new(vec!["fixture.invalid".into()]).unwrap();
     params.not_before = date_time_ymd(2020, 1, 1);
     params.not_after = date_time_ymd(if expired { 2021 } else { 2090 }, 1, 1);
-    params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ServerAuth];
+    params.extended_key_usages = vec![usage];
     let leaf = params.signed_by(&key, &intermediate).unwrap();
     Chain {
         certificates: vec![
@@ -74,7 +78,22 @@ fn client(
     name: &str,
     policy: AnyTlsCertificatePolicy,
 ) -> StandardTlsClient {
-    StandardTlsClient::for_anytls(context, name, &policy, 4, DEFAULT_TLS_BUFFER_LIMIT).unwrap()
+    StandardTlsClient::with_options(
+        context,
+        name,
+        TlsClientOptions {
+            certificate: TlsCertificatePolicy {
+                verification_name: None,
+                skip_cert_verify: policy.skip_cert_verify,
+                fingerprint: policy.fingerprint,
+            },
+            alpn: policy.alpn,
+            ..Default::default()
+        },
+        4,
+        DEFAULT_TLS_BUFFER_LIMIT,
+    )
+    .unwrap()
 }
 
 #[derive(Debug)]
@@ -428,4 +447,282 @@ async fn alpn_and_tls_resumption_are_isolated_between_node_policies() {
         .await
         .0
     );
+}
+
+#[tokio::test]
+async fn explicit_verification_name_does_not_change_sni_or_allow_skip_to_override_it() {
+    let chain = chain(false);
+    let context = trusted(&chain);
+    for (name, skip, fingerprint, expected) in [
+        ("fixture.invalid", false, None, true),
+        ("fixture.invalid", true, None, true),
+        ("wrong.invalid", true, None, false),
+        ("wrong.invalid", true, Some(pin(&chain, 0)), true),
+        ("wrong.invalid", true, Some(pin(&chain, 1)), false),
+        ("fixture.invalid", true, Some([0; 32]), false),
+    ] {
+        let options = TlsClientOptions {
+            certificate: TlsCertificatePolicy {
+                verification_name: Some(name.into()),
+                skip_cert_verify: skip,
+                fingerprint,
+            },
+            ..Default::default()
+        };
+        let client = StandardTlsClient::with_options(
+            &context,
+            "sni.invalid",
+            options,
+            1,
+            DEFAULT_TLS_BUFFER_LIMIT,
+        )
+        .unwrap();
+        let (ok, seen) = handshake(&client, server(&chain, &TLS13, false)).await;
+        assert_eq!(ok, expected);
+        assert_eq!(seen.name.as_deref(), Some("sni.invalid"));
+    }
+}
+
+#[tokio::test]
+async fn mutual_tls_identity_is_required_verified_and_not_shared_between_clients() {
+    let chain = chain(false);
+    let identity = chain_with_usage(false, ExtendedKeyUsagePurpose::ClientAuth);
+    let unknown = chain_with_usage(false, ExtendedKeyUsagePurpose::ClientAuth);
+    for version in [&TLS12, &TLS13] {
+        let mut roots = RootCertStore::empty();
+        roots.add(identity.certificates[2].clone()).unwrap();
+        let verifier = rustls::server::WebPkiClientVerifier::builder_with_provider(
+            Arc::new(roots),
+            trusted(&chain).provider,
+        )
+        .build()
+        .unwrap();
+        let server = Arc::new(
+            ServerConfig::builder_with_provider(trusted(&chain).provider)
+                .with_protocol_versions(&[version])
+                .unwrap()
+                .with_client_cert_verifier(verifier)
+                .with_single_cert(chain.certificates.clone(), chain.key.clone_key())
+                .unwrap(),
+        );
+        for (cert, expected) in [
+            (Some(&identity), true),
+            (None, false),
+            (Some(&unknown), false),
+            (Some(&identity), true),
+        ] {
+            let options = TlsClientOptions {
+                identity: cert.map(|cert| {
+                    TlsClientIdentity::from_der(cert.certificates.clone(), cert.key.clone_key())
+                }),
+                ..Default::default()
+            };
+            let client = StandardTlsClient::with_options(
+                &trusted(&chain),
+                "fixture.invalid",
+                options,
+                1,
+                DEFAULT_TLS_BUFFER_LIMIT,
+            )
+            .unwrap();
+            let (ok, seen) = handshake(&client, server.clone()).await;
+            assert_eq!(ok, expected);
+            assert!(
+                !seen.resumed,
+                "new identity must not inherit a node's tickets"
+            );
+            if expected {
+                assert!(handshake(&client, server.clone()).await.1.resumed);
+            }
+        }
+    }
+}
+
+#[test]
+fn tls_options_reject_invalid_alpn_identity_and_budget_before_using_a_stream() {
+    let context = SecurityContext::new();
+    for options in [
+        TlsClientOptions {
+            alpn: vec![vec![]],
+            ..Default::default()
+        },
+        TlsClientOptions {
+            alpn: vec![vec![b'a'; 256]],
+            ..Default::default()
+        },
+        TlsClientOptions {
+            alpn: vec![vec![b'a'; 255]; 256],
+            ..Default::default()
+        },
+        TlsClientOptions {
+            required_alpn: Some(b"h2".to_vec()),
+            ..Default::default()
+        },
+    ] {
+        assert!(
+            StandardTlsClient::with_options(&context, "example.com", options, 1, 4096).is_err()
+        );
+    }
+    let first = chain(false);
+    let second = chain(false);
+    let options = TlsClientOptions {
+        identity: Some(TlsClientIdentity::from_der(first.certificates, second.key)),
+        ..Default::default()
+    };
+    let error =
+        StandardTlsClient::with_options(&context, "example.com", options, 1, 4096).unwrap_err();
+    assert_eq!(error.to_string(), "invalid TLS client identity");
+    assert!(
+        StandardTlsClient::with_options(&context, "example.com", Default::default(), 5, 4096)
+            .is_err()
+    );
+    assert!(
+        StandardTlsClient::with_options(
+            &context,
+            "secret-invalid name",
+            Default::default(),
+            1,
+            4096
+        )
+        .is_err()
+    );
+}
+
+#[tokio::test]
+async fn certificate_rejection_delivers_no_business_bytes_and_diagnostics_are_redacted() {
+    for fingerprint in [None, Some([0; 32])] {
+        let chain = chain(false);
+        let client = StandardTlsClient::with_options(
+            &trusted(&chain),
+            "secret-wrong.invalid",
+            TlsClientOptions {
+                certificate: TlsCertificatePolicy {
+                    fingerprint,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            1,
+            4096,
+        )
+        .unwrap();
+        assert!(!format!("{client:?}").contains("secret-wrong"));
+        let (client_io, server_io) = tokio::io::duplex(4096);
+        let client_side = async {
+            match client.connect(Box::new(client_io)).await {
+                Ok(mut stream) => {
+                    stream.write_all(b"business bytes").await.unwrap();
+                    panic!("invalid certificate accepted")
+                }
+                Err(error) => {
+                    assert!(!error.to_string().contains("secret-wrong"));
+                    assert!(!error.to_string().contains("fixture.invalid"));
+                }
+            }
+        };
+        let server_side = async {
+            let Ok(mut stream) = tokio_rustls::TlsAcceptor::from(server(&chain, &TLS13, false))
+                .accept(server_io)
+                .await
+            else {
+                return 0;
+            };
+            let mut data = [0; 64];
+            stream.read(&mut data).await.unwrap_or(0)
+        };
+        let (_, bytes) = tokio::time::timeout(Duration::from_secs(3), async {
+            tokio::join!(client_side, server_side)
+        })
+        .await
+        .unwrap();
+        assert_eq!(bytes, 0);
+    }
+}
+
+#[tokio::test]
+async fn tls_close_write_sends_notify_without_closing_the_supplied_transport() {
+    let chain = chain(false);
+    let client = client(&trusted(&chain), "fixture.invalid", Default::default());
+    let (client_io, server_io) = tokio::io::duplex(4096);
+    let server = tokio::spawn(async move {
+        let mut stream = tokio_rustls::TlsAcceptor::from(server(&chain, &TLS13, false))
+            .accept(server_io)
+            .await
+            .unwrap();
+        let mut body = Vec::new();
+        stream.read_to_end(&mut body).await.unwrap();
+        assert_eq!(body, b"request");
+        let mut probe = [0; 1];
+        assert!(
+            tokio::time::timeout(
+                Duration::from_millis(30),
+                stream.get_mut().0.read(&mut probe)
+            )
+            .await
+            .is_err(),
+            "TLS CloseWrite must not shut down the underlay"
+        );
+        stream.write_all(b"tail").await.unwrap();
+        stream.shutdown().await.unwrap();
+    });
+    let mut stream = client.connect(Box::new(client_io)).await.unwrap();
+    stream.write_all(b"request").await.unwrap();
+    stream.shutdown().await.unwrap();
+    stream.shutdown().await.unwrap();
+    assert_eq!(
+        stream.write(b"late").await.unwrap_err().kind(),
+        io::ErrorKind::BrokenPipe
+    );
+    let mut body = Vec::new();
+    tokio::time::timeout(Duration::from_secs(3), stream.read_to_end(&mut body))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(body, b"tail");
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn tls_close_notify_flush_has_a_five_second_bound() {
+    let chain = chain(false);
+    let client = client(&trusted(&chain), "fixture.invalid", Default::default());
+    let (client_io, server_io) = tokio::io::duplex(128);
+    let server = tokio::spawn(async move {
+        let _stream = tokio_rustls::TlsAcceptor::from(server(&chain, &TLS13, false))
+            .accept(server_io)
+            .await
+            .unwrap();
+        std::future::pending::<()>().await;
+    });
+    let mut stream = client.connect(Box::new(client_io)).await.unwrap();
+    assert!(stream.write(&[0; 32768]).await.unwrap() > 0);
+    let started = tokio::time::Instant::now();
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(6), stream.shutdown())
+            .await
+            .unwrap()
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::TimedOut
+    );
+    assert!(started.elapsed() >= Duration::from_secs(5));
+    drop(stream);
+    server.abort();
+    assert!(server.await.unwrap_err().is_cancelled());
+}
+
+#[tokio::test]
+async fn cancelling_tls_handshake_releases_the_caller_supplied_stream() {
+    let (client_io, mut peer) = tokio::io::duplex(4096);
+    let client = client(&SecurityContext::new(), "example.com", Default::default());
+    let connect = tokio::spawn(async move { client.connect(Box::new(client_io)).await });
+    let mut hello = [0; 4096];
+    assert!(peer.read(&mut hello).await.unwrap() > 0);
+    connect.abort();
+    assert!(matches!(connect.await, Err(error) if error.is_cancelled()));
+    let mut rest = Vec::new();
+    tokio::time::timeout(Duration::from_secs(1), peer.read_to_end(&mut rest))
+        .await
+        .unwrap()
+        .unwrap();
 }

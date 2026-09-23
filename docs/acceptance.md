@@ -27,6 +27,8 @@
 
 [N1 声明清单校验](acceptance/next-protocols/N1-catalogs.md)提供 `check protocol-coverage --catalog-only`，冻结145字段/69组合ID并检查引用、归属及必要元数据。有效结果为 `VALID / NOT RUN`，不是字段行为PASS；具体case/运行报告覆盖、资源观测和完整N1仍待实现。
 
+[N1.2 共享安全机制](acceptance/next-protocols/N1-security.md)增加类型化名称/ALPN/mTLS策略与不可变身份缓存隔离，并将标准TLS CloseWrite对齐Mihomo。未新增公开配置字段，独立接口测试不抵扣后续新协议字段互通。
+
 当前 source/tests 覆盖：
 
 - Invoke API v5、单实例生命周期、Debug/Release 运行时线程重入拒绝、panic 与同步清理；

@@ -1,4 +1,4 @@
-//! Certificate policy is per AnyTLS node. Handshake signatures are mandatory
+//! Certificate policy is per immutable TLS client. Handshake signatures are mandatory
 //! even when a pin replaces WebPKI trust or chain verification is disabled.
 use std::{io, sync::Arc};
 
@@ -13,36 +13,49 @@ use rustls::{
 };
 use sha2::{Digest, Sha256};
 
-use super::SecurityContext;
-use crate::config::AnyTlsCertificatePolicy;
+use super::{SecurityContext, tls::TlsCertificatePolicy};
 
-#[derive(Debug)]
-pub(super) struct AnyTlsVerifier {
-    policy: AnyTlsCertificatePolicy,
+pub(super) struct CertificateVerifier {
+    policy: TlsCertificatePolicy,
+    verification_name: Option<ServerName<'static>>,
     provider: Arc<CryptoProvider>,
     default: Arc<WebPkiServerVerifier>,
 }
 
-impl AnyTlsVerifier {
-    pub(super) fn new(
-        context: &SecurityContext,
-        policy: AnyTlsCertificatePolicy,
-    ) -> io::Result<Self> {
+impl std::fmt::Debug for CertificateVerifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CertificateVerifier")
+            .field("policy", &self.policy)
+            .finish_non_exhaustive()
+    }
+}
+
+impl CertificateVerifier {
+    pub(super) fn new(context: &SecurityContext, policy: TlsCertificatePolicy) -> io::Result<Self> {
+        let verification_name = policy
+            .verification_name
+            .clone()
+            .map(ServerName::try_from)
+            .transpose()
+            .map_err(|_| {
+                io::Error::new(io::ErrorKind::InvalidInput, "invalid TLS verification name")
+            })?;
         let default = WebPkiServerVerifier::builder_with_provider(
             context.tls_roots.clone(),
             context.provider.clone(),
         )
         .build()
-        .map_err(|_| io::Error::other("failed to construct AnyTLS certificate verifier"))?;
+        .map_err(|_| io::Error::other("failed to construct certificate verifier"))?;
         Ok(Self {
             policy,
+            verification_name,
             provider: context.provider.clone(),
             default,
         })
     }
 }
 
-impl ServerCertVerifier for AnyTlsVerifier {
+impl ServerCertVerifier for CertificateVerifier {
     fn verify_server_cert(
         &self,
         end_entity: &CertificateDer<'_>,
@@ -51,6 +64,7 @@ impl ServerCertVerifier for AnyTlsVerifier {
         ocsp: &[u8],
         now: UnixTime,
     ) -> Result<ServerCertVerified, Error> {
+        let server_name = self.verification_name.as_ref().unwrap_or(server_name);
         if let Some(pin) = self.policy.fingerprint {
             if Sha256::digest(end_entity.as_ref()).as_slice() == pin {
                 // Like mihomo, an exact leaf pin is the trust decision. The
@@ -84,7 +98,9 @@ impl ServerCertVerifier for AnyTlsVerifier {
                 CertificateError::ApplicationVerificationFailure,
             ));
         }
-        if self.policy.skip_cert_verify {
+        // Mihomo's explicit name verifier, like pin verification, takes
+        // precedence over skip-cert-verify. It never changes the SNI.
+        if self.policy.skip_cert_verify && self.verification_name.is_none() {
             return Ok(ServerCertVerified::assertion());
         }
         self.default
