@@ -1,6 +1,6 @@
 # rustls REALITY 依赖与发布要求
 
-VCore 的 REALITY 客户端依赖自有 rustls 0.23 fork。仓库通过获准单独发布的 GitHub 分支 `chore/x25519-dalek-3` 引用该 fork，并由 `Cargo.lock` 固定实际解析的提交。当前版本为 0.23.45，官方 tokio-rustls 为 0.26.5；REALITY 使用 registry x25519-dalek 3.0.0，显式启用 `static_secrets` / `zeroize`，该 feature 最低要求 Rust 1.85。升级执行范围见 [N1 依赖收口](acceptance/next-protocols/N1-x25519.md)。原 `vcore/reality-0.23` 分支未因本次升级前移。
+VCore 的 REALITY 客户端依赖自有 rustls 0.23 fork。仓库通过 GitHub 发布分支 `vcore/reality-0.23` 引用该 fork，并由 `Cargo.lock` 固定实际解析的提交。当前版本为 0.23.45，官方 tokio-rustls 为 0.26.5；REALITY 使用 registry x25519-dalek 3.0.0，显式启用 `static_secrets` / `zeroize`，该 feature 最低要求 Rust 1.85。升级执行范围见 [N1 依赖收口](acceptance/next-protocols/N1-x25519.md)。独立升级分支已经获准快进合入发布分支；两者指向相同已验证 revision `bb4092cc32a101869406d0b8242b173372a9d3ea`，后续引用复验见[N1 发布接线](acceptance/next-protocols/N1-publish.md)。
 
 ## 实现边界
 
@@ -19,7 +19,7 @@ fork 不创建线程、异步任务、连接池、全局映射或跨连接锁。
 
 ```toml
 [patch.crates-io]
-rustls = { git = "https://github.com/OneXray/rustls", branch = "chore/x25519-dalek-3" }
+rustls = { git = "https://github.com/OneXray/rustls", branch = "vcore/reality-0.23" }
 ```
 
 要求：

@@ -13,7 +13,7 @@
 
 ## 正式仓库来源
 
-自有fork的正式来源是[OneXray/rustls](https://github.com/OneXray/rustls)。当前生产依赖为单独获准发布的`chore/x25519-dalek-3`分支，公开revision `bb4092cc32a101869406d0b8242b173372a9d3ea` / rustls0.23.45 / x25519-dalek3.0.0；VCore锁定同一revision，不依赖相邻checkout。`git ls-remote`同时确认原`vcore/reality-0.23`仍保留`26f3efe5946dbe96410e85b8541ccf5fe7c244a5`，没有隐式前移或合并。
+自有fork的正式来源是[OneXray/rustls](https://github.com/OneXray/rustls)。独立升级分支经后续明确授权已快进合入并推送至`vcore/reality-0.23`发布分支，VCore已切回该发布引用。公开revision仍为`bb4092cc32a101869406d0b8242b173372a9d3ea` / rustls0.23.45 / x25519-dalek3.0.0；没有改变密码库源码、升级其他依赖或改写历史。[N1-x25519](N1-x25519.md)保留独立分支验收时的记录，后续操作与引用复验见[N1发布接线](N1-publish.md)。
 
 以下保留较早来源修正提交 `1cc201c` 的历史证据：该提交同步修正主工程及四个实验 workspace 的 manifest/lock、TLS 来源审计、可执行字段/组合清单的源码链接和现行发布文档，**只改来源地址，版本和完整 revision 不变**，当时远端仍为 `df261c84cbac4f708e63ac8644ce70daa90d771c` / 0.23.43。它的 hash 和通过结果不转记为新版 TLS 的证据。
 

@@ -54,7 +54,7 @@ uv run --project scripts --locked ruff check scripts
 uv run --project scripts --locked ruff format --check scripts
 ```
 
-`c-header` 在 macOS 使用 `xcrun clang/clang++`，其他平台使用 `PATH` 中的 `clang/clang++`。`tls-dependencies` 直接读取 `cargo metadata`，验证唯一的 OneXray/rustls 0.23.45 来自 GitHub `chore/x25519-dalek-3` 分支、官方 tokio-rustls 0.26.5、registry ring，并禁止 Watfaq 来源和 TLS 的 AWS-LC/FIPS provider。额外核对 rustls 的实际依赖边指向 registry x25519-dalek 3.0.0，且启用 `static_secrets` / `zeroize`，不能用无关的新版本副本掩盖旧依赖。AWS-LC 仅允许出现在锁定官方 Shadowsocks 1.25.0 → registry shadowsocks-crypto 0.8.0 → aws-lc-rs → aws-lc-sys 链；额外使用方、非官方来源、重复版本和 FIPS 包均失败。该局部例外不更换 TLS/REALITY 的 ring provider。
+`c-header` 在 macOS 使用 `xcrun clang/clang++`，其他平台使用 `PATH` 中的 `clang/clang++`。`tls-dependencies` 直接读取 `cargo metadata`，验证唯一的 OneXray/rustls 0.23.45 来自 GitHub `vcore/reality-0.23` 发布分支、官方 tokio-rustls 0.26.5、registry ring，并禁止 Watfaq 来源和 TLS 的 AWS-LC/FIPS provider。额外核对 rustls 的实际依赖边指向 registry x25519-dalek 3.0.0，且启用 `static_secrets` / `zeroize`，不能用无关的新版本副本掩盖旧依赖。AWS-LC 仅允许出现在锁定官方 Shadowsocks 1.25.0 → registry shadowsocks-crypto 0.8.0 → aws-lc-rs → aws-lc-sys 链；额外使用方、非官方来源、重复版本和 FIPS 包均失败。该局部例外不更换 TLS/REALITY 的 ring provider。
 
 ### 协议声明清单
 

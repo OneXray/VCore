@@ -14,7 +14,7 @@ CRATES_IO_SOURCES = {
     "registry+https://index.crates.io/",
 }
 RUSTLS_GIT_SOURCE_PREFIX = (
-    "git+https://github.com/OneXray/rustls?branch=chore/x25519-dalek-3#"
+    "git+https://github.com/OneXray/rustls?branch=vcore/reality-0.23#"
 )
 SHADOWSOCKS_REVISION = "ab388c7466d21f979430e33cc9ef10e22fb05955"
 SHADOWSOCKS_GIT_SOURCE = (
@@ -200,7 +200,7 @@ def _tls_dependency_errors(metadata: dict[str, Any]) -> list[str]:
             character not in "0123456789abcdef" for character in revision
         ):
             errors.append(
-                "rustls must come from the chore/x25519-dalek-3 GitHub branch; "
+                "rustls must come from the vcore/reality-0.23 GitHub branch; "
                 f"resolved source: {rustls_source or 'path'}"
             )
 
@@ -296,7 +296,7 @@ def check_tls_dependencies() -> None:
     )
     revision = rustls["source"].rsplit("#", 1)[1]
     print("TLS dependency check passed:")
-    print(f"- one OneXray/rustls 0.23.45 chore/x25519-dalek-3 @ {revision[:12]}")
+    print(f"- one OneXray/rustls 0.23.45 vcore/reality-0.23 @ {revision[:12]}")
     print("- one official tokio-rustls 0.26.5")
     print("- REALITY directly uses registry x25519-dalek 3.0.0 with zeroize")
     print(f"- one registry ring {ring['version']} provider")

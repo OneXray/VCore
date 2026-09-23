@@ -444,7 +444,7 @@ except RuntimeError as error:
                     "id": "rustls-id",
                     "name": "rustls",
                     "version": "0.23.45",
-                    "source": "git+https://github.com/OneXray/rustls?branch=chore/x25519-dalek-3#"
+                    "source": "git+https://github.com/OneXray/rustls?branch=vcore/reality-0.23#"
                     + "a" * 40,
                 },
                 {
@@ -513,7 +513,7 @@ except RuntimeError as error:
 
         old_branch = copy.deepcopy(metadata)
         old_branch["packages"][0]["source"] = (
-            "git+https://github.com/OneXray/rustls?branch=vcore/reality-0.23#"
+            "git+https://github.com/OneXray/rustls?branch=chore/x25519-dalek-3#"
             + "a" * 40
         )
         self.assertTrue(_tls_dependency_errors(old_branch))
@@ -525,7 +525,7 @@ except RuntimeError as error:
         )
         self.assertTrue(
             any(
-                "chore/x25519-dalek-3 GitHub branch" in error
+                "vcore/reality-0.23 GitHub branch" in error
                 for error in _tls_dependency_errors(old_origin)
             )
         )
@@ -548,7 +548,7 @@ except RuntimeError as error:
         metadata["packages"][0]["source"] = None
         self.assertTrue(
             any(
-                "chore/x25519-dalek-3 GitHub branch" in error
+                "vcore/reality-0.23 GitHub branch" in error
                 for error in _tls_dependency_errors(metadata)
             )
         )
