@@ -6,7 +6,12 @@ use vcore::{
     outbound::vmess::{
         BodyCipher, BodyOptions, ClientHandshake, Command, VmessIdentity, VmessStream,
     },
+    security::{SecurityContext, StandardTlsClient, TlsCertificatePolicy, TlsClientOptions},
     session::Destination,
+    transport::{
+        HttpObfsOptions, StreamDriver, WebSocketOptions, connect_websocket, grpc, http_obfs,
+        legacy_h2,
+    },
 };
 
 const UUID: uuid::Uuid = uuid::Uuid::from_bytes([7; 16]);
@@ -29,7 +34,18 @@ async fn stream(
     cipher: BodyCipher,
     padding: bool,
     length: bool,
-) -> io::Result<VmessStream> {
+) -> io::Result<(VmessStream, Option<StreamDriver>)> {
+    wire_stream(peer, target, cipher, padding, length, Command::Tcp).await
+}
+
+async fn wire_stream(
+    peer: SocketAddr,
+    target: Destination,
+    cipher: BodyCipher,
+    padding: bool,
+    length: bool,
+    command: Command,
+) -> io::Result<(VmessStream, Option<StreamDriver>)> {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
     let endpoint = ResolvedEndpoint {
         logical_host: peer.ip().to_string(),
@@ -39,14 +55,98 @@ async fn stream(
     let raw = tokio::time::timeout_at(deadline, Dialer::default().connect(&endpoint)).await??;
     let handshake = ClientHandshake::new(
         &VmessIdentity::new(UUID),
-        Command::Tcp,
+        command,
         &target,
         BodyOptions::new(cipher, padding, length)?,
     )?;
     let mut raw = Box::new(raw) as vcore::dispatch::BoxStream;
-    raw.write_all(handshake.request()).await?;
-    raw.flush().await?;
-    Ok(VmessStream::new(raw, handshake, deadline))
+    let fixture: serde_json::Value = serde_json::from_str(
+        &std::env::var("VCORE_VMESS_TRANSPORT").unwrap_or_else(|_| "{}".into()),
+    )
+    .unwrap();
+    let mode = fixture["mode"].as_str().unwrap_or("tcp");
+    let encrypted = fixture["tls"].as_bool().unwrap_or(false);
+    let scheme = if encrypted { "https" } else { "http" };
+    if encrypted {
+        let pin = fixture["pin"].as_str().unwrap();
+        let mut fingerprint = [0; 32];
+        for (index, byte) in fingerprint.iter_mut().enumerate() {
+            *byte = u8::from_str_radix(&pin[2 * index..2 * index + 2], 16).unwrap();
+        }
+        let alpn = match mode {
+            "grpc" | "h2" => vec![b"h2".to_vec()],
+            "ws" => vec![b"http/1.1".to_vec()],
+            _ => vec![],
+        };
+        let tls = StandardTlsClient::with_options(
+            &SecurityContext::new(),
+            "localhost",
+            TlsClientOptions {
+                required_alpn: alpn.first().cloned(),
+                alpn,
+                certificate: TlsCertificatePolicy {
+                    fingerprint: Some(fingerprint),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            0,
+            65536,
+        )?;
+        raw = tokio::time::timeout_at(deadline, tls.connect(raw)).await??;
+    }
+    let mut driver = None;
+    match mode {
+        "tcp" => {}
+        "ws" => {
+            let scheme = if encrypted { "wss" } else { "ws" };
+            let options = WebSocketOptions::new(
+                &format!("{scheme}://localhost:{}/n3-ws", peer.port()),
+                http::HeaderMap::new(),
+                None,
+            )?;
+            raw = connect_websocket(raw, &options, handshake.request(), deadline).await?;
+        }
+        "grpc" | "h2" => {
+            let uri = format!(
+                "{scheme}://localhost/{}",
+                if mode == "grpc" {
+                    "n3-grpc/Tun"
+                } else {
+                    "n3-h2"
+                }
+            );
+            let connected = if mode == "grpc" {
+                grpc(raw, &uri, deadline).await?
+            } else {
+                legacy_h2(raw, &uri, deadline).await?
+            };
+            raw = connected.0;
+            driver = Some(connected.1);
+        }
+        "http" => {
+            let options = HttpObfsOptions::new(
+                http::Method::GET,
+                &format!("{scheme}://localhost:{}/n3-http", peer.port()),
+                http::HeaderMap::new(),
+            )?;
+            raw = http_obfs(raw, &options, handshake.request(), deadline).await?;
+        }
+        _ => panic!("unknown owned transport"),
+    }
+    if !matches!(mode, "ws" | "http") {
+        raw.write_all(handshake.request()).await?;
+        raw.flush().await?;
+    }
+    let stream = VmessStream::new(raw, handshake, deadline);
+    Ok((
+        if matches!(mode, "grpc" | "http" | "h2") {
+            stream.with_whole_close()
+        } else {
+            stream
+        },
+        driver,
+    ))
 }
 
 #[tokio::test]
@@ -84,12 +184,16 @@ async fn native_cipher_matrix() {
                         }
                         assert!(data.iter().all(|byte| *byte == 0x5a));
                         stream.write_all(&data).await.unwrap();
+                        // Integrity is checked before upload EOF. Close behavior
+                        // has a separate native-client differential; do not make
+                        // an EOF-generated tail a requirement for every peer.
+                        stream.write_all(b"trailer").await.unwrap();
                         let mut eof = [0; 1];
                         assert_eq!(stream.read(&mut eof).await.unwrap(), 0);
-                        stream.write_all(b"trailer").await.unwrap();
                         stream.shutdown().await.unwrap();
                     });
-                    let mut client = stream(peer, target, cipher, padding, length).await.unwrap();
+                    let (mut client, driver) =
+                        stream(peer, target, cipher, padding, length).await.unwrap();
                     let mut greeting = [0; 5];
                     tokio::time::timeout(Duration::from_secs(3), client.read_exact(&mut greeting))
                         .await
@@ -116,14 +220,27 @@ async fn native_cipher_matrix() {
                     );
                     echoed.unwrap().unwrap();
                     assert!(echo.iter().all(|byte| *byte == 0x5a));
-                    client.shutdown().await.unwrap();
-                    let mut tail = Vec::new();
-                    tokio::time::timeout(Duration::from_secs(3), client.read_to_end(&mut tail))
+                    let mut tail = [0; 7];
+                    tokio::time::timeout(Duration::from_secs(3), client.read_exact(&mut tail))
                         .await
-                        .expect("half-close tail deadline")
+                        .expect("normal response tail deadline")
                         .unwrap();
                     assert_eq!(&tail, b"trailer");
+                    client.shutdown().await.unwrap();
+                    let mut remaining = Vec::new();
+                    tokio::time::timeout(
+                        Duration::from_secs(3),
+                        client.read_to_end(&mut remaining),
+                    )
+                    .await
+                    .expect("close deadline")
+                    .unwrap();
+                    assert!(remaining.is_empty());
                     server.await.unwrap();
+                    drop(client);
+                    if let Some(driver) = driver {
+                        driver.stop().await.unwrap();
+                    }
                 })
                 .await
                 .expect("native exchange deadline");
@@ -131,6 +248,64 @@ async fn native_cipher_matrix() {
         }
     }
     event_for("native_cipher_matrix", "PASS");
+}
+
+#[tokio::test]
+#[ignore = "requires owned official native peer"]
+async fn native_mihomo_close_alignment() {
+    event_for("native_mihomo_close_alignment", "BEGIN");
+    tokio::time::timeout(Duration::from_secs(10), async {
+        let peer: SocketAddr = std::env::var("VCORE_VMESS_PEER").unwrap().parse().unwrap();
+        let fixture: serde_json::Value =
+            serde_json::from_str(&std::env::var("VCORE_VMESS_TRANSPORT").unwrap()).unwrap();
+        let mode = fixture["mode"].as_str().unwrap();
+        let expected_tail = matches!(mode, "tcp" | "ws");
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let target = listener.local_addr().unwrap().into();
+        let server = tokio::spawn(async move {
+            let (mut io, _) = listener.accept().await.unwrap();
+            io.write_all(b"hello").await.unwrap();
+            let mut request = [0; 4];
+            io.read_exact(&mut request).await.unwrap();
+            assert_eq!(&request, b"ping");
+            io.write_all(&request).await.unwrap();
+            let mut eof = [0; 1];
+            assert_eq!(io.read(&mut eof).await.unwrap(), 0);
+            // A whole-close peer may already have closed its receiving side.
+            let _ = io.write_all(b"native-after-upload-eof").await;
+        });
+        let (mut client, driver) = stream(peer, target, BodyCipher::Auto, false, false)
+            .await
+            .unwrap();
+        let mut greeting = [0; 5];
+        client.read_exact(&mut greeting).await.unwrap();
+        assert_eq!(&greeting, b"hello");
+        client.write_all(b"ping").await.unwrap();
+        client.flush().await.unwrap();
+        let mut echo = [0; 4];
+        client.read_exact(&mut echo).await.unwrap();
+        assert_eq!(&echo, b"ping");
+        client.shutdown().await.unwrap();
+        let mut tail = Vec::new();
+        client.read_to_end(&mut tail).await.unwrap();
+        assert_eq!(
+            tail.as_slice(),
+            if expected_tail {
+                b"native-after-upload-eof".as_slice()
+            } else {
+                b""
+            },
+            "close behavior differs from the official Mihomo client"
+        );
+        server.await.unwrap();
+        drop(client);
+        if let Some(driver) = driver {
+            driver.stop().await.unwrap();
+        }
+    })
+    .await
+    .expect("native close differential deadline");
+    event_for("native_mihomo_close_alignment", "PASS");
 }
 
 #[tokio::test]

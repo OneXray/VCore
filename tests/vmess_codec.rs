@@ -49,3 +49,38 @@ async fn vmess_response_authentication_cannot_be_skipped_by_none_cipher() {
     );
     assert!(stream.write_all(b"after-failure").await.is_err());
 }
+
+#[tokio::test]
+async fn vmess_whole_close_wakes_reader_and_releases_io_before_response() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let handshake = ClientHandshake::new(
+        &VmessIdentity::new(uuid::Uuid::from_bytes([7; 16])),
+        Command::Tcp,
+        &Destination::domain("fixture.invalid", 443).unwrap(),
+        BodyOptions::new(BodyCipher::Auto, false, false).unwrap(),
+    )
+    .unwrap();
+    let (io, mut peer) = tokio::io::duplex(1024);
+    let stream = VmessStream::new(
+        Box::new(io),
+        handshake,
+        tokio::time::Instant::now() + std::time::Duration::from_secs(1),
+    )
+    .with_whole_close();
+    let (mut reader, mut writer) = tokio::io::split(stream);
+    let mut byte = [0; 1];
+    let read = reader.read(&mut byte);
+    tokio::pin!(read);
+    assert!(futures_util::poll!(read.as_mut()).is_pending());
+    writer.shutdown().await.unwrap();
+    assert_eq!(
+        tokio::time::timeout(std::time::Duration::from_millis(100), read)
+            .await
+            .unwrap()
+            .unwrap(),
+        0
+    );
+    assert_eq!(peer.read(&mut [0; 1]).await.unwrap(), 0);
+    assert!(writer.write_all(b"after-close").await.is_err());
+    writer.shutdown().await.unwrap();
+}

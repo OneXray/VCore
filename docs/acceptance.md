@@ -35,6 +35,8 @@
 
 [N2 Trojan](acceptance/next-protocols/N2.md)于同日完成 TCP/UDP 与 TCP/WS/gRPC 生产接线及阶段签收：41 组 required、18 个适用字段、120 轮生命周期/资源检查、独立 coverage、旧协议回归及 Apple/Android Release 构建通过。Mihomo listener 是默认对端，域名 UDP 缺口由 Xray、扩展 WS ED 由 V2Ray 单独补验并保留原失败。配置修订升至 15，Invoke v5 不变；不抵扣 N3–N10、Windows 原生、真机或发布。
 
+同日 N3 已实现独立 feature 下的 [VMess AEAD wire 层](acceptance/next-protocols/N3-wire.md)，Mihomo TCP/WS/gRPC 的明文/TLS 消费者测试通过。[V2Ray HTTP/H2 半关闭诊断](acceptance/next-protocols/N3-close-blocker.md)在官方 Mihomo 客户端对照中也复现；用户已取消“非 XHTTP 均必须收到半关闭尾包”的统一要求，改为按实际传输对齐 Mihomo 行为、优先与 Mihomo 服务端互通。旧失败不改记 PASS，不再仅因此阻塞；正常数据和关闭对齐分开复验。N3 **未完成**；VMess YAML、UDP、运行时、默认 feature 与平台交付均未签收。
+
 当前 source/tests 覆盖：
 
 - Invoke API v5、单实例生命周期、Debug/Release 运行时线程重入拒绝、panic 与同步清理；

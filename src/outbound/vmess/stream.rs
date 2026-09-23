@@ -180,6 +180,9 @@ pub struct VmessStream {
     plain: Bytes,
     output: Bytes,
     shutdown: bool,
+    whole_close: bool,
+    closed: bool,
+    reader: futures_util::task::AtomicWaker,
 }
 
 impl VmessStream {
@@ -209,7 +212,16 @@ impl VmessStream {
             plain: Bytes::new(),
             output: Bytes::new(),
             shutdown: false,
+            whole_close: false,
+            closed: false,
+            reader: futures_util::task::AtomicWaker::new(),
         }
+    }
+    /// Mihomo falls back to whole-connection Close for gRPC, HTTP camouflage
+    /// and legacy H2. TCP/ordinary WS keep the underlying CloseWrite behavior.
+    pub fn with_whole_close(mut self) -> Self {
+        self.whole_close = true;
+        self
     }
     fn check(&mut self, cx: &mut Context<'_>) -> io::Result<()> {
         if self.io.is_none() {
@@ -256,6 +268,10 @@ impl VmessStream {
         Poll::Ready(Ok(true))
     }
     fn poll_packet_inner(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<Option<Bytes>>> {
+        self.reader.register(cx.waker());
+        if self.closed {
+            return Poll::Ready(Ok(None));
+        }
         self.check(cx)?;
         loop {
             match self.stage {
@@ -394,6 +410,20 @@ impl AsyncWrite for VmessStream {
         Poll::Ready(self.fail(result))
     }
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        if self.closed {
+            return Poll::Ready(Ok(()));
+        }
+        if self.whole_close {
+            ready!(self.as_mut().poll_flush(cx))?;
+            self.shutdown = true;
+            self.closed = true;
+            self.io.take();
+            self.handshake.take();
+            self.plain = Bytes::new();
+            self.input.clear();
+            self.reader.wake();
+            return Poll::Ready(Ok(()));
+        }
         let result = ready!(self.drain(cx));
         self.fail(result)?;
         if !self.shutdown {

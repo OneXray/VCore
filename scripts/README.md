@@ -81,6 +81,15 @@ uv run --project scripts --locked vcore-scripts check protocol-coverage --stage 
 
 N2三种传输分别执行真实Mihomo TCP/UDP、上游/组、HTTP/模拟TUN/DNS、外层IPv6、证书/路径负例和UDP隔离；公共Invoke生命周期、协议自有资源各20轮，每轮Stop返回即检查，再静默5秒。域名UDP因Mihomo listener缺口由Xray单独补验，自定义头/路径ED由V2Ray补验；失败与对端缓冲限制保留在[N2.2记录](../docs/acceptance/next-protocols/N2-tcp.md)。`fields.json`按row ID汇总，只有完整执行、原始事件和所有必需项通过才可签收；单独运行原生子工具用于开发定位，不替代统一门禁。
 
+N3 尚未签收，也未开放 VMess YAML。以下入口仅测试独立 wire 层及原生客户端差分，不替代未来 `--stage N3` 的公开配置、数据报、运行时和生命周期门禁。wire 入口将关闭前的数据完整性与关闭行为分开验证；不再把所有非 XHTTP 传输的 EOF 后尾包作为统一门槛，旧失败记录仍保留：
+
+```sh
+uv run --project scripts --locked python -m vcore_scripts.protocol_vmess target/interop/runs/<new-wire-run>
+uv run --project scripts --locked python -m vcore_scripts.protocol_vmess_close target/interop/runs/<new-close-run>
+```
+
+后一个命令仅表示对照数据采集和自建进程清理是否完成；尾包结果逐项保留在 JSON，退出 0 不表示半关闭或 N3 验收通过。已确认的 Mihomo 对齐规则与历史诊断见 [N3 关闭行为记录](../docs/acceptance/next-protocols/N3-close-blocker.md)。
+
 `--case`可重复，`--protocol`与其取交集；未知、重复、矛盾或空选择拒绝。`--list`只列清单，不下载/启动；`--preflight`独立检查M/W/H/XR/V2，任一缺环境则非零并保留其他能力结果，不执行业务。W探测仅创建本轮唯一Apple Container VM，安装当前官方发行渠道工具、尝试内核WG及内外双栈；不会修改宿主VPN/路由。完整N1只依赖自身实际使用的M/V2，W/H/XR的未来能力不足不伪造通过，也不阻塞无关case。版本命令就绪不证明H跳端口或XR具体协议模式已验证。
 
 每次创建`target/interop/runs/`下的新目录；`--run-dir`只能指定其下尚不存在的目录。记录`run.json`、`peers.json`、`cases.json`、`resources.jsonl`、脱敏日志和`summary.md`，并为原始事件/报告记录SHA-256。输入身份包括父提交、源码树（含未提交新文件）/diff/lock摘要、工具链、SDK、API/schema、features。执行期间源码变化不得签收；部分选择和预检不能通过完整阶段coverage。
