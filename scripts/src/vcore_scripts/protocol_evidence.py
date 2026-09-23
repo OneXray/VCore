@@ -176,6 +176,10 @@ def load_manifest(path: Path = CATALOG_DIR / "cases.json") -> list[dict]:
         case["case_id"] for case in cases if case["stage"] == "N2" and case["required"]
     } != REQUIRED_IDS:
         raise ValueError("N2 required set was removed, renamed or downgraded")
+    from .protocol_vmess_acceptance import definitions
+
+    if [case for case in cases if case["stage"] == "N3"] != definitions():
+        raise ValueError("N3 frozen required cases or metadata changed")
     return cases
 
 
@@ -266,7 +270,11 @@ def validate_results(required: list[dict], results: list[dict]) -> None:
             result.get("row_ids") != case["row_ids"]
             or result.get("peer_kind") != case["peer_kind"]
             or result.get("scope")
-            != ("protocol-consumer" if case["stage"] == "N2" else "foundation-only")
+            != (
+                "protocol-consumer"
+                if case["stage"] in {"N2", "N3"}
+                else "foundation-only"
+            )
         ):
             raise ValueError("case mapping or evidence scope differs from manifest")
 
@@ -309,7 +317,9 @@ def new_result(case: dict) -> dict:
         "case_id": case["case_id"],
         "row_ids": case["row_ids"],
         "peer_kind": case["peer_kind"],
-        "scope": "protocol-consumer" if case["stage"] == "N2" else "foundation-only",
+        "scope": "protocol-consumer"
+        if case["stage"] in {"N2", "N3"}
+        else "foundation-only",
         "status": "NOT RUN",
         "assertions": {},
         "evidence": [],
@@ -362,8 +372,11 @@ def check_run(
     paths = [entry["path"] for entry in artifacts]
     if len(paths) != len(set(paths)):
         raise ValueError("duplicate evidence artifact")
-    if stage == "N2":
-        from .protocol_trojan_acceptance import check
+    if stage in {"N2", "N3"}:
+        if stage == "N2":
+            from .protocol_trojan_acceptance import check
+        else:
+            from .protocol_vmess_acceptance import check
 
         for evidence in artifacts:
             artifact(run_dir, evidence["path"], evidence["sha256"])

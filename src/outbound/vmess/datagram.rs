@@ -26,7 +26,6 @@ pub struct VmessDatagram {
     stream: Option<VmessStream>,
     encoding: Encoding,
     budget: DatagramBudget,
-    sending: bool,
 }
 
 impl VmessDatagram {
@@ -35,7 +34,6 @@ impl VmessDatagram {
             stream: Some(stream),
             encoding: Encoding::Raw(peer),
             budget,
-            sending: false,
         }
     }
     pub fn packet_addr(
@@ -47,13 +45,9 @@ impl VmessDatagram {
             stream: Some(stream),
             encoding: Encoding::PacketAddr(resolution),
             budget,
-            sending: false,
         }
     }
-    fn check(&mut self) -> io::Result<()> {
-        if self.sending {
-            self.stream.take();
-        }
+    fn check(&self) -> io::Result<()> {
         if self.stream.is_none() {
             return Err(io::ErrorKind::BrokenPipe.into());
         }
@@ -100,13 +94,12 @@ impl DatagramTransport for VmessDatagram {
             }
         }
         packet.extend_from_slice(&datagram.payload);
-        self.sending = true;
-        self.stream
-            .as_mut()
-            .expect("checked open")
-            .send_packet(&packet)
-            .await?;
-        self.sending = false;
+        // Taking ownership across the non-cancellation-safe write makes a
+        // cancelled/failed partial frame close IO immediately, even if the
+        // caller retains the datagram transport without polling it again.
+        let mut stream = self.stream.take().expect("checked open");
+        stream.send_packet(&packet).await?;
+        self.stream = Some(stream);
         Ok(())
     }
 

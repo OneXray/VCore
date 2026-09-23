@@ -17,11 +17,11 @@ use tokio::{
     time::{Instant, Sleep},
 };
 
-const MAX_BODY_WIRE: usize = 16 * 1024;
+pub const MAX_BODY_WIRE: usize = 16 * 1024;
 // Keep TCP chunks within the native Mihomo listener's initial copy buffer.
 // Larger first chunks leave a cache tail which sing's switch to an MTU-sized
 // ReadBuffer can skip. This shapes only our wire, never third-party source.
-const WRITE_CHUNK: usize = 4 * 1024;
+pub const WRITE_CHUNK: usize = 4 * 1024;
 /// One intact UDP body; native Mihomo's writer chunks at 15,000 bytes.
 /// TCP uses smaller pieces, but splitting a UDP body would change its meaning.
 pub const MAX_PACKET_BYTES: usize = 15_000;
@@ -466,6 +466,11 @@ mod tests {
 
     #[test]
     fn chunks_preserve_boundaries_masks_padding_and_authenticated_eof() {
+        #[cfg(feature = "interop-test")]
+        let _evidence = crate::resources::case_events::Case::new(
+            "N3-CODEC",
+            "chunks_preserve_boundaries_masks_padding_and_authenticated_eof",
+        );
         for cipher in [BodyCipher::Aes128Gcm, BodyCipher::Chacha20Poly1305] {
             for padding in [false, true] {
                 for length in [false, true] {
@@ -486,6 +491,11 @@ mod tests {
 
     #[test]
     fn tags_lengths_and_nonce_exhaustion_fail_closed() {
+        #[cfg(feature = "interop-test")]
+        let _evidence = crate::resources::case_events::Case::new(
+            "N3-CODEC",
+            "tags_lengths_and_nonce_exhaustion_fail_closed",
+        );
         for cipher in [BodyCipher::Aes128Gcm, BodyCipher::Chacha20Poly1305] {
             let mut tx = codec(cipher, false, true);
             let wire = tx.encode(b"synthetic-payload").unwrap();

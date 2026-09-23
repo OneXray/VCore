@@ -88,6 +88,12 @@ def exchange(port, target):
 
 
 def run(output):
+    raise RuntimeError(
+        "BLOCKED: archived host-server diagnostic; use container-only N3 acceptance"
+    )
+
+
+def _historical_run(output):
     output.mkdir(parents=True, exist_ok=False)
     report = dict(
         scope="native-to-native-close-differential",

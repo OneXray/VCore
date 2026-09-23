@@ -3,11 +3,13 @@
 //! Wire references: v2fly/v2ray-core proxy/vmess/encoding and Clash-RS vmess_impl.
 mod crypto;
 mod datagram;
+mod outbound;
+pub use outbound::VmessOutbound;
 mod header;
 mod stream;
 pub use datagram::VmessDatagram;
 pub use header::{ClientHandshake, Command, VmessIdentity};
-pub use stream::{MAX_PACKET_BYTES, VmessStream};
+pub use stream::{MAX_BODY_WIRE, MAX_PACKET_BYTES, VmessStream, WRITE_CHUNK};
 
 use std::io;
 
@@ -74,6 +76,11 @@ mod tests {
     use super::*;
     #[test]
     fn auto_uses_detected_hardware_not_architecture_name() {
+        #[cfg(feature = "interop-test")]
+        let _evidence = crate::resources::case_events::Case::new(
+            "N3-CODEC",
+            "auto_uses_detected_hardware_not_architecture_name",
+        );
         assert_eq!(
             BodyCipher::Auto.with_aes_hardware(true),
             BodyCipher::Aes128Gcm

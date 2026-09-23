@@ -57,6 +57,10 @@ class ProtocolHarnessTest(unittest.TestCase):
                 0,
             )
             self.assertEqual(check.call_args.args[1], "N1")
+            self.assertEqual(
+                check.call_args.args[0],
+                Path("target/interop/runs/fixture").resolve(),
+            )
 
     def test_redaction_removes_paths_uuid_authorization_and_private_key(self):
         output = redact(

@@ -107,7 +107,7 @@ mod tests {
             "N1-SCHEMA",
             "measurement_rejects_future_protocols_and_oversized_documents",
         );
-        for protocol in ["trojan", "vmess", "hysteria2", "wireguard"] {
+        for protocol in ["hysteria2", "wireguard"] {
             let yaml = format!(
                 "proxies:\n  - name: node\n    type: {protocol}\n    server: example.com\n    port: 443\n"
             );

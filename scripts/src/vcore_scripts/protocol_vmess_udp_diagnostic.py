@@ -51,6 +51,12 @@ def observe(client_port, origin, size):
 
 
 def run(output):
+    raise RuntimeError(
+        "BLOCKED: archived host-server diagnostic; use protocol_vmess_udp_ab"
+    )
+
+
+def _historical_run(output):
     output.mkdir(parents=True, exist_ok=False)
     report = dict(
         scope="native-to-native-udp-differential", source=source_identity(), cases=[]

@@ -64,6 +64,9 @@ pub(crate) fn bind_udp(address: SocketAddr) -> io::Result<UdpSocket> {
     if address.is_ipv6() {
         socket.set_only_v6(true)?;
     }
+    // Darwin's default UDP send high-water mark is smaller than a legal SOCKS
+    // reply. Configure this owned socket only; do not alter global sysctls.
+    socket.set_send_buffer_size(crate::session::SOCKS5_UDP_PACKET_LIMIT + 1)?;
     socket.set_nonblocking(true)?;
     socket.bind(&address.into())?;
     UdpSocket::from_std(socket.into())
@@ -91,6 +94,16 @@ pub(crate) fn address_family_unavailable(error: &io::Error) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "inbound-socks5")]
+    #[tokio::test]
+    async fn socks_udp_send_buffer_covers_the_declared_wire_limit() {
+        let socket = bind_udp("127.0.0.1:0".parse().unwrap()).unwrap();
+        assert!(
+            socket2::SockRef::from(&socket).send_buffer_size().unwrap()
+                >= crate::session::SOCKS5_UDP_PACKET_LIMIT
+        );
+    }
 
     #[tokio::test]
     async fn policy_binds_loopback_or_wildcard_and_respects_ipv6() {

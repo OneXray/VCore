@@ -94,6 +94,11 @@ mod tests {
     use super::*;
     #[test]
     fn independently_published_nested_hmac_vectors() {
+        #[cfg(feature = "interop-test")]
+        let _evidence = crate::resources::case_events::Case::new(
+            "N3-CODEC",
+            "independently_published_nested_hmac_vectors",
+        );
         assert_eq!(
             kdf(b"test", &[b"AES Auth ID Encryption"]),
             [

@@ -70,7 +70,8 @@ use crate::security::StandardTlsClient;
 #[cfg(any(
     feature = "outbound-anytls",
     feature = "outbound-vless",
-    feature = "outbound-trojan"
+    feature = "outbound-trojan",
+    feature = "outbound-vmess"
 ))]
 use crate::security::{SecurityContext, TLS_RESUMPTION_SESSION_BUDGET};
 
@@ -596,19 +597,22 @@ fn build_proxy_graph(
     #[cfg(any(
         feature = "outbound-anytls",
         feature = "outbound-vless",
-        feature = "outbound-trojan"
+        feature = "outbound-trojan",
+        feature = "outbound-vmess"
     ))]
     let (security_client_count, standard_tls_count) = security_counts(proxies);
     #[cfg(any(
         feature = "outbound-anytls",
         feature = "outbound-vless",
-        feature = "outbound-trojan"
+        feature = "outbound-trojan",
+        feature = "outbound-vmess"
     ))]
     let security_context = (security_client_count != 0).then(SecurityContext::new);
     #[cfg(any(
         feature = "outbound-anytls",
         feature = "outbound-vless",
-        feature = "outbound-trojan"
+        feature = "outbound-trojan",
+        feature = "outbound-vmess"
     ))]
     let resumption_sessions = standard_tls_resumption_sessions(standard_tls_count);
 
@@ -673,6 +677,26 @@ fn build_proxy_graph(
             &dialer,
         )?;
         let connector: Arc<dyn OutboundConnector> = match &proxy.protocol {
+            ProxyProtocol::Vmess(config) => {
+                #[cfg(feature = "outbound-vmess")]
+                {
+                    Arc::new(crate::outbound::vmess::VmessOutbound::with_shared_security(
+                        config,
+                        upstream,
+                        security_context.as_ref().expect("VMess security context"),
+                        resumption_sessions,
+                        limits.tls_buffer_limit,
+                    )?)
+                }
+                #[cfg(not(feature = "outbound-vmess"))]
+                {
+                    let _ = (config, upstream);
+                    return Err(io::Error::new(
+                        io::ErrorKind::Unsupported,
+                        "VMess outbound support is disabled at build time",
+                    ));
+                }
+            }
             ProxyProtocol::Trojan(config) => {
                 #[cfg(feature = "outbound-trojan")]
                 {
@@ -879,6 +903,7 @@ async fn prepare_proxy_endpoints(
                 ProxyProtocol::Vless(config) => config.xhttp.download.as_deref(),
                 ProxyProtocol::Socks5(_)
                 | ProxyProtocol::Trojan(_)
+                | ProxyProtocol::Vmess(_)
                 | ProxyProtocol::AnyTls(_)
                 | ProxyProtocol::Shadowsocks(_) => None,
             };
@@ -942,7 +967,8 @@ fn restrict_endpoint_addresses(
 #[cfg(any(
     feature = "outbound-anytls",
     feature = "outbound-vless",
-    feature = "outbound-trojan"
+    feature = "outbound-trojan",
+    feature = "outbound-vmess"
 ))]
 fn security_counts(proxies: &[ProxyConfig]) -> (usize, usize) {
     proxies.iter().fold(
@@ -968,6 +994,10 @@ fn security_counts(proxies: &[ProxyConfig]) -> (usize, usize) {
             ProxyProtocol::AnyTls(_) | ProxyProtocol::Trojan(_) => {
                 (client_count + 1, standard_count + 1)
             }
+            ProxyProtocol::Vmess(config) => (
+                client_count + 1,
+                standard_count + usize::from(config.tls.is_some()),
+            ),
             ProxyProtocol::Socks5(_) | ProxyProtocol::Shadowsocks(_) => {
                 (client_count, standard_count)
             }
@@ -978,7 +1008,8 @@ fn security_counts(proxies: &[ProxyConfig]) -> (usize, usize) {
 #[cfg(any(
     feature = "outbound-anytls",
     feature = "outbound-vless",
-    feature = "outbound-trojan"
+    feature = "outbound-trojan",
+    feature = "outbound-vmess"
 ))]
 fn standard_tls_resumption_sessions(standard_tls_count: usize) -> usize {
     if standard_tls_count == 0 || standard_tls_count > TLS_RESUMPTION_SESSION_BUDGET {

@@ -36,22 +36,25 @@
 
 [N2 Trojan](acceptance/next-protocols/N2.md)于同日完成 TCP/UDP 与 TCP/WS/gRPC 生产接线及阶段签收：41 组 required、18 个适用字段、120 轮生命周期/资源检查、独立 coverage、旧协议回归及 Apple/Android Release 构建通过。Mihomo listener 是默认对端，域名 UDP 缺口由 Xray、扩展 WS ED 由 V2Ray 单独补验并保留原失败。配置修订升至 15，Invoke v5 不变；不抵扣 N3–N10、Windows 原生、真机或发布。
 
-同日 N3 已实现独立 feature 下的 [VMess AEAD wire 层](acceptance/next-protocols/N3-wire.md)，Mihomo TCP/WS/gRPC 的明文/TLS 消费者测试通过。[V2Ray HTTP/H2 半关闭诊断](acceptance/next-protocols/N3-close-blocker.md)在官方 Mihomo 客户端对照中也复现；用户已取消“非 XHTTP 均必须收到半关闭尾包”的统一要求，改为按实际传输对齐 Mihomo 行为、优先与 Mihomo 服务端互通。旧失败不改记 PASS，不再仅因此阻塞；正常数据和关闭对齐分开复验。N3 **未完成**；VMess YAML、UDP、运行时、默认 feature 与平台交付均未签收。
+同日 N3 已实现独立 feature 下的 [VMess AEAD wire 层](acceptance/next-protocols/N3-wire.md)，Mihomo TCP/WS/gRPC 的明文/TLS 消费者测试通过。[V2Ray HTTP/H2 半关闭诊断](acceptance/next-protocols/N3-close-blocker.md)在官方 Mihomo 客户端对照中也复现；用户已取消“非 XHTTP 均必须收到半关闭尾包”的统一要求，改为按实际传输对齐 Mihomo 行为、优先与 Mihomo 服务端互通。旧失败不改记 PASS，不再仅因此阻塞；正常数据和关闭对齐分开复验。该记录时 N3 尚未完成，不能将 wire 通过等同公开接线和完整阶段签收。
 
-后续 [N3 UDP 工作记录](acceptance/next-protocols/N3-udp-progress.md)保留了原生端容量差异、Mihomo 首包/响应超时和进行中的修正。[客户端对照诊断](acceptance/next-protocols/N3-udp-client-differential.md)已用官方 Mihomo 客户端复现超时，并通过受控端口实验确认一类本机回环保护误判；另有独立 socket 探针复现双栈同号端口的回包反射。未修改生产实现或第三方代码，不将全部历史失败强行归因；这些不是半关闭失败，也不能由新的关闭契约抵扣。UDP 完整验收仍未通过，相关工作尚未提交。
+后续 [N3 UDP 工作记录](acceptance/next-protocols/N3-udp-progress.md)保留了原生端容量差异、Mihomo 首包/响应超时和进行中的修正。[客户端对照诊断](acceptance/next-protocols/N3-udp-client-differential.md)已用官方 Mihomo 客户端复现超时，并通过受控端口实验确认一类本机回环保护误判；另有独立 socket 探针复现双栈同号端口的回包反射。当时未修改生产实现或第三方代码，不将全部历史失败强行归因；这些不是半关闭失败，也不能由新的关闭契约抵扣。该诊断记录本身不是 UDP 完整签收。
 
 隔离规则生效后，[N3 容器 UDP 复测](acceptance/next-protocols/N3-udp-containers.md)将官方服务端、官方对照客户端入口和 UDP 原站全部放入独立容器，并修正测试驱动的来源端口复用。TCP/WS/gRPC 明文/TLS、三编码、13 body 配置、三目标类型及实际大包边界合计 2,808 个关联、1,404,000 次请求/回包通过；正常清理和独立 SIGINT 清理均有证据。历史 FAIL 不改写，不修改第三方或关闭保护；这仍不抵扣 HTTP/H2、UDP 负例/取消/来源隔离、公开接线和 N3 完整阶段门禁。
+
+2026-09-24 [N3 VMess 完整签收](acceptance/next-protocols/N3.md)完成 AEAD、五种传输明文/TLS、raw/XUDP/packetaddr 与公开 YAML/运行时接线：117/117 组 required、30/30 字段、80 轮生命周期/资源检查和独立 coverage 通过。官方协议端及原站全部容器化，57 个容器全部清理；Debug/Release、共享回归、生产 feature、Apple/Android 构建通过。schema 升至 16，Invoke v5 不变。历史失败保留，N4–N10、物理平台、远端 CI 和发布不继承本地通过状态。
 
 当前 source/tests 覆盖：
 
 - Invoke API v5、单实例生命周期、Debug/Release 运行时线程重入拒绝、panic 与同步清理；
-- schema revision 15、IPv6、严格 YAML、节点 / `select` 组上游混合 DAG 和 node-only 测速；
+- schema revision 16、IPv6、严格 YAML、节点 / `select` 组上游混合 DAG 和 node-only 测速；
 - 组上游与路由的共享选择、SOCKS5 UDP 建链快照、潜在 DIRECT 首跳准备、独立下载端点和深图回收；
 - HTTP 本机 / 认证共享、双栈监听回滚、逐请求认证与分发、Keep-Alive / 正文定界、CONNECT / Upgrade、10 MiB 双向摘要与活动连接 Stop；
 - SOCKS5 入站认证、三类目标、半关闭、TCP 授权 UDP、源端口学习/隔离、IPv6 作用域固定端口/学习端口匹配与跨接口隔离、过期/满队列/慢上游取消及纯 SOCKS5 Controller（作用域匹配为合成地址测试，不代表物理 LAN 验证）；
 - VLESS/XHTTP/TLS/REALITY、SOCKS5、AnyTLS、代理链、DNS、规则、GeoData 和 HTTP/TLS/QUIC 嗅探；
 - AnyTLS 有序 ALPN、WebPKI / 跳过 / 叶与非叶 pin、TLS 1.2/1.3 伪造签名拒绝、节点间策略隔离和精确恢复票据预算；
 - Trojan TLS/WS/gRPC、TCP 半关闭、原生 UDP 的有界帧与来源隔离、strict 配置、具体/组上游、独立测速及同步资源回收；
+- VMess AEAD、TCP/WS/gRPC/HTTP/H2 明文/TLS、三种 UDP 编码、受控 DNS、认证/篡改/预算/取消负例、组快照、公开入口和同步资源回收；
 - SS 2022 三算法白名单、同库 TCP/UDP 回环、有界 TCP 首写、首次传输前半关闭及 Pending 空握手续写、响应时间/认证/请求盐、UDP Pending/取消、重放/乱序/会话轮换、封装上限与来源检查，socket protect 失败关闭；
 - ICMPv4/v6、校验和、分片、MTU、队列与 Apple/Android 帧/fd/protect 所有权；
 - Windows 单 Application、token 绑定、Snapshot/profile、控制/数据协议、会合记录、

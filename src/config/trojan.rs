@@ -52,7 +52,6 @@ impl TrojanTransport {
 
     #[cfg(feature = "stream-transport")]
     pub fn websocket_options(&self) -> std::io::Result<Option<crate::transport::WebSocketOptions>> {
-        use crate::transport::{WebSocketEarlyData, WebSocketOptions};
         let Self::WebSocket {
             uri,
             headers,
@@ -62,38 +61,48 @@ impl TrojanTransport {
         else {
             return Ok(None);
         };
-        let invalid = || {
-            std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "invalid Trojan WebSocket options",
-            )
-        };
-        let mut map = http::HeaderMap::new();
-        for (name, value) in headers {
-            let name = http::HeaderName::from_bytes(name.as_bytes()).map_err(|_| invalid())?;
-            if map
-                .insert(name, value.parse().map_err(|_| invalid())?)
-                .is_some()
-            {
-                return Err(invalid());
-            }
-        }
-        let early = if *max_early_data == 0 {
-            None
-        } else if early_data_header_name.is_empty() {
-            Some(WebSocketEarlyData::Path {
-                max_bytes: usize::from(*max_early_data),
-            })
-        } else {
-            Some(WebSocketEarlyData::Header {
-                name: early_data_header_name.parse().map_err(|_| invalid())?,
-                max_bytes: usize::from(*max_early_data),
-            })
-        };
-        Ok(Some(WebSocketOptions::new(uri, map, early)?))
+        websocket_options(uri, headers, *max_early_data, early_data_header_name).map(Some)
     }
 }
 
+#[cfg(feature = "stream-transport")]
+pub(super) fn websocket_options(
+    uri: &str,
+    headers: &BTreeMap<String, String>,
+    max_early_data: u16,
+    early_data_header_name: &str,
+) -> std::io::Result<crate::transport::WebSocketOptions> {
+    use crate::transport::{WebSocketEarlyData, WebSocketOptions};
+    let invalid = || {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "invalid WebSocket options",
+        )
+    };
+    let mut map = http::HeaderMap::new();
+    for (name, value) in headers {
+        let name = http::HeaderName::from_bytes(name.as_bytes()).map_err(|_| invalid())?;
+        if map
+            .insert(name, value.parse().map_err(|_| invalid())?)
+            .is_some()
+        {
+            return Err(invalid());
+        }
+    }
+    let early = if max_early_data == 0 {
+        None
+    } else if early_data_header_name.is_empty() {
+        Some(WebSocketEarlyData::Path {
+            max_bytes: usize::from(max_early_data),
+        })
+    } else {
+        Some(WebSocketEarlyData::Header {
+            name: early_data_header_name.parse().map_err(|_| invalid())?,
+            max_bytes: usize::from(max_early_data),
+        })
+    };
+    WebSocketOptions::new(uri, map, early)
+}
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawWebSocket {

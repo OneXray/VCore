@@ -17,6 +17,8 @@ use vcore::{
 const UUID: uuid::Uuid = uuid::Uuid::from_bytes([7; 16]);
 const PAYLOAD_BYTES: usize = 10 * 1024 * 1024;
 
+#[path = "vmess_native/origin.rs"]
+mod origin;
 #[path = "vmess_native/udp_ab.rs"]
 mod udp_ab;
 
@@ -28,7 +30,12 @@ fn native_udp_budget(
     length: bool,
     family: &str,
 ) -> usize {
-    let host = fixture["udp_path_limit"].as_u64().unwrap() as usize;
+    let address = if codec == "packetaddr" {
+        if family == "ipv4" { 7 } else { 19 }
+    } else {
+        0
+    };
+    let host = (fixture["udp_path_limit"].as_u64().unwrap() as usize).min(15000 - address);
     if fixture["peer_kind"] != "V2" {
         return host;
     }
@@ -43,11 +50,6 @@ fn native_udp_budget(
         2
     } else {
         16 + if length { 18 } else { 2 } + if padding { 63 } else { 0 }
-    };
-    let address = if codec == "packetaddr" {
-        if family == "ipv6" { 19 } else { 7 }
-    } else {
-        0
     };
     host.min(2048 - overhead - address)
 }
@@ -202,31 +204,8 @@ async fn native_cipher_matrix() {
                 }
                 println!("VMess fixture: {cipher:?} padding={padding} length={length}");
                 tokio::time::timeout(Duration::from_secs(30), async {
-                    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-                    let target = listener.local_addr().unwrap().into();
-                    let received = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-                    let origin_received = received.clone();
-                    let server = tokio::spawn(async move {
-                        let (mut stream, _) = listener.accept().await.unwrap();
-                        stream.write_all(b"hello").await.unwrap();
-                        let mut data = vec![0; PAYLOAD_BYTES];
-                        let mut cursor = 0;
-                        while cursor < data.len() {
-                            let n = stream.read(&mut data[cursor..]).await.unwrap();
-                            assert_ne!(n, 0);
-                            cursor += n;
-                            origin_received.store(cursor, std::sync::atomic::Ordering::SeqCst);
-                        }
-                        assert!(data.iter().all(|byte| *byte == 0x5a));
-                        stream.write_all(&data).await.unwrap();
-                        // Integrity is checked before upload EOF. Close behavior
-                        // has a separate native-client differential; do not make
-                        // an EOF-generated tail a requirement for every peer.
-                        stream.write_all(b"trailer").await.unwrap();
-                        let mut eof = [0; 1];
-                        assert_eq!(stream.read(&mut eof).await.unwrap(), 0);
-                        stream.shutdown().await.unwrap();
-                    });
+                    let mut origin = origin::TcpOrigin::new(10).await;
+                    let target = origin.target.clone();
                     let (mut client, driver) =
                         stream(peer, target, cipher, padding, length).await.unwrap();
                     let mut greeting = [0; 5];
@@ -249,8 +228,7 @@ async fn native_cipher_matrix() {
                             .await;
                     assert!(
                         echoed.is_ok(),
-                        "native echo deadline: origin_bytes={} echo_bytes={}",
-                        received.load(std::sync::atomic::Ordering::SeqCst),
+                        "native echo deadline: echo_bytes={}",
                         echo.iter().filter(|byte| **byte == 0x5a).count()
                     );
                     echoed.unwrap().unwrap();
@@ -271,7 +249,8 @@ async fn native_cipher_matrix() {
                     .expect("close deadline")
                     .unwrap();
                     assert!(remaining.is_empty());
-                    server.await.unwrap();
+                    origin.accepted().await;
+                    origin.completed().await;
                     drop(client);
                     if let Some(driver) = driver {
                         driver.stop().await.unwrap();
@@ -315,14 +294,8 @@ async fn native_raw_udp_boundaries() {
                         "raw UDP: {cipher:?} padding={padding} length={length} target={family}"
                     );
                     tokio::time::timeout(Duration::from_secs(15), async {
-                        let origin = tokio::net::UdpSocket::bind(if family == "ipv6" {
-                            "[::1]:0"
-                        } else {
-                            "127.0.0.1:0"
-                        })
-                        .await
-                        .unwrap();
-                        let address = origin.local_addr().unwrap();
+                        let mut origin = udp_ab::ContainerOrigin::connect(&origin::fixture(), family).await.unwrap();
+                        let address = origin.address;
                         let target = if family == "domain" {
                             Destination::domain("vcore-fixture.test", address.port()).unwrap()
                         } else {
@@ -338,17 +311,15 @@ async fn native_raw_udp_boundaries() {
                             for sequence in 0..100 {
                                 let packet = vec![sequence as u8; size];
                                 client.send(Datagram { remote: target.clone(), payload: packet.clone().into(), sniffed_domain: None }).await.unwrap();
-                                let mut received = vec![0; 16000];
-                                let (n, source) = tokio::time::timeout(
+                                let (received, _) = tokio::time::timeout(
                                     Duration::from_secs(1),
-                                    origin.recv_from(&mut received),
+                                    origin.receive(),
                                 )
                                 .await
                                 .unwrap_or_else(|_| panic!("native UDP origin deadline: size={size} sequence={sequence}"))
                                 .unwrap();
-                                assert_eq!(n, size, "raw UDP origin length, sequence={sequence}");
-                                assert!(received[..n] == packet, "raw UDP origin content, size={size} sequence={sequence}");
-                                origin.send_to(&received[..n], source).await.unwrap();
+                                assert_eq!(received.len(), size, "raw UDP origin length, sequence={sequence}");
+                                assert!(received == packet, "raw UDP origin content, size={size} sequence={sequence}");
                                 let echo = tokio::time::timeout(
                                     Duration::from_secs(1),
                                     client.receive(),
@@ -365,7 +336,7 @@ async fn native_raw_udp_boundaries() {
                         assert!(
                             tokio::time::timeout(
                                 Duration::from_millis(30),
-                                origin.recv_from(&mut [0; 16000])
+                                origin.receive()
                             )
                             .await
                             .is_err()
@@ -417,14 +388,8 @@ async fn native_encoded_udp_boundaries() {
                             "encoded UDP: {codec} {cipher:?} padding={padding} length={length} target={family}"
                         );
                         tokio::time::timeout(Duration::from_secs(15), async {
-                            let origin = tokio::net::UdpSocket::bind(if family == "ipv6" {
-                                "[::1]:0"
-                            } else {
-                                "127.0.0.1:0"
-                            })
-                            .await
-                            .unwrap();
-                            let address = origin.local_addr().unwrap();
+                            let mut origin = udp_ab::ContainerOrigin::connect(&origin::fixture(), family).await.unwrap();
+                            let address = origin.address;
                             let target = if family == "domain" {
                                 Destination::domain("vcore-fixture.test", address.port()).unwrap()
                             } else {
@@ -449,10 +414,10 @@ async fn native_encoded_udp_boundaries() {
                                 std::sync::atomic::AtomicUsize::new(0),
                             ));
                             let mut transport: Box<dyn DatagramTransport> = if codec == "xudp" {
-                                Box::new(vcore::xudp::XudpTransport::new(
+                                Box::new(vcore::xudp::XudpTransport::with_budget(
                                     Box::new(client),
                                     [0; 8],
-                                    maximum as u16,
+                                    DatagramBudget::new(maximum as u16, maximum as u16),
                                 ))
                             } else {
                                 Box::new(VmessDatagram::packet_addr(
@@ -473,17 +438,15 @@ async fn native_encoded_udp_boundaries() {
                                         })
                                         .await
                                         .unwrap();
-                                    let mut incoming = vec![0; 16000];
-                                    let (n, source) = tokio::time::timeout(
+                                    let (incoming, _) = tokio::time::timeout(
                                         Duration::from_secs(1),
-                                        origin.recv_from(&mut incoming),
+                                        origin.receive(),
                                     )
                                     .await
                                     .unwrap_or_else(|_| panic!("encoded UDP origin deadline: size={size} sequence={sequence}"))
                                     .unwrap();
-                                    assert_eq!(n, size, "encoded UDP origin length, sequence={sequence}");
-                                    assert!(incoming[..n] == packet, "encoded UDP origin content, size={size} sequence={sequence}");
-                                    origin.send_to(&incoming[..n], source).await.unwrap();
+                                    assert_eq!(incoming.len(), size, "encoded UDP origin length, sequence={sequence}");
+                                    assert!(incoming == packet, "encoded UDP origin content, size={size} sequence={sequence}");
                                     let response = tokio::time::timeout(
                                         Duration::from_secs(1),
                                         transport.receive(),
@@ -510,24 +473,9 @@ async fn native_encoded_udp_boundaries() {
                             let oversized = transport.send(Datagram {
                                 remote: target.clone(), payload: vec![0; maximum + 1].into(), sniffed_domain: None,
                             }).await;
-                            if codec == "packetaddr" {
-                                assert!(oversized.is_err());
-                            } else {
-                                // XUDP's stream can carry a larger payload, but
-                                // this native peer drops packets above its own
-                                // socket / mux packet buffer capacity.
-                                oversized.unwrap();
-                            }
-                            assert!(tokio::time::timeout(Duration::from_millis(30), origin.recv_from(&mut [0; 16000])).await.is_err());
-                            if codec == "packetaddr" {
-                                transport.close().await.unwrap();
-                            } else {
-                                // The deliberately oversized mux packet may
-                                // make the peer reset its stream. Both outcomes
-                                // are valid rejection; Drop must still release
-                                // the stream and the driver is joined below.
-                                let _ = transport.close().await;
-                            }
+                            assert!(oversized.is_err());
+                            assert!(tokio::time::timeout(Duration::from_millis(30), origin.receive()).await.is_err());
+                            transport.close().await.unwrap();
                             drop(transport);
                             if let Some(driver) = driver {
                                 driver.stop().await.unwrap();
@@ -574,20 +522,8 @@ async fn native_mihomo_close_alignment() {
             serde_json::from_str(&std::env::var("VCORE_VMESS_TRANSPORT").unwrap()).unwrap();
         let mode = fixture["mode"].as_str().unwrap();
         let expected_tail = matches!(mode, "tcp" | "ws");
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let target = listener.local_addr().unwrap().into();
-        let server = tokio::spawn(async move {
-            let (mut io, _) = listener.accept().await.unwrap();
-            io.write_all(b"hello").await.unwrap();
-            let mut request = [0; 4];
-            io.read_exact(&mut request).await.unwrap();
-            assert_eq!(&request, b"ping");
-            io.write_all(&request).await.unwrap();
-            let mut eof = [0; 1];
-            assert_eq!(io.read(&mut eof).await.unwrap(), 0);
-            // A whole-close peer may already have closed its receiving side.
-            let _ = io.write_all(b"native-after-upload-eof").await;
-        });
+        let mut origin = origin::TcpOrigin::new(11).await;
+        let target = origin.target.clone();
         let (mut client, driver) = stream(peer, target, BodyCipher::Auto, false, false)
             .await
             .unwrap();
@@ -611,7 +547,8 @@ async fn native_mihomo_close_alignment() {
             },
             "close behavior differs from the official Mihomo client"
         );
-        server.await.unwrap();
+        origin.accepted().await;
+        origin.completed().await;
         drop(client);
         if let Some(driver) = driver {
             driver.stop().await.unwrap();
@@ -627,8 +564,8 @@ async fn native_mihomo_close_alignment() {
 async fn native_identity_time_replay_rejection() {
     event_for("native_identity_time_replay_rejection", "BEGIN");
     let peer: SocketAddr = std::env::var("VCORE_VMESS_PEER").unwrap().parse().unwrap();
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let destination: Destination = listener.local_addr().unwrap().into();
+    let mut origin = origin::TcpOrigin::new(12).await;
+    let destination = origin.target.clone();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -660,14 +597,8 @@ async fn native_identity_time_replay_rejection() {
         raw.write_all(b"synthetic-probe").await.unwrap();
         if accepted {
             replay = Some(handshake.request().to_vec());
-            let (mut origin, _) = tokio::time::timeout(Duration::from_secs(2), listener.accept())
-                .await
-                .unwrap()
-                .unwrap();
-            let mut probe = [0; 15];
-            origin.read_exact(&mut probe).await.unwrap();
-            assert_eq!(&probe, b"synthetic-probe");
-            origin.write_all(b"ok").await.unwrap();
+            origin.accepted().await;
+            origin.completed().await;
             let mut client = VmessStream::new(
                 Box::new(raw),
                 handshake,
@@ -677,12 +608,7 @@ async fn native_identity_time_replay_rejection() {
             client.read_exact(&mut ok).await.unwrap();
             assert_eq!(&ok, b"ok");
         } else {
-            assert!(
-                tokio::time::timeout(Duration::from_millis(350), listener.accept())
-                    .await
-                    .is_err(),
-                "rejected authentication reached origin"
-            );
+            origin.not_accepted().await;
             let mut client = VmessStream::new(
                 Box::new(raw),
                 handshake,

@@ -130,7 +130,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 if args.catalog_only:
                     check_protocol_catalogs(args.catalog_dir)
                 else:
-                    check_run(args.run_dir, args.stage, args.catalog_dir / "cases.json")
+                    check_run(
+                        args.run_dir.resolve(),
+                        args.stage,
+                        args.catalog_dir / "cases.json",
+                    )
             elif args.check == "protocol-interop":
                 run_protocol_interop(
                     stage=args.stage,

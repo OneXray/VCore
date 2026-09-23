@@ -24,7 +24,7 @@ uv run --project scripts --locked vcore-scripts build windows
 - Apple 命令只能在 macOS 运行，输出 `dist/apple/LibVCore.xcframework`。
 - Android 命令在 macOS/Linux 运行，默认输出 `dist/android/{arm64-v8a,x86_64}/libvcore.so`。
 - Windows 命令只能在已安装 Visual Studio C++ 工具的 Windows 运行；命令从系统注册表读取原生 ARM64/x64 处理器架构，通过 `vswhere` 加载对应的 MSVC 环境，验证三项 PE 的 machine type 后输出 `dist/windows/<architecture>` 下的 DLL、Provider Host、Session Host 和记录 package integration revision、架构及三项 SHA-256 的 `vcore-windows-artifacts.json`。
-- 所有构建都使用 `Cargo.lock`，并检查产物内的 Invoke API v5/config revision 15 身份。
+- 所有构建都使用 `Cargo.lock`，并检查产物内的 Invoke API v5/config revision 16 身份。
 - 标准 Apple、Android、Windows 构建显式包含两种客户端入站和五种出站，不依赖 `ffi` / `tun` 的传递 feature 来隐式补齐；不包含 `interop-test`。Apple/Android 的自定义 `VCORE_FEATURES` 不得将测试信任注入用于交付。
 
 Apple/Android 继续接受现有环境变量：
@@ -77,20 +77,25 @@ uv run --project scripts --locked vcore-scripts check protocol-interop --stage N
 uv run --project scripts --locked vcore-scripts check protocol-coverage --stage N1 --run-dir target/interop/runs/<run-id>
 uv run --project scripts --locked vcore-scripts check protocol-interop --stage N2
 uv run --project scripts --locked vcore-scripts check protocol-coverage --stage N2 --run-dir target/interop/runs/<run-id>
+uv run --project scripts --locked vcore-scripts check protocol-interop --stage N3 --list
+uv run --project scripts --locked vcore-scripts check protocol-interop --stage N3 --preflight
+uv run --project scripts --locked vcore-scripts check protocol-interop --stage N3
+uv run --project scripts --locked vcore-scripts check protocol-coverage --stage N3 --run-dir target/interop/runs/<run-id>
 ```
 
-统一入口执行N1公共基础（21组required）和N2 Trojan消费者（41组required、18个适用字段）。`cases.json`逐组列出断言、字段关联、对端、期限和证据类型；`limits.json`引用可执行边界case，Rust测试核对真实常量。未来阶段没有可执行required集合时非零返回NOT RUN。N1通过不是新协议签收，N2也不抵扣其他协议。
+统一入口具有 N1 公共基础（21 组 required）、N2 Trojan（41 组 / 18 字段）及 N3 VMess（117 组 / 30 字段）的独立清单。`cases.json` 逐组列出断言、字段关联、对端、期限和证据类型；`limits.json` 引用可执行边界 case，Rust 测试核对真实常量。未来阶段没有可执行 required 集合时非零返回 NOT RUN。N1/N2 的历史宿主服务入口未全部迁移，不得用于新的服务端验收；当前全容器阶段入口是 N3。阶段之间不继承 PASS。
 
 N2三种传输分别执行真实Mihomo TCP/UDP、上游/组、HTTP/模拟TUN/DNS、外层IPv6、证书/路径负例和UDP隔离；公共Invoke生命周期、协议自有资源各20轮，每轮Stop返回即检查，再静默5秒。域名UDP因Mihomo listener缺口由Xray单独补验，自定义头/路径ED由V2Ray补验；失败与对端缓冲限制保留在[N2.2记录](../docs/acceptance/next-protocols/N2-tcp.md)。`fields.json`按row ID汇总，只有完整执行、原始事件和所有必需项通过才可签收；单独运行原生子工具用于开发定位，不替代统一门禁。
 
-N3 尚未签收，也未开放 VMess YAML。以下入口仅测试独立 wire 层及原生客户端差分，不替代未来 `--stage N3` 的公开配置、数据报、运行时和生命周期门禁。wire 入口将关闭前的数据完整性与关闭行为分开验证；不再把所有非 XHTTP 传输的 EOF 后尾包作为统一门槛，旧失败记录仍保留：
+N3 公开 VMess 配置见 [VMess](../docs/vmess.md)。统一入口执行 AEAD/身份/重放、五种传输明文/TLS、三种 UDP 编码、HTTP/SOCKS/模拟 TUN、受控 DNS、外层 IPv6、上游/嵌套组、证书/ALPN/路径负例和来源隔离；TCP 与 gRPC 各执行 20 轮公共生命周期及 20 轮协议自有资源检查。Stop 返回即检查，再静默 5 秒。另包含 Debug/Release、独立/default feature、共享 XUDP/TLS/Trojan 回归、Apple 五目标和 Android 两 ABI 的生产构建。服务器、原站、上游入口均在独占 host-only 容器中；Mihomo 验 TCP/WS/gRPC，V2Ray 仅补 HTTP/H2/扩展 WS ED 缺口。
+
+开发定位可单独调用原生子工具，并在目录参数后指定一个或多个 case ID；未指定时执行全部 wire/public case，但不包含统一入口的其他门禁，不能据此签收 N3：
 
 ```sh
-uv run --project scripts --locked python -m vcore_scripts.protocol_vmess target/interop/runs/<new-wire-run>
-uv run --project scripts --locked python -m vcore_scripts.protocol_vmess_close target/interop/runs/<new-close-run>
+uv run --project scripts --locked python -m vcore_scripts.protocol_vmess target/interop/runs/<new-native-run>
 ```
 
-后一个命令仅表示对照数据采集和自建进程清理是否完成；尾包结果逐项保留在 JSON，退出 0 不表示半关闭或 N3 验收通过。已确认的 Mihomo 对齐规则与历史诊断见 [N3 关闭行为记录](../docs/acceptance/next-protocols/N3-close-blocker.md)。
+正常完整性与关闭行为分开验证，不再把所有非 XHTTP 传输的 EOF 后尾包作为统一门槛。旧 `protocol_vmess_close`、`protocol_vmess_udp_diagnostic` 宿主诊断入口已关闭并返回 BLOCKED；历史观察仍见 [N3 关闭行为记录](../docs/acceptance/next-protocols/N3-close-blocker.md)，不追改失败结果。
 
 N3 UDP 同参数客户端对照现已全链路容器化，仍是独立诊断，不是阶段门禁：
 
@@ -101,11 +106,11 @@ uv run --project scripts --locked python -m vcore_scripts.protocol_vmess_udp_ab 
 
 需要已运行的 Apple Container 及带 `purpose=vcore-mihomo-interop` 标签的同名 host-only 网络。每轮重新下载官方最新 Linux ARM64 Mihomo，刷新官方 `python:3-alpine` 镜像并记录 digest；每个传输使用独立的服务端、官方对照客户端和 UDP 原站三个容器，不发布宿主端口。所有 IPv4/IPv6/域名原站均来自容器，虚拟 IPv6 不代表物理链路。默认三编码 × 13 body 配置 × 三地址类型 × TCP/WS/gRPC 明文/TLS，2轮、每大小100包；省略 `--sizes` 或使用 `--include-boundary` 时追加实际负载边界：raw/XUDP 15000字节，packetaddr 从15000中扣除7/19字节地址头（域名按可解析为IPv6的预算保守计算）。服务端回环保护和默认 socket 行为不变，send/原站观测/reply 各1秒、不重试业务包。
 
-原站在容器内自主 echo，经单独的只读 TCP 观察流传回实际收到的字节供测试比对；宿主不再负责 UDP 回包。此拓扑变化单独记录，旧的宿主 `--collision-probe` / `--socket-probe` 入口明确返回 BLOCKED（非零），不能用它们继续启动宿主原站。其他 wire/close/旧诊断入口尚未容器化，不在本次入口覆盖范围内。历史结论与未归因失败见 [UDP 客户端差分](../docs/acceptance/next-protocols/N3-udp-client-differential.md)。
+原站在容器内自主 echo，经单独的只读 TCP 观察流传回实际收到的字节供测试比对；宿主不负责 UDP 回包。旧的宿主 `--collision-probe` / `--socket-probe` 入口明确返回 BLOCKED（非零），不能用于启动宿主原站。wire/public 已迁移到同一容器工具，旧 close/UDP 差分不再可执行。历史结论与未归因失败见 [UDP 客户端差分](../docs/acceptance/next-protocols/N3-udp-client-differential.md)。
 
 官方对照客户端的 SOCKS UDP 入口按来源 tuple 缓存关联；测试驱动为每个独立用例保留独立 UDP 来源 socket，直到该传输组结束才释放，避免快速复用端口继承其他用例的目标/编码。`--nat-reuse-probe` 在全容器服务拓扑中专门复现该机制：旧原站收到新用例报文、新原站未收到、独立来源对照通过；预期复现记为 REPRODUCED 并返回非零，不计入正常互通 PASS。历史未记录入口来源端口的失败不据此全部追认原因。
 
-`--case`可重复，`--protocol`与其取交集；未知、重复、矛盾或空选择拒绝。`--list`只列清单，不下载/启动；`--preflight`独立检查M/W/H/XR/V2，任一缺环境则非零并保留其他能力结果，不执行业务。W探测仅创建本轮唯一Apple Container VM，安装当前官方发行渠道工具、尝试内核WG及内外双栈；不会修改宿主VPN/路由。完整N1只依赖自身实际使用的M/V2，W/H/XR的未来能力不足不伪造通过，也不阻塞无关case。版本命令就绪不证明H跳端口或XR具体协议模式已验证。
+`--case` 可重复，`--protocol` 与其取交集；未知、重复、矛盾或空选择拒绝。`--list` 只列清单，不下载/启动。N3 `--preflight` 只检查所选清单的 M/V2：新下载、实际容器版本/hash、隔离网络、原站/服务端就绪和清理，不执行业务，不算 required PASS。历史 N1/N2 预检 M/W/H/XR/V2 的方式不用于新的服务端验收；未来协议的环境缺口不阻塞 N3。版本命令就绪不能证明具体协议模式已通过。
 
 每次创建`target/interop/runs/`下的新目录；`--run-dir`只能指定其下尚不存在的目录。记录`run.json`、`peers.json`、`cases.json`、`resources.jsonl`、脱敏日志和`summary.md`，并为原始事件/报告记录SHA-256。输入身份包括父提交、源码树（含未提交新文件）/diff/lock摘要、工具链、SDK、API/schema、features。执行期间源码变化不得签收；部分选择和预检不能通过完整阶段coverage。
 

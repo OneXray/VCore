@@ -1,6 +1,6 @@
 # Trojan 出站
 
-Trojan 是固定 TLS 的 TCP/UDP 出站，支持 `tcp`、标准 WebSocket 和普通 gRPC。默认、TUN 和发布构建包含 `outbound-trojan`；也可独立启用该 feature，不会隐式启用 VLESS 或 TUN。公开配置为 schema 15，Invoke API 仍为 v5。
+Trojan 是固定 TLS 的 TCP/UDP 出站，支持 `tcp`、标准 WebSocket 和普通 gRPC。默认、TUN 和发布构建包含 `outbound-trojan`；也可独立启用该 feature，不会隐式启用 VLESS 或 TUN。Trojan 自 schema 15 开放；当前配置修订见 `config.yaml`，Invoke API 仍为 v5。
 
 ## 配置
 

@@ -18,6 +18,22 @@ class Response(io.BytesIO):
 
 
 class NativeReleaseTest(unittest.TestCase):
+    def test_foreign_binary_version_is_deferred_to_its_container(self):
+        archive = io.BytesIO()
+        with zipfile.ZipFile(archive, "w") as bundle:
+            bundle.writestr("v2ray", b"linux-fixture")
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch("urllib.request.urlopen", return_value=Response(archive.getvalue())),
+            patch("vcore_scripts.native_release.run_command") as run,
+        ):
+            peer = native_release.download_native(
+                "V2", Path(directory), "linux-arm64", defer_version=True
+            )
+            run.assert_not_called()
+            self.assertIsNone(peer.identity["version"])
+            self.assertEqual(peer.binary.read_bytes(), b"linux-fixture")
+
     def test_failed_download_never_uses_old_binary_or_leaks_network_details(self):
         with (
             tempfile.TemporaryDirectory() as directory,

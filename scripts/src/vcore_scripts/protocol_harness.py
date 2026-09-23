@@ -444,7 +444,19 @@ def run_protocol_interop(
     try:
         run.update(run_identity(stage, selected, preflight_only))
         with exclusive_run(), deadline(run["suite_timeout_seconds"]):
-            if preflight_only:
+            if preflight_only and stage == "N3":
+                from .protocol_vmess_container import run as preflight_vmess
+
+                native = [
+                    case["case_id"]
+                    for case in selected
+                    if case["runner"] == "native-vmess"
+                ]
+                if preflight_vmess(output / "native", native, preflight_only=True):
+                    raise RuntimeError("VMess container preflight failed")
+                peers = read_json(output / "native/vmess-results.json")["peers"]
+                (output / "peers.json").write_text(json.dumps(peers, indent=2) + "\n")
+            elif preflight_only:
                 _, peers = preflight(
                     output / "binaries", {"M", "V2", "H", "XR", "W"}, container=True
                 )
@@ -460,6 +472,10 @@ def run_protocol_interop(
             else:
                 if stage == "N2":
                     from .protocol_trojan_acceptance import execute
+
+                    execute(selected, run, output, records)
+                elif stage == "N3":
+                    from .protocol_vmess_acceptance import execute
 
                     execute(selected, run, output, records)
                 else:
@@ -516,6 +532,9 @@ def run_protocol_interop(
             + (
                 "Trojan protocol consumer evidence; other protocols remain NOT RUN.\n\n"
                 if stage == "N2"
+                else "VMess protocol consumer evidence with "
+                "container-only servers and origins.\n\n"
+                if stage == "N3"
                 else "Foundation-only evidence; "
                 "production protocol field consumers remain NOT RUN.\n\n"
             )

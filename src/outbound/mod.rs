@@ -818,3 +818,5 @@ mod connector_composition_tests {
         assert!(Arc::ptr_eq(upload_parent, download_parent));
     }
 }
+#[cfg(any(feature = "outbound-trojan", feature = "outbound-vmess"))]
+mod owned_stream;

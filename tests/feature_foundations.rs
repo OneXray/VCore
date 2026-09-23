@@ -7,15 +7,24 @@ fn feature_skeletons_do_not_open_unimplemented_yaml_or_measurement_protocols() {
         "N1-SCHEMA",
         "feature_skeletons_do_not_open_unimplemented_yaml_or_measurement_protocols",
     );
-    for protocol in ["vmess", "hysteria2", "wireguard"] {
+    for protocol in ["hysteria2", "wireguard"] {
         let yaml = format!(
             "proxies:\n  - name: node\n    type: {protocol}\n    server: example.com\n    port: 443\nrules:\n  - MATCH,node\n"
         );
         assert!(Config::parse_yaml(yaml.as_bytes()).is_err());
     }
     assert_eq!(vcore::INVOKE_API_VERSION, 5);
-    assert_eq!(vcore::CONFIG_VERSION, 15);
-    assert!(vcore::BUILD_IDENTITY.ends_with("invokeApiVersion=5;configVersion=15"));
+    assert_eq!(vcore::CONFIG_VERSION, 16);
+    assert!(vcore::BUILD_IDENTITY.ends_with("invokeApiVersion=5;configVersion=16"));
+}
+
+#[test]
+fn vmess_yaml_follows_its_own_feature() {
+    let yaml=b"socks-port: 1080\nproxies: [{name: node, type: vmess, server: localhost, port: 443, uuid: 07070707-0707-0707-0707-070707070707}]\nrules: ['MATCH,node']\n";
+    assert_eq!(
+        Config::parse_yaml(yaml).is_ok(),
+        cfg!(feature = "outbound-vmess")
+    );
 }
 
 #[test]

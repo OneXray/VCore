@@ -36,6 +36,7 @@ default = [
     "outbound-socks5",
     "outbound-shadowsocks",
     "outbound-trojan",
+    "outbound-vmess",
     "outbound-vless",
 ]
 inbound-http = []
@@ -45,8 +46,8 @@ outbound-socks5 = []
 outbound-shadowsocks = ["dep:shadowsocks", "dep:log"]
 outbound-vless = ["rustls/reality", "stream-transport"]
 outbound-trojan = ["stream-transport"]
-# N1 foundation features. YAML registration waits for each protocol stage.
 outbound-vmess = ["stream-transport", "dep:aes", "dep:crc32fast", "dep:md-5", "dep:ring", "dep:shake"]
+# Foundation-only features; YAML registration waits for their protocol stage.
 outbound-hysteria2 = ["quic-transport"]
 outbound-wireguard = []
 stream-transport = ["dep:tokio-tungstenite", "dep:httparse", "dep:log"]
@@ -64,6 +65,7 @@ tun = [
     "outbound-socks5",
     "outbound-shadowsocks",
     "outbound-trojan",
+    "outbound-vmess",
     "outbound-vless",
 ]
 

@@ -3208,6 +3208,6338 @@
       "runner": "mihomo-legacy",
       "timeout_seconds": 900,
       "event_suite": "N1-REGRESSION"
+    },
+    {
+      "case_id": "N3-CANCEL",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [],
+      "protocol": "vmess",
+      "network": "memory-or-build",
+      "security": "plain",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "memory-or-build",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "memory-only",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "unit",
+      "peer_config": {
+        "mode": "memory-or-build",
+        "tls": false,
+        "test": "N3-CANCEL"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "vmess_all_handshakes_keep_the_original_deadline_and_join_cancelled_io",
+        "vmess_expired_deadline_and_protect_failure_never_fall_back"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup"
+      ],
+      "prerequisites": [
+        "rust-toolchain"
+      ],
+      "runner": "vmess-gate",
+      "timeout_seconds": 1200
+    },
+    {
+      "case_id": "N3-CFG",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "C06",
+        "G01",
+        "H01",
+        "H02",
+        "H03",
+        "H04",
+        "H05",
+        "H06",
+        "T02",
+        "T03",
+        "T04",
+        "T05",
+        "VM01",
+        "VM02",
+        "VM03",
+        "VM04",
+        "VM05",
+        "VM06",
+        "VM07",
+        "VM08",
+        "W01",
+        "W02",
+        "W03",
+        "W04",
+        "W05"
+      ],
+      "protocol": "vmess",
+      "network": "memory-or-build",
+      "security": "plain",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "memory-or-build",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "memory-only",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "unit",
+      "peer_config": {
+        "mode": "memory-or-build",
+        "tls": false,
+        "test": "N3-CFG"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "vmess_default_node_and_explicit_cipher_aliases_are_accepted_without_io",
+        "vmess_transport_and_security_combinations_are_strict",
+        "vmess_field_boundaries_and_normalized_transport_values",
+        "vmess_normalized_websocket_fields_preserve_headers_and_early_data_order"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup"
+      ],
+      "prerequisites": [
+        "rust-toolchain"
+      ],
+      "runner": "vmess-gate",
+      "timeout_seconds": 1200
+    },
+    {
+      "case_id": "N3-CODEC",
+      "stage": "N3",
+      "substage": "N3.2",
+      "required": true,
+      "row_ids": [
+        "VM01",
+        "VM03",
+        "VM06",
+        "VM07",
+        "VM08"
+      ],
+      "protocol": "vmess",
+      "network": "memory-or-build",
+      "security": "plain",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "memory-or-build",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "memory-only",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "unit",
+      "peer_config": {
+        "mode": "memory-or-build",
+        "tls": false,
+        "test": "N3-CODEC"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "xudp_cancelled_send_and_bad_frame_release_io_and_cannot_resume",
+        "xudp_zero_global_id_omits_the_optional_extension_like_mihomo",
+        "packetaddr_has_ip_only_address_first_wire_and_rejects_truncation",
+        "vmess_aead_requests_are_fresh_bounded_and_redacted",
+        "vmess_response_authentication_cannot_be_skipped_by_none_cipher",
+        "vmess_whole_close_wakes_reader_and_releases_io_before_response",
+        "xudp_explicit_budget_rejects_max_plus_one_before_writing",
+        "independently_published_nested_hmac_vectors",
+        "chunks_preserve_boundaries_masks_padding_and_authenticated_eof",
+        "tags_lengths_and_nonce_exhaustion_fail_closed",
+        "auto_uses_detected_hardware_not_architecture_name"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup"
+      ],
+      "prerequisites": [
+        "rust-toolchain"
+      ],
+      "runner": "vmess-gate",
+      "timeout_seconds": 1200
+    },
+    {
+      "case_id": "N3-FEATURES",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [],
+      "protocol": "vmess",
+      "network": "memory-or-build",
+      "security": "plain",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "memory-or-build",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "memory-only",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "unit",
+      "peer_config": {
+        "mode": "memory-or-build",
+        "tls": false,
+        "test": "N3-FEATURES"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N3-FEATURES"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup"
+      ],
+      "prerequisites": [
+        "rust-toolchain"
+      ],
+      "runner": "vmess-gate",
+      "timeout_seconds": 1200
+    },
+    {
+      "case_id": "N3-M-ENCODED-UDP",
+      "stage": "N3",
+      "substage": "N3.3",
+      "required": true,
+      "row_ids": [
+        "VM04",
+        "VM05",
+        "VM06"
+      ],
+      "protocol": "vmess",
+      "network": "tcp",
+      "security": "plain",
+      "udp_codec": "raw/xudp/packetaddr",
+      "field_values": {
+        "network": "tcp",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "tcp",
+        "tls": false,
+        "test": "native_encoded_udp_boundaries"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "native_encoded_udp_boundaries"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-M-GRPC-PLAIN",
+      "stage": "N3",
+      "substage": "N3.2",
+      "required": true,
+      "row_ids": [
+        "VM03",
+        "VM04",
+        "VM05",
+        "VM07",
+        "VM08"
+      ],
+      "protocol": "vmess",
+      "network": "grpc",
+      "security": "plain",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "grpc",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "grpc",
+        "tls": false,
+        "test": "native_cipher_matrix"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "native_cipher_matrix"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-M-GRPC-PLAIN-CLOSE",
+      "stage": "N3",
+      "substage": "N3.4",
+      "required": true,
+      "row_ids": [
+        "VM04",
+        "VM05"
+      ],
+      "protocol": "vmess",
+      "network": "grpc",
+      "security": "plain",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "grpc",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "grpc",
+        "tls": false,
+        "test": "native_mihomo_close_alignment"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "native_mihomo_close_alignment"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-M-GRPC-PLAIN-ENCODED-UDP",
+      "stage": "N3",
+      "substage": "N3.3",
+      "required": true,
+      "row_ids": [
+        "VM04",
+        "VM05",
+        "VM06"
+      ],
+      "protocol": "vmess",
+      "network": "grpc",
+      "security": "plain",
+      "udp_codec": "raw/xudp/packetaddr",
+      "field_values": {
+        "network": "grpc",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "grpc",
+        "tls": false,
+        "test": "native_encoded_udp_boundaries"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "native_encoded_udp_boundaries"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-M-GRPC-PLAIN-RAW-UDP",
+      "stage": "N3",
+      "substage": "N3.3",
+      "required": true,
+      "row_ids": [
+        "VM04",
+        "VM05",
+        "VM06"
+      ],
+      "protocol": "vmess",
+      "network": "grpc",
+      "security": "plain",
+      "udp_codec": "raw/xudp/packetaddr",
+      "field_values": {
+        "network": "grpc",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "grpc",
+        "tls": false,
+        "test": "native_raw_udp_boundaries"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "native_raw_udp_boundaries"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-M-GRPC-TLS",
+      "stage": "N3",
+      "substage": "N3.2",
+      "required": true,
+      "row_ids": [
+        "VM03",
+        "VM04",
+        "VM05",
+        "VM07",
+        "VM08"
+      ],
+      "protocol": "vmess",
+      "network": "grpc",
+      "security": "tls",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "grpc",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "grpc",
+        "tls": true,
+        "test": "native_cipher_matrix"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "native_cipher_matrix"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-M-GRPC-TLS-CLOSE",
+      "stage": "N3",
+      "substage": "N3.4",
+      "required": true,
+      "row_ids": [
+        "VM04",
+        "VM05"
+      ],
+      "protocol": "vmess",
+      "network": "grpc",
+      "security": "tls",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "grpc",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "grpc",
+        "tls": true,
+        "test": "native_mihomo_close_alignment"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "native_mihomo_close_alignment"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-M-GRPC-TLS-ENCODED-UDP",
+      "stage": "N3",
+      "substage": "N3.3",
+      "required": true,
+      "row_ids": [
+        "VM04",
+        "VM05",
+        "VM06"
+      ],
+      "protocol": "vmess",
+      "network": "grpc",
+      "security": "tls",
+      "udp_codec": "raw/xudp/packetaddr",
+      "field_values": {
+        "network": "grpc",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "grpc",
+        "tls": true,
+        "test": "native_encoded_udp_boundaries"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "native_encoded_udp_boundaries"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-M-GRPC-TLS-RAW-UDP",
+      "stage": "N3",
+      "substage": "N3.3",
+      "required": true,
+      "row_ids": [
+        "VM04",
+        "VM05",
+        "VM06"
+      ],
+      "protocol": "vmess",
+      "network": "grpc",
+      "security": "tls",
+      "udp_codec": "raw/xudp/packetaddr",
+      "field_values": {
+        "network": "grpc",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "grpc",
+        "tls": true,
+        "test": "native_raw_udp_boundaries"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "native_raw_udp_boundaries"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-M-IDENTITY",
+      "stage": "N3",
+      "substage": "N3.1",
+      "required": true,
+      "row_ids": [
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05"
+      ],
+      "protocol": "vmess",
+      "network": "tcp",
+      "security": "plain",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "tcp",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "tcp",
+        "tls": false,
+        "test": "native_identity_time_replay_rejection"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "native_identity_time_replay_rejection"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-M-RAW-UDP",
+      "stage": "N3",
+      "substage": "N3.3",
+      "required": true,
+      "row_ids": [
+        "VM04",
+        "VM05",
+        "VM06"
+      ],
+      "protocol": "vmess",
+      "network": "tcp",
+      "security": "plain",
+      "udp_codec": "raw/xudp/packetaddr",
+      "field_values": {
+        "network": "tcp",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "tcp",
+        "tls": false,
+        "test": "native_raw_udp_boundaries"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "native_raw_udp_boundaries"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-M-TCP-PLAIN",
+      "stage": "N3",
+      "substage": "N3.2",
+      "required": true,
+      "row_ids": [
+        "VM03",
+        "VM04",
+        "VM05",
+        "VM07",
+        "VM08"
+      ],
+      "protocol": "vmess",
+      "network": "tcp",
+      "security": "plain",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "tcp",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "tcp",
+        "tls": false,
+        "test": "native_cipher_matrix"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "native_cipher_matrix"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-M-TCP-PLAIN-CLOSE",
+      "stage": "N3",
+      "substage": "N3.4",
+      "required": true,
+      "row_ids": [
+        "VM04",
+        "VM05"
+      ],
+      "protocol": "vmess",
+      "network": "tcp",
+      "security": "plain",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "tcp",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "tcp",
+        "tls": false,
+        "test": "native_mihomo_close_alignment"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "native_mihomo_close_alignment"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-M-TCP-TLS",
+      "stage": "N3",
+      "substage": "N3.2",
+      "required": true,
+      "row_ids": [
+        "VM03",
+        "VM04",
+        "VM05",
+        "VM07",
+        "VM08"
+      ],
+      "protocol": "vmess",
+      "network": "tcp",
+      "security": "tls",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "tcp",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "tcp",
+        "tls": true,
+        "test": "native_cipher_matrix"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "native_cipher_matrix"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-M-TCP-TLS-CLOSE",
+      "stage": "N3",
+      "substage": "N3.4",
+      "required": true,
+      "row_ids": [
+        "VM04",
+        "VM05"
+      ],
+      "protocol": "vmess",
+      "network": "tcp",
+      "security": "tls",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "tcp",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "tcp",
+        "tls": true,
+        "test": "native_mihomo_close_alignment"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "native_mihomo_close_alignment"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-M-TCP-TLS-ENCODED-UDP",
+      "stage": "N3",
+      "substage": "N3.3",
+      "required": true,
+      "row_ids": [
+        "VM04",
+        "VM05",
+        "VM06"
+      ],
+      "protocol": "vmess",
+      "network": "tcp",
+      "security": "tls",
+      "udp_codec": "raw/xudp/packetaddr",
+      "field_values": {
+        "network": "tcp",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "tcp",
+        "tls": true,
+        "test": "native_encoded_udp_boundaries"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "native_encoded_udp_boundaries"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-M-TCP-TLS-RAW-UDP",
+      "stage": "N3",
+      "substage": "N3.3",
+      "required": true,
+      "row_ids": [
+        "VM04",
+        "VM05",
+        "VM06"
+      ],
+      "protocol": "vmess",
+      "network": "tcp",
+      "security": "tls",
+      "udp_codec": "raw/xudp/packetaddr",
+      "field_values": {
+        "network": "tcp",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "tcp",
+        "tls": true,
+        "test": "native_raw_udp_boundaries"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "native_raw_udp_boundaries"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-M-WS-PLAIN",
+      "stage": "N3",
+      "substage": "N3.2",
+      "required": true,
+      "row_ids": [
+        "VM03",
+        "VM04",
+        "VM05",
+        "VM07",
+        "VM08"
+      ],
+      "protocol": "vmess",
+      "network": "ws",
+      "security": "plain",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "ws",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "ws",
+        "tls": false,
+        "test": "native_cipher_matrix"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "native_cipher_matrix"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-M-WS-PLAIN-CLOSE",
+      "stage": "N3",
+      "substage": "N3.4",
+      "required": true,
+      "row_ids": [
+        "VM04",
+        "VM05"
+      ],
+      "protocol": "vmess",
+      "network": "ws",
+      "security": "plain",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "ws",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "ws",
+        "tls": false,
+        "test": "native_mihomo_close_alignment"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "native_mihomo_close_alignment"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-M-WS-PLAIN-ENCODED-UDP",
+      "stage": "N3",
+      "substage": "N3.3",
+      "required": true,
+      "row_ids": [
+        "VM04",
+        "VM05",
+        "VM06"
+      ],
+      "protocol": "vmess",
+      "network": "ws",
+      "security": "plain",
+      "udp_codec": "raw/xudp/packetaddr",
+      "field_values": {
+        "network": "ws",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "ws",
+        "tls": false,
+        "test": "native_encoded_udp_boundaries"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "native_encoded_udp_boundaries"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-M-WS-PLAIN-RAW-UDP",
+      "stage": "N3",
+      "substage": "N3.3",
+      "required": true,
+      "row_ids": [
+        "VM04",
+        "VM05",
+        "VM06"
+      ],
+      "protocol": "vmess",
+      "network": "ws",
+      "security": "plain",
+      "udp_codec": "raw/xudp/packetaddr",
+      "field_values": {
+        "network": "ws",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "ws",
+        "tls": false,
+        "test": "native_raw_udp_boundaries"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "native_raw_udp_boundaries"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-M-WS-TLS",
+      "stage": "N3",
+      "substage": "N3.2",
+      "required": true,
+      "row_ids": [
+        "VM03",
+        "VM04",
+        "VM05",
+        "VM07",
+        "VM08"
+      ],
+      "protocol": "vmess",
+      "network": "ws",
+      "security": "tls",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "ws",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "ws",
+        "tls": true,
+        "test": "native_cipher_matrix"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "native_cipher_matrix"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-M-WS-TLS-CLOSE",
+      "stage": "N3",
+      "substage": "N3.4",
+      "required": true,
+      "row_ids": [
+        "VM04",
+        "VM05"
+      ],
+      "protocol": "vmess",
+      "network": "ws",
+      "security": "tls",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "ws",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "ws",
+        "tls": true,
+        "test": "native_mihomo_close_alignment"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "native_mihomo_close_alignment"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-M-WS-TLS-ENCODED-UDP",
+      "stage": "N3",
+      "substage": "N3.3",
+      "required": true,
+      "row_ids": [
+        "VM04",
+        "VM05",
+        "VM06"
+      ],
+      "protocol": "vmess",
+      "network": "ws",
+      "security": "tls",
+      "udp_codec": "raw/xudp/packetaddr",
+      "field_values": {
+        "network": "ws",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "ws",
+        "tls": true,
+        "test": "native_encoded_udp_boundaries"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "native_encoded_udp_boundaries"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-M-WS-TLS-RAW-UDP",
+      "stage": "N3",
+      "substage": "N3.3",
+      "required": true,
+      "row_ids": [
+        "VM04",
+        "VM05",
+        "VM06"
+      ],
+      "protocol": "vmess",
+      "network": "ws",
+      "security": "tls",
+      "udp_codec": "raw/xudp/packetaddr",
+      "field_values": {
+        "network": "ws",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "ws",
+        "tls": true,
+        "test": "native_raw_udp_boundaries"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "native_raw_udp_boundaries"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-BODY-OPTIONS",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "VM01",
+        "VM02",
+        "VM03",
+        "VM04",
+        "VM05",
+        "VM07",
+        "VM08"
+      ],
+      "protocol": "vmess",
+      "network": "tcp",
+      "security": "plain",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "tcp",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "tcp",
+        "tls": false,
+        "test": "public_body_options"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "public_body_options"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-GRPC-CUSTOM",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "G01",
+        "T02",
+        "T03",
+        "T05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05",
+        "VM06"
+      ],
+      "protocol": "vmess",
+      "network": "grpc-custom",
+      "security": "tls",
+      "udp_codec": "raw/xudp/packetaddr",
+      "field_values": {
+        "network": "grpc-custom",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "grpc-custom",
+        "tls": true,
+        "test": "public_base"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "public_base"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-GRPC-LIFE",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "G01",
+        "T02",
+        "T03",
+        "T05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05"
+      ],
+      "protocol": "vmess",
+      "network": "grpc",
+      "security": "tls",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "grpc",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "grpc",
+        "tls": true,
+        "test": "runtime::public_lifecycle"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "runtime::public_lifecycle"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-GRPC-OWNED",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "G01",
+        "T02",
+        "T03",
+        "T05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05"
+      ],
+      "protocol": "vmess",
+      "network": "grpc",
+      "security": "tls",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "grpc",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "grpc",
+        "tls": true,
+        "test": "runtime::owned_resources"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "runtime::owned_resources"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-GRPC-PLAIN-BASE",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "G01",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05",
+        "VM06"
+      ],
+      "protocol": "vmess",
+      "network": "grpc",
+      "security": "plain",
+      "udp_codec": "raw/xudp/packetaddr",
+      "field_values": {
+        "network": "grpc",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "grpc",
+        "tls": false,
+        "test": "public_base"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "public_base"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-GRPC-PLAIN-ENTRYPOINTS",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "G01",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05"
+      ],
+      "protocol": "vmess",
+      "network": "grpc",
+      "security": "plain",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "grpc",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "grpc",
+        "tls": false,
+        "test": "runtime::public_entrypoints"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "runtime::public_entrypoints"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-GRPC-PLAIN-GRAPH",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C06",
+        "G01",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05"
+      ],
+      "protocol": "vmess",
+      "network": "grpc",
+      "security": "plain",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "grpc",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "grpc",
+        "tls": false,
+        "test": "runtime::public_graph"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "runtime::public_graph"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-GRPC-PLAIN-IPV6",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "G01",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05",
+        "VM06"
+      ],
+      "protocol": "vmess",
+      "network": "grpc",
+      "security": "plain",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "grpc",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "grpc",
+        "tls": false,
+        "test": "runtime::public_ipv6_and_gates"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "runtime::public_ipv6_and_gates"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-GRPC-PLAIN-NEG",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "G01",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05"
+      ],
+      "protocol": "vmess",
+      "network": "grpc",
+      "security": "plain",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "grpc",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "grpc",
+        "tls": false,
+        "test": "public_negative"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "public_negative"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-GRPC-TLS-BASE",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "G01",
+        "T02",
+        "T03",
+        "T05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05",
+        "VM06"
+      ],
+      "protocol": "vmess",
+      "network": "grpc",
+      "security": "tls",
+      "udp_codec": "raw/xudp/packetaddr",
+      "field_values": {
+        "network": "grpc",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "grpc",
+        "tls": true,
+        "test": "public_base"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "public_base"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-GRPC-TLS-ENTRYPOINTS",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "G01",
+        "T02",
+        "T03",
+        "T05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05"
+      ],
+      "protocol": "vmess",
+      "network": "grpc",
+      "security": "tls",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "grpc",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "grpc",
+        "tls": true,
+        "test": "runtime::public_entrypoints"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "runtime::public_entrypoints"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-GRPC-TLS-GRAPH",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C06",
+        "G01",
+        "T02",
+        "T03",
+        "T05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05"
+      ],
+      "protocol": "vmess",
+      "network": "grpc",
+      "security": "tls",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "grpc",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "grpc",
+        "tls": true,
+        "test": "runtime::public_graph"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "runtime::public_graph"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-GRPC-TLS-IPV6",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "G01",
+        "T02",
+        "T03",
+        "T05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05",
+        "VM06"
+      ],
+      "protocol": "vmess",
+      "network": "grpc",
+      "security": "tls",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "grpc",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "grpc",
+        "tls": true,
+        "test": "runtime::public_ipv6_and_gates"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "runtime::public_ipv6_and_gates"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-GRPC-TLS-NEG",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "G01",
+        "T02",
+        "T03",
+        "T04",
+        "T05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05"
+      ],
+      "protocol": "vmess",
+      "network": "grpc",
+      "security": "tls",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "grpc",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "grpc",
+        "tls": true,
+        "test": "public_negative"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "public_negative"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-GRPC-UDP-ISOLATION",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "G01",
+        "T02",
+        "T03",
+        "T05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05",
+        "VM06"
+      ],
+      "protocol": "vmess",
+      "network": "grpc",
+      "security": "tls",
+      "udp_codec": "raw/xudp/packetaddr",
+      "field_values": {
+        "network": "grpc",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "grpc",
+        "tls": true,
+        "test": "runtime::public_udp_isolation"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "runtime::public_udp_isolation"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-H2-PLAIN-BASE",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "H05",
+        "H06",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05",
+        "VM06"
+      ],
+      "protocol": "vmess",
+      "network": "h2",
+      "security": "plain",
+      "udp_codec": "raw/xudp/packetaddr",
+      "field_values": {
+        "network": "h2",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "V2",
+      "peer_config": {
+        "mode": "h2",
+        "tls": false,
+        "test": "public_base"
+      },
+      "gap_source": {
+        "reason": "Mihomo VMess listener has no HTTP header/legacy H2 or custom ED field; official V2Ray supplements only these paths",
+        "source": "https://github.com/MetaCubeX/mihomo/blob/v1.19.31/listener/inbound/vmess.go"
+      },
+      "expected_observation": [
+        "public_base"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-H2-PLAIN-ENTRYPOINTS",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "H05",
+        "H06",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05"
+      ],
+      "protocol": "vmess",
+      "network": "h2",
+      "security": "plain",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "h2",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "V2",
+      "peer_config": {
+        "mode": "h2",
+        "tls": false,
+        "test": "runtime::public_entrypoints"
+      },
+      "gap_source": {
+        "reason": "Mihomo VMess listener has no HTTP header/legacy H2 or custom ED field; official V2Ray supplements only these paths",
+        "source": "https://github.com/MetaCubeX/mihomo/blob/v1.19.31/listener/inbound/vmess.go"
+      },
+      "expected_observation": [
+        "runtime::public_entrypoints"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-H2-PLAIN-GRAPH",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C06",
+        "H05",
+        "H06",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05"
+      ],
+      "protocol": "vmess",
+      "network": "h2",
+      "security": "plain",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "h2",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "V2",
+      "peer_config": {
+        "mode": "h2",
+        "tls": false,
+        "test": "runtime::public_graph"
+      },
+      "gap_source": {
+        "reason": "Mihomo VMess listener has no HTTP header/legacy H2 or custom ED field; official V2Ray supplements only these paths",
+        "source": "https://github.com/MetaCubeX/mihomo/blob/v1.19.31/listener/inbound/vmess.go"
+      },
+      "expected_observation": [
+        "runtime::public_graph"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-H2-PLAIN-IPV6",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "H05",
+        "H06",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05",
+        "VM06"
+      ],
+      "protocol": "vmess",
+      "network": "h2",
+      "security": "plain",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "h2",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "V2",
+      "peer_config": {
+        "mode": "h2",
+        "tls": false,
+        "test": "runtime::public_ipv6_and_gates"
+      },
+      "gap_source": {
+        "reason": "Mihomo VMess listener has no HTTP header/legacy H2 or custom ED field; official V2Ray supplements only these paths",
+        "source": "https://github.com/MetaCubeX/mihomo/blob/v1.19.31/listener/inbound/vmess.go"
+      },
+      "expected_observation": [
+        "runtime::public_ipv6_and_gates"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-H2-PLAIN-NEG",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "H05",
+        "H06",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05"
+      ],
+      "protocol": "vmess",
+      "network": "h2",
+      "security": "plain",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "h2",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "V2",
+      "peer_config": {
+        "mode": "h2",
+        "tls": false,
+        "test": "public_negative"
+      },
+      "gap_source": {
+        "reason": "Mihomo VMess listener has no HTTP header/legacy H2 or custom ED field; official V2Ray supplements only these paths",
+        "source": "https://github.com/MetaCubeX/mihomo/blob/v1.19.31/listener/inbound/vmess.go"
+      },
+      "expected_observation": [
+        "public_negative"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-H2-TLS-BASE",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "H05",
+        "H06",
+        "T02",
+        "T03",
+        "T05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05",
+        "VM06"
+      ],
+      "protocol": "vmess",
+      "network": "h2",
+      "security": "tls",
+      "udp_codec": "raw/xudp/packetaddr",
+      "field_values": {
+        "network": "h2",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "V2",
+      "peer_config": {
+        "mode": "h2",
+        "tls": true,
+        "test": "public_base"
+      },
+      "gap_source": {
+        "reason": "Mihomo VMess listener has no HTTP header/legacy H2 or custom ED field; official V2Ray supplements only these paths",
+        "source": "https://github.com/MetaCubeX/mihomo/blob/v1.19.31/listener/inbound/vmess.go"
+      },
+      "expected_observation": [
+        "public_base"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-H2-TLS-ENTRYPOINTS",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "H05",
+        "H06",
+        "T02",
+        "T03",
+        "T05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05"
+      ],
+      "protocol": "vmess",
+      "network": "h2",
+      "security": "tls",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "h2",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "V2",
+      "peer_config": {
+        "mode": "h2",
+        "tls": true,
+        "test": "runtime::public_entrypoints"
+      },
+      "gap_source": {
+        "reason": "Mihomo VMess listener has no HTTP header/legacy H2 or custom ED field; official V2Ray supplements only these paths",
+        "source": "https://github.com/MetaCubeX/mihomo/blob/v1.19.31/listener/inbound/vmess.go"
+      },
+      "expected_observation": [
+        "runtime::public_entrypoints"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-H2-TLS-GRAPH",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C06",
+        "H05",
+        "H06",
+        "T02",
+        "T03",
+        "T05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05"
+      ],
+      "protocol": "vmess",
+      "network": "h2",
+      "security": "tls",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "h2",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "V2",
+      "peer_config": {
+        "mode": "h2",
+        "tls": true,
+        "test": "runtime::public_graph"
+      },
+      "gap_source": {
+        "reason": "Mihomo VMess listener has no HTTP header/legacy H2 or custom ED field; official V2Ray supplements only these paths",
+        "source": "https://github.com/MetaCubeX/mihomo/blob/v1.19.31/listener/inbound/vmess.go"
+      },
+      "expected_observation": [
+        "runtime::public_graph"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-H2-TLS-IPV6",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "H05",
+        "H06",
+        "T02",
+        "T03",
+        "T05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05",
+        "VM06"
+      ],
+      "protocol": "vmess",
+      "network": "h2",
+      "security": "tls",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "h2",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "V2",
+      "peer_config": {
+        "mode": "h2",
+        "tls": true,
+        "test": "runtime::public_ipv6_and_gates"
+      },
+      "gap_source": {
+        "reason": "Mihomo VMess listener has no HTTP header/legacy H2 or custom ED field; official V2Ray supplements only these paths",
+        "source": "https://github.com/MetaCubeX/mihomo/blob/v1.19.31/listener/inbound/vmess.go"
+      },
+      "expected_observation": [
+        "runtime::public_ipv6_and_gates"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-H2-TLS-NEG",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "H05",
+        "H06",
+        "T02",
+        "T03",
+        "T04",
+        "T05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05"
+      ],
+      "protocol": "vmess",
+      "network": "h2",
+      "security": "tls",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "h2",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "V2",
+      "peer_config": {
+        "mode": "h2",
+        "tls": true,
+        "test": "public_negative"
+      },
+      "gap_source": {
+        "reason": "Mihomo VMess listener has no HTTP header/legacy H2 or custom ED field; official V2Ray supplements only these paths",
+        "source": "https://github.com/MetaCubeX/mihomo/blob/v1.19.31/listener/inbound/vmess.go"
+      },
+      "expected_observation": [
+        "public_negative"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-HTTP-PLAIN-BASE",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "H01",
+        "H02",
+        "H03",
+        "H04",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05",
+        "VM06"
+      ],
+      "protocol": "vmess",
+      "network": "http",
+      "security": "plain",
+      "udp_codec": "raw/xudp/packetaddr",
+      "field_values": {
+        "network": "http",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "V2",
+      "peer_config": {
+        "mode": "http",
+        "tls": false,
+        "test": "public_base"
+      },
+      "gap_source": {
+        "reason": "Mihomo VMess listener has no HTTP header/legacy H2 or custom ED field; official V2Ray supplements only these paths",
+        "source": "https://github.com/MetaCubeX/mihomo/blob/v1.19.31/listener/inbound/vmess.go"
+      },
+      "expected_observation": [
+        "public_base"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-HTTP-PLAIN-ENTRYPOINTS",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "H01",
+        "H02",
+        "H03",
+        "H04",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05"
+      ],
+      "protocol": "vmess",
+      "network": "http",
+      "security": "plain",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "http",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "V2",
+      "peer_config": {
+        "mode": "http",
+        "tls": false,
+        "test": "runtime::public_entrypoints"
+      },
+      "gap_source": {
+        "reason": "Mihomo VMess listener has no HTTP header/legacy H2 or custom ED field; official V2Ray supplements only these paths",
+        "source": "https://github.com/MetaCubeX/mihomo/blob/v1.19.31/listener/inbound/vmess.go"
+      },
+      "expected_observation": [
+        "runtime::public_entrypoints"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-HTTP-PLAIN-GRAPH",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C06",
+        "H01",
+        "H02",
+        "H03",
+        "H04",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05"
+      ],
+      "protocol": "vmess",
+      "network": "http",
+      "security": "plain",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "http",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "V2",
+      "peer_config": {
+        "mode": "http",
+        "tls": false,
+        "test": "runtime::public_graph"
+      },
+      "gap_source": {
+        "reason": "Mihomo VMess listener has no HTTP header/legacy H2 or custom ED field; official V2Ray supplements only these paths",
+        "source": "https://github.com/MetaCubeX/mihomo/blob/v1.19.31/listener/inbound/vmess.go"
+      },
+      "expected_observation": [
+        "runtime::public_graph"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-HTTP-PLAIN-IPV6",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "H01",
+        "H02",
+        "H03",
+        "H04",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05",
+        "VM06"
+      ],
+      "protocol": "vmess",
+      "network": "http",
+      "security": "plain",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "http",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "V2",
+      "peer_config": {
+        "mode": "http",
+        "tls": false,
+        "test": "runtime::public_ipv6_and_gates"
+      },
+      "gap_source": {
+        "reason": "Mihomo VMess listener has no HTTP header/legacy H2 or custom ED field; official V2Ray supplements only these paths",
+        "source": "https://github.com/MetaCubeX/mihomo/blob/v1.19.31/listener/inbound/vmess.go"
+      },
+      "expected_observation": [
+        "runtime::public_ipv6_and_gates"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-HTTP-PLAIN-NEG",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "H01",
+        "H02",
+        "H03",
+        "H04",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05"
+      ],
+      "protocol": "vmess",
+      "network": "http",
+      "security": "plain",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "http",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "V2",
+      "peer_config": {
+        "mode": "http",
+        "tls": false,
+        "test": "public_negative"
+      },
+      "gap_source": {
+        "reason": "Mihomo VMess listener has no HTTP header/legacy H2 or custom ED field; official V2Ray supplements only these paths",
+        "source": "https://github.com/MetaCubeX/mihomo/blob/v1.19.31/listener/inbound/vmess.go"
+      },
+      "expected_observation": [
+        "public_negative"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-HTTP-TLS-BASE",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "H01",
+        "H02",
+        "H03",
+        "H04",
+        "T02",
+        "T03",
+        "T05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05",
+        "VM06"
+      ],
+      "protocol": "vmess",
+      "network": "http",
+      "security": "tls",
+      "udp_codec": "raw/xudp/packetaddr",
+      "field_values": {
+        "network": "http",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "V2",
+      "peer_config": {
+        "mode": "http",
+        "tls": true,
+        "test": "public_base"
+      },
+      "gap_source": {
+        "reason": "Mihomo VMess listener has no HTTP header/legacy H2 or custom ED field; official V2Ray supplements only these paths",
+        "source": "https://github.com/MetaCubeX/mihomo/blob/v1.19.31/listener/inbound/vmess.go"
+      },
+      "expected_observation": [
+        "public_base"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-HTTP-TLS-ENTRYPOINTS",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "H01",
+        "H02",
+        "H03",
+        "H04",
+        "T02",
+        "T03",
+        "T05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05"
+      ],
+      "protocol": "vmess",
+      "network": "http",
+      "security": "tls",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "http",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "V2",
+      "peer_config": {
+        "mode": "http",
+        "tls": true,
+        "test": "runtime::public_entrypoints"
+      },
+      "gap_source": {
+        "reason": "Mihomo VMess listener has no HTTP header/legacy H2 or custom ED field; official V2Ray supplements only these paths",
+        "source": "https://github.com/MetaCubeX/mihomo/blob/v1.19.31/listener/inbound/vmess.go"
+      },
+      "expected_observation": [
+        "runtime::public_entrypoints"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-HTTP-TLS-GRAPH",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C06",
+        "H01",
+        "H02",
+        "H03",
+        "H04",
+        "T02",
+        "T03",
+        "T05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05"
+      ],
+      "protocol": "vmess",
+      "network": "http",
+      "security": "tls",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "http",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "V2",
+      "peer_config": {
+        "mode": "http",
+        "tls": true,
+        "test": "runtime::public_graph"
+      },
+      "gap_source": {
+        "reason": "Mihomo VMess listener has no HTTP header/legacy H2 or custom ED field; official V2Ray supplements only these paths",
+        "source": "https://github.com/MetaCubeX/mihomo/blob/v1.19.31/listener/inbound/vmess.go"
+      },
+      "expected_observation": [
+        "runtime::public_graph"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-HTTP-TLS-IPV6",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "H01",
+        "H02",
+        "H03",
+        "H04",
+        "T02",
+        "T03",
+        "T05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05",
+        "VM06"
+      ],
+      "protocol": "vmess",
+      "network": "http",
+      "security": "tls",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "http",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "V2",
+      "peer_config": {
+        "mode": "http",
+        "tls": true,
+        "test": "runtime::public_ipv6_and_gates"
+      },
+      "gap_source": {
+        "reason": "Mihomo VMess listener has no HTTP header/legacy H2 or custom ED field; official V2Ray supplements only these paths",
+        "source": "https://github.com/MetaCubeX/mihomo/blob/v1.19.31/listener/inbound/vmess.go"
+      },
+      "expected_observation": [
+        "runtime::public_ipv6_and_gates"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-HTTP-TLS-NEG",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "H01",
+        "H02",
+        "H03",
+        "H04",
+        "T02",
+        "T03",
+        "T04",
+        "T05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05"
+      ],
+      "protocol": "vmess",
+      "network": "http",
+      "security": "tls",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "http",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "V2",
+      "peer_config": {
+        "mode": "http",
+        "tls": true,
+        "test": "public_negative"
+      },
+      "gap_source": {
+        "reason": "Mihomo VMess listener has no HTTP header/legacy H2 or custom ED field; official V2Ray supplements only these paths",
+        "source": "https://github.com/MetaCubeX/mihomo/blob/v1.19.31/listener/inbound/vmess.go"
+      },
+      "expected_observation": [
+        "public_negative"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-TCP-LIFE",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "T02",
+        "T03",
+        "T05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05"
+      ],
+      "protocol": "vmess",
+      "network": "tcp",
+      "security": "tls",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "tcp",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "tcp",
+        "tls": true,
+        "test": "runtime::public_lifecycle"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "runtime::public_lifecycle"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-TCP-OWNED",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "T02",
+        "T03",
+        "T05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05"
+      ],
+      "protocol": "vmess",
+      "network": "tcp",
+      "security": "tls",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "tcp",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "tcp",
+        "tls": true,
+        "test": "runtime::owned_resources"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "runtime::owned_resources"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-TCP-PLAIN-BASE",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05",
+        "VM06"
+      ],
+      "protocol": "vmess",
+      "network": "tcp",
+      "security": "plain",
+      "udp_codec": "raw/xudp/packetaddr",
+      "field_values": {
+        "network": "tcp",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "tcp",
+        "tls": false,
+        "test": "public_base"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "public_base"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-TCP-PLAIN-ENTRYPOINTS",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05"
+      ],
+      "protocol": "vmess",
+      "network": "tcp",
+      "security": "plain",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "tcp",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "tcp",
+        "tls": false,
+        "test": "runtime::public_entrypoints"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "runtime::public_entrypoints"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-TCP-PLAIN-GRAPH",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C06",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05"
+      ],
+      "protocol": "vmess",
+      "network": "tcp",
+      "security": "plain",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "tcp",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "tcp",
+        "tls": false,
+        "test": "runtime::public_graph"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "runtime::public_graph"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-TCP-PLAIN-IPV6",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05",
+        "VM06"
+      ],
+      "protocol": "vmess",
+      "network": "tcp",
+      "security": "plain",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "tcp",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "tcp",
+        "tls": false,
+        "test": "runtime::public_ipv6_and_gates"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "runtime::public_ipv6_and_gates"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-TCP-PLAIN-NEG",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05"
+      ],
+      "protocol": "vmess",
+      "network": "tcp",
+      "security": "plain",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "tcp",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "tcp",
+        "tls": false,
+        "test": "public_negative"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "public_negative"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-TCP-TLS-BASE",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "T02",
+        "T03",
+        "T05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05",
+        "VM06"
+      ],
+      "protocol": "vmess",
+      "network": "tcp",
+      "security": "tls",
+      "udp_codec": "raw/xudp/packetaddr",
+      "field_values": {
+        "network": "tcp",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "tcp",
+        "tls": true,
+        "test": "public_base"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "public_base"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-TCP-TLS-ENTRYPOINTS",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "T02",
+        "T03",
+        "T05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05"
+      ],
+      "protocol": "vmess",
+      "network": "tcp",
+      "security": "tls",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "tcp",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "tcp",
+        "tls": true,
+        "test": "runtime::public_entrypoints"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "runtime::public_entrypoints"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-TCP-TLS-GRAPH",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C06",
+        "T02",
+        "T03",
+        "T05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05"
+      ],
+      "protocol": "vmess",
+      "network": "tcp",
+      "security": "tls",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "tcp",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "tcp",
+        "tls": true,
+        "test": "runtime::public_graph"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "runtime::public_graph"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-TCP-TLS-IPV6",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "T02",
+        "T03",
+        "T05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05",
+        "VM06"
+      ],
+      "protocol": "vmess",
+      "network": "tcp",
+      "security": "tls",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "tcp",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "tcp",
+        "tls": true,
+        "test": "runtime::public_ipv6_and_gates"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "runtime::public_ipv6_and_gates"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-TCP-TLS-NEG",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "T02",
+        "T03",
+        "T04",
+        "T05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05"
+      ],
+      "protocol": "vmess",
+      "network": "tcp",
+      "security": "tls",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "tcp",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "tcp",
+        "tls": true,
+        "test": "public_negative"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "public_negative"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-TCP-UDP-ISOLATION",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "T02",
+        "T03",
+        "T05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05",
+        "VM06"
+      ],
+      "protocol": "vmess",
+      "network": "tcp",
+      "security": "tls",
+      "udp_codec": "raw/xudp/packetaddr",
+      "field_values": {
+        "network": "tcp",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "tcp",
+        "tls": true,
+        "test": "runtime::public_udp_isolation"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "runtime::public_udp_isolation"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-UDP-FIRST",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05",
+        "VM06"
+      ],
+      "protocol": "vmess",
+      "network": "tcp",
+      "security": "plain",
+      "udp_codec": "raw/xudp/packetaddr",
+      "field_values": {
+        "network": "tcp",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "tcp",
+        "tls": false,
+        "test": "public_udp_first_response"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "public_udp_first_response"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-WS-ALPN",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "T02",
+        "T03",
+        "T05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05",
+        "W01",
+        "W02",
+        "W03",
+        "W04",
+        "W05"
+      ],
+      "protocol": "vmess",
+      "network": "ws-alpn",
+      "security": "tls",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "ws-alpn",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "ws-alpn",
+        "tls": true,
+        "test": "public_alpn_rejection"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "public_alpn_rejection"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-WS-ED-1",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "T02",
+        "T03",
+        "T05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05",
+        "VM06",
+        "W01",
+        "W02",
+        "W03",
+        "W04",
+        "W05"
+      ],
+      "protocol": "vmess",
+      "network": "ws-ed-1",
+      "security": "tls",
+      "udp_codec": "raw/xudp/packetaddr",
+      "field_values": {
+        "network": "ws-ed-1",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "ws-ed-1",
+        "tls": true,
+        "test": "public_base"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "public_base"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-WS-ED-2048",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "T02",
+        "T03",
+        "T05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05",
+        "VM06",
+        "W01",
+        "W02",
+        "W03",
+        "W04",
+        "W05"
+      ],
+      "protocol": "vmess",
+      "network": "ws-ed-2048",
+      "security": "tls",
+      "udp_codec": "raw/xudp/packetaddr",
+      "field_values": {
+        "network": "ws-ed-2048",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "ws-ed-2048",
+        "tls": true,
+        "test": "public_base"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "public_base"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-WS-HEADER",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "T02",
+        "T03",
+        "T05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05",
+        "VM06",
+        "W01",
+        "W02",
+        "W03",
+        "W04",
+        "W05"
+      ],
+      "protocol": "vmess",
+      "network": "ws-header",
+      "security": "tls",
+      "udp_codec": "raw/xudp/packetaddr",
+      "field_values": {
+        "network": "ws-header",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "V2",
+      "peer_config": {
+        "mode": "ws-header",
+        "tls": true,
+        "test": "public_base"
+      },
+      "gap_source": {
+        "reason": "Mihomo VMess listener has no HTTP header/legacy H2 or custom ED field; official V2Ray supplements only these paths",
+        "source": "https://github.com/MetaCubeX/mihomo/blob/v1.19.31/listener/inbound/vmess.go"
+      },
+      "expected_observation": [
+        "public_base"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-WS-PATH",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "T02",
+        "T03",
+        "T05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05",
+        "VM06",
+        "W01",
+        "W02",
+        "W03",
+        "W04",
+        "W05"
+      ],
+      "protocol": "vmess",
+      "network": "ws-path",
+      "security": "tls",
+      "udp_codec": "raw/xudp/packetaddr",
+      "field_values": {
+        "network": "ws-path",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "V2",
+      "peer_config": {
+        "mode": "ws-path",
+        "tls": true,
+        "test": "public_base"
+      },
+      "gap_source": {
+        "reason": "Mihomo VMess listener has no HTTP header/legacy H2 or custom ED field; official V2Ray supplements only these paths",
+        "source": "https://github.com/MetaCubeX/mihomo/blob/v1.19.31/listener/inbound/vmess.go"
+      },
+      "expected_observation": [
+        "public_base"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-WS-PLAIN-BASE",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05",
+        "VM06",
+        "W01",
+        "W02",
+        "W03"
+      ],
+      "protocol": "vmess",
+      "network": "ws",
+      "security": "plain",
+      "udp_codec": "raw/xudp/packetaddr",
+      "field_values": {
+        "network": "ws",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "ws",
+        "tls": false,
+        "test": "public_base"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "public_base"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-WS-PLAIN-ENTRYPOINTS",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05",
+        "W01",
+        "W02",
+        "W03"
+      ],
+      "protocol": "vmess",
+      "network": "ws",
+      "security": "plain",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "ws",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "ws",
+        "tls": false,
+        "test": "runtime::public_entrypoints"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "runtime::public_entrypoints"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-WS-PLAIN-GRAPH",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C06",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05",
+        "W01",
+        "W02",
+        "W03"
+      ],
+      "protocol": "vmess",
+      "network": "ws",
+      "security": "plain",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "ws",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "ws",
+        "tls": false,
+        "test": "runtime::public_graph"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "runtime::public_graph"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-WS-PLAIN-IPV6",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05",
+        "VM06",
+        "W01",
+        "W02",
+        "W03"
+      ],
+      "protocol": "vmess",
+      "network": "ws",
+      "security": "plain",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "ws",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "ws",
+        "tls": false,
+        "test": "runtime::public_ipv6_and_gates"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "runtime::public_ipv6_and_gates"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-WS-PLAIN-NEG",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05",
+        "W01",
+        "W02",
+        "W03"
+      ],
+      "protocol": "vmess",
+      "network": "ws",
+      "security": "plain",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "ws",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "ws",
+        "tls": false,
+        "test": "public_negative"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "public_negative"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-WS-TLS-BASE",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "T02",
+        "T03",
+        "T05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05",
+        "VM06",
+        "W01",
+        "W02",
+        "W03"
+      ],
+      "protocol": "vmess",
+      "network": "ws",
+      "security": "tls",
+      "udp_codec": "raw/xudp/packetaddr",
+      "field_values": {
+        "network": "ws",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "ws",
+        "tls": true,
+        "test": "public_base"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "public_base"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-WS-TLS-ENTRYPOINTS",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "T02",
+        "T03",
+        "T05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05",
+        "W01",
+        "W02",
+        "W03"
+      ],
+      "protocol": "vmess",
+      "network": "ws",
+      "security": "tls",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "ws",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "ws",
+        "tls": true,
+        "test": "runtime::public_entrypoints"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "runtime::public_entrypoints"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-WS-TLS-GRAPH",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C06",
+        "T02",
+        "T03",
+        "T05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05",
+        "W01",
+        "W02",
+        "W03"
+      ],
+      "protocol": "vmess",
+      "network": "ws",
+      "security": "tls",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "ws",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "ws",
+        "tls": true,
+        "test": "runtime::public_graph"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "runtime::public_graph"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-WS-TLS-IPV6",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "T02",
+        "T03",
+        "T05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05",
+        "VM06",
+        "W01",
+        "W02",
+        "W03"
+      ],
+      "protocol": "vmess",
+      "network": "ws",
+      "security": "tls",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "ws",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "ws",
+        "tls": true,
+        "test": "runtime::public_ipv6_and_gates"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "runtime::public_ipv6_and_gates"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-WS-TLS-NEG",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "T02",
+        "T03",
+        "T04",
+        "T05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05",
+        "W01",
+        "W02",
+        "W03"
+      ],
+      "protocol": "vmess",
+      "network": "ws",
+      "security": "tls",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "ws",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "ws",
+        "tls": true,
+        "test": "public_negative"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "public_negative"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-PUBLIC-WS-UDP-ISOLATION",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "T02",
+        "T03",
+        "T05",
+        "VM01",
+        "VM02",
+        "VM04",
+        "VM05",
+        "VM06",
+        "W01",
+        "W02",
+        "W03"
+      ],
+      "protocol": "vmess",
+      "network": "ws",
+      "security": "tls",
+      "udp_codec": "raw/xudp/packetaddr",
+      "field_values": {
+        "network": "ws",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "ws",
+        "tls": true,
+        "test": "runtime::public_udp_isolation"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "runtime::public_udp_isolation"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-QUALITY",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [],
+      "protocol": "vmess",
+      "network": "memory-or-build",
+      "security": "plain",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "memory-or-build",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "memory-only",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "unit",
+      "peer_config": {
+        "mode": "memory-or-build",
+        "tls": false,
+        "test": "N3-QUALITY"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N3-QUALITY"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup"
+      ],
+      "prerequisites": [
+        "rust-toolchain"
+      ],
+      "runner": "vmess-gate",
+      "timeout_seconds": 1200
+    },
+    {
+      "case_id": "N3-REGRESSION",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [],
+      "protocol": "vmess",
+      "network": "memory-or-build",
+      "security": "plain",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "memory-or-build",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "memory-only",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "unit",
+      "peer_config": {
+        "mode": "memory-or-build",
+        "tls": false,
+        "test": "N3-REGRESSION"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "shared_xudp_receives_frames_without_a_vless_response_header",
+        "first_frame_matches_xray_mux_wire_format",
+        "followup_frame_carries_each_datagrams_destination",
+        "destination_codec_round_trips_all_address_families",
+        "normal_and_error_end_frames_are_distinguishable",
+        "oversized_response_is_rejected_before_payload_read",
+        "fragmented_receive_survives_cancellation_and_resumes",
+        "keepalive_data_is_consumed_without_becoming_an_udp_response",
+        "full_wire_payload_remains_available_to_proxy_inbounds",
+        "request_matches_the_official_sha224_and_socks_address_wire_format",
+        "authentication_and_requests_are_strict_and_never_debug_credentials",
+        "invalid_truncated_and_oversized_frames_fail_closed_without_payload_leaks",
+        "datagram_limits_preserve_messages_and_drain_over_budget_responses",
+        "datagram_sends_one_frame_and_receives_fragmented_consecutive_frames",
+        "cancelled_receive_preserves_partial_frames_and_does_not_block_send",
+        "cancelled_partial_send_poison_closes_without_replaying_or_waiting",
+        "trojan_tcp_configuration_and_node_graph_accept_the_approved_fields",
+        "trojan_tcp_defaults_preserve_credentials_and_address_policy",
+        "trojan_invalid_configuration_is_rejected_without_exposing_credentials",
+        "trojan_ws_and_grpc_configuration_applies_transport_specific_defaults",
+        "trojan_transport_boundaries_fail_before_runtime_io",
+        "transport_options_reject_ambiguous_headers_before_io",
+        "http_first_header_preserves_prefix_raw_continuation_and_half_close_tail",
+        "legacy_h2_keeps_unframed_bytes_server_first_and_owned_whole_close",
+        "websocket_rejects_invalid_upgrade_responses_and_bounded_header_overflows",
+        "websocket_early_data_and_remaining_frames_keep_the_original_byte_order",
+        "setup_deadline_releases_supplied_io_in_stream_adapters",
+        "cancelled_setup_releases_supplied_io_without_a_detached_task",
+        "ws_rejects_oversized_and_truncated_frames_instead_of_reporting_eof",
+        "ws_accepts_mihomo_clean_underlay_eof_only_at_complete_message_boundaries",
+        "dropping_an_established_ws_releases_its_only_io_owner",
+        "grpc_rejects_oversized_truncated_and_invalid_records",
+        "grpc_large_writes_obey_small_http2_windows_and_keep_byte_integrity",
+        "ws_partial_writes_empty_frames_ping_and_half_close_preserve_every_byte",
+        "grpc_handles_response_after_upload_fragmented_records_and_owned_stop",
+        "websocket_supplied_io_preserves_server_first_and_partial_writes",
+        "xhttp_keeps_complete_response_when_peer_resets_after_end_stream",
+        "xhttp_does_not_hide_reset_before_end_stream",
+        "feature_skeletons_do_not_open_unimplemented_yaml_or_measurement_protocols",
+        "future_fields_and_over_limit_documents_remain_rejected",
+        "registry_matches_live_production_constants_and_has_owned_boundary_cases",
+        "webpki_rejects_untrusted_wrong_name_and_expired_unless_explicitly_skipped",
+        "leaf_pin_is_trust_but_nonleaf_pin_checks_chain_name_and_expiry",
+        "ticket_storage_obeys_exact_node_budget_and_consumes_each_ticket_once",
+        "every_certificate_policy_verifies_tls12_and_tls13_handshake_signatures",
+        "vless_keeps_webpki_tls13_and_required_h2_after_anytls_connections",
+        "alpn_and_tls_resumption_are_isolated_between_node_policies",
+        "explicit_verification_name_does_not_change_sni_or_allow_skip_to_override_it",
+        "mutual_tls_identity_is_required_verified_and_not_shared_between_clients",
+        "tls_options_reject_invalid_alpn_identity_and_budget_before_using_a_stream",
+        "certificate_rejection_delivers_no_business_bytes_and_diagnostics_are_redacted",
+        "tls_close_write_sends_notify_without_closing_the_supplied_transport",
+        "tls_close_notify_flush_has_a_five_second_bound",
+        "cancelling_tls_handshake_releases_the_caller_supplied_stream"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup"
+      ],
+      "prerequisites": [
+        "rust-toolchain"
+      ],
+      "runner": "vmess-gate",
+      "timeout_seconds": 1200
+    },
+    {
+      "case_id": "N3-REGRESSION-TROJAN-GRPC",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [],
+      "protocol": "vmess",
+      "network": "trojan-grpc",
+      "security": "tls",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "trojan-grpc",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "trojan-grpc",
+        "tls": true,
+        "test": "public_legacy_regression"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "public_legacy_regression"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-REGRESSION-TROJAN-TCP",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [],
+      "protocol": "vmess",
+      "network": "trojan-tcp",
+      "security": "tls",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "trojan-tcp",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "trojan-tcp",
+        "tls": true,
+        "test": "public_legacy_regression"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "public_legacy_regression"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-REGRESSION-TROJAN-WS",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [],
+      "protocol": "vmess",
+      "network": "trojan-ws",
+      "security": "tls",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "trojan-ws",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "mode": "trojan-ws",
+        "tls": true,
+        "test": "public_legacy_regression"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "public_legacy_regression"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-RELEASE",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [],
+      "protocol": "vmess",
+      "network": "memory-or-build",
+      "security": "plain",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "memory-or-build",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "memory-only",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "unit",
+      "peer_config": {
+        "mode": "memory-or-build",
+        "tls": false,
+        "test": "N3-RELEASE"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "vmess_default_node_and_explicit_cipher_aliases_are_accepted_without_io",
+        "vmess_transport_and_security_combinations_are_strict",
+        "vmess_field_boundaries_and_normalized_transport_values",
+        "vmess_normalized_websocket_fields_preserve_headers_and_early_data_order",
+        "xudp_cancelled_send_and_bad_frame_release_io_and_cannot_resume",
+        "xudp_zero_global_id_omits_the_optional_extension_like_mihomo",
+        "packetaddr_has_ip_only_address_first_wire_and_rejects_truncation",
+        "vmess_aead_requests_are_fresh_bounded_and_redacted",
+        "vmess_response_authentication_cannot_be_skipped_by_none_cipher",
+        "vmess_whole_close_wakes_reader_and_releases_io_before_response",
+        "xudp_explicit_budget_rejects_max_plus_one_before_writing",
+        "independently_published_nested_hmac_vectors",
+        "chunks_preserve_boundaries_masks_padding_and_authenticated_eof",
+        "tags_lengths_and_nonce_exhaustion_fail_closed",
+        "auto_uses_detected_hardware_not_architecture_name",
+        "vmess_all_handshakes_keep_the_original_deadline_and_join_cancelled_io",
+        "vmess_expired_deadline_and_protect_failure_never_fall_back"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup"
+      ],
+      "prerequisites": [
+        "rust-toolchain"
+      ],
+      "runner": "vmess-gate",
+      "timeout_seconds": 1200
+    },
+    {
+      "case_id": "N3-SCRIPTS",
+      "stage": "N3",
+      "substage": "N3.5",
+      "required": true,
+      "row_ids": [],
+      "protocol": "vmess",
+      "network": "memory-or-build",
+      "security": "plain",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "memory-or-build",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "memory-only",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "unit",
+      "peer_config": {
+        "mode": "memory-or-build",
+        "tls": false,
+        "test": "N3-SCRIPTS"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "offline-success",
+        "missing-duplicate-unknown-case",
+        "download-failure",
+        "timeout",
+        "sigint",
+        "partial-start",
+        "permission",
+        "peer-exit",
+        "cleanup-failure",
+        "redaction"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup"
+      ],
+      "prerequisites": [
+        "rust-toolchain"
+      ],
+      "runner": "vmess-gate",
+      "timeout_seconds": 1200
+    },
+    {
+      "case_id": "N3-V2-H2-PLAIN",
+      "stage": "N3",
+      "substage": "N3.2",
+      "required": true,
+      "row_ids": [
+        "VM03",
+        "VM04",
+        "VM05",
+        "VM07",
+        "VM08"
+      ],
+      "protocol": "vmess",
+      "network": "h2",
+      "security": "plain",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "h2",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "V2",
+      "peer_config": {
+        "mode": "h2",
+        "tls": false,
+        "test": "native_cipher_matrix"
+      },
+      "gap_source": {
+        "reason": "Mihomo VMess listener has no HTTP header/legacy H2 or custom ED field; official V2Ray supplements only these paths",
+        "source": "https://github.com/MetaCubeX/mihomo/blob/v1.19.31/listener/inbound/vmess.go"
+      },
+      "expected_observation": [
+        "native_cipher_matrix"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-V2-H2-PLAIN-CLOSE",
+      "stage": "N3",
+      "substage": "N3.4",
+      "required": true,
+      "row_ids": [
+        "VM04",
+        "VM05"
+      ],
+      "protocol": "vmess",
+      "network": "h2",
+      "security": "plain",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "h2",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "V2",
+      "peer_config": {
+        "mode": "h2",
+        "tls": false,
+        "test": "native_mihomo_close_alignment"
+      },
+      "gap_source": {
+        "reason": "Mihomo VMess listener has no HTTP header/legacy H2 or custom ED field; official V2Ray supplements only these paths",
+        "source": "https://github.com/MetaCubeX/mihomo/blob/v1.19.31/listener/inbound/vmess.go"
+      },
+      "expected_observation": [
+        "native_mihomo_close_alignment"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-V2-H2-PLAIN-ENCODED-UDP",
+      "stage": "N3",
+      "substage": "N3.3",
+      "required": true,
+      "row_ids": [
+        "VM04",
+        "VM05",
+        "VM06"
+      ],
+      "protocol": "vmess",
+      "network": "h2",
+      "security": "plain",
+      "udp_codec": "raw/xudp/packetaddr",
+      "field_values": {
+        "network": "h2",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "V2",
+      "peer_config": {
+        "mode": "h2",
+        "tls": false,
+        "test": "native_encoded_udp_boundaries"
+      },
+      "gap_source": {
+        "reason": "Mihomo VMess listener has no HTTP header/legacy H2 or custom ED field; official V2Ray supplements only these paths",
+        "source": "https://github.com/MetaCubeX/mihomo/blob/v1.19.31/listener/inbound/vmess.go"
+      },
+      "expected_observation": [
+        "native_encoded_udp_boundaries"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-V2-H2-PLAIN-RAW-UDP",
+      "stage": "N3",
+      "substage": "N3.3",
+      "required": true,
+      "row_ids": [
+        "VM04",
+        "VM05",
+        "VM06"
+      ],
+      "protocol": "vmess",
+      "network": "h2",
+      "security": "plain",
+      "udp_codec": "raw/xudp/packetaddr",
+      "field_values": {
+        "network": "h2",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "V2",
+      "peer_config": {
+        "mode": "h2",
+        "tls": false,
+        "test": "native_raw_udp_boundaries"
+      },
+      "gap_source": {
+        "reason": "Mihomo VMess listener has no HTTP header/legacy H2 or custom ED field; official V2Ray supplements only these paths",
+        "source": "https://github.com/MetaCubeX/mihomo/blob/v1.19.31/listener/inbound/vmess.go"
+      },
+      "expected_observation": [
+        "native_raw_udp_boundaries"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-V2-H2-TLS",
+      "stage": "N3",
+      "substage": "N3.2",
+      "required": true,
+      "row_ids": [
+        "VM03",
+        "VM04",
+        "VM05",
+        "VM07",
+        "VM08"
+      ],
+      "protocol": "vmess",
+      "network": "h2",
+      "security": "tls",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "h2",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "V2",
+      "peer_config": {
+        "mode": "h2",
+        "tls": true,
+        "test": "native_cipher_matrix"
+      },
+      "gap_source": {
+        "reason": "Mihomo VMess listener has no HTTP header/legacy H2 or custom ED field; official V2Ray supplements only these paths",
+        "source": "https://github.com/MetaCubeX/mihomo/blob/v1.19.31/listener/inbound/vmess.go"
+      },
+      "expected_observation": [
+        "native_cipher_matrix"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-V2-H2-TLS-CLOSE",
+      "stage": "N3",
+      "substage": "N3.4",
+      "required": true,
+      "row_ids": [
+        "VM04",
+        "VM05"
+      ],
+      "protocol": "vmess",
+      "network": "h2",
+      "security": "tls",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "h2",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "V2",
+      "peer_config": {
+        "mode": "h2",
+        "tls": true,
+        "test": "native_mihomo_close_alignment"
+      },
+      "gap_source": {
+        "reason": "Mihomo VMess listener has no HTTP header/legacy H2 or custom ED field; official V2Ray supplements only these paths",
+        "source": "https://github.com/MetaCubeX/mihomo/blob/v1.19.31/listener/inbound/vmess.go"
+      },
+      "expected_observation": [
+        "native_mihomo_close_alignment"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-V2-H2-TLS-ENCODED-UDP",
+      "stage": "N3",
+      "substage": "N3.3",
+      "required": true,
+      "row_ids": [
+        "VM04",
+        "VM05",
+        "VM06"
+      ],
+      "protocol": "vmess",
+      "network": "h2",
+      "security": "tls",
+      "udp_codec": "raw/xudp/packetaddr",
+      "field_values": {
+        "network": "h2",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "V2",
+      "peer_config": {
+        "mode": "h2",
+        "tls": true,
+        "test": "native_encoded_udp_boundaries"
+      },
+      "gap_source": {
+        "reason": "Mihomo VMess listener has no HTTP header/legacy H2 or custom ED field; official V2Ray supplements only these paths",
+        "source": "https://github.com/MetaCubeX/mihomo/blob/v1.19.31/listener/inbound/vmess.go"
+      },
+      "expected_observation": [
+        "native_encoded_udp_boundaries"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-V2-H2-TLS-RAW-UDP",
+      "stage": "N3",
+      "substage": "N3.3",
+      "required": true,
+      "row_ids": [
+        "VM04",
+        "VM05",
+        "VM06"
+      ],
+      "protocol": "vmess",
+      "network": "h2",
+      "security": "tls",
+      "udp_codec": "raw/xudp/packetaddr",
+      "field_values": {
+        "network": "h2",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "V2",
+      "peer_config": {
+        "mode": "h2",
+        "tls": true,
+        "test": "native_raw_udp_boundaries"
+      },
+      "gap_source": {
+        "reason": "Mihomo VMess listener has no HTTP header/legacy H2 or custom ED field; official V2Ray supplements only these paths",
+        "source": "https://github.com/MetaCubeX/mihomo/blob/v1.19.31/listener/inbound/vmess.go"
+      },
+      "expected_observation": [
+        "native_raw_udp_boundaries"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-V2-HTTP-PLAIN",
+      "stage": "N3",
+      "substage": "N3.2",
+      "required": true,
+      "row_ids": [
+        "VM03",
+        "VM04",
+        "VM05",
+        "VM07",
+        "VM08"
+      ],
+      "protocol": "vmess",
+      "network": "http",
+      "security": "plain",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "http",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "V2",
+      "peer_config": {
+        "mode": "http",
+        "tls": false,
+        "test": "native_cipher_matrix"
+      },
+      "gap_source": {
+        "reason": "Mihomo VMess listener has no HTTP header/legacy H2 or custom ED field; official V2Ray supplements only these paths",
+        "source": "https://github.com/MetaCubeX/mihomo/blob/v1.19.31/listener/inbound/vmess.go"
+      },
+      "expected_observation": [
+        "native_cipher_matrix"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-V2-HTTP-PLAIN-CLOSE",
+      "stage": "N3",
+      "substage": "N3.4",
+      "required": true,
+      "row_ids": [
+        "VM04",
+        "VM05"
+      ],
+      "protocol": "vmess",
+      "network": "http",
+      "security": "plain",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "http",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "V2",
+      "peer_config": {
+        "mode": "http",
+        "tls": false,
+        "test": "native_mihomo_close_alignment"
+      },
+      "gap_source": {
+        "reason": "Mihomo VMess listener has no HTTP header/legacy H2 or custom ED field; official V2Ray supplements only these paths",
+        "source": "https://github.com/MetaCubeX/mihomo/blob/v1.19.31/listener/inbound/vmess.go"
+      },
+      "expected_observation": [
+        "native_mihomo_close_alignment"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-V2-HTTP-PLAIN-ENCODED-UDP",
+      "stage": "N3",
+      "substage": "N3.3",
+      "required": true,
+      "row_ids": [
+        "VM04",
+        "VM05",
+        "VM06"
+      ],
+      "protocol": "vmess",
+      "network": "http",
+      "security": "plain",
+      "udp_codec": "raw/xudp/packetaddr",
+      "field_values": {
+        "network": "http",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "V2",
+      "peer_config": {
+        "mode": "http",
+        "tls": false,
+        "test": "native_encoded_udp_boundaries"
+      },
+      "gap_source": {
+        "reason": "Mihomo VMess listener has no HTTP header/legacy H2 or custom ED field; official V2Ray supplements only these paths",
+        "source": "https://github.com/MetaCubeX/mihomo/blob/v1.19.31/listener/inbound/vmess.go"
+      },
+      "expected_observation": [
+        "native_encoded_udp_boundaries"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-V2-HTTP-PLAIN-RAW-UDP",
+      "stage": "N3",
+      "substage": "N3.3",
+      "required": true,
+      "row_ids": [
+        "VM04",
+        "VM05",
+        "VM06"
+      ],
+      "protocol": "vmess",
+      "network": "http",
+      "security": "plain",
+      "udp_codec": "raw/xudp/packetaddr",
+      "field_values": {
+        "network": "http",
+        "tls": false,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "V2",
+      "peer_config": {
+        "mode": "http",
+        "tls": false,
+        "test": "native_raw_udp_boundaries"
+      },
+      "gap_source": {
+        "reason": "Mihomo VMess listener has no HTTP header/legacy H2 or custom ED field; official V2Ray supplements only these paths",
+        "source": "https://github.com/MetaCubeX/mihomo/blob/v1.19.31/listener/inbound/vmess.go"
+      },
+      "expected_observation": [
+        "native_raw_udp_boundaries"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-V2-HTTP-TLS",
+      "stage": "N3",
+      "substage": "N3.2",
+      "required": true,
+      "row_ids": [
+        "VM03",
+        "VM04",
+        "VM05",
+        "VM07",
+        "VM08"
+      ],
+      "protocol": "vmess",
+      "network": "http",
+      "security": "tls",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "http",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "V2",
+      "peer_config": {
+        "mode": "http",
+        "tls": true,
+        "test": "native_cipher_matrix"
+      },
+      "gap_source": {
+        "reason": "Mihomo VMess listener has no HTTP header/legacy H2 or custom ED field; official V2Ray supplements only these paths",
+        "source": "https://github.com/MetaCubeX/mihomo/blob/v1.19.31/listener/inbound/vmess.go"
+      },
+      "expected_observation": [
+        "native_cipher_matrix"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-V2-HTTP-TLS-CLOSE",
+      "stage": "N3",
+      "substage": "N3.4",
+      "required": true,
+      "row_ids": [
+        "VM04",
+        "VM05"
+      ],
+      "protocol": "vmess",
+      "network": "http",
+      "security": "tls",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "network": "http",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "per-assertion",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "V2",
+      "peer_config": {
+        "mode": "http",
+        "tls": true,
+        "test": "native_mihomo_close_alignment"
+      },
+      "gap_source": {
+        "reason": "Mihomo VMess listener has no HTTP header/legacy H2 or custom ED field; official V2Ray supplements only these paths",
+        "source": "https://github.com/MetaCubeX/mihomo/blob/v1.19.31/listener/inbound/vmess.go"
+      },
+      "expected_observation": [
+        "native_mihomo_close_alignment"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-V2-HTTP-TLS-ENCODED-UDP",
+      "stage": "N3",
+      "substage": "N3.3",
+      "required": true,
+      "row_ids": [
+        "VM04",
+        "VM05",
+        "VM06"
+      ],
+      "protocol": "vmess",
+      "network": "http",
+      "security": "tls",
+      "udp_codec": "raw/xudp/packetaddr",
+      "field_values": {
+        "network": "http",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "V2",
+      "peer_config": {
+        "mode": "http",
+        "tls": true,
+        "test": "native_encoded_udp_boundaries"
+      },
+      "gap_source": {
+        "reason": "Mihomo VMess listener has no HTTP header/legacy H2 or custom ED field; official V2Ray supplements only these paths",
+        "source": "https://github.com/MetaCubeX/mihomo/blob/v1.19.31/listener/inbound/vmess.go"
+      },
+      "expected_observation": [
+        "native_encoded_udp_boundaries"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
+    },
+    {
+      "case_id": "N3-V2-HTTP-TLS-RAW-UDP",
+      "stage": "N3",
+      "substage": "N3.3",
+      "required": true,
+      "row_ids": [
+        "VM04",
+        "VM05",
+        "VM06"
+      ],
+      "protocol": "vmess",
+      "network": "http",
+      "security": "tls",
+      "udp_codec": "raw/xudp/packetaddr",
+      "field_values": {
+        "network": "http",
+        "tls": true,
+        "scope": "protocol-consumer"
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "V2",
+      "peer_config": {
+        "mode": "http",
+        "tls": true,
+        "test": "native_raw_udp_boundaries"
+      },
+      "gap_source": {
+        "reason": "Mihomo VMess listener has no HTTP header/legacy H2 or custom ED field; official V2Ray supplements only these paths",
+        "source": "https://github.com/MetaCubeX/mihomo/blob/v1.19.31/listener/inbound/vmess.go"
+      },
+      "expected_observation": [
+        "native_raw_udp_boundaries"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-vmess",
+      "timeout_seconds": 240
     }
   ]
 }

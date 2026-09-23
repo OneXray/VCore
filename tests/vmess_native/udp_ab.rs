@@ -19,13 +19,13 @@ enum Client {
     },
 }
 
-struct ContainerOrigin {
+pub(super) struct ContainerOrigin {
     observer: tokio::net::TcpStream,
-    address: SocketAddr,
+    pub(super) address: SocketAddr,
 }
 
 impl ContainerOrigin {
-    async fn connect(fixture: &Value, family: &str) -> io::Result<Self> {
+    pub(super) async fn connect(fixture: &Value, family: &str) -> io::Result<Self> {
         let control = fixture["origin_control"]
             .as_str()
             .ok_or_else(|| io::Error::other("isolated origin required"))?;
@@ -48,7 +48,7 @@ impl ContainerOrigin {
         })
     }
 
-    async fn receive(&mut self) -> io::Result<(Vec<u8>, u16)> {
+    pub(super) async fn receive(&mut self) -> io::Result<(Vec<u8>, u16)> {
         let length = self.observer.read_u16().await? as usize;
         let source_port = self.observer.read_u16().await?;
         if length > 20000 {

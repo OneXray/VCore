@@ -23,6 +23,8 @@ mod shadowsocks;
 pub use shadowsocks::{ShadowsocksCipher, ShadowsocksOutboundConfig};
 mod trojan;
 pub use trojan::{TrojanOutboundConfig, TrojanTransport};
+mod vmess;
+pub use vmess::{VmessCipher, VmessOutboundConfig, VmessPacketEncoding, VmessTransport};
 
 #[cfg(feature = "ffi")]
 mod measure;
@@ -288,6 +290,7 @@ pub struct ProxyConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProxyProtocol {
+    Vmess(VmessOutboundConfig),
     Trojan(TrojanOutboundConfig),
     Vless(VlessOutboundConfig),
     Socks5(Socks5OutboundConfig),
@@ -299,6 +302,7 @@ impl ProxyConfig {
     #[must_use]
     pub fn address(&self) -> &str {
         match &self.protocol {
+            ProxyProtocol::Vmess(config) => &config.address,
             ProxyProtocol::Trojan(config) => &config.address,
             ProxyProtocol::Vless(config) => &config.address,
             ProxyProtocol::Socks5(config) => &config.address,
@@ -310,6 +314,7 @@ impl ProxyConfig {
     #[must_use]
     pub const fn port(&self) -> u16 {
         match &self.protocol {
+            ProxyProtocol::Vmess(config) => config.port,
             ProxyProtocol::Trojan(config) => config.port,
             ProxyProtocol::Vless(config) => config.port,
             ProxyProtocol::Socks5(config) => config.port,
@@ -672,6 +677,8 @@ where
 // protocol fields inline avoids extra heap allocations in the startup path.
 #[allow(clippy::large_enum_variant)]
 enum RawOutbound {
+    #[serde(rename = "vmess")]
+    Vmess(vmess::RawVmess),
     #[serde(rename = "trojan")]
     Trojan(trojan::RawTrojan),
     #[serde(rename = "ss")]
@@ -1545,6 +1552,7 @@ pub(crate) fn proxy_graph_order(
 impl RawOutbound {
     fn normalize(self) -> Result<PendingProxyConfig> {
         let (tag, dialer_proxy, udp, protocol) = match self {
+            Self::Vmess(raw) => raw.normalize()?,
             Self::Trojan(raw) => raw.normalize()?,
             Self::Shadowsocks {
                 name,

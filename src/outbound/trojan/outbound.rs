@@ -1,12 +1,8 @@
-use std::{
-    future::Future,
-    io,
-    pin::Pin,
-    task::{Context, Poll},
-};
+use std::io;
 
+use crate::outbound::owned_stream::OwnedStream;
 use async_trait::async_trait;
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
+use tokio::io::AsyncWriteExt;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 use crate::{
@@ -200,62 +196,5 @@ impl OutboundConnector for TrojanOutbound {
 impl Drop for TrojanOutbound {
     fn drop(&mut self) {
         self.cancellation.cancel();
-    }
-}
-
-struct OwnedStream {
-    stream: Option<BoxStream>,
-    cancellation: CancellationToken,
-    cancelled: Pin<Box<dyn Future<Output = ()> + Send>>,
-    _observation: observation::Guard,
-}
-
-impl OwnedStream {
-    fn new(stream: BoxStream, cancellation: CancellationToken) -> Self {
-        Self {
-            stream: Some(stream),
-            cancelled: Box::pin(cancellation.clone().cancelled_owned()),
-            cancellation,
-            _observation: observation::track(ResourceKind::Session),
-        }
-    }
-    fn open(&mut self, cx: &mut Context<'_>) -> io::Result<&mut BoxStream> {
-        if self.cancelled.as_mut().poll(cx).is_ready() {
-            self.stream.take();
-        }
-        self.stream.as_mut().ok_or_else(|| {
-            io::Error::new(io::ErrorKind::ConnectionAborted, "Trojan session stopped")
-        })
-    }
-}
-
-impl Drop for OwnedStream {
-    fn drop(&mut self) {
-        self.cancellation.cancel();
-    }
-}
-
-impl AsyncRead for OwnedStream {
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<()>> {
-        Pin::new(self.open(cx)?).poll_read(cx, buf)
-    }
-}
-impl AsyncWrite for OwnedStream {
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<io::Result<usize>> {
-        Pin::new(self.open(cx)?).poll_write(cx, buf)
-    }
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(self.open(cx)?).poll_flush(cx)
-    }
-    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(self.open(cx)?).poll_shutdown(cx)
     }
 }

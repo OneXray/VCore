@@ -23,9 +23,10 @@ const NETWORK_UDP: u8 = 2;
 pub const MAX_METADATA_LENGTH: usize = 512;
 
 pub struct XudpTransport {
-    stream: BoxStream,
+    stream: Option<BoxStream>,
     global_id: [u8; 8],
     max_response_payload_size: u16,
+    max_request_payload_size: u16,
     first_write: bool,
     last_remote: Option<Destination>,
     receive_buffer: BytesMut,
@@ -49,6 +50,19 @@ impl std::fmt::Debug for XudpTransport {
 impl XudpTransport {
     #[must_use]
     pub fn new(stream: BoxStream, global_id: [u8; 8], max_response_payload_size: u16) -> Self {
+        Self::with_budget(
+            stream,
+            global_id,
+            crate::dispatch::DatagramBudget::new(u16::MAX, max_response_payload_size),
+        )
+    }
+
+    pub fn with_budget(
+        stream: BoxStream,
+        global_id: [u8; 8],
+        budget: crate::dispatch::DatagramBudget,
+    ) -> Self {
+        let max_response_payload_size = budget.receive();
         // One maximum-size XUDP frame; the caller consumes its protocol header. The
         // checked construction keeps the bound explicit if any component is
         // widened in the future.
@@ -58,9 +72,10 @@ impl XudpTransport {
             .and_then(|size| size.checked_add(usize::from(max_response_payload_size)))
             .expect("XUDP receive-buffer ceiling fits usize");
         Self {
-            stream,
+            stream: Some(stream),
             global_id,
             max_response_payload_size,
+            max_request_payload_size: budget.transmit(),
             first_write: true,
             last_remote: None,
             receive_buffer: BytesMut::with_capacity(max_receive_buffer_size),
@@ -85,7 +100,12 @@ impl XudpTransport {
         while self.receive_buffer.len() < required {
             let missing = required - self.receive_buffer.len();
             let chunk = missing.min(scratch.len());
-            let read = self.stream.read(&mut scratch[..chunk]).await?;
+            let read = self
+                .stream
+                .as_mut()
+                .expect("open XUDP stream")
+                .read(&mut scratch[..chunk])
+                .await?;
             if read == 0 {
                 return Err(io::Error::new(
                     io::ErrorKind::UnexpectedEof,
@@ -232,7 +252,10 @@ impl XudpTransport {
 #[async_trait::async_trait]
 impl DatagramTransport for XudpTransport {
     fn payload_budget(&self, _peer: &Destination) -> crate::dispatch::DatagramBudget {
-        crate::dispatch::DatagramBudget::new(u16::MAX, self.max_response_payload_size)
+        crate::dispatch::DatagramBudget::new(
+            self.max_request_payload_size,
+            self.max_response_payload_size,
+        )
     }
 
     async fn send(&mut self, datagram: Datagram) -> Result<(), DispatchError> {
@@ -240,6 +263,9 @@ impl DatagramTransport for XudpTransport {
             return Err(DispatchError::Other(
                 "XUDP association is closed".to_owned(),
             ));
+        }
+        if datagram.payload.len() > usize::from(self.max_request_payload_size) {
+            return Err(io::Error::from(io::ErrorKind::InvalidInput).into());
         }
         let frame = encode_data_frame(
             &datagram,
@@ -251,11 +277,18 @@ impl DatagramTransport for XudpTransport {
             },
         )
         .map_err(DispatchError::from)?;
-        self.stream
+        // Own the stream across the non-cancellation-safe write. Dropping this
+        // future after a partial frame closes the wire rather than resuming at
+        // a new frame boundary on the next send.
+        self.closed = true;
+        let mut stream = self.stream.take().expect("open XUDP stream");
+        stream
             .write_all(&frame)
             .await
             .map_err(DispatchError::from)?;
-        self.stream.flush().await.map_err(DispatchError::from)?;
+        stream.flush().await.map_err(DispatchError::from)?;
+        self.stream = Some(stream);
+        self.closed = false;
         self.first_write = false;
         self.last_remote = Some(datagram.remote);
         Ok(())
@@ -267,19 +300,25 @@ impl DatagramTransport for XudpTransport {
                 "XUDP association is closed".to_owned(),
             ));
         }
-        self.read_frame().await.map_err(DispatchError::from)
+        let result = self.read_frame().await;
+        if result.is_err() {
+            self.closed = true;
+            self.stream.take();
+        }
+        result.map_err(DispatchError::from)
     }
 
     async fn close(&mut self) -> Result<(), DispatchError> {
         if self.closed {
             return Ok(());
         }
-        self.stream
+        self.closed = true;
+        let mut stream = self.stream.take().expect("open XUDP stream");
+        stream
             .write_all(&[0, 4, 0, 0, STATUS_END, 0])
             .await
             .map_err(DispatchError::from)?;
-        self.stream.shutdown().await.map_err(DispatchError::from)?;
-        self.closed = true;
+        stream.shutdown().await.map_err(DispatchError::from)?;
         Ok(())
     }
 }

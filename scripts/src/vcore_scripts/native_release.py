@@ -29,10 +29,14 @@ class PeerArtifact:
 
 
 def download_native(
-    kind: str, directory: Path, target: str | None = None
+    kind: str,
+    directory: Path,
+    target: str | None = None,
+    *,
+    defer_version: bool = False,
 ) -> PeerArtifact:
     try:
-        return _download_native(kind, directory, target)
+        return _download_native(kind, directory, target, defer_version)
     except (
         OSError,
         ValueError,
@@ -45,7 +49,9 @@ def download_native(
         ) from None
 
 
-def _download_native(kind: str, directory: Path, target: str | None) -> PeerArtifact:
+def _download_native(
+    kind: str, directory: Path, target: str | None, defer_version: bool
+) -> PeerArtifact:
     """Install only a named executable into this run's owned directory."""
     if target is None:
         architecture = {"aarch64": "arm64", "x86_64": "amd64"}.get(
@@ -110,12 +116,16 @@ def _download_native(kind: str, directory: Path, target: str | None) -> PeerArti
         else:
             binary_hash = _extract_zip(archive, executable, name)
         executable.chmod(0o755)
-        result = run_command([str(executable), "version"], timeout=10, limit=4096)
-        if result.returncode != 0 or not result.cleanup:
-            raise RuntimeError("official native peer version check failed")
-        version = result.stdout.decode("utf-8", errors="replace").strip()
-        if not version:
-            raise RuntimeError("invalid official native peer version output")
+        # Foreign executables are verified inside the owned VM before traffic;
+        # a deferred artifact is not yet a ready/verified peer.
+        version = None
+        if not defer_version:
+            result = run_command([str(executable), "version"], timeout=10, limit=4096)
+            if result.returncode != 0 or not result.cleanup:
+                raise RuntimeError("official native peer version check failed")
+            version = result.stdout.decode("utf-8", errors="replace").strip()
+            if not version:
+                raise RuntimeError("invalid official native peer version output")
         os.replace(executable, binary)
     return PeerArtifact(
         binary,

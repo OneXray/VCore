@@ -56,6 +56,10 @@ XUDP现在只拥有已认证流上的帧编码；VLESS响应头由VLESS包装层
 
 Trojan 原生 UDP 每关联仅持有一个流和最多 8455 字节待解析数据（不等于动态缓冲的分配容量），payload 上限 8192 字节并与调用方预算取交集。没有独立 UDP socket、后台读取泵、历史会话列表或连接池；gRPC 驱动由节点 TaskTracker 拥有并同步 join。取消部分发送使关联失效，取消读取保留部分帧；非法帧关闭，合法但超调用方预算的整包丢弃。详见 [Trojan](trojan.md)。
 
+## VMess 出站
+
+VMess AEAD 的 TCP 写分片最多 4 KiB，UDP 完整 body 最多 15,000 字节，wire 解析最多 16 KiB。packetaddr 从 body 中另扣 IPv4 7 / IPv6 19 字节地址开销；XUDP 独立元数据最多 512 字节，收发与调用方预算分别取交集。没有协议内 UDP socket 或连接池；gRPC/H2 driver 由节点跟踪并同步 join，半帧发送取消立即关闭 IO，增量读取保留状态。16 位加密帧计数耗尽前关闭，不能重复 nonce。完整语义见 [VMess](vmess.md)。
+
 ## HTTP 代理入站
 
 HTTP 代理入站不是 TUN 转发缓冲区的使用者：请求 / 响应各使用 8 KiB 预读与复制缓冲区，头部 32 KiB / 100 字段、chunk 行 1 KiB、trailer 8 KiB / 100 字段。正文不整体缓存，不设全局业务连接准入数；先绑定后启动，Stop 取消并等待所有入站连接任务。读头、正文空闲和临时响应数量边界见 [HTTP 代理入站](http-proxy.md)。

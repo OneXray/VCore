@@ -10,7 +10,12 @@
       "owner": "outbound::trojan::MAX_DATAGRAM_PAYLOAD",
       "saturation": "reject oversize send before write; invalid receive closes the stream; bounded caller-budget drops never truncate",
       "cancellation": "drop partial receive buffer and poison any partially written frame on cancelled send",
-      "boundary_cases": ["N2-CODEC", "N2-M-TCP-UDP-ISOLATION", "N2-M-WS-UDP-ISOLATION", "N2-M-GRPC-UDP-ISOLATION"]
+      "boundary_cases": [
+        "N2-CODEC",
+        "N2-M-TCP-UDP-ISOLATION",
+        "N2-M-WS-UDP-ISOLATION",
+        "N2-M-GRPC-UDP-ISOLATION"
+      ]
     },
     {
       "id": "config-bytes",
@@ -332,6 +337,42 @@
       "cancellation": "existing runtime-owned cancellation and Stop barrier",
       "boundary_cases": [
         "N1-REGRESSION"
+      ]
+    },
+    {
+      "id": "vmess-body-wire",
+      "value": 16384,
+      "unit": "bytes",
+      "owner": "outbound::vmess::MAX_BODY_WIRE",
+      "saturation": "reject malformed or oversized chunk before payload allocation",
+      "cancellation": "drop owned stream; never reuse nonce after a partial send",
+      "boundary_cases": [
+        "N3-CODEC",
+        "N3-RELEASE"
+      ]
+    },
+    {
+      "id": "vmess-write-chunk",
+      "value": 4096,
+      "unit": "bytes",
+      "owner": "outbound::vmess::WRITE_CHUNK",
+      "saturation": "bounded TCP segmentation with backpressure",
+      "cancellation": "cancel owned stream and join driver",
+      "boundary_cases": [
+        "N3-CODEC",
+        "N3-PUBLIC-TCP-PLAIN-BASE"
+      ]
+    },
+    {
+      "id": "vmess-datagram",
+      "value": 15000,
+      "unit": "bytes",
+      "owner": "outbound::vmess::MAX_PACKET_BYTES",
+      "saturation": "reject max+1 without partial delivery; intersect the caller budget",
+      "cancellation": "close association and release upstream IO",
+      "boundary_cases": [
+        "N3-CODEC",
+        "N3-PUBLIC-TCP-UDP-ISOLATION"
       ]
     }
   ]
