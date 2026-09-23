@@ -1,6 +1,8 @@
 //! Composable proxy connectors and the built-in DIRECT dispatcher.
 
 pub mod address;
+#[cfg(feature = "outbound-trojan")]
+pub mod trojan;
 
 #[cfg(feature = "outbound-anytls")]
 mod anytls;

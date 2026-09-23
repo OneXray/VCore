@@ -178,7 +178,7 @@ pub fn encode_address(destination: &Destination, output: &mut Vec<u8>) -> io::Re
     Ok(())
 }
 
-fn decode_address(packet: &[u8]) -> Result<(Destination, usize), Socks5CodecError> {
+pub(crate) fn decode_address(packet: &[u8]) -> Result<(Destination, usize), Socks5CodecError> {
     let address_type = *packet.first().ok_or(Socks5CodecError::Truncated)?;
     match address_type {
         ADDRESS_IPV4 => {

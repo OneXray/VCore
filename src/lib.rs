@@ -50,7 +50,8 @@ pub mod session;
 #[cfg(any(
     feature = "inbound-socks5",
     feature = "outbound-anytls",
-    feature = "outbound-socks5"
+    feature = "outbound-socks5",
+    feature = "outbound-trojan"
 ))]
 mod socks5;
 #[cfg(any(feature = "tun", test))]
