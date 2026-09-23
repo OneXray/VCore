@@ -44,6 +44,14 @@ Windows L3 接口及其 Session Host netstack 使用 1400 MTU，因此按 IPv6 U
 - 超时、取消、EOF 和协议错误负责回收；停止必须等待全部已跟踪任务结束。
 - 引导解析器最多使用四个工作线程；全部忙时在调用方既有期限内等待，不返回人为容量错误。
 
+## 共享流传输基础
+
+`stream-transport` 仅包装传入 IO，不创建 socket 或 DNS。WS/HTTP响应首部最多16 KiB、100字段；WS用户请求头最多100字段，额外固定升级头和early-data仍计入16 KiB总预算。WS early-data最多2,048原始字节，头名称/路径后缀由类型化选项区分。WS消息和单帧最多64 KiB，写入切块16 KiB；HTTP首包正文直接写入，不整体复制或持续按HTTP正文定界。
+
+共享gRPC/legacy H2每个实例仅拥有一条底层连接与一个逻辑流，不是连接池或全局并发许可。流窗口64 KiB、连接窗口128 KiB、最大HTTP/2帧和发送缓冲各16 KiB、解码负载64 KiB。读侧按实际消费量释放窗口；每poll最多处理32个片段/控制消息。gRPC和legacy H2的shutdown关闭整个逻辑连接，owner.stop等待驱动任务退出；Drop只做取消兜底，不作为同步停止通过证据。WS/HTTP按底层CloseWrite语义保留读方向。所有握手使用调用方同一个绝对deadline。
+
+XUDP现在只拥有已认证流上的帧编码；VLESS响应头由VLESS包装层处理。元数据仍最多512字节，单payload仍受调用方预算和u16 wire上限约束，不新增全局会话额度。
+
 ## HTTP 代理入站
 
 HTTP 代理入站不是 TUN 转发缓冲区的使用者：请求 / 响应各使用 8 KiB 预读与复制缓冲区，头部 32 KiB / 100 字段、chunk 行 1 KiB、trailer 8 KiB / 100 字段。正文不整体缓存，不设全局业务连接准入数；先绑定后启动，Stop 取消并等待所有入站连接任务。读头、正文空闲和临时响应数量边界见 [HTTP 代理入站](http-proxy.md)。

@@ -1,4 +1,4 @@
-//! Minimal XUDP framing for one UDP association over a VLESS mux command.
+//! XUDP frames over an authenticated mux stream; protocol response headers belong to the caller.
 
 use std::io;
 
@@ -7,6 +7,9 @@ use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
 use crate::{
     dispatch::{BoxStream, DatagramTransport, DispatchError},
+    outbound::address::{
+        decode_port_first as decode_destination, encode_port_first as encode_destination,
+    },
     session::{Datagram, Destination},
 };
 
@@ -24,7 +27,6 @@ pub struct XudpTransport {
     global_id: [u8; 8],
     max_response_payload_size: u16,
     first_write: bool,
-    response_pending: bool,
     last_remote: Option<Destination>,
     receive_buffer: BytesMut,
     max_receive_buffer_size: usize,
@@ -37,8 +39,6 @@ impl std::fmt::Debug for XudpTransport {
             .debug_struct("XudpTransport")
             .field("max_response_payload_size", &self.max_response_payload_size)
             .field("first_write", &self.first_write)
-            .field("response_pending", &self.response_pending)
-            .field("last_remote", &self.last_remote)
             .field("receive_buffered", &self.receive_buffer.len())
             .field("max_receive_buffer_size", &self.max_receive_buffer_size)
             .field("closed", &self.closed)
@@ -49,12 +49,11 @@ impl std::fmt::Debug for XudpTransport {
 impl XudpTransport {
     #[must_use]
     pub fn new(stream: BoxStream, global_id: [u8; 8], max_response_payload_size: u16) -> Self {
-        // One VLESS response header plus one maximum-size XUDP frame. The
+        // One maximum-size XUDP frame; the caller consumes its protocol header. The
         // checked construction keeps the bound explicit if any component is
         // widened in the future.
         let max_receive_buffer_size = 2_usize
-            .checked_add(2)
-            .and_then(|size| size.checked_add(MAX_METADATA_LENGTH))
+            .checked_add(MAX_METADATA_LENGTH)
             .and_then(|size| size.checked_add(2))
             .and_then(|size| size.checked_add(usize::from(max_response_payload_size)))
             .expect("XUDP receive-buffer ceiling fits usize");
@@ -63,7 +62,6 @@ impl XudpTransport {
             global_id,
             max_response_payload_size,
             first_write: true,
-            response_pending: true,
             last_remote: None,
             receive_buffer: BytesMut::with_capacity(max_receive_buffer_size),
             max_receive_buffer_size,
@@ -96,30 +94,6 @@ impl XudpTransport {
             }
             self.receive_buffer.extend_from_slice(&scratch[..read]);
         }
-        Ok(())
-    }
-
-    async fn read_vless_response(&mut self) -> io::Result<()> {
-        if !self.response_pending {
-            return Ok(());
-        }
-        self.fill_receive_buffer(2).await?;
-        let header = &self.receive_buffer[..2];
-        if header[0] != 0 {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "unexpected VLESS response version",
-            ));
-        }
-        if header[1] != 0 {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "VLESS response addons are unsupported when flow is empty",
-            ));
-        }
-        // This reader never reads beyond the requested parser boundary.
-        self.receive_buffer.clear();
-        self.response_pending = false;
         Ok(())
     }
 
@@ -289,9 +263,6 @@ impl DatagramTransport for XudpTransport {
                 "XUDP association is closed".to_owned(),
             ));
         }
-        self.read_vless_response()
-            .await
-            .map_err(DispatchError::from)?;
         self.read_frame().await.map_err(DispatchError::from)
     }
 
@@ -336,7 +307,7 @@ pub(crate) fn encode_data_frame(
     let mut output =
         BytesMut::with_capacity(2 + usize::from(metadata_length) + 2 + datagram.payload.len());
     output.put_u16(metadata_length);
-    output.put_u16(0); // session id; XUDP uses the VLESS mux session zero
+    output.put_u16(0); // one XUDP association uses mux session zero
     output.put_u8(if first { STATUS_NEW } else { STATUS_KEEP });
     output.put_u8(OPTION_DATA);
     output.put_u8(NETWORK_UDP);
@@ -349,103 +320,23 @@ pub(crate) fn encode_data_frame(
     Ok(output.freeze())
 }
 
-fn encode_destination(destination: &Destination, output: &mut BytesMut) -> io::Result<()> {
-    output.put_u16(destination.port());
-    match destination {
-        Destination::Ip(address) if address.is_ipv4() => {
-            output.put_u8(1);
-            let std::net::IpAddr::V4(ip) = address.ip() else {
-                unreachable!("is_ipv4 checked")
-            };
-            output.extend_from_slice(&ip.octets());
-        }
-        Destination::Domain { host, .. } => {
-            let length = u8::try_from(host.len()).map_err(|_| {
-                io::Error::new(io::ErrorKind::InvalidInput, "XUDP domain is too long")
-            })?;
-            output.put_u8(2);
-            output.put_u8(length);
-            output.extend_from_slice(host.as_bytes());
-        }
-        Destination::Ip(address) => {
-            output.put_u8(3);
-            let std::net::IpAddr::V6(ip) = address.ip() else {
-                unreachable!("non-IPv4 address is IPv6")
-            };
-            output.extend_from_slice(&ip.octets());
-        }
-    }
-    Ok(())
-}
-
-fn decode_destination(input: &[u8]) -> io::Result<(Destination, usize)> {
-    if input.len() < 3 {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "truncated XUDP destination",
-        ));
-    }
-    let port = u16::from_be_bytes([input[0], input[1]]);
-    if port == 0 {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "XUDP destination port is zero",
-        ));
-    }
-    match input[2] {
-        1 => {
-            let octets: [u8; 4] = input
-                .get(3..7)
-                .ok_or_else(|| {
-                    io::Error::new(io::ErrorKind::InvalidData, "truncated IPv4 destination")
-                })?
-                .try_into()
-                .expect("slice length checked");
-            Ok((
-                Destination::from(std::net::SocketAddr::new(
-                    std::net::IpAddr::V4(octets.into()),
-                    port,
-                )),
-                7,
-            ))
-        }
-        2 => {
-            let length = usize::from(*input.get(3).ok_or_else(|| {
-                io::Error::new(io::ErrorKind::InvalidData, "truncated domain destination")
-            })?);
-            let host = input.get(4..4 + length).ok_or_else(|| {
-                io::Error::new(io::ErrorKind::InvalidData, "truncated domain destination")
-            })?;
-            let host = std::str::from_utf8(host)
-                .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "non-UTF-8 domain"))?;
-            Ok((Destination::domain(host, port)?, 4 + length))
-        }
-        3 => {
-            let octets: [u8; 16] = input
-                .get(3..19)
-                .ok_or_else(|| {
-                    io::Error::new(io::ErrorKind::InvalidData, "truncated IPv6 destination")
-                })?
-                .try_into()
-                .expect("slice length checked");
-            Ok((
-                Destination::from(std::net::SocketAddr::new(
-                    std::net::IpAddr::V6(octets.into()),
-                    port,
-                )),
-                19,
-            ))
-        }
-        _ => Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "unknown XUDP address type",
-        )),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn shared_xudp_receives_frames_without_a_vless_response_header() {
+        let (client, mut peer) = tokio::io::duplex(64);
+        peer.write_all(&[
+            0, 12, 0, 0, 2, 1, 2, 0, 53, 1, 1, 2, 3, 4, 0, 3, b'a', b'b', b'c',
+        ])
+        .await
+        .unwrap();
+        let mut transport = XudpTransport::new(Box::new(client), [0; 8], 1452);
+        let datagram = transport.receive().await.unwrap();
+        assert_eq!(datagram.remote.to_string(), "1.2.3.4:53");
+        assert_eq!(datagram.payload.as_ref(), b"abc");
+    }
 
     #[test]
     fn first_frame_matches_xray_mux_wire_format() {
@@ -521,11 +412,10 @@ mod tests {
             .await
             .unwrap();
         let mut transport = XudpTransport::new(Box::new(client), [0; 8], 1_452);
-        let bounded_capacity = 2 + 2 + MAX_METADATA_LENGTH + 2 + 1_452;
+        let bounded_capacity = 2 + MAX_METADATA_LENGTH + 2 + 1_452;
         assert_eq!(transport.max_receive_buffer_size, bounded_capacity);
         assert_eq!(transport.receive_buffer.capacity(), bounded_capacity);
 
-        transport.read_vless_response().await.unwrap();
         let error = tokio::time::timeout(
             std::time::Duration::from_millis(100),
             transport.read_frame(),
@@ -557,17 +447,16 @@ mod tests {
 
         // Stop in the middle of the two-byte metadata length. The first byte
         // has already crossed the stream boundary when receive is cancelled.
-        server.write_all(&frame[..3]).await.unwrap();
+        server.write_all(&frame[..1]).await.unwrap();
         let mut transport = XudpTransport::new(Box::new(client), [0; 8], 1_452);
         assert!(
             tokio::time::timeout(std::time::Duration::from_millis(20), transport.receive())
                 .await
                 .is_err()
         );
-        assert!(!transport.response_pending);
         assert_eq!(transport.receive_buffer.as_ref(), &[0]);
 
-        let remaining = frame[3..].to_vec();
+        let remaining = frame[1..].to_vec();
         let writer = tokio::spawn(async move {
             for byte in remaining {
                 server.write_all(&[byte]).await.unwrap();
@@ -591,8 +480,6 @@ mod tests {
         let (client, mut server) = tokio::io::duplex(128);
         let mut wire = vec![
             0,
-            0, // VLESS response header
-            0,
             4, // metadata length
             0,
             0, // mux session id
@@ -602,7 +489,7 @@ mod tests {
             4, // discarded payload length
         ];
         wire.extend_from_slice(b"ping");
-        wire.extend_from_slice(&response_data_prefix(3)[2..]);
+        wire.extend_from_slice(&response_data_prefix(3));
         wire.extend_from_slice(b"abc");
         server.write_all(&wire).await.unwrap();
 
@@ -632,8 +519,6 @@ mod tests {
     fn response_data_prefix(payload_length: u16) -> Vec<u8> {
         let mut frame = vec![
             0,
-            0, // VLESS response header
-            0,
             12, // metadata length
             0,
             0, // mux session id
@@ -654,7 +539,6 @@ mod tests {
 
     async fn receive_frame_error(frame: &[u8]) -> DispatchError {
         let (client, mut server) = tokio::io::duplex(64);
-        server.write_all(&[0, 0]).await.unwrap();
         server.write_all(frame).await.unwrap();
         let mut transport = XudpTransport::new(Box::new(client), [0; 8], u16::MAX);
         transport.receive().await.unwrap_err()

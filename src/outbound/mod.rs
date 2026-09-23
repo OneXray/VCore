@@ -1,5 +1,7 @@
 //! Composable proxy connectors and the built-in DIRECT dispatcher.
 
+pub mod address;
+
 #[cfg(feature = "outbound-anytls")]
 mod anytls;
 mod connector;
@@ -579,7 +581,7 @@ impl VlessOutbound {
         // behavior; a per-association random value would claim reuse semantics
         // that this runtime cannot honor.
         Ok(XudpTransport::new(
-            stream,
+            Box::new(VlessStream::new(stream, bytes::Bytes::new())),
             [0_u8; 8],
             request.max_response_payload_size(),
         ))

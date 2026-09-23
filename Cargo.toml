@@ -23,6 +23,11 @@ name = "vcore-windows-session-host"
 path = "src/bin/windows_session_host.rs"
 required-features = ["ffi"]
 
+[[example]]
+name = "protocol-stream-probe"
+path = "tests/protocols/stream_probe.rs"
+required-features = ["interop-test", "stream-transport"]
+
 [features]
 default = [
     "inbound-http",
@@ -37,7 +42,13 @@ inbound-socks5 = []
 outbound-anytls = ["dep:md-5"]
 outbound-socks5 = []
 outbound-shadowsocks = ["dep:shadowsocks", "dep:log"]
-outbound-vless = ["rustls/reality"]
+outbound-vless = ["rustls/reality", "stream-transport"]
+# N1 foundation features. YAML registration waits for each protocol stage.
+outbound-trojan = ["stream-transport"]
+outbound-vmess = ["stream-transport"]
+outbound-hysteria2 = []
+outbound-wireguard = []
+stream-transport = ["dep:tokio-tungstenite", "dep:httparse", "dep:log"]
 # Enables local interoperability-only trust-root injection. Release build
 # scripts must not enable this feature.
 interop-test = ["outbound-anytls", "outbound-vless"]
@@ -58,9 +69,10 @@ arc-swap = "1"
 async-trait = "0.1"
 base64 = "0.23"
 bytes = "1"
-futures-util = "0.3"
+futures-util = { version = "0.3", features = ["sink"] }
 h2 = "0.4.19"
 http = "1"
+httparse = { version = "1.10", optional = true }
 idna = "1.1"
 libc = "0.2"
 # Upstream SS trace/debug logs include key material and traffic destinations.
@@ -79,6 +91,7 @@ socket2 = { version = "0.6", features = ["all"] }
 thiserror = "2"
 tokio = { version = "1", features = ["io-util", "macros", "net", "rt", "sync", "time"] }
 tokio-rustls = { version = "=0.26.5", default-features = false, features = ["ring", "tls12"] }
+tokio-tungstenite = { version = "=0.30.0", default-features = false, features = ["handshake"], optional = true }
 tokio-util = { version = "0.7", features = ["rt"] }
 tracing = "0.1"
 url = "2"
