@@ -53,7 +53,7 @@ uv run --project scripts --locked ruff check scripts
 uv run --project scripts --locked ruff format --check scripts
 ```
 
-`c-header` 在 macOS 使用 `xcrun clang/clang++`，其他平台使用 `PATH` 中的 `clang/clang++`。`tls-dependencies` 直接读取 `cargo metadata`，验证唯一的 OneVCore rustls 0.23.43 来自 GitHub `vcore/reality-0.23` 分支、官方 tokio-rustls 0.26.4、registry ring，并禁止 Watfaq 来源和 TLS 的 AWS-LC/FIPS provider。AWS-LC 仅允许出现在锁定官方 Shadowsocks 1.25.0 → registry shadowsocks-crypto 0.8.0 → aws-lc-rs → aws-lc-sys 链；额外使用方、非官方来源、重复版本和 FIPS 包均失败。该局部例外不更换 TLS/REALITY 的 ring provider。
+`c-header` 在 macOS 使用 `xcrun clang/clang++`，其他平台使用 `PATH` 中的 `clang/clang++`。`tls-dependencies` 直接读取 `cargo metadata`，验证唯一的 OneXray/rustls 0.23.43 来自 GitHub `vcore/reality-0.23` 分支、官方 tokio-rustls 0.26.4、registry ring，并禁止 Watfaq 来源和 TLS 的 AWS-LC/FIPS provider。AWS-LC 仅允许出现在锁定官方 Shadowsocks 1.25.0 → registry shadowsocks-crypto 0.8.0 → aws-lc-rs → aws-lc-sys 链；额外使用方、非官方来源、重复版本和 FIPS 包均失败。该局部例外不更换 TLS/REALITY 的 ring provider。
 
 ## Windows tun2socks demo
 

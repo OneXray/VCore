@@ -19,7 +19,7 @@ fork 不创建线程、异步任务、连接池、全局映射或跨连接锁。
 
 ```toml
 [patch.crates-io]
-rustls = { git = "https://github.com/OneVCore/rustls", branch = "vcore/reality-0.23" }
+rustls = { git = "https://github.com/OneXray/rustls", branch = "vcore/reality-0.23" }
 ```
 
 要求：

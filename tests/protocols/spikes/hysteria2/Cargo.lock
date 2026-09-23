@@ -761,7 +761,7 @@ checksum = "6b1e7f9a428571be2dc5bc0505c13fb6bf936822b894ec87abf8a08a4e51742d"
 [[package]]
 name = "rustls"
 version = "0.23.43"
-source = "git+https://github.com/OneVCore/rustls?rev=df261c84cbac4f708e63ac8644ce70daa90d771c#df261c84cbac4f708e63ac8644ce70daa90d771c"
+source = "git+https://github.com/OneXray/rustls?rev=df261c84cbac4f708e63ac8644ce70daa90d771c#df261c84cbac4f708e63ac8644ce70daa90d771c"
 dependencies = [
  "once_cell",
  "ring",

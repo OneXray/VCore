@@ -21,6 +21,8 @@
 
 [N1 h2 补丁升级](acceptance/next-protocols/N1-h2.md)将生产和流实验的 h2 更新至官方稳定版0.4.19，修复已复现的 END_STREAM 后 RST 丢失完整响应问题。关闭回归、旧协议扩展互通和流实验重跑通过；这是 N1 前置子包，不代表完整 N1 或全依赖升级完成。
 
+[N1 依赖基线进度](acceptance/next-protocols/N1-dependencies.md)记录最新稳定版审计、rustls0.23.45独立同步分支，以及当前依赖来源恢复为OneXray/rustls。新版fork尚未发布或接入VCore；版本升级与地址修正的证据分开记录。
+
 当前 source/tests 覆盖：
 
 - Invoke API v5、单实例生命周期、Debug/Release 运行时线程重入拒绝、panic 与同步清理；

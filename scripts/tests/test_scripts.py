@@ -17,7 +17,6 @@ from vcore_scripts import builds, cli, mihomo
 from vcore_scripts.builds import EXPECTED_IDENTITY, _android_target, _require_identity
 from vcore_scripts.checks import (
     CRATES_IO_SOURCES,
-    RUSTLS_GIT_SOURCE_PREFIX,
     SHADOWSOCKS_GIT_SOURCE,
     _shadowsocks_aws_lc_errors,
     _tls_dependency_errors,
@@ -445,7 +444,8 @@ except RuntimeError as error:
                     "id": "rustls-id",
                     "name": "rustls",
                     "version": "0.23.43",
-                    "source": RUSTLS_GIT_SOURCE_PREFIX + "a" * 40,
+                    "source": "git+https://github.com/OneXray/rustls?branch=vcore/reality-0.23#"
+                    + "a" * 40,
                 },
                 {
                     "id": "tokio-rustls-id",
@@ -470,6 +470,18 @@ except RuntimeError as error:
             },
         }
         self.assertEqual(_tls_dependency_errors(metadata), [])
+
+        old_origin = copy.deepcopy(metadata)
+        old_origin["packages"][0]["source"] = (
+            "git+https://github.com/OneVCore/rustls?branch=vcore/reality-0.23#"
+            + "a" * 40
+        )
+        self.assertTrue(
+            any(
+                "vcore/reality-0.23 GitHub branch" in error
+                for error in _tls_dependency_errors(old_origin)
+            )
+        )
 
         metadata["packages"].append(
             {

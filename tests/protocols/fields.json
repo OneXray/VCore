@@ -205,7 +205,7 @@
     "M-XSERVER": "https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/transport/xhttp/server.go",
     "X-XHTTP": "https://github.com/XTLS/Xray-core/blob/d562d8947d3175db86b4fa849742433a9876cb63/transport/internet/splithttp/hub.go",
     "CR-SPLICE": "https://github.com/Watfaq/clash-rs/blob/39d06a49ccb5c812ed7cd70b3028f3efcebeae6b/clash-lib/src/proxy/transport/splice_tls.rs",
-    "R-HPKE": "https://github.com/OneVCore/rustls/blob/df261c84cbac4f708e63ac8644ce70daa90d771c/provider-example/src/hpke.rs",
+    "R-HPKE": "https://github.com/OneXray/rustls/blob/df261c84cbac4f708e63ac8644ce70daa90d771c/provider-example/src/hpke.rs",
     "M-MUX": "https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/adapter/outbound/singmux.go",
     "M-MUX-CLIENT": "https://github.com/MetaCubeX/sing-mux/blob/v0.3.10/client.go",
     "M-HY-CLIENT": "https://github.com/MetaCubeX/sing-quic/blob/1c242664697a/hysteria2/client.go",

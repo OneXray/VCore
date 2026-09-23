@@ -129,7 +129,7 @@ rcgen = { version = "=0.14.8", default-features = false, features = ["crypto", "
 tempfile = "3"
 
 [patch.crates-io]
-rustls = { git = "https://github.com/OneVCore/rustls", branch = "vcore/reality-0.23" }
+rustls = { git = "https://github.com/OneXray/rustls", branch = "vcore/reality-0.23" }
 
 [profile.release]
 codegen-units = 1

@@ -18,4 +18,4 @@ hpke = { version = "=0.13.0", default-features = false, features = ["std", "x255
 rand = "0.9"
 
 [patch.crates-io]
-rustls = { git = "https://github.com/OneVCore/rustls", rev = "df261c84cbac4f708e63ac8644ce70daa90d771c" }
+rustls = { git = "https://github.com/OneXray/rustls", rev = "df261c84cbac4f708e63ac8644ce70daa90d771c" }
