@@ -58,6 +58,9 @@ mod soak;
 mod sockets;
 #[path = "mihomo/ss_lifecycle.rs"]
 mod ss_lifecycle;
+#[cfg(feature = "outbound-trojan")]
+#[path = "mihomo/trojan.rs"]
+mod trojan;
 use sockets::GuardedUdpSocket as UdpSocket;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 #[path = "mihomo/tun.rs"]

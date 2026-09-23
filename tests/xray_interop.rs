@@ -43,6 +43,7 @@ fn sole_vless(config: &Config) -> &VlessOutboundConfig {
         ProxyProtocol::Socks5(_) => panic!("interop config must contain VLESS"),
         ProxyProtocol::AnyTls(_) => panic!("interop config must contain VLESS"),
         ProxyProtocol::Shadowsocks(_) => panic!("interop config must contain VLESS"),
+        ProxyProtocol::Trojan(_) => panic!("interop config must contain VLESS"),
     }
 }
 

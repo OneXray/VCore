@@ -11,6 +11,8 @@ use crate::{session::Destination, socks5::encode_address};
 
 mod datagram;
 pub use datagram::{MAX_DATAGRAM_PAYLOAD, TrojanDatagram};
+mod outbound;
+pub use outbound::TrojanOutbound;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrojanCommand {

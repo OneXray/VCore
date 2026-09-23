@@ -126,6 +126,8 @@ fn diagnostic_stage(operation: &'static str) -> &'static str {
         "AnyTLS TLS handshake" => "anytls-tls",
         "AnyTLS authentication and session preface" => "anytls-session",
         "AnyTLS session open" => "anytls-stream",
+        "Trojan TLS handshake" => "trojan-tls",
+        "Trojan request header" => "trojan-request",
         _ => "outbound",
     }
 }

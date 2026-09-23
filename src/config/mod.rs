@@ -21,6 +21,8 @@ mod credentials;
 pub use credentials::{ProxyAccess, ProxyCredentials};
 mod shadowsocks;
 pub use shadowsocks::{ShadowsocksCipher, ShadowsocksOutboundConfig};
+mod trojan;
+pub use trojan::TrojanOutboundConfig;
 
 #[cfg(feature = "ffi")]
 mod measure;
@@ -286,6 +288,7 @@ pub struct ProxyConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProxyProtocol {
+    Trojan(TrojanOutboundConfig),
     Vless(VlessOutboundConfig),
     Socks5(Socks5OutboundConfig),
     AnyTls(AnyTlsOutboundConfig),
@@ -296,6 +299,7 @@ impl ProxyConfig {
     #[must_use]
     pub fn address(&self) -> &str {
         match &self.protocol {
+            ProxyProtocol::Trojan(config) => &config.address,
             ProxyProtocol::Vless(config) => &config.address,
             ProxyProtocol::Socks5(config) => &config.address,
             ProxyProtocol::AnyTls(config) => &config.address,
@@ -306,6 +310,7 @@ impl ProxyConfig {
     #[must_use]
     pub const fn port(&self) -> u16 {
         match &self.protocol {
+            ProxyProtocol::Trojan(config) => config.port,
             ProxyProtocol::Vless(config) => config.port,
             ProxyProtocol::Socks5(config) => config.port,
             ProxyProtocol::AnyTls(config) => config.port,
@@ -667,6 +672,8 @@ where
 // protocol fields inline avoids extra heap allocations in the startup path.
 #[allow(clippy::large_enum_variant)]
 enum RawOutbound {
+    #[serde(rename = "trojan")]
+    Trojan(trojan::RawTrojan),
     #[serde(rename = "ss")]
     Shadowsocks {
         name: String,
@@ -1538,6 +1545,7 @@ pub(crate) fn proxy_graph_order(
 impl RawOutbound {
     fn normalize(self) -> Result<PendingProxyConfig> {
         let (tag, dialer_proxy, udp, protocol) = match self {
+            Self::Trojan(raw) => raw.normalize()?,
             Self::Shadowsocks {
                 name,
                 server,

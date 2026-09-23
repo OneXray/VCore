@@ -59,13 +59,19 @@ use crate::{
 use crate::outbound::ShadowsocksOutbound;
 #[cfg(feature = "outbound-socks5")]
 use crate::outbound::Socks5Outbound;
+#[cfg(feature = "outbound-trojan")]
+use crate::outbound::trojan::TrojanOutbound;
 #[cfg(feature = "outbound-anytls")]
 use crate::outbound::{AnyTlsOutbound, server_destination};
 #[cfg(feature = "outbound-vless")]
 use crate::outbound::{VlessOutbound, VlessResourceLimits};
 #[cfg(feature = "outbound-anytls")]
 use crate::security::StandardTlsClient;
-#[cfg(any(feature = "outbound-anytls", feature = "outbound-vless"))]
+#[cfg(any(
+    feature = "outbound-anytls",
+    feature = "outbound-vless",
+    feature = "outbound-trojan"
+))]
 use crate::security::{SecurityContext, TLS_RESUMPTION_SESSION_BUDGET};
 
 /// Parsed configuration plus the bootstrap-resolved physical proxy roots.
@@ -587,11 +593,23 @@ fn build_proxy_graph(
     }
     let order = proxy_graph_order(proxies, groups)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
-    #[cfg(any(feature = "outbound-anytls", feature = "outbound-vless"))]
+    #[cfg(any(
+        feature = "outbound-anytls",
+        feature = "outbound-vless",
+        feature = "outbound-trojan"
+    ))]
     let (security_client_count, standard_tls_count) = security_counts(proxies);
-    #[cfg(any(feature = "outbound-anytls", feature = "outbound-vless"))]
+    #[cfg(any(
+        feature = "outbound-anytls",
+        feature = "outbound-vless",
+        feature = "outbound-trojan"
+    ))]
     let security_context = (security_client_count != 0).then(SecurityContext::new);
-    #[cfg(any(feature = "outbound-anytls", feature = "outbound-vless"))]
+    #[cfg(any(
+        feature = "outbound-anytls",
+        feature = "outbound-vless",
+        feature = "outbound-trojan"
+    ))]
     let resumption_sessions = standard_tls_resumption_sessions(standard_tls_count);
 
     // Declared before the temporary registries: even on partial construction
@@ -655,6 +673,28 @@ fn build_proxy_graph(
             &dialer,
         )?;
         let connector: Arc<dyn OutboundConnector> = match &proxy.protocol {
+            ProxyProtocol::Trojan(config) => {
+                #[cfg(feature = "outbound-trojan")]
+                {
+                    Arc::new(TrojanOutbound::with_shared_security(
+                        config,
+                        upstream,
+                        security_context
+                            .as_ref()
+                            .expect("Trojan graph has security material"),
+                        resumption_sessions,
+                        limits.tls_buffer_limit,
+                    )?)
+                }
+                #[cfg(not(feature = "outbound-trojan"))]
+                {
+                    let _ = (config, upstream);
+                    return Err(io::Error::new(
+                        io::ErrorKind::Unsupported,
+                        "Trojan outbound support is disabled at build time",
+                    ));
+                }
+            }
             ProxyProtocol::Shadowsocks(config) => {
                 #[cfg(feature = "outbound-shadowsocks")]
                 {
@@ -838,6 +878,7 @@ async fn prepare_proxy_endpoints(
             let download = match &proxy.protocol {
                 ProxyProtocol::Vless(config) => config.xhttp.download.as_deref(),
                 ProxyProtocol::Socks5(_)
+                | ProxyProtocol::Trojan(_)
                 | ProxyProtocol::AnyTls(_)
                 | ProxyProtocol::Shadowsocks(_) => None,
             };
@@ -898,7 +939,11 @@ fn restrict_endpoint_addresses(
     Ok(endpoint)
 }
 
-#[cfg(any(feature = "outbound-anytls", feature = "outbound-vless"))]
+#[cfg(any(
+    feature = "outbound-anytls",
+    feature = "outbound-vless",
+    feature = "outbound-trojan"
+))]
 fn security_counts(proxies: &[ProxyConfig]) -> (usize, usize) {
     proxies.iter().fold(
         (0, 0),
@@ -920,7 +965,9 @@ fn security_counts(proxies: &[ProxyConfig]) -> (usize, usize) {
                         }),
                 )
             }
-            ProxyProtocol::AnyTls(_) => (client_count + 1, standard_count + 1),
+            ProxyProtocol::AnyTls(_) | ProxyProtocol::Trojan(_) => {
+                (client_count + 1, standard_count + 1)
+            }
             ProxyProtocol::Socks5(_) | ProxyProtocol::Shadowsocks(_) => {
                 (client_count, standard_count)
             }
@@ -928,7 +975,11 @@ fn security_counts(proxies: &[ProxyConfig]) -> (usize, usize) {
     )
 }
 
-#[cfg(any(feature = "outbound-anytls", feature = "outbound-vless"))]
+#[cfg(any(
+    feature = "outbound-anytls",
+    feature = "outbound-vless",
+    feature = "outbound-trojan"
+))]
 fn standard_tls_resumption_sessions(standard_tls_count: usize) -> usize {
     if standard_tls_count == 0 || standard_tls_count > TLS_RESUMPTION_SESSION_BUDGET {
         0
