@@ -11,7 +11,7 @@ publish = false
 [dependencies]
 bytes = "1"
 futures-util = { version = "0.3", features = ["sink"] }
-h2 = "=0.4.15"
+h2 = "=0.4.19"
 http = "1"
 # Tungstenite's trace logs can contain headers and payloads. Keep them compiled
 # out even though this experiment does not enable the SS production feature.

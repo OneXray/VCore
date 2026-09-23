@@ -7,7 +7,10 @@ or repository-external path is needed.
 
 See the [dependency assessment](../../../../docs/acceptance/next-protocols/N0-stream-dependencies.md)
 and [executed acceptance record](../../../../docs/acceptance/next-protocols/N0-stream.md).
-The main Cargo files, production code, Invoke v5 and schema 14 are unchanged.
+The original N0 run left the main Cargo files unchanged. The subsequent
+[N1 h2 upgrade](../../../../docs/acceptance/next-protocols/N1-h2.md) updates h2 in
+both workspaces to 0.4.19; historical N0 evidence remains version-specific.
+Invoke v5 and schema 14 are unchanged.
 
 ## Public seam and ownership
 
@@ -88,6 +91,6 @@ cargo check --locked --manifest-path tests/protocols/spikes/stream/Cargo.toml \
 Use the compiler's own host directory on other operating systems; scripts do
 not assume a user's SDK path. Cross-checks do not prove linking, packaging,
 physical devices or Windows. Native Windows and protocol consumers remain
-separate gates. h2 patch upgrades, WS early-data/custom headers, complete TLS
+separate gates. WS early-data/custom headers, complete TLS
 options, production task/pool integration and formal budgets remain N1/later
 work; see the acceptance record for precise PASS/NOT RUN boundaries.

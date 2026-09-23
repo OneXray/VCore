@@ -19,6 +19,8 @@
 
 同日 [N0-B 公共流接口实验](acceptance/next-protocols/N0-stream.md)完成TLS/普通WS/gRPC的注入IO、取消回收与关闭差分：12项Debug/Release测试、42项官方Mihomo检查及Apple/Android交叉检查通过。没有新增生产功能或依赖；Windows、真机和完整N0仍未签收。
 
+[N1 h2 补丁升级](acceptance/next-protocols/N1-h2.md)将生产和流实验的 h2 更新至官方稳定版0.4.19，修复已复现的 END_STREAM 后 RST 丢失完整响应问题。关闭回归、旧协议扩展互通和流实验重跑通过；这是 N1 前置子包，不代表完整 N1 或全依赖升级完成。
+
 当前 source/tests 覆盖：
 
 - Invoke API v5、单实例生命周期、Debug/Release 运行时线程重入拒绝、panic 与同步清理；
