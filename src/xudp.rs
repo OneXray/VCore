@@ -445,8 +445,6 @@ fn decode_destination(input: &[u8]) -> io::Result<(Destination, usize)> {
 
 #[cfg(test)]
 mod tests {
-    use tokio::io::AsyncWriteExt as _;
-
     use super::*;
 
     #[test]

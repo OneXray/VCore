@@ -240,7 +240,7 @@ fn encode_destination(destination: &Destination, output: &mut BytesMut) -> io::R
 mod tests {
     use std::time::Duration;
 
-    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+    use tokio::io::AsyncWriteExt as _;
 
     use super::*;
 

@@ -13,7 +13,7 @@ use h2::{
     client::{ResponseFuture, SendRequest},
 };
 use http::{Method, Request, StatusCode, Uri};
-use rand::Rng as _;
+use rand::RngExt as _;
 use tokio::{
     io::{AsyncRead, AsyncWrite, ReadBuf},
     task::JoinHandle,

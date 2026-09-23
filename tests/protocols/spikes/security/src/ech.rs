@@ -31,6 +31,10 @@ impl std::fmt::Debug for RecvContext {
 fn err(_: hpke::HpkeError) -> Error {
     Error::General("HPKE operation failed".into())
 }
+fn rng() -> Result<rand::rngs::StdRng, Error> {
+    rand::rngs::StdRng::try_from_rng(&mut rand::rngs::SysRng)
+        .map_err(|_| Error::General("HPKE randomness unavailable".into()))
+}
 impl HpkeSealer for SendContext {
     fn seal(&mut self, aad: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, Error> {
         self.0.seal(plaintext, aad).map_err(err)
@@ -52,7 +56,7 @@ impl Hpke for Adapter {
         }
     }
     fn generate_key_pair(&self) -> Result<(HpkePublicKey, HpkePrivateKey), Error> {
-        let (sk, pk) = Kem::gen_keypair(&mut rand::rngs::StdRng::from_os_rng());
+        let (sk, pk) = Kem::gen_keypair_with_rng(&mut rng()?);
         Ok((
             HpkePublicKey(pk.to_bytes().to_vec()),
             sk.to_bytes().to_vec().into(),
@@ -64,11 +68,11 @@ impl Hpke for Adapter {
         key: &HpkePublicKey,
     ) -> Result<(EncapsulatedSecret, Box<dyn HpkeSealer>), Error> {
         let pk = <Kem as hpke::Kem>::PublicKey::from_bytes(&key.0).map_err(err)?;
-        let (enc, ctx) = hpke::setup_sender::<Aead, Kdf, Kem, _>(
+        let (enc, ctx) = hpke::setup_sender_with_rng::<Aead, Kdf, Kem>(
             &hpke::OpModeS::Base,
             &pk,
             info,
-            &mut rand::rngs::StdRng::from_os_rng(),
+            &mut rng()?,
         )
         .map_err(err)?;
         Ok((

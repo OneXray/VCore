@@ -398,8 +398,6 @@ mod tests {
         time::Duration,
     };
 
-    use tokio::io::AsyncWriteExt as _;
-
     use super::*;
 
     fn datagram(remote: Destination, payload: &'static [u8]) -> Datagram {

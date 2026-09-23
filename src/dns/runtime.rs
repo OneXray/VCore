@@ -1908,7 +1908,6 @@ mod tests {
 
     use async_trait::async_trait;
     use tokio::{
-        io::{AsyncReadExt as _, AsyncWriteExt as _},
         net::{TcpListener, UdpSocket},
         sync::{Notify, Semaphore},
     };

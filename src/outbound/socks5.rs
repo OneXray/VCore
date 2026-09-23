@@ -468,8 +468,6 @@ mod tests {
         time::Duration,
     };
 
-    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
-
     use super::*;
 
     #[derive(Clone)]

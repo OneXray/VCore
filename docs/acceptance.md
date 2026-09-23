@@ -23,6 +23,8 @@
 
 [N1 依赖基线进度](acceptance/next-protocols/N1-dependencies.md)记录最新稳定版审计及依赖来源OneXray/rustls。获准将0.23.45同步结果推送到正式依赖分支后，VCore与四个实验工程已接入新版fork及官方tokio-rustls0.26.5；新版验证见[N1 TLS接入](acceptance/next-protocols/N1-tls.md)，与较早仅修改地址的证据分开记录。ring、classic REALITY、API v5/schema14均不变。
 
+[N1 基础与实验依赖更新](acceptance/next-protocols/N1-foundation-dependencies.md)继续升级基础库、smoltcp、WS/HPKE实验和兼容补丁锁，记录已批准的Windows SDK配套例外。全Debug/Release、全目标Clippy、真实对端回归和Apple/Android构建通过；不抵扣完整N1、新协议、真机或Windows原生门禁。
+
 当前 source/tests 覆盖：
 
 - Invoke API v5、单实例生命周期、Debug/Release 运行时线程重入拒绝、panic 与同步清理；

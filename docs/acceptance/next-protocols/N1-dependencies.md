@@ -1,6 +1,6 @@
 # N1：依赖基线进度
 
-日期：2026-09-23。**h2 与 TLS 依赖子包已接入；全依赖升级和完整 N1 尚未完成。** 最新稳定版原则见开发约定；锁文件用于复现验证，不代表旧版本可永久保留。版本冲突或尚未发布的 fork 必须明确处理，不能静默回退、换 provider 或引入本机路径依赖。
+日期：2026-09-23。**h2、TLS、基础库/网络栈与实验依赖子包已接入；fork 密码依赖评估和完整 N1 尚未完成。** 最新稳定版原则见开发约定；锁文件用于复现验证，不代表旧版本可永久保留。版本冲突或尚未发布的 fork 必须明确处理，不能静默回退、换 provider 或引入本机路径依赖。
 
 ## 已完成的独立子包
 
@@ -8,6 +8,7 @@
 - 自有 fork 在 `chore/sync-rustls-0.23.45` 合入官方 `v/0.23.45`，本地提交 `26f3efe5946dbe96410e85b8541ccf5fe7c244a5`；父提交为混合 REALITY 扩展 `4334fcf00f60188cfdf3c25d2e6cb4a342a01864` 和官方 `2976d90fd1c2db6b518700dd101b714069cfcb17`。唯一冲突是 Bogo manifest，保留 REALITY feature，接受上游删除旧 PostQuantum 测试入口。未增加其他 fork 改动。
 - fork 普通 TLS 本地 API 回归454项通过；开启 REALITY 时 Debug/Release 各477项通过；独立真实混合 provider 4项、官方 Mihomo 6项互通通过；no-std、iOS arm64、macOS x64、Android arm64检查通过。详细可追溯记录保存在 fork 的 `reality-tests/UPSTREAM-0.23.45.md`，不将这些结果当作 VCore 使用新版依赖的验证。
 - 后续获准将同步结果快进合入并推送到 `vcore/reality-0.23`。VCore 主工程及四个实验 workspace 接入 rustls0.23.45 / 官方tokio-rustls0.26.5，仍使用 ring，生产仍为 classic REALITY。新版依赖的独立验证与剩余门禁见 [N1 TLS 接入](N1-tls.md)。
+- [基础库、网络栈与实验依赖更新](N1-foundation-dependencies.md)：完成下表 API 适配、兼容传递锁刷新、Windows 配套例外确认和独立回归。全目标 Clippy 的13项既有测试告警已清理并通过，不改写此前失败记录。
 
 ## 正式仓库来源
 
@@ -35,13 +36,15 @@
 | --- | --- | --- |
 | rustls fork | 0.23.43 → 0.23.45 | 已发布并接入；验证与门禁见[N1 TLS](N1-tls.md) |
 | tokio-rustls | 0.26.4 → 0.26.5 | 已升级；与上述fork共同验证 |
-| 流实验 tokio-tungstenite | 0.29.0 → 0.30.0 | 待升级及WS行为回归，不沿用Clash-RS旧pin |
-| base64 / md-5 / rand / sha2 | 0.22 / 0.10 / 0.9 / 0.10 → 0.23.1 / 0.11.0 / 0.10.3 / 0.11.0 | 待API适配与旧协议回归 |
-| rcgen / smoltcp | 0.14.8 / 0.13.1 → 0.14.10 / 0.14.0 | 待测试证书与netstack回归 |
-| 安全实验 hpke | 0.13.0 → 0.14.1 | 待公开接口实验重跑 |
+| 流实验 tokio-tungstenite | 0.29.0 → 0.30.0 | 已升级；12项接口测试与42项Mihomo互通通过，不沿用Clash-RS旧pin |
+| base64 / md-5 / rand / sha2 | 0.22 / 0.10 / 0.9 / 0.10 → 0.23.1 / 0.11.0 / 0.10.3 / 0.11.0 | 已适配并通过旧协议回归 |
+| rcgen / smoltcp | 0.14.8 / 0.13.1 → 0.14.10 / 0.14.0 | 已升级；证书/负例、netstack17项与平台构建通过 |
+| 安全实验 hpke | 0.13.0 → 0.14.1 | 已适配公开接口；Debug/Release各7项通过，ECH仍仅Offered |
 | fork 的 x25519-dalek | 2.0.1 → 3.0.0 | 独立密码依赖升级待评估，本次仅同步官方rustls发行 |
-| windows 配套 crates | 最新windows0.62.2要求core0.62.2/collections0.3.2，而后两者单独最新为0.100.0 | 配套类型版本不能直接混用；是否作为最新完整SDK的配套例外，待明确决定 |
+| windows 配套 crates | 最新windows0.62.2要求core0.62.2/collections0.3.2，而后两者单独最新为0.100.0 | 2026-09-23已获明确同意：保留官方兼容配套版本，不混入0.100.0；这是当前SDK组合的局部例外，不是Windows原生构建通过证明 |
 
-其余直接依赖的兼容补丁锁也需刷新与验证，包括tokio、futures-util、http、serde、regex-automata、socket2、thiserror、uuid、webpki-roots；不能只更新上表就声称全图已最新。官方Shadowsocks1.25.0、h2 0.4.19和quinn0.11.12在本次查询时已经是各自最新稳定发行。上游库的传递版本约束单独核对，不通过修改第三方源码强行解除。
+其余直接依赖及兼容传递补丁锁已刷新与验证，包括tokio、futures-util、http、serde、regex-automata、socket2、thiserror、uuid、webpki-roots；具体版本/输入/证据见[本轮记录](N1-foundation-dependencies.md)。官方Shadowsocks1.25.0、h2 0.4.19和quinn0.11.12在本次查询时已是各自最新稳定发行。上游库的传递版本约束单独核对，不通过修改第三方源码强行解除，不能把兼容锁刷新描述为全图均升级最新大版本。
+
+Windows 配套例外依据官方 [windows0.62.2 manifest](https://docs.rs/crate/windows/0.62.2/source/Cargo.toml)。未来升级完整SDK时须重新核对其配套约束并验证原生Windows目标，不能永久保留旧组合，也不能把这项批准扩大到rustls/provider或其他旧版依赖。
 
 来源修正轮次没有push；后续TLS轮次仅按授权推送rustls依赖分支，VCore仍只本地提交。没有变更Windows依赖，也没有把未完成升级算作N1签收。正式新协议、覆盖检查CLI、N0其余门禁、真机、Windows原生构建、远端CI与发布均不由本记录抵扣。

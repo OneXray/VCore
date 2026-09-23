@@ -711,7 +711,7 @@ async fn fixed_and_chunked_ten_mib_bodies_stream_in_both_directions_with_matchin
     for _ in 0..COUNT {
         expected.update(BLOCK);
     }
-    let expected = format!("{:x}", expected.finalize());
+    let expected = finish_sha256(expected);
     for chunked in [false, true] {
         let (fixture, mut remotes) = Fixture::start(1, |_| {}).await;
         let mut remote = remotes.pop().unwrap();
@@ -828,5 +828,15 @@ async fn receive_large<R: AsyncBufRead + Unpin>(
         }
     }
     assert_eq!(remaining, 0);
-    format!("{:x}", hash.finalize())
+    finish_sha256(hash)
+}
+
+fn finish_sha256(hash: Sha256) -> String {
+    use std::fmt::Write as _;
+
+    let mut hex = String::with_capacity(64);
+    for byte in hash.finalize() {
+        write!(hex, "{byte:02x}").unwrap();
+    }
+    hex
 }
