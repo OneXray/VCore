@@ -2,10 +2,12 @@
 //! authentication, or peer-controlled cipher negotiation lives in this module.
 //! Wire references: v2fly/v2ray-core proxy/vmess/encoding and Clash-RS vmess_impl.
 mod crypto;
+mod datagram;
 mod header;
 mod stream;
+pub use datagram::VmessDatagram;
 pub use header::{ClientHandshake, Command, VmessIdentity};
-pub use stream::VmessStream;
+pub use stream::{MAX_PACKET_BYTES, VmessStream};
 
 use std::io;
 

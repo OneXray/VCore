@@ -4,6 +4,63 @@ use crate::session::Destination;
 use bytes::{BufMut as _, BytesMut};
 use std::io;
 
+/// Packetaddr uses address-first IPv4=1 / IPv6=2, with no domain wire form.
+/// The caller must resolve business domains through its controlled context.
+pub fn encode_packet_addr(destination: &Destination, output: &mut BytesMut) -> io::Result<()> {
+    let Destination::Ip(address) = destination else {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "packetaddr requires an IP",
+        ));
+    };
+    if address.port() == 0 {
+        return Err(io::ErrorKind::InvalidInput.into());
+    }
+    match address.ip() {
+        std::net::IpAddr::V4(ip) => {
+            output.put_u8(1);
+            output.extend_from_slice(&ip.octets());
+        }
+        std::net::IpAddr::V6(ip) => {
+            output.put_u8(2);
+            output.extend_from_slice(&ip.octets());
+        }
+    }
+    output.put_u16(address.port());
+    Ok(())
+}
+
+pub fn decode_packet_addr(input: &[u8]) -> io::Result<(Destination, usize)> {
+    let invalid = || io::Error::new(io::ErrorKind::InvalidData, "invalid packetaddr address");
+    let (ip, length) = match input.first() {
+        Some(1) => (
+            std::net::IpAddr::V4(std::net::Ipv4Addr::from(
+                <[u8; 4]>::try_from(input.get(1..5).ok_or_else(invalid)?).map_err(|_| invalid())?,
+            )),
+            5,
+        ),
+        Some(2) => (
+            std::net::IpAddr::V6(std::net::Ipv6Addr::from(
+                <[u8; 16]>::try_from(input.get(1..17).ok_or_else(invalid)?)
+                    .map_err(|_| invalid())?,
+            )),
+            17,
+        ),
+        _ => return Err(invalid()),
+    };
+    let port = u16::from_be_bytes(
+        input
+            .get(length..length + 2)
+            .ok_or_else(invalid)?
+            .try_into()
+            .map_err(|_| invalid())?,
+    );
+    if port == 0 {
+        return Err(invalid());
+    }
+    Ok((std::net::SocketAddr::new(ip, port).into(), length + 2))
+}
+
 pub fn encode_port_first(destination: &Destination, output: &mut BytesMut) -> io::Result<()> {
     output.put_u16(destination.port());
     match destination {

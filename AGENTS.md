@@ -22,6 +22,7 @@ Read the relevant document completely before changing that area:
 - Unix TUN fd ownership or packet I/O: `docs/tun-platform.md`.
 - Windows VPN/TUN, outbound binding, AppContainer packet buffers, or package lifecycle: `docs/windows-vpn.md`, `docs/windows-session-runtime.md`, and `docs/tun-platform.md`.
 - Build, validation, or interoperability tooling: `scripts/README.md` and the unified `vcore-scripts` interface.
+- Server-side tests: `docs/testing-isolation.md`. All new server peers and network origins must run in isolated containers; never fall back to native host servers.
 - Claims that something passed: `docs/acceptance.md`. Record only commands and environments actually executed; host tests and cross-builds do not prove physical-device data paths.
 
 # Architecture Boundaries

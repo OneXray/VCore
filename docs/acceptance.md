@@ -5,6 +5,7 @@
 
 ## 证据规则
 
+- 后续服务端和测试原站必须遵守[容器隔离规则](testing-isolation.md)。历史宿主测试仅为历史证据，未迁移的用例不得回退宿主执行。
 - 主机测试、交叉编译、模拟器和虚拟网络不能替代对应物理 TUN 或安装包证据。
 - x64 模拟不能替代原生 x64；VPN 双栈接口不能替代真实物理 IPv6。
 - 外网吞吐与进程间通信基准各自独立，不能相互替代。
@@ -36,6 +37,10 @@
 [N2 Trojan](acceptance/next-protocols/N2.md)于同日完成 TCP/UDP 与 TCP/WS/gRPC 生产接线及阶段签收：41 组 required、18 个适用字段、120 轮生命周期/资源检查、独立 coverage、旧协议回归及 Apple/Android Release 构建通过。Mihomo listener 是默认对端，域名 UDP 缺口由 Xray、扩展 WS ED 由 V2Ray 单独补验并保留原失败。配置修订升至 15，Invoke v5 不变；不抵扣 N3–N10、Windows 原生、真机或发布。
 
 同日 N3 已实现独立 feature 下的 [VMess AEAD wire 层](acceptance/next-protocols/N3-wire.md)，Mihomo TCP/WS/gRPC 的明文/TLS 消费者测试通过。[V2Ray HTTP/H2 半关闭诊断](acceptance/next-protocols/N3-close-blocker.md)在官方 Mihomo 客户端对照中也复现；用户已取消“非 XHTTP 均必须收到半关闭尾包”的统一要求，改为按实际传输对齐 Mihomo 行为、优先与 Mihomo 服务端互通。旧失败不改记 PASS，不再仅因此阻塞；正常数据和关闭对齐分开复验。N3 **未完成**；VMess YAML、UDP、运行时、默认 feature 与平台交付均未签收。
+
+后续 [N3 UDP 工作记录](acceptance/next-protocols/N3-udp-progress.md)保留了原生端容量差异、Mihomo 首包/响应超时和进行中的修正。[客户端对照诊断](acceptance/next-protocols/N3-udp-client-differential.md)已用官方 Mihomo 客户端复现超时，并通过受控端口实验确认一类本机回环保护误判；另有独立 socket 探针复现双栈同号端口的回包反射。未修改生产实现或第三方代码，不将全部历史失败强行归因；这些不是半关闭失败，也不能由新的关闭契约抵扣。UDP 完整验收仍未通过，相关工作尚未提交。
+
+隔离规则生效后，[N3 容器 UDP 复测](acceptance/next-protocols/N3-udp-containers.md)将官方服务端、官方对照客户端入口和 UDP 原站全部放入独立容器，并修正测试驱动的来源端口复用。TCP/WS/gRPC 明文/TLS、三编码、13 body 配置、三目标类型及实际大包边界合计 2,808 个关联、1,404,000 次请求/回包通过；正常清理和独立 SIGINT 清理均有证据。历史 FAIL 不改写，不修改第三方或关闭保护；这仍不抵扣 HTTP/H2、UDP 负例/取消/来源隔离、公开接线和 N3 完整阶段门禁。
 
 当前 source/tests 覆盖：
 

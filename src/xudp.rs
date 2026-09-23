@@ -244,7 +244,7 @@ impl DatagramTransport for XudpTransport {
         let frame = encode_data_frame(
             &datagram,
             self.first_write,
-            if self.first_write {
+            if self.first_write && self.global_id != [0; 8] {
                 Some(self.global_id)
             } else {
                 None

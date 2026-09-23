@@ -7,6 +7,55 @@ use vcore::{
     session::Destination,
 };
 
+#[tokio::test]
+async fn xudp_zero_global_id_omits_the_optional_extension_like_mihomo() {
+    use tokio::io::AsyncReadExt;
+    use vcore::{dispatch::DatagramTransport, session::Datagram, xudp::XudpTransport};
+    let (io, mut peer) = tokio::io::duplex(128);
+    let mut transport = XudpTransport::new(Box::new(io), [0; 8], 1500);
+    transport
+        .send(Datagram {
+            remote: "1.2.3.4:53".parse::<std::net::SocketAddr>().unwrap().into(),
+            payload: bytes::Bytes::from_static(&[7]),
+            sniffed_domain: None,
+        })
+        .await
+        .unwrap();
+    let mut wire = [0; 17];
+    peer.read_exact(&mut wire).await.unwrap();
+    assert_eq!(wire, [0, 12, 0, 0, 1, 1, 2, 0, 53, 1, 1, 2, 3, 4, 0, 1, 7]);
+}
+
+#[test]
+fn packetaddr_has_ip_only_address_first_wire_and_rejects_truncation() {
+    use vcore::outbound::address::{decode_packet_addr, encode_packet_addr};
+    let peer = Destination::Ip("1.2.3.4:53".parse().unwrap());
+    let mut wire = bytes::BytesMut::new();
+    encode_packet_addr(&peer, &mut wire).unwrap();
+    assert_eq!(&wire[..], &[1, 1, 2, 3, 4, 0, 53]);
+    assert_eq!(decode_packet_addr(&wire).unwrap(), (peer, 7));
+    let peer = Destination::Ip("[::1]:443".parse().unwrap());
+    wire.clear();
+    encode_packet_addr(&peer, &mut wire).unwrap();
+    assert_eq!(
+        &wire[..],
+        &[2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 187]
+    );
+    assert_eq!(decode_packet_addr(&wire).unwrap(), (peer, 19));
+    for length in 0..19 {
+        assert!(decode_packet_addr(&wire[..length]).is_err());
+    }
+    assert!(decode_packet_addr(&[3, 0, 0]).is_err());
+    assert!(decode_packet_addr(&[1, 1, 2, 3, 4, 0, 0]).is_err());
+    assert!(
+        encode_packet_addr(
+            &Destination::domain("fixture.invalid", 53).unwrap(),
+            &mut bytes::BytesMut::new()
+        )
+        .is_err()
+    );
+}
+
 #[test]
 fn vmess_aead_requests_are_fresh_bounded_and_redacted() {
     let identity = VmessIdentity::new(uuid::Uuid::from_bytes([7; 16]));

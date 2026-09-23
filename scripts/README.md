@@ -9,6 +9,8 @@ uv run --project scripts --locked vcore-scripts --help
 
 运行时只使用 Python 标准库；`ruff` 是由 `uv.lock` 固定的开发依赖。
 
+所有后续服务端测试遵守[服务端测试隔离规则](../docs/testing-isolation.md)：协议对端、测试原站和对照客户端的服务入口均在隔离容器中运行。以下历史入口未完成全链路容器化时只能作为历史说明，不能直接运行或回退到宿主服务端；旧 `--container` 不自动代表原站也已隔离。
+
 Mihomo 下载产物统一放在 VCore 仓库内、被 Git 忽略的 `target/interop/`。测试脚本不推断项目外目录布局；历史专用入口需要外部源码目录或配置文件时，必须显式传入。旧 Xray 二进制仍通过 `XRAY_BIN` 或标准 `PATH` 定位。
 
 ## 平台构建
@@ -89,6 +91,19 @@ uv run --project scripts --locked python -m vcore_scripts.protocol_vmess_close t
 ```
 
 后一个命令仅表示对照数据采集和自建进程清理是否完成；尾包结果逐项保留在 JSON，退出 0 不表示半关闭或 N3 验收通过。已确认的 Mihomo 对齐规则与历史诊断见 [N3 关闭行为记录](../docs/acceptance/next-protocols/N3-close-blocker.md)。
+
+N3 UDP 同参数客户端对照现已全链路容器化，仍是独立诊断，不是阶段门禁：
+
+```sh
+uv run --project scripts --locked python -m vcore_scripts.protocol_vmess_udp_ab \
+  target/interop/runs/<new-udp-ab-run> --rounds 2 --packets 100 --sizes 1 64 512 1200
+```
+
+需要已运行的 Apple Container 及带 `purpose=vcore-mihomo-interop` 标签的同名 host-only 网络。每轮重新下载官方最新 Linux ARM64 Mihomo，刷新官方 `python:3-alpine` 镜像并记录 digest；每个传输使用独立的服务端、官方对照客户端和 UDP 原站三个容器，不发布宿主端口。所有 IPv4/IPv6/域名原站均来自容器，虚拟 IPv6 不代表物理链路。默认三编码 × 13 body 配置 × 三地址类型 × TCP/WS/gRPC 明文/TLS，2轮、每大小100包；省略 `--sizes` 或使用 `--include-boundary` 时追加实际负载边界：raw/XUDP 15000字节，packetaddr 从15000中扣除7/19字节地址头（域名按可解析为IPv6的预算保守计算）。服务端回环保护和默认 socket 行为不变，send/原站观测/reply 各1秒、不重试业务包。
+
+原站在容器内自主 echo，经单独的只读 TCP 观察流传回实际收到的字节供测试比对；宿主不再负责 UDP 回包。此拓扑变化单独记录，旧的宿主 `--collision-probe` / `--socket-probe` 入口明确返回 BLOCKED（非零），不能用它们继续启动宿主原站。其他 wire/close/旧诊断入口尚未容器化，不在本次入口覆盖范围内。历史结论与未归因失败见 [UDP 客户端差分](../docs/acceptance/next-protocols/N3-udp-client-differential.md)。
+
+官方对照客户端的 SOCKS UDP 入口按来源 tuple 缓存关联；测试驱动为每个独立用例保留独立 UDP 来源 socket，直到该传输组结束才释放，避免快速复用端口继承其他用例的目标/编码。`--nat-reuse-probe` 在全容器服务拓扑中专门复现该机制：旧原站收到新用例报文、新原站未收到、独立来源对照通过；预期复现记为 REPRODUCED 并返回非零，不计入正常互通 PASS。历史未记录入口来源端口的失败不据此全部追认原因。
 
 `--case`可重复，`--protocol`与其取交集；未知、重复、矛盾或空选择拒绝。`--list`只列清单，不下载/启动；`--preflight`独立检查M/W/H/XR/V2，任一缺环境则非零并保留其他能力结果，不执行业务。W探测仅创建本轮唯一Apple Container VM，安装当前官方发行渠道工具、尝试内核WG及内外双栈；不会修改宿主VPN/路由。完整N1只依赖自身实际使用的M/V2，W/H/XR的未来能力不足不伪造通过，也不阻塞无关case。版本命令就绪不证明H跳端口或XR具体协议模式已验证。
 

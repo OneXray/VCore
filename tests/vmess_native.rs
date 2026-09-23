@@ -17,6 +17,41 @@ use vcore::{
 const UUID: uuid::Uuid = uuid::Uuid::from_bytes([7; 16]);
 const PAYLOAD_BYTES: usize = 10 * 1024 * 1024;
 
+#[path = "vmess_native/udp_ab.rs"]
+mod udp_ab;
+
+fn native_udp_budget(
+    fixture: &serde_json::Value,
+    codec: &str,
+    cipher: BodyCipher,
+    padding: bool,
+    length: bool,
+    family: &str,
+) -> usize {
+    let host = fixture["udp_path_limit"].as_u64().unwrap() as usize;
+    if fixture["peer_kind"] != "V2" {
+        return host;
+    }
+    // Official V2Ray 5.53's packet writer is bounded by its 2048-byte
+    // buffer. Mux data is framed outside the body packet boundary; raw and
+    // packetaddr must leave room for VMess length, tag and maximum padding.
+    // This is a native-fixture budget, never a production protocol limit.
+    if codec == "xudp" {
+        return host.min(2048);
+    }
+    let overhead = if cipher == BodyCipher::None {
+        2
+    } else {
+        16 + if length { 18 } else { 2 } + if padding { 63 } else { 0 }
+    };
+    let address = if codec == "packetaddr" {
+        if family == "ipv6" { 19 } else { 7 }
+    } else {
+        0
+    };
+    host.min(2048 - overhead - address)
+}
+
 fn event_for(assertion: &str, status: &str) {
     use std::io::Write;
     let path = std::env::var("VCORE_CASE_EVENTS").expect("owned harness events");
@@ -248,6 +283,285 @@ async fn native_cipher_matrix() {
         }
     }
     event_for("native_cipher_matrix", "PASS");
+}
+
+#[tokio::test]
+#[ignore = "requires owned official native peer"]
+async fn native_raw_udp_boundaries() {
+    use vcore::{
+        dispatch::{DatagramBudget, DatagramTransport},
+        outbound::vmess::VmessDatagram,
+        session::Datagram,
+    };
+    event_for("native_raw_udp_boundaries", "BEGIN");
+    let peer: SocketAddr = std::env::var("VCORE_VMESS_PEER").unwrap().parse().unwrap();
+    let fixture: serde_json::Value =
+        serde_json::from_str(&std::env::var("VCORE_VMESS_TRANSPORT").unwrap()).unwrap();
+    for cipher in [
+        BodyCipher::None,
+        BodyCipher::Auto,
+        BodyCipher::Aes128Gcm,
+        BodyCipher::Chacha20Poly1305,
+    ] {
+        for padding in [false, true] {
+            for length in [false, true] {
+                if cipher == BodyCipher::None && (padding || length) {
+                    continue;
+                }
+                for family in ["ipv4", "ipv6", "domain"] {
+                    let path_limit =
+                        native_udp_budget(&fixture, "raw", cipher, padding, length, family);
+                    println!(
+                        "raw UDP: {cipher:?} padding={padding} length={length} target={family}"
+                    );
+                    tokio::time::timeout(Duration::from_secs(15), async {
+                        let origin = tokio::net::UdpSocket::bind(if family == "ipv6" {
+                            "[::1]:0"
+                        } else {
+                            "127.0.0.1:0"
+                        })
+                        .await
+                        .unwrap();
+                        let address = origin.local_addr().unwrap();
+                        let target = if family == "domain" {
+                            Destination::domain("vcore-fixture.test", address.port()).unwrap()
+                        } else {
+                            address.into()
+                        };
+                        let (client, driver) =
+                            wire_stream(peer, target.clone(), cipher, padding, length, Command::Udp)
+                                .await
+                                .unwrap();
+                        let mut client = VmessDatagram::raw(client, target.clone(), DatagramBudget::new(path_limit as u16, path_limit as u16));
+                        for size in [1, 64, 512, 1200, path_limit] {
+                            println!("raw UDP size={size}");
+                            for sequence in 0..100 {
+                                let packet = vec![sequence as u8; size];
+                                client.send(Datagram { remote: target.clone(), payload: packet.clone().into(), sniffed_domain: None }).await.unwrap();
+                                let mut received = vec![0; 16000];
+                                let (n, source) = tokio::time::timeout(
+                                    Duration::from_secs(1),
+                                    origin.recv_from(&mut received),
+                                )
+                                .await
+                                .unwrap_or_else(|_| panic!("native UDP origin deadline: size={size} sequence={sequence}"))
+                                .unwrap();
+                                assert_eq!(n, size, "raw UDP origin length, sequence={sequence}");
+                                assert!(received[..n] == packet, "raw UDP origin content, size={size} sequence={sequence}");
+                                origin.send_to(&received[..n], source).await.unwrap();
+                                let echo = tokio::time::timeout(
+                                    Duration::from_secs(1),
+                                    client.receive(),
+                                )
+                                .await
+                                .expect("native UDP response deadline")
+                                .unwrap();
+                                assert_eq!(echo.remote, target);
+                                assert_eq!(echo.payload.len(), size, "raw UDP response length, sequence={sequence}");
+                                assert!(echo.payload == packet, "raw UDP response content, size={size} sequence={sequence}");
+                            }
+                        }
+                        assert!(client.send(Datagram { remote: target, payload: vec![0; path_limit + 1].into(), sniffed_domain: None }).await.is_err());
+                        assert!(
+                            tokio::time::timeout(
+                                Duration::from_millis(30),
+                                origin.recv_from(&mut [0; 16000])
+                            )
+                            .await
+                            .is_err()
+                        );
+                        drop(client);
+                        if let Some(driver) = driver {
+                            driver.stop().await.unwrap();
+                        }
+                    })
+                    .await
+                    .expect("native UDP matrix deadline");
+                }
+            }
+        }
+    }
+    event_for("native_raw_udp_boundaries", "PASS");
+}
+
+#[tokio::test]
+#[ignore = "requires owned official native peer"]
+async fn native_encoded_udp_boundaries() {
+    use bytes::Bytes;
+    use vcore::{
+        dispatch::{DatagramBudget, DatagramTransport},
+        dns::resolution::ResolutionContext,
+        outbound::vmess::VmessDatagram,
+        session::Datagram,
+    };
+    event_for("native_encoded_udp_boundaries", "BEGIN");
+    let peer: SocketAddr = std::env::var("VCORE_VMESS_PEER").unwrap().parse().unwrap();
+    let fixture: serde_json::Value =
+        serde_json::from_str(&std::env::var("VCORE_VMESS_TRANSPORT").unwrap()).unwrap();
+    for codec in ["xudp", "packetaddr"] {
+        for cipher in [
+            BodyCipher::None,
+            BodyCipher::Auto,
+            BodyCipher::Aes128Gcm,
+            BodyCipher::Chacha20Poly1305,
+        ] {
+            for padding in [false, true] {
+                for length in [false, true] {
+                    if cipher == BodyCipher::None && (padding || length) {
+                        continue;
+                    }
+                    for family in ["ipv4", "ipv6", "domain"] {
+                        let maximum =
+                            native_udp_budget(&fixture, codec, cipher, padding, length, family);
+                        println!(
+                            "encoded UDP: {codec} {cipher:?} padding={padding} length={length} target={family}"
+                        );
+                        tokio::time::timeout(Duration::from_secs(15), async {
+                            let origin = tokio::net::UdpSocket::bind(if family == "ipv6" {
+                                "[::1]:0"
+                            } else {
+                                "127.0.0.1:0"
+                            })
+                            .await
+                            .unwrap();
+                            let address = origin.local_addr().unwrap();
+                            let target = if family == "domain" {
+                                Destination::domain("vcore-fixture.test", address.port()).unwrap()
+                            } else {
+                                address.into()
+                            };
+                            let (command, magic) = if codec == "xudp" {
+                                (Command::Mux, "v1.mux.cool")
+                            } else {
+                                (Command::Udp, "sp.packet-addr.v2fly.arpa")
+                            };
+                            let (client, driver) = wire_stream(
+                                peer,
+                                Destination::domain(magic, 443).unwrap(),
+                                cipher,
+                                padding,
+                                length,
+                                command,
+                            )
+                            .await
+                            .unwrap();
+                            let resolver = std::sync::Arc::new(FixtureResolver(
+                                std::sync::atomic::AtomicUsize::new(0),
+                            ));
+                            let mut transport: Box<dyn DatagramTransport> = if codec == "xudp" {
+                                Box::new(vcore::xudp::XudpTransport::new(
+                                    Box::new(client),
+                                    [0; 8],
+                                    maximum as u16,
+                                ))
+                            } else {
+                                Box::new(VmessDatagram::packet_addr(
+                                    client,
+                                    DatagramBudget::new(maximum as u16, maximum as u16),
+                                    ResolutionContext::measurement(resolver.clone(), true),
+                                ))
+                            };
+                            for size in [1, 64, 512, 1200, maximum] {
+                                println!("encoded UDP size={size}");
+                                for sequence in 0..100 {
+                                    let packet = vec![sequence as u8; size];
+                                    transport
+                                        .send(Datagram {
+                                            remote: target.clone(),
+                                            payload: Bytes::from(packet.clone()),
+                                            sniffed_domain: None,
+                                        })
+                                        .await
+                                        .unwrap();
+                                    let mut incoming = vec![0; 16000];
+                                    let (n, source) = tokio::time::timeout(
+                                        Duration::from_secs(1),
+                                        origin.recv_from(&mut incoming),
+                                    )
+                                    .await
+                                    .unwrap_or_else(|_| panic!("encoded UDP origin deadline: size={size} sequence={sequence}"))
+                                    .unwrap();
+                                    assert_eq!(n, size, "encoded UDP origin length, sequence={sequence}");
+                                    assert!(incoming[..n] == packet, "encoded UDP origin content, size={size} sequence={sequence}");
+                                    origin.send_to(&incoming[..n], source).await.unwrap();
+                                    let response = tokio::time::timeout(
+                                        Duration::from_secs(1),
+                                        transport.receive(),
+                                    )
+                                    .await
+                                    .unwrap_or_else(|_| panic!("encoded UDP response deadline: size={size} sequence={sequence}"))
+                                    .unwrap();
+                                    assert_eq!(response.payload.len(), size, "encoded UDP response length, sequence={sequence}");
+                                    assert!(response.payload == packet, "encoded UDP response content, size={size} sequence={sequence}");
+                                    assert_eq!(response.remote.port(), address.port());
+                                    if family != "domain" || codec == "packetaddr" {
+                                        assert_eq!(response.remote, address.into());
+                                    }
+                                }
+                            }
+                            assert_eq!(
+                                resolver.0.load(std::sync::atomic::Ordering::SeqCst),
+                                if family == "domain" && codec == "packetaddr" {
+                                    500
+                                } else {
+                                    0
+                                }
+                            );
+                            let oversized = transport.send(Datagram {
+                                remote: target.clone(), payload: vec![0; maximum + 1].into(), sniffed_domain: None,
+                            }).await;
+                            if codec == "packetaddr" {
+                                assert!(oversized.is_err());
+                            } else {
+                                // XUDP's stream can carry a larger payload, but
+                                // this native peer drops packets above its own
+                                // socket / mux packet buffer capacity.
+                                oversized.unwrap();
+                            }
+                            assert!(tokio::time::timeout(Duration::from_millis(30), origin.recv_from(&mut [0; 16000])).await.is_err());
+                            if codec == "packetaddr" {
+                                transport.close().await.unwrap();
+                            } else {
+                                // The deliberately oversized mux packet may
+                                // make the peer reset its stream. Both outcomes
+                                // are valid rejection; Drop must still release
+                                // the stream and the driver is joined below.
+                                let _ = transport.close().await;
+                            }
+                            drop(transport);
+                            if let Some(driver) = driver {
+                                driver.stop().await.unwrap();
+                            }
+                        })
+                        .await
+                        .expect("encoded UDP matrix deadline");
+                    }
+                }
+            }
+        }
+    }
+    event_for("native_encoded_udp_boundaries", "PASS");
+}
+
+struct FixtureResolver(std::sync::atomic::AtomicUsize);
+#[async_trait::async_trait]
+impl vcore::dialer::Resolver for FixtureResolver {
+    async fn resolve(&self, host: &str, port: u16) -> io::Result<ResolvedEndpoint> {
+        assert_eq!(
+            host, "vcore-fixture.test",
+            "internal magic names must not be resolved"
+        );
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let address = std::env::var("VCORE_VMESS_ORIGIN_V4")
+            .unwrap_or_else(|_| "127.0.0.1".into())
+            .parse::<std::net::IpAddr>()
+            .map_err(|_| io::Error::other("invalid fixture resolver address"))?;
+        Ok(ResolvedEndpoint {
+            logical_host: host.into(),
+            port,
+            addresses: vec![SocketAddr::new(address, port)],
+        })
+    }
 }
 
 #[tokio::test]

@@ -22,6 +22,9 @@ const MAX_BODY_WIRE: usize = 16 * 1024;
 // Larger first chunks leave a cache tail which sing's switch to an MTU-sized
 // ReadBuffer can skip. This shapes only our wire, never third-party source.
 const WRITE_CHUNK: usize = 4 * 1024;
+/// One intact UDP body; native Mihomo's writer chunks at 15,000 bytes.
+/// TCP uses smaller pieces, but splitting a UDP body would change its meaning.
+pub const MAX_PACKET_BYTES: usize = 15_000;
 
 struct BodyCodec {
     options: BodyOptions,
@@ -32,6 +35,7 @@ struct BodyCodec {
     mask: shake::Shake128Reader,
     counter: u32,
     framed: bool,
+    write_limit: usize,
 }
 
 impl BodyCodec {
@@ -55,6 +59,11 @@ impl BodyCodec {
             mask: mask.finalize_xof(),
             counter: 0,
             framed: options.cipher != BodyCipher::None || command == Command::Udp,
+            write_limit: if command == Command::Udp {
+                MAX_PACKET_BYTES
+            } else {
+                WRITE_CHUNK
+            },
         }
     }
     fn overhead(&self) -> usize {
@@ -93,7 +102,7 @@ impl BodyCodec {
         }
     }
     fn encode(&mut self, plain: &[u8]) -> io::Result<Bytes> {
-        if plain.len() > WRITE_CHUNK {
+        if plain.len() > self.write_limit {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "VMess chunk exceeds limit",
@@ -352,7 +361,10 @@ impl VmessStream {
         Poll::Ready(Ok(()))
     }
     pub async fn send_packet(&mut self, payload: &[u8]) -> io::Result<()> {
-        if payload.is_empty() || payload.len() > WRITE_CHUNK {
+        if self.shutdown {
+            return Err(io::ErrorKind::BrokenPipe.into());
+        }
+        if payload.is_empty() || payload.len() > self.write.write_limit {
             return Err(io::ErrorKind::InvalidInput.into());
         }
         use tokio::io::AsyncWriteExt;

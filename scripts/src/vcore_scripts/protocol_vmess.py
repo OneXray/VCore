@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import socket
 import sys
 import tempfile
 from pathlib import Path
@@ -18,6 +19,8 @@ from .protocol_preflight import preflight
 from .protocol_streams import certificates
 
 CASES = {"N3-M-IDENTITY": ("M", "tcp", False, "native_identity_time_replay_rejection")}
+CASES["N3-M-RAW-UDP"] = ("M", "tcp", False, "native_raw_udp_boundaries")
+CASES["N3-M-ENCODED-UDP"] = ("M", "tcp", False, "native_encoded_udp_boundaries")
 for _mode in ("tcp", "ws", "grpc", "http", "h2"):
     for _tls in (False, True):
         _kind = "V2" if _mode in {"http", "h2"} else "M"
@@ -33,6 +36,27 @@ for _mode in ("tcp", "ws", "grpc", "http", "h2"):
             _tls,
             "native_mihomo_close_alignment",
         )
+        if _mode != "tcp" or _tls:
+            for _encoding in ("raw", "encoded"):
+                CASES[
+                    f"N3-{_kind}-{_mode.upper()}-{'TLS' if _tls else 'PLAIN'}"
+                    f"-{_encoding.upper()}-UDP"
+                ] = (
+                    _kind,
+                    _mode,
+                    _tls,
+                    f"native_{_encoding}_udp_boundaries",
+                )
+
+
+def udp_path_limit():
+    # The native peer and the echo endpoint use ordinary host UDP sockets.
+    # Darwin enforces the default send-buffer size as a datagram ceiling;
+    # measure it without changing host sysctls or the peer's socket options.
+    if sys.platform == "darwin":
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+            return min(15000, probe.getsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF))
+    return 15000
 
 
 def peer_config(kind, mode, encrypted, port, cert, key):
@@ -104,6 +128,7 @@ def run(output: Path, selected=None):
         "source": source_identity(),
         "status": "NOT RUN",
         "cases": [],
+        "udp_path_limit": udp_path_limit(),
     }
     try:
         artifacts, report["preflight"] = preflight(
@@ -161,7 +186,13 @@ def run(output: Path, selected=None):
                             os.environ,
                             VCORE_VMESS_PEER=f"127.0.0.1:{port}",
                             VCORE_VMESS_TRANSPORT=json.dumps(
-                                dict(mode=mode, tls=encrypted, pin=pin)
+                                dict(
+                                    mode=mode,
+                                    tls=encrypted,
+                                    pin=pin,
+                                    peer_kind=kind,
+                                    udp_path_limit=report["udp_path_limit"],
+                                )
                             ),
                             VCORE_CASE_EVENTS=str(events),
                         ),
