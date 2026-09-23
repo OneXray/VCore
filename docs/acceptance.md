@@ -25,11 +25,13 @@
 
 [N1 基础与实验依赖更新](acceptance/next-protocols/N1-foundation-dependencies.md)继续升级基础库、smoltcp、WS/HPKE实验和兼容补丁锁，记录已批准的Windows SDK配套例外。全Debug/Release、全目标Clippy、真实对端回归和Apple/Android构建通过；不抵扣完整N1、新协议、真机或Windows原生门禁。
 
-[N1 声明清单校验](acceptance/next-protocols/N1-catalogs.md)提供 `check protocol-coverage --catalog-only`，冻结145字段/69组合ID并检查引用、归属及必要元数据。有效结果为 `VALID / NOT RUN`，不是字段行为PASS；具体case/运行报告覆盖、资源观测和完整N1仍待实现。
+[N1 声明清单校验](acceptance/next-protocols/N1-catalogs.md)提供 `check protocol-coverage --catalog-only`，冻结145字段/69组合ID并检查引用、归属及必要元数据。有效结果为 `VALID / NOT RUN`，不是字段行为PASS；后续可执行case与运行结果单独签收。
 
 [N1.2 共享安全机制](acceptance/next-protocols/N1-security.md)增加类型化名称/ALPN/mTLS策略与不可变身份缓存隔离，并将标准TLS CloseWrite对齐Mihomo。未新增公开配置字段，独立接口测试不抵扣后续新协议字段互通。
 
-[N1.3 共享流传输](acceptance/next-protocols/N1-stream.md)提供WS/gRPC/HTTP/legacy H2与独立XUDP帧层；15项定向测试、9项官方Mihomo/V2Ray传输用例、旧协议扩展互通及Apple/Android构建通过。新协议YAML、数据报/DNS和完整N1执行门禁仍未签收。
+[N1.3 共享流传输](acceptance/next-protocols/N1-stream.md)提供WS/gRPC/HTTP/legacy H2与独立XUDP帧层；15项定向测试、9项官方Mihomo/V2Ray传输用例、旧协议扩展互通及Apple/Android构建通过。该记录是独立历史子包，不代表新协议YAML已开放。
+
+[N1公共基础汇总](acceptance/next-protocols/N1.md)记录后续定向数据报预算、受控QUIC、runtime/测量resolver、测试作用域RAII观测、独立feature和统一执行/证据门禁。21组required/139项观察、Debug/Release、原生传输与旧协议回归通过；自有fork的密码依赖版本决定仍待确认，整体N1未签收。WireGuard预检仅因隔离内核缺设备类型而BLOCKED，不抵扣或阻塞无关公共机制。
 
 当前 source/tests 覆盖：
 

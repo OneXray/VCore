@@ -166,7 +166,13 @@ def _report(
     print(f"Official mihomo binary: {binary}", flush=True)
 
 
-def download_mihomo(target: str | None = None, *, release: str | None = None) -> Path:
+def download_mihomo(
+    target: str | None = None,
+    *,
+    release: str | None = None,
+    directory: Path | None = None,
+    identity: dict | None = None,
+) -> Path:
     """Download a fresh official archive and atomically publish its binary.
 
     Callers can share a freshly read version.txt tag for multiple architectures.
@@ -179,7 +185,11 @@ def download_mihomo(target: str | None = None, *, release: str | None = None) ->
         release = latest_release()
     tag = _release_tag(release)
     name, url = _asset(tag, target)
-    directory = CORE_DIR / "target/interop/mihomo" / tag / target
+    directory = (
+        directory
+        if directory is not None
+        else CORE_DIR / "target/interop/mihomo" / tag / target
+    )
     binary = directory / ("mihomo.exe" if target.startswith("windows-") else "mihomo")
     request = urllib.request.Request(
         url, headers={"User-Agent": "VCore-interop-scripts"}
@@ -208,4 +218,14 @@ def download_mihomo(target: str | None = None, *, release: str | None = None) ->
     ) as error:
         raise RuntimeError(f"cannot download official mihomo {tag}: {error}") from error
     _report(tag, name, url, archive_digest, digest, binary)
+    if identity is not None:
+        identity.update(
+            kind="M",
+            target=target,
+            release=tag,
+            asset=name,
+            source_url=url,
+            archive_sha256=archive_digest,
+            binary_sha256=digest,
+        )
     return binary

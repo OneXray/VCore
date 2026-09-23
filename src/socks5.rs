@@ -137,7 +137,7 @@ pub fn encode_udp_packet(
     Ok(packet)
 }
 
-fn encoded_address_size(destination: &Destination) -> Result<usize, Socks5CodecError> {
+pub(crate) fn encoded_address_size(destination: &Destination) -> Result<usize, Socks5CodecError> {
     match destination {
         Destination::Ip(SocketAddr::V4(_)) => Ok(1 + 4 + 2),
         Destination::Ip(SocketAddr::V6(_)) => Ok(1 + 16 + 2),

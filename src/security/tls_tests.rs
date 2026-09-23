@@ -192,6 +192,11 @@ async fn handshake(client: &StandardTlsClient, server: Arc<ServerConfig>) -> (bo
 
 #[tokio::test]
 async fn webpki_rejects_untrusted_wrong_name_and_expired_unless_explicitly_skipped() {
+    #[cfg(any(test, feature = "interop-test"))]
+    let mut _case = crate::resources::case_events::Case::new(
+        "N1-SECURITY",
+        "webpki_rejects_untrusted_wrong_name_and_expired_unless_explicitly_skipped",
+    );
     for expired in [false, true] {
         let chain = chain(expired);
         let server = server(&chain, &TLS13, false);
@@ -221,6 +226,11 @@ async fn webpki_rejects_untrusted_wrong_name_and_expired_unless_explicitly_skipp
 
 #[tokio::test]
 async fn leaf_pin_is_trust_but_nonleaf_pin_checks_chain_name_and_expiry() {
+    #[cfg(any(test, feature = "interop-test"))]
+    let mut _case = crate::resources::case_events::Case::new(
+        "N1-SECURITY",
+        "leaf_pin_is_trust_but_nonleaf_pin_checks_chain_name_and_expiry",
+    );
     for expired in [false, true] {
         let chain = chain(expired);
         let server = server(&chain, &TLS13, false);
@@ -293,6 +303,11 @@ fn super_server(chain: &Chain) -> Arc<ServerConfig> {
 
 #[tokio::test]
 async fn ticket_storage_obeys_exact_node_budget_and_consumes_each_ticket_once() {
+    #[cfg(any(test, feature = "interop-test"))]
+    let mut _case = crate::resources::case_events::Case::new(
+        "N1-SECURITY",
+        "ticket_storage_obeys_exact_node_budget_and_consumes_each_ticket_once",
+    );
     use crate::security::resumption::NodeSessionStore;
     use rustls::client::ClientSessionStore;
     let chain = chain(false);
@@ -336,6 +351,11 @@ async fn ticket_storage_obeys_exact_node_budget_and_consumes_each_ticket_once() 
 
 #[tokio::test]
 async fn every_certificate_policy_verifies_tls12_and_tls13_handshake_signatures() {
+    #[cfg(any(test, feature = "interop-test"))]
+    let mut _case = crate::resources::case_events::Case::new(
+        "N1-SECURITY",
+        "every_certificate_policy_verifies_tls12_and_tls13_handshake_signatures",
+    );
     let chain = chain(false);
     for version in [&TLS12, &TLS13] {
         for fingerprint in [None, Some(pin(&chain, 0)), Some(pin(&chain, 1))] {
@@ -353,6 +373,11 @@ async fn every_certificate_policy_verifies_tls12_and_tls13_handshake_signatures(
 
 #[tokio::test]
 async fn vless_keeps_webpki_tls13_and_required_h2_after_anytls_connections() {
+    #[cfg(any(test, feature = "interop-test"))]
+    let mut _case = crate::resources::case_events::Case::new(
+        "N1-SECURITY",
+        "vless_keeps_webpki_tls13_and_required_h2_after_anytls_connections",
+    );
     let chain = chain(false);
     let mut endpoint = server(&chain, &TLS13, false);
     Arc::get_mut(&mut endpoint).unwrap().alpn_protocols = vec![b"h2".to_vec()];
@@ -391,6 +416,11 @@ async fn vless_keeps_webpki_tls13_and_required_h2_after_anytls_connections() {
 
 #[tokio::test]
 async fn alpn_and_tls_resumption_are_isolated_between_node_policies() {
+    #[cfg(any(test, feature = "interop-test"))]
+    let mut _case = crate::resources::case_events::Case::new(
+        "N1-SECURITY",
+        "alpn_and_tls_resumption_are_isolated_between_node_policies",
+    );
     let chain = chain(false);
     let server = server(&chain, &TLS13, false);
     let context = trusted(&chain);
@@ -451,6 +481,11 @@ async fn alpn_and_tls_resumption_are_isolated_between_node_policies() {
 
 #[tokio::test]
 async fn explicit_verification_name_does_not_change_sni_or_allow_skip_to_override_it() {
+    #[cfg(any(test, feature = "interop-test"))]
+    let mut _case = crate::resources::case_events::Case::new(
+        "N1-SECURITY",
+        "explicit_verification_name_does_not_change_sni_or_allow_skip_to_override_it",
+    );
     let chain = chain(false);
     let context = trusted(&chain);
     for (name, skip, fingerprint, expected) in [
@@ -485,6 +520,11 @@ async fn explicit_verification_name_does_not_change_sni_or_allow_skip_to_overrid
 
 #[tokio::test]
 async fn mutual_tls_identity_is_required_verified_and_not_shared_between_clients() {
+    #[cfg(any(test, feature = "interop-test"))]
+    let mut _case = crate::resources::case_events::Case::new(
+        "N1-SECURITY",
+        "mutual_tls_identity_is_required_verified_and_not_shared_between_clients",
+    );
     let chain = chain(false);
     let identity = chain_with_usage(false, ExtendedKeyUsagePurpose::ClientAuth);
     let unknown = chain_with_usage(false, ExtendedKeyUsagePurpose::ClientAuth);
@@ -540,6 +580,11 @@ async fn mutual_tls_identity_is_required_verified_and_not_shared_between_clients
 
 #[test]
 fn tls_options_reject_invalid_alpn_identity_and_budget_before_using_a_stream() {
+    #[cfg(any(test, feature = "interop-test"))]
+    let mut _case = crate::resources::case_events::Case::new(
+        "N1-SECURITY",
+        "tls_options_reject_invalid_alpn_identity_and_budget_before_using_a_stream",
+    );
     let context = SecurityContext::new();
     for options in [
         TlsClientOptions {
@@ -590,6 +635,11 @@ fn tls_options_reject_invalid_alpn_identity_and_budget_before_using_a_stream() {
 
 #[tokio::test]
 async fn certificate_rejection_delivers_no_business_bytes_and_diagnostics_are_redacted() {
+    #[cfg(any(test, feature = "interop-test"))]
+    let mut _case = crate::resources::case_events::Case::new(
+        "N1-SECURITY",
+        "certificate_rejection_delivers_no_business_bytes_and_diagnostics_are_redacted",
+    );
     for fingerprint in [None, Some([0; 32])] {
         let chain = chain(false);
         let client = StandardTlsClient::with_options(
@@ -641,6 +691,11 @@ async fn certificate_rejection_delivers_no_business_bytes_and_diagnostics_are_re
 
 #[tokio::test]
 async fn tls_close_write_sends_notify_without_closing_the_supplied_transport() {
+    #[cfg(any(test, feature = "interop-test"))]
+    let mut _case = crate::resources::case_events::Case::new(
+        "N1-SECURITY",
+        "tls_close_write_sends_notify_without_closing_the_supplied_transport",
+    );
     let chain = chain(false);
     let client = client(&trusted(&chain), "fixture.invalid", Default::default());
     let (client_io, server_io) = tokio::io::duplex(4096);
@@ -684,6 +739,11 @@ async fn tls_close_write_sends_notify_without_closing_the_supplied_transport() {
 
 #[tokio::test]
 async fn tls_close_notify_flush_has_a_five_second_bound() {
+    #[cfg(any(test, feature = "interop-test"))]
+    let mut _case = crate::resources::case_events::Case::new(
+        "N1-SECURITY",
+        "tls_close_notify_flush_has_a_five_second_bound",
+    );
     let chain = chain(false);
     let client = client(&trusted(&chain), "fixture.invalid", Default::default());
     let (client_io, server_io) = tokio::io::duplex(128);
@@ -713,6 +773,11 @@ async fn tls_close_notify_flush_has_a_five_second_bound() {
 
 #[tokio::test]
 async fn cancelling_tls_handshake_releases_the_caller_supplied_stream() {
+    #[cfg(any(test, feature = "interop-test"))]
+    let mut _case = crate::resources::case_events::Case::new(
+        "N1-SECURITY",
+        "cancelling_tls_handshake_releases_the_caller_supplied_stream",
+    );
     let (client_io, mut peer) = tokio::io::duplex(4096);
     let client = client(&SecurityContext::new(), "example.com", Default::default());
     let connect = tokio::spawn(async move { client.connect(Box::new(client_io)).await });

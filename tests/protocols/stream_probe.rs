@@ -298,12 +298,19 @@ async fn main() {
         .nth(1)
         .and_then(|path| std::fs::read(path).ok())
         .and_then(|bytes| serde_json::from_slice(&bytes).ok());
-    let report = match config {
-        Some(config) => run(config).await,
+    let resources = vcore::resources::observation::ResourceProbe::default();
+    let mut report = match config {
+        Some(config) => resources.scope(run(config)).await,
         None => json!({"outcome":"invalid_fixture"}),
     };
+    let stopped = resources.snapshot();
+    report["resources_idle"] = json!(stopped.is_idle());
+    report["resources"] = serde_json::to_value(stopped).unwrap();
     println!("{report}");
-    if report["outcome"] != "pass" || report["driver_joined"] != true {
+    if report["outcome"] != "pass"
+        || report["driver_joined"] != true
+        || report["resources_idle"] != true
+    {
         std::process::exit(1);
     }
 }

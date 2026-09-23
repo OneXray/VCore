@@ -58,11 +58,32 @@ uv run --project scripts --locked ruff format --check scripts
 
 ### 协议声明清单
 
-`protocol-coverage` **当前仅实现 `--catalog-only` 模式**，该 flag 必填；没有默认的阶段签收模式。它只读本仓库 `tests/protocols/fields.json` 和 `combinations.json`，也可用 `--catalog-dir <directory>` 指定一份待检查副本。不读取清单所引用的源码、研究目录或 URL，不下载或启动对端。
+`protocol-coverage --catalog-only`只检查本仓库`tests/protocols/fields.json`和`combinations.json`声明，也可用`--catalog-dir <directory>`指定副本。不读取清单所引用的源码、研究目录或URL，不下载或启动对端。必须显式选择`--catalog-only`或下面的`--run-dir`结果模式。
 
 检查 schema-v1 的完整145字段/69组合家族ID、重复JSON键、字段/来源/对端/override引用、协议适用范围、阶段与子包归属、必要观察项/模式维度、负例拒绝阶段、原生未知项说明及64个有序上游组合声明。稳定ID的增删必须同时审查版本化清单及验证器契约，不能靠改自报数量绕过漏项。来源只接受无凭据/查询参数的HTTPS链接或无 `..` 的相对路径，不检查其内容或网络可用性。
 
-有效清单退出0，stdout为JSON，`status: VALID`、`behavior_status: NOT RUN`；无效清单退出1、stderr只报告诊断，不输出JSON原文；缺少模式参数退出2。声明中不能写入PASS等运行结果。这个结果**不是145项字段或69项互通通过**，不解析条件说明或自动生成笛卡尔积；具体case、逐字段断言、运行报告、资源观测和阶段验收仍待后续实现。当前生产能力仍以 `docs/config.yaml` 为准。验证记录见 [N1清单校验](../docs/acceptance/next-protocols/N1-catalogs.md)。
+有效清单退出0，stdout为JSON，`status: VALID`、`behavior_status: NOT RUN`；无效清单退出1、stderr只报告诊断，不输出JSON原文；缺少模式参数退出2。声明中不能写入PASS等运行结果。这个结果**不是145项字段或69项互通通过**，不解析条件说明或自动生成笛卡尔积。当前生产能力仍以`docs/config.yaml`为准。历史声明校验记录见[N1清单校验](../docs/acceptance/next-protocols/N1-catalogs.md)。
+
+### 阶段执行与原始证据检查
+
+```sh
+uv run --project scripts --locked vcore-scripts check protocol-interop --stage N1 --list
+uv run --project scripts --locked vcore-scripts check protocol-interop --stage N1 --case N1-QUIC
+uv run --project scripts --locked vcore-scripts check protocol-interop --stage N1 --protocol foundation --list
+uv run --project scripts --locked vcore-scripts check protocol-interop --stage N1 --preflight
+uv run --project scripts --locked vcore-scripts check protocol-interop --stage N1
+uv run --project scripts --locked vcore-scripts check protocol-coverage --stage N1 --run-dir target/interop/runs/<run-id>
+```
+
+统一入口目前只执行N1公共基础，`cases.json`冻结21组required case，逐组列出断言、字段关联、对端、期限和证据类型；`limits.json`引用可执行边界case，Rust测试核对真实常量。未来阶段没有可执行required集合时非零返回NOT RUN。N1通过不是新协议或完整字段签收，正式消费者仍在后续阶段实现。
+
+`--case`可重复，`--protocol`与其取交集；未知、重复、矛盾或空选择拒绝。`--list`只列清单，不下载/启动；`--preflight`独立检查M/W/H/XR/V2，任一缺环境则非零并保留其他能力结果，不执行业务。W探测仅创建本轮唯一Apple Container VM，安装当前官方发行渠道工具、尝试内核WG及内外双栈；不会修改宿主VPN/路由。完整N1只依赖自身实际使用的M/V2，W/H/XR的未来能力不足不伪造通过，也不阻塞无关case。版本命令就绪不证明H跳端口或XR具体协议模式已验证。
+
+每次创建`target/interop/runs/`下的新目录；`--run-dir`只能指定其下尚不存在的目录。记录`run.json`、`peers.json`、`cases.json`、`resources.jsonl`、脱敏日志和`summary.md`，并为原始事件/报告记录SHA-256。输入身份包括父提交、源码树（含未提交新文件）/diff/lock摘要、工具链、SDK、API/schema、features。执行期间源码变化不得签收；部分选择和预检不能通过完整阶段coverage。
+
+coverage重新校验必需case、结构化Rust断言、原生探针/目标回包、原始peer身份、离线脚本结果、命令退出/清理、资源基线/峰值/Stop/静默窗口和artifact内容摘要。不从stdout的PASS文字猜测通过；缺失/重复/未知case、CFG-only、FAIL/BLOCKED/NOT RUN、超时、清理失败均非零。原生Mihomo还执行注入调用方异常后的真实进程join和端口重绑，离线测试用真实SIGINT检查子进程回收且不停止无关进程。
+
+对端均重新下载官方latest，不查GitHub API、不从源码编译、不退回缓存；同轮M宿主/容器固定同一release。V2/XR下载官方zip，H下载官方可执行文件。版本/hash只是产物身份，不是官方签名验证。合成密钥/配置/私有日志留在本轮临时目录并清理，不进入保留报告。下载、解压、子进程输出、单case和整套执行均有界；失败报告保留，重新运行另建目录，不自动重试业务包。
 
 ## Windows tun2socks demo
 

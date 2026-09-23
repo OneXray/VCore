@@ -319,25 +319,42 @@ def _run_mihomo_interop(
         if containers:
             environment.update(containers.environment())
         try:
-            subprocess.run(
-                [
-                    "cargo",
-                    "test",
-                    "--locked",
-                    "--features",
-                    "ffi",
-                    "--test",
-                    "mihomo_interop",
-                    "--",
-                    "--ignored",
-                    "--nocapture",
-                    "--test-threads=1",
-                ],
-                cwd=CORE_DIR,
-                env=environment,
-                check=True,
-                timeout=300 + soak_seconds,
-            )
+            command = [
+                "cargo",
+                "test",
+                "--locked",
+                "--features",
+                "ffi,interop-test" if os.environ.get("VCORE_CASE_EVENTS") else "ffi",
+                "--test",
+                "mihomo_interop",
+                "--",
+                "--ignored",
+                "--nocapture",
+                "--test-threads=1",
+            ]
+            if os.environ.get("VCORE_CASE_EVENTS"):
+                from .protocol_peers import run_command
+
+                completed = run_command(
+                    command,
+                    cwd=CORE_DIR,
+                    env=environment,
+                    timeout=300 + soak_seconds,
+                    limit=4 * 1024 * 1024,
+                )
+                print(completed.stdout.decode("utf-8", errors="replace"), flush=True)
+                if completed.returncode != 0 or not completed.cleanup:
+                    raise subprocess.CalledProcessError(
+                        completed.returncode or 1, command
+                    )
+            else:
+                subprocess.run(
+                    command,
+                    cwd=CORE_DIR,
+                    env=environment,
+                    check=True,
+                    timeout=300 + soak_seconds,
+                )
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             for index in range(len(configs)):
                 print(f"Generated fixture peer {index} diagnostics (last 4096 bytes):")

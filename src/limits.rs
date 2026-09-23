@@ -1,5 +1,8 @@
 use crate::{Result, VCoreError};
 
+/// Fairness bound for control/discard work in one poll or receive iteration.
+pub const IO_POLL_BUDGET: usize = 32;
+
 /// Historical iOS TUN footprint target retained for best-effort telemetry.
 ///
 /// Crossing this value never changes a runtime lifecycle result.

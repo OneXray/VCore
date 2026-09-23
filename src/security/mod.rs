@@ -11,6 +11,7 @@ mod verifier;
 #[cfg(feature = "outbound-vless")]
 pub use client::{REALITY_CLIENT_VERSION, SecurityClient};
 pub use context::SecurityContext;
+pub use stream::CLOSE_NOTIFY_TIMEOUT;
 pub use tls::{
     StandardTlsClient, TLS_RESUMPTION_SESSION_BUDGET, TlsCertificatePolicy, TlsClientIdentity,
     TlsClientOptions, TlsVersions,

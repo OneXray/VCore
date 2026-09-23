@@ -74,6 +74,16 @@ TCP 每方向复制缓冲区 4 KiB，握手 10 秒。UDP 控制连接拥有授�
 
 嵌套代理协议可以增加有界帧头，但最终解封装负载仍不得超过调用方按有效 MTU 给出的上限；其他 TUN 平台为 1,452 字节，Windows 为 1,352 字节。
 
+### 定向数据报预算与受控 QUIC
+
+`DatagramBudget` 分别表达当前层的发送和接收 payload 上限。嵌套协议先为下层申请有界 envelope 空间，再按实际协议/地址族开销扣除下层能力，与调用方预算取交集；不能把接收上限直接当作发送能力。DIRECT、SOCKS5、SS 2022、AnyTLS UoT 和 VLESS XUDP 保留原来对端/地址校验。超出发送预算在写入前失败，超出接收预算丢当前包并有界让出执行权，close 后不能恢复收发。
+
+`quic-transport` 只把已有 `DatagramTransport` 适配成 Quinn 的受控 UDP 接口，没有内部 bind、DNS 或 DIRECT 回落。每个连接双向各最多32个排队数据报，另允许一个正在发送的包；TX满返回WouldBlock，RX满暂停读取。接收等待不会持有发送队列锁；Pending发送不会重复提交。单逻辑peer/物理peer映射和来源校验独立保留，不接受未请求的目标、GSO或源地址覆盖。物理 socket 仍只能来自 Dialer。
+
+QUIC双向可用payload至少1,200字节；endpoint必须显式把QUIC MTU限制在有效预算内。WireGuard公共计算接点扣除32字节数据包开销和16字节padding对齐，最终inner MTU至少1,280字节；这不是WireGuard协议已实现。IPv4/IPv6路径MTU分别先扣除28/48字节IP+UDP头，边界和单字节不足均有定向测试。
+
+QUIC owner.stop先取消并等待驱动，再关闭并释放上游；上游close最多1秒。Driver Drop仅为取消/abort兜底，不能作为同步Stop验收。队列容量是单连接局部界限，不是全局QUIC连接准入数。
+
 ## DNS
 
 - 不设置固定的活动请求或活动传输总许可数。
@@ -86,6 +96,8 @@ TCP 每方向复制缓冲区 4 KiB，握手 10 秒。UDP 控制连接拥有授�
 - 停止取消打开、发送、接收、重试和响应发送，并释放全部传输。
 
 完整语义见 [TUN ICMP 与 DNS](tun-icmp-dns.md)。
+
+IP-only协议接点持有`ResolutionContext`，runtime DNS通过Weak绑定，不形成DNS→dispatcher→connector强引用环。解析继承同次建链绝对期限和runtime取消；同名递归/超过32层解析依赖立即失败，32是单调用依赖深度而非并发请求额度。独立测速的受控bootstrap上下文不创建Running Session或RuntimeDns。
 
 ## 代理组与 Controller
 
@@ -123,6 +135,10 @@ Apple 目标通过 `TASK_VM_INFO` 尽力记录当前 physical footprint、进程
 运行时可记录 TCP、半开连接、UDP、握手和 DNS 的当前值/峰值，以及缓存命中、singleflight、队列丢弃、连接池回收、非法包和 ICMP 统计。
 
 日志必须有界且脱敏，不记录目标、DNS question、UUID、凭据、密钥、负载或完整配置。
+
+仅`cfg(test)`/`interop-test`启用的`ResourceProbe`按测试作用域记录RAII当前值/峰值；子任务显式继承作用域，不使用进程全局reset或更换生产allocator。当前接入物理TCP/UDP、共享流/QUIC驱动与session、数据报association、DNS池/等待者及既有运行时活动guard。`Reassembly`是预留类别，后续协议拥有重组对象时再登记；没有所有者的零值不证明未来协议已无泄漏。
+
+生产`ObservedIo`中的观测guard为空类型，不分配共享计数器。同步Stop、5秒静默窗口和真实对端由断言及结构化事件证明，不根据日志中的PASS文字判断。`tests/protocols/limits.json`登记N1公共限额及继承的`ResourceLimits`，`limit_foundations`直接与Rust常量核对；它不是第二套运行时配置。
 
 ## 变更要求
 

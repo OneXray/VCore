@@ -114,6 +114,9 @@ pub async fn http_obfs(
         Ok((reader, Bytes::from(tail)))
     });
     Ok(Box::new(HttpStream {
+        _observation: crate::resources::observation::track(
+            crate::resources::observation::ResourceKind::Session,
+        ),
         response: Some(response),
         reader: None,
         writer,
@@ -125,6 +128,7 @@ pub async fn http_obfs(
 type Response = BoxFuture<'static, io::Result<(ReadHalf<BoxStream>, Bytes)>>;
 
 struct HttpStream {
+    _observation: crate::resources::observation::Guard,
     response: Option<Response>,
     reader: Option<ReadHalf<BoxStream>>,
     writer: WriteHalf<BoxStream>,

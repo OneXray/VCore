@@ -42,7 +42,7 @@ use crate::{
     },
     dialer::{Dialer, ResolvedEndpoint, Resolver},
     dispatch::{Dispatcher, observe_handshakes_with_stats, observe_sessions_with_stats},
-    dns::runtime::RuntimeDns,
+    dns::{resolution::ResolutionContext, runtime::RuntimeDns},
     geodata::{
         GeoDataManager, GeoDataRegistration, GeoRequirements, service::GeoDataUpdateService,
     },
@@ -139,6 +139,7 @@ struct BuiltRuntimeParts {
 }
 
 struct BuiltProxyGraph {
+    resolution: ResolutionContext,
     nodes: Vec<Arc<dyn OutboundConnector>>,
     lifecycle_order: Vec<BuiltRouteTarget>,
     selections: Vec<Arc<AtomicUsize>>,
@@ -164,6 +165,7 @@ impl BuiltProxyGraph {
     }
 
     fn begin_shutdown(&self) {
+        self.resolution.close();
         for target in self.lifecycle_order.iter().rev() {
             if let BuiltRouteTarget::Proxy(connector) = target {
                 connector.begin_shutdown();
@@ -302,8 +304,11 @@ impl PreparedCore {
         let dialer = dialer.with_ipv6(self.config.ipv6);
         let handshake_stats = RuntimeResourceStats::new("runtime_handshake_observation");
         let proxy_graph = self.build_proxy_graph(dialer.clone())?;
-        let proxy_dispatchers =
-            self.wrap_proxy_dispatchers(proxy_graph.connectors(), &handshake_stats)?;
+        let proxy_dispatchers = self.wrap_proxy_dispatchers(
+            proxy_graph.connectors(),
+            &handshake_stats,
+            &proxy_graph.resolution,
+        )?;
         let direct_raw: Arc<dyn Dispatcher> = Arc::new(DirectOutbound::new(dialer));
         let direct = observe_handshakes_with_stats(direct_raw, handshake_stats.clone());
         let proxy_groups = ProxyGroups::with_selections(
@@ -330,6 +335,7 @@ impl PreparedCore {
                 redir_host_entries,
             ))
         });
+        proxy_graph.resolution.bind_runtime(dns.as_ref())?;
         let geodata_rules = RuleSet::compile(vec![crate::config::RuleSpec {
             kind: crate::config::RuleKind::Match,
             action: crate::config::RuleAction::Route(self.config.default_route_target),
@@ -384,6 +390,7 @@ impl PreparedCore {
             &self.endpoints,
             self.limits,
             dialer,
+            ResolutionContext::runtime(self.config.ipv6),
         )
     }
 
@@ -391,11 +398,13 @@ impl PreparedCore {
         &self,
         connectors: &[Arc<dyn OutboundConnector>],
         handshake_stats: &RuntimeResourceStats,
+        resolution: &ResolutionContext,
     ) -> io::Result<Vec<Arc<dyn Dispatcher>>> {
         let mut dispatchers = Vec::with_capacity(connectors.len());
         for (proxy, connector) in self.config.proxies.iter().zip(connectors) {
             let mut dispatcher: Arc<dyn Dispatcher> = Arc::new(
-                ConnectorDispatcher::with_udp_capability(connector.clone(), proxy.udp),
+                ConnectorDispatcher::with_udp_capability(connector.clone(), proxy.udp)
+                    .with_resolution(resolution.clone()),
             );
             dispatcher = observe_handshakes_with_stats(dispatcher, handshake_stats.clone());
             dispatchers.push(dispatcher);
@@ -524,12 +533,21 @@ impl PreparedMeasurement {
     }
 
     pub(crate) fn into_runtime(self, dialer: Dialer) -> io::Result<MeasurementRuntime> {
+        self.into_runtime_with_resolver(dialer, Arc::new(crate::dialer::SystemResolver))
+    }
+
+    pub(crate) fn into_runtime_with_resolver(
+        self,
+        dialer: Dialer,
+        resolver: Arc<dyn Resolver>,
+    ) -> io::Result<MeasurementRuntime> {
         let proxy_graph = build_proxy_graph(
             &self.config.proxies,
             &[],
             &self.endpoints,
             self.limits,
             dialer,
+            ResolutionContext::measurement(resolver, true),
         )?;
         let connector = proxy_graph
             .get(self.config.default_proxy.index())
@@ -540,7 +558,9 @@ impl PreparedMeasurement {
                     "default proxy is missing from the measurement graph",
                 )
             })?;
-        let dispatcher: Arc<dyn Dispatcher> = Arc::new(ConnectorDispatcher::new(connector));
+        let dispatcher: Arc<dyn Dispatcher> = Arc::new(
+            ConnectorDispatcher::new(connector).with_resolution(proxy_graph.resolution.clone()),
+        );
         let handshake_stats = RuntimeResourceStats::new("measurement_handshake_observation");
         let dispatcher = observe_handshakes_with_stats(dispatcher, handshake_stats);
         let session_stats = RuntimeResourceStats::new("measurement_session_observation");
@@ -557,6 +577,7 @@ fn build_proxy_graph(
     endpoints: &[PreparedProxyEndpoints],
     limits: ResourceLimits,
     dialer: Dialer,
+    resolution: ResolutionContext,
 ) -> io::Result<BuiltProxyGraph> {
     if endpoints.len() != proxies.len() {
         return Err(io::Error::new(
@@ -577,6 +598,7 @@ fn build_proxy_graph(
     // failure they drop first, then this guard releases the DAG in reverse
     // dependency order without recursive destruction of configuration-sized chains.
     let mut graph = BuiltProxyGraph {
+        resolution,
         nodes: Vec::new(),
         lifecycle_order: Vec::with_capacity(order.len()),
         selections: groups

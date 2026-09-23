@@ -30,7 +30,11 @@ pub mod routing;
         feature = "outbound-anytls",
         feature = "outbound-socks5",
         feature = "outbound-shadowsocks",
-        feature = "outbound-vless"
+        feature = "outbound-vless",
+        feature = "outbound-trojan",
+        feature = "outbound-vmess",
+        feature = "outbound-hysteria2",
+        feature = "outbound-wireguard"
     ),
     any(feature = "ffi", test)
 ))]
@@ -58,7 +62,11 @@ mod tcp_sniffer;
     test
 ))]
 pub(crate) mod traffic;
-#[cfg(any(feature = "outbound-vless", feature = "stream-transport"))]
+#[cfg(any(
+    feature = "outbound-vless",
+    feature = "stream-transport",
+    feature = "quic-transport"
+))]
 pub mod transport;
 #[cfg(all(feature = "tun", any(unix, windows)))]
 mod tun_runtime;

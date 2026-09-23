@@ -157,6 +157,14 @@ DNS 和普通 UDP 响应使用不同队列，但共享 netstack UDP 入站接收
 
 普通非 DNS UDP 关联不设固定总数，采用代次感知所有权、30 秒空闲超时和 10 秒清理周期。只有成功入队的请求或响应刷新活动时间。
 
+## IP-only协议与独立测速接点
+
+公共`ResolutionContext`仅在协议必须取得IP地址的边界解析业务目标或逻辑上游；原始`Destination`保持不变，HTTP Host、TLS SNI和路由仍使用逻辑名称。代理endpoint及ECH的prepare bootstrap与该运行期解析分离，不递归使用尚未建立的同一出口。
+
+Running Session上下文仅弱引用本session的RuntimeDns，使用上文nameserver/policy与出口；未绑定、DNS关闭、上游不可达或session已停止时明确失败，不调用系统resolver兜底。IP字面量仍执行端口/地址族政策。解析共享同一次建链期限，Stop取消当前及后续查询；在进入可能等待自身的singleflight之前拒绝同名递归依赖，嵌套依赖深度最多32层。不会因为DNS经代理出口就无条件禁止整个图。
+
+独立`measureDelay`使用测量生命周期的受控bootstrap resolver，仅在IP-only边界解析域名；不创建Running Session、RuntimeDns或DNS监听服务，也不改变现有endpoint准备流程。N1通过通用IP-only connector验证最终节点和`dialer-proxy`上游的域名解析/期限/取消；实际WireGuard节点、域名测速URL与WireGuard上游的数据闭环仍由N8实现并签收，不从公共接点测试推导生产WireGuard支持。
+
 ## 不支持
 
 - 真实 ICMP 转发、ICMP error、Traceroute、ICMP 选路规则或 ICMP 测速；

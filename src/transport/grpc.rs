@@ -135,7 +135,7 @@ async fn connect(
     .map_err(|_| io::Error::from(io::ErrorKind::TimedOut))?
     .map_err(|_| io::Error::from(io::ErrorKind::ConnectionAborted))?;
     let close = Arc::new(Close::default());
-    let task = tokio::spawn(connection);
+    let task = crate::resources::observation::spawn(connection);
     let abort = task.abort_handle();
     // Immediately own the task, including cancellation during ready().
     let owner = Driver {
@@ -166,6 +166,9 @@ async fn connect(
     // first VLESS bytes. Request writing and response reading must be independent.
     Ok((
         Box::new(Grpc {
+            _observation: crate::resources::observation::track(
+                crate::resources::observation::ResourceKind::Session,
+            ),
             framing,
             response: Some(response),
             receive: None,
@@ -185,6 +188,7 @@ async fn connect(
 }
 
 struct Grpc {
+    _observation: crate::resources::observation::Guard,
     framing: Framing,
     response: Option<ResponseFuture>,
     receive: Option<RecvStream>,
@@ -213,7 +217,7 @@ fn invalid() -> io::Error {
 
 impl Grpc {
     fn drain(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        for _ in 0..32 {
+        for _ in 0..crate::limits::IO_POLL_BUDGET {
             if self.queued.is_empty() {
                 self.send.reserve_capacity(0);
                 return Poll::Ready(Ok(()));
@@ -312,7 +316,7 @@ impl AsyncRead for Grpc {
         }
         if this.framing == Framing::Plain {
             let receive = this.receive.as_mut().unwrap();
-            for _ in 0..32 {
+            for _ in 0..crate::limits::IO_POLL_BUDGET {
                 if !this.frame.is_empty() {
                     let count = this.frame.len().min(output.remaining());
                     output.put_slice(&this.frame[..count]);
@@ -335,7 +339,7 @@ impl AsyncRead for Grpc {
             cx.waker().wake_by_ref();
             return Poll::Pending;
         }
-        for _ in 0..32 {
+        for _ in 0..crate::limits::IO_POLL_BUDGET {
             if !this.payload.is_empty() {
                 let count = this.payload.len().min(output.remaining());
                 output.put_slice(&this.payload[..count]);

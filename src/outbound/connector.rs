@@ -21,8 +21,9 @@ use crate::{
 };
 
 use super::DirectOutbound;
+use crate::dns::resolution::{ResolutionContext, inherited_deadline};
 
-const DEFAULT_ESTABLISH_TIMEOUT: Duration = Duration::from_secs(10);
+pub const DEFAULT_ESTABLISH_TIMEOUT: Duration = Duration::from_secs(10);
 pub(crate) const MAX_OUTBOUND_DIAGNOSTIC_MESSAGE_BYTES: usize = 256;
 
 tokio::task_local! {
@@ -203,14 +204,21 @@ impl fmt::Write for BoundedMessage {
 #[derive(Debug)]
 pub struct EstablishContext {
     deadline: Instant,
+    resolution: ResolutionContext,
     selections: Mutex<HashMap<usize, (Arc<AtomicUsize>, usize)>>,
 }
 
 impl EstablishContext {
     #[must_use]
     pub fn with_timeout(duration: Duration) -> Self {
+        Self::with_resolution(duration, ResolutionContext::default())
+    }
+
+    #[must_use]
+    pub fn with_resolution(duration: Duration, resolution: ResolutionContext) -> Self {
         Self {
-            deadline: Instant::now() + duration,
+            deadline: inherited_deadline(Instant::now() + duration),
+            resolution,
             selections: Mutex::new(HashMap::new()),
         }
     }
@@ -218,6 +226,17 @@ impl EstablishContext {
     #[must_use]
     pub const fn deadline(&self) -> Instant {
         self.deadline
+    }
+
+    pub async fn resolve_ip(
+        &self,
+        target: &Destination,
+    ) -> Result<std::net::SocketAddr, DispatchError> {
+        self.resolution.resolve_ip(target, self.deadline).await
+    }
+
+    pub fn resolution(&self) -> ResolutionContext {
+        self.resolution.clone()
     }
 
     /// One read per group for the entire setup, including both legs of a
@@ -309,7 +328,7 @@ impl std::fmt::Debug for ConnectedStream {
 #[derive(Debug, Clone)]
 pub struct DatagramRequest {
     pub session: DatagramSession,
-    max_response_payload_size: u16,
+    budget: crate::dispatch::DatagramBudget,
 }
 
 impl DatagramRequest {
@@ -318,21 +337,47 @@ impl DatagramRequest {
         let max_response_payload_size = session.max_response_payload_size();
         Self {
             session,
-            max_response_payload_size,
+            budget: crate::dispatch::DatagramBudget::new(u16::MAX, max_response_payload_size),
         }
     }
 
     #[must_use]
     pub const fn max_response_payload_size(&self) -> u16 {
-        self.max_response_payload_size
+        self.budget.receive()
     }
 
     #[must_use]
     pub fn with_max_response_payload_size(&self, maximum: u16) -> Self {
         Self {
             session: self.session.clone(),
-            max_response_payload_size: maximum,
+            budget: crate::dispatch::DatagramBudget::new(self.budget.transmit(), maximum),
         }
+    }
+
+    pub const fn budget(&self) -> crate::dispatch::DatagramBudget {
+        self.budget
+    }
+
+    #[must_use]
+    pub fn with_budget(&self, budget: crate::dispatch::DatagramBudget) -> Self {
+        Self {
+            session: self.session.clone(),
+            budget,
+        }
+    }
+
+    /// Budget the wire envelope independently in each direction. A larger
+    /// requested envelope can never increase a lower transport's real cap.
+    pub fn with_envelope(&self, transmit: usize, receive: usize) -> Self {
+        let widen = |value: u16, overhead: usize| {
+            usize::from(value)
+                .saturating_add(overhead)
+                .min(usize::from(u16::MAX)) as u16
+        };
+        self.with_budget(crate::dispatch::DatagramBudget::new(
+            widen(self.budget.transmit(), transmit),
+            widen(self.budget.receive(), receive),
+        ))
     }
 }
 
@@ -591,6 +636,7 @@ fn validate_prepared_endpoint(
 pub struct ConnectorDispatcher {
     inner: Arc<dyn OutboundConnector>,
     allow_udp: bool,
+    resolution: ResolutionContext,
 }
 
 impl ConnectorDispatcher {
@@ -599,6 +645,7 @@ impl ConnectorDispatcher {
         Self {
             inner,
             allow_udp: true,
+            resolution: ResolutionContext::default(),
         }
     }
 
@@ -609,7 +656,21 @@ impl ConnectorDispatcher {
     /// carrying a child TCP stream is not rejected by the parent's UDP flag.
     #[must_use]
     pub fn with_udp_capability(inner: Arc<dyn OutboundConnector>, allow_udp: bool) -> Self {
-        Self { inner, allow_udp }
+        Self {
+            inner,
+            allow_udp,
+            resolution: ResolutionContext::default(),
+        }
+    }
+
+    #[must_use]
+    pub fn with_resolution(mut self, resolution: ResolutionContext) -> Self {
+        self.resolution = resolution;
+        self
+    }
+
+    fn context(&self) -> EstablishContext {
+        EstablishContext::with_resolution(DEFAULT_ESTABLISH_TIMEOUT, self.resolution.clone())
     }
 }
 
@@ -617,7 +678,7 @@ impl ConnectorDispatcher {
 impl Dispatcher for ConnectorDispatcher {
     async fn connect_tcp(&self, session: StreamSession) -> Result<BoxStream, DispatchError> {
         self.inner
-            .connect_stream(session, &EstablishContext::default())
+            .connect_stream(session, &self.context())
             .await
             .map(|connected| connected.io)
     }
@@ -630,7 +691,7 @@ impl Dispatcher for ConnectorDispatcher {
             return Err(DispatchError::NotAllowed);
         }
         self.inner
-            .open_datagram(DatagramRequest::new(session), &EstablishContext::default())
+            .open_datagram(DatagramRequest::new(session), &self.context())
             .await
     }
 }

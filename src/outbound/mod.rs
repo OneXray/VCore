@@ -65,8 +65,8 @@ pub use anytls::{AnyTlsLifecycle, AnyTlsOutbound, AnyTlsStream, AnyTlsTlsConnect
 #[cfg(any(feature = "ffi", test))]
 pub(crate) use connector::SelectUpstreamMember;
 pub use connector::{
-    ConnectedStream, ConnectorDispatcher, DatagramRequest, EstablishContext, OutboundConnector,
-    SelectUpstream, UpstreamPath, server_destination,
+    ConnectedStream, ConnectorDispatcher, DEFAULT_ESTABLISH_TIMEOUT, DatagramRequest,
+    EstablishContext, OutboundConnector, SelectUpstream, UpstreamPath, server_destination,
 };
 pub(crate) use connector::{
     MAX_OUTBOUND_DIAGNOSTIC_MESSAGE_BYTES, OutboundDiagnostic, capture_outbound_diagnostic,
@@ -606,7 +606,7 @@ impl OutboundConnector for VlessOutbound {
     ) -> Result<Box<dyn DatagramTransport>, DispatchError> {
         self.connect_vless_xudp(&request, context)
             .await
-            .map(|transport| Box::new(transport) as Box<dyn DatagramTransport>)
+            .map(|transport| crate::dispatch::bound_datagram(Box::new(transport), request.budget()))
     }
 }
 

@@ -175,18 +175,26 @@ impl Socks5Outbound {
         let upstream_limit = request_parameters
             .max_response_payload_size()
             .saturating_add(MAX_UDP_HEADER_SIZE);
-        let upstream_request = request_parameters.with_max_response_payload_size(upstream_limit);
+        let upstream_request = request_parameters.with_envelope(
+            usize::from(MAX_UDP_HEADER_SIZE),
+            usize::from(MAX_UDP_HEADER_SIZE),
+        );
         let inner = self
             .upstream
             .open_datagram(upstream_request, context)
             .await?;
-        Ok(Box::new(Socks5DatagramTransport {
-            control: control.io,
-            inner,
-            relay,
-            max_response_payload_size: usize::from(request_parameters.max_response_payload_size()),
-            max_wire_response_size: usize::from(upstream_limit),
-        }))
+        Ok(crate::dispatch::bound_datagram(
+            Box::new(Socks5DatagramTransport {
+                control: control.io,
+                inner,
+                relay,
+                max_response_payload_size: usize::from(
+                    request_parameters.max_response_payload_size(),
+                ),
+                max_wire_response_size: usize::from(upstream_limit),
+            }),
+            request_parameters.budget(),
+        ))
     }
 }
 
@@ -385,6 +393,25 @@ struct Socks5DatagramTransport {
 
 #[async_trait]
 impl DatagramTransport for Socks5DatagramTransport {
+    fn payload_budget(&self, peer: &Destination) -> crate::dispatch::DatagramBudget {
+        let Ok(address) = crate::socks5::encoded_address_size(peer) else {
+            return crate::dispatch::DatagramBudget::new(0, 0);
+        };
+        let transmit = address + 3;
+        let receive = if matches!(peer, Destination::Domain { .. }) {
+            usize::from(MAX_UDP_HEADER_SIZE)
+        } else {
+            transmit
+        };
+        self.inner
+            .payload_budget(&self.relay)
+            .subtract_overhead(transmit, receive)
+            .intersect(crate::dispatch::DatagramBudget::new(
+                u16::MAX,
+                self.max_response_payload_size as u16,
+            ))
+    }
+
     async fn send(&mut self, datagram: Datagram) -> Result<(), DispatchError> {
         let packet = encode_udp_packet(&datagram.remote, &datagram.payload, usize::from(u16::MAX))
             .map_err(|error| protocol_error(format!("invalid SOCKS5 UDP request: {error}")))?;

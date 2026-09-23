@@ -46,9 +46,10 @@ outbound-vless = ["rustls/reality", "stream-transport"]
 # N1 foundation features. YAML registration waits for each protocol stage.
 outbound-trojan = ["stream-transport"]
 outbound-vmess = ["stream-transport"]
-outbound-hysteria2 = []
+outbound-hysteria2 = ["quic-transport"]
 outbound-wireguard = []
 stream-transport = ["dep:tokio-tungstenite", "dep:httparse", "dep:log"]
+quic-transport = ["dep:quinn"]
 # Enables local interoperability-only trust-root injection. Release build
 # scripts must not enable this feature.
 interop-test = ["outbound-anytls", "outbound-vless"]
@@ -79,6 +80,7 @@ libc = "0.2"
 # Keep the log facade compiled out when SS is linked; VCore uses tracing.
 log = { version = "0.4", optional = true, features = ["max_level_off", "release_max_level_off"] }
 md-5 = { version = "0.11", optional = true }
+quinn = { version = "=0.11.12", default-features = false, features = ["runtime-tokio", "rustls-ring"], optional = true }
 rand = "0.10"
 regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "dfa-search", "syntax", "unicode"] }
 rustls = { version = "=0.23.45", default-features = false, features = ["ring", "std", "tls12"] }

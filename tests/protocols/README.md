@@ -36,6 +36,10 @@ outbound protocols:
   families, and native-peer compatibility questions. A family is **not one
   executable case** and its array dimensions are not permission to generate
   unsupported Cartesian products.
+- `cases.json`: the frozen N1 executable foundation cases, assertion names,
+  field associations, official peers, input dimensions and required evidence.
+- `limits.json`: shared per-object limits and executable boundary case IDs;
+  `limit_foundations` compares the registered numbers with Rust constants.
 
 Both use `schema_version: 1`. IDs are stable; revise a requirement with a
 reviewable reason rather than deleting a failing ID. Sources are public upstream
@@ -99,8 +103,8 @@ documented capability gap and retain the original result.
 
 All initial `behavior_status` values are `NOT RUN`. No catalog entry is a
 fabricated test, placeholder PASS, server fixture or production option. The
-subsequent harness will attach real case IDs, exact native configurations,
-expected observations, command/version identities, results and cleanup evidence.
+harness attaches real case IDs, native configurations, expected observations,
+command/version identities, results and cleanup evidence in a separate run directory.
 Catalog validation alone cannot satisfy protocol acceptance.
 
 ## Important unresolved native combinations
@@ -139,8 +143,45 @@ exit nonzero; duplicate JSON keys and embedded declaration-level PASS statuses
 are rejected. `--catalog-dir` selects a copy for inspection; the default is
 repository-local and independent of the caller's working directory.
 
-The checker does not read source references, contact peers, evaluate the prose
-contracts or expand family dimensions into executable cases. Case/result coverage,
-resource observations and stage sign-off are not yet implemented; omitting
-`--catalog-only` is an error. This is a partial N1.1 deliverable, not completed N1.6.
-See the [executed record](../../docs/acceptance/next-protocols/N1-catalogs.md).
+This declaration mode does not read source references, contact peers, evaluate
+the prose contracts or expand family dimensions. Its historical executed record
+is [N1 catalogs](../../docs/acceptance/next-protocols/N1-catalogs.md).
+
+## Executable N1 foundations
+
+```sh
+uv run --project scripts --locked vcore-scripts check protocol-interop --stage N1 --list
+uv run --project scripts --locked vcore-scripts check protocol-interop --stage N1 --preflight
+uv run --project scripts --locked vcore-scripts check protocol-interop --stage N1
+uv run --project scripts --locked vcore-scripts check protocol-coverage --stage N1 --run-dir target/interop/runs/<run-id>
+```
+
+Only N1 has executable stage cases at this point. `--case` (repeatable) and
+`--protocol` select subsets for development, not full-stage acceptance. Empty,
+unknown or contradictory selections fail. The independent M/W/H/XR/V2 preflight
+checks official artifacts and environment readiness, never business acceptance;
+unavailable future W/H/XR capabilities do not block unrelated N1 M/V2 cases.
+
+The 21 required groups include Rust configuration/limit/TLS/stream/XUDP/datagram/
+QUIC/resolution/resource assertions, nine native stream cases, the existing
+Mihomo extended regression, feature smokes and offline harness failure tests.
+`row_ids` associate a foundation with future consumers; a group-level PASS does
+not sign off all modes or values of that field. Native stream probes use synthetic
+VLESS framing to reach official decoders, not newly registered production YAML.
+QUIC fixtures prove controlled packet IO, not completed Hysteria2 or WireGuard.
+
+Rust writes BEGIN/PASS/FAIL JSONL only when `VCORE_CASE_EVENTS` names the owned
+run's evidence file. Drop during unwinding emits FAIL; resource cases attach
+baseline/peak/Stop/quiet snapshots. Python requires exact assertion sets, successful
+commands and joined peers. Reports retain hashes of raw structured events, not
+console PASS counts. Coverage rejects missing/duplicate/unknown results, CFG-only,
+nonidle resources, failures, blocked/not-run cases and incomplete cleanup, and
+recomputes results from the original hashed artifacts.
+
+Each execution creates a fresh `target/interop/runs/<run-id>/`; its run identity
+includes source/dirty-patch/lock hashes and toolchain/SDK/build identity. Temporary
+synthetic credentials are removed. No external checkout or document is a runtime
+input. Detailed CLI, process ownership and evidence semantics are in
+[scripts](../../scripts/README.md); durable stage results live under
+`docs/acceptance/next-protocols/` and distinguish foundations, protocol consumers,
+platform cross-builds and physical/remote acceptance.

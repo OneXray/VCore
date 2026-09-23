@@ -44,9 +44,11 @@ class NativeReleaseTest(unittest.TestCase):
             patch(
                 "urllib.request.urlopen", return_value=Response(archive.getvalue())
             ) as request,
-            patch("subprocess.run") as run,
+            patch("vcore_scripts.native_release.run_command") as run,
         ):
             run.return_value.stdout = b"V2Ray 5.53.0 fixture\n"
+            run.return_value.returncode = 0
+            run.return_value.cleanup = True
             peer = native_release.download_native("V2", Path(directory), "darwin-arm64")
             self.assertEqual(
                 request.call_args.args[0].full_url,

@@ -274,7 +274,10 @@ async fn connect_inner(
     };
     stream.write_all(&initial_data[sent_early..]).await?;
     stream.flush().await?;
-    Ok(Box::new(stream))
+    Ok(Box::new(crate::resources::observation::ObservedIo::new(
+        stream,
+        crate::resources::observation::ResourceKind::Session,
+    )))
 }
 
 struct WebSocket {
@@ -295,7 +298,7 @@ impl AsyncRead for WebSocket {
             return Poll::Ready(Ok(()));
         }
         // Bound work per poll, including a malicious stream of empty/control frames.
-        for _ in 0..32 {
+        for _ in 0..crate::limits::IO_POLL_BUDGET {
             if !self.buffered.is_empty() {
                 let count = buf.remaining().min(self.buffered.len());
                 buf.put_slice(&self.buffered[..count]);

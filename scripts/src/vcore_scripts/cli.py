@@ -11,6 +11,8 @@ from .checks import check_c_header, check_tls_dependencies
 from .mihomo import run_mihomo_interop
 from .mihomo_release import SUPPORTED_TARGETS, download_mihomo
 from .protocol_catalogs import CATALOG_DIR, check_protocol_catalogs
+from .protocol_evidence import check_run
+from .protocol_harness import run_protocol_interop
 from .tun2socks import run_demo
 
 
@@ -41,14 +43,43 @@ def _parser() -> argparse.ArgumentParser:
     coverage = checks.add_parser(
         "protocol-coverage", help="validate planned protocol coverage declarations"
     )
-    coverage.add_argument(
+    coverage_modes = coverage.add_mutually_exclusive_group(required=True)
+    coverage_modes.add_argument(
         "--catalog-only",
         action="store_true",
-        required=True,
         help="check declarations only, not implementation or behavior acceptance",
     )
+    coverage_modes.add_argument(
+        "--run-dir", type=Path, help="validate a complete persisted stage run"
+    )
+    coverage.add_argument("--stage", default="N1", choices=[f"N{i}" for i in range(11)])
     coverage.add_argument(
         "--catalog-dir", type=Path, default=CATALOG_DIR, help="directory of catalogs"
+    )
+    protocol = checks.add_parser(
+        "protocol-interop", help="run structured stage foundations and native peers"
+    )
+    protocol.add_argument(
+        "--stage", required=True, choices=[f"N{i}" for i in range(11)]
+    )
+    protocol.add_argument("--case", dest="identifiers", action="append")
+    protocol.add_argument(
+        "--protocol",
+        choices=[
+            "foundation",
+            "legacy",
+            "trojan",
+            "vmess",
+            "vless",
+            "hysteria2",
+            "wireguard",
+        ],
+    )
+    modes = protocol.add_mutually_exclusive_group()
+    modes.add_argument("--list", dest="list_only", action="store_true")
+    modes.add_argument("--preflight", dest="preflight_only", action="store_true")
+    protocol.add_argument(
+        "--run-dir", type=Path, help="fresh child directory of target/interop/runs"
     )
     mihomo = checks.add_parser(
         "mihomo-interop", help="run local protocol interoperability against mihomo"
@@ -96,7 +127,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             if args.check == "c-header":
                 check_c_header()
             elif args.check == "protocol-coverage":
-                check_protocol_catalogs(args.catalog_dir)
+                if args.catalog_only:
+                    check_protocol_catalogs(args.catalog_dir)
+                else:
+                    check_run(args.run_dir, args.stage, args.catalog_dir / "cases.json")
+            elif args.check == "protocol-interop":
+                run_protocol_interop(
+                    stage=args.stage,
+                    identifiers=args.identifiers,
+                    protocol=args.protocol,
+                    list_only=args.list_only,
+                    preflight_only=args.preflight_only,
+                    run_dir=args.run_dir,
+                )
             elif args.check == "mihomo-interop":
                 run_mihomo_interop(
                     extended=args.extended,

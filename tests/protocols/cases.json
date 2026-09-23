@@ -1,0 +1,1014 @@
+{
+  "schema_version": 1,
+  "kind": "executable-case-manifest",
+  "scope": "N1 foundation mechanisms only. Field consumers remain NOT RUN until their protocol stages; row_ids do not sign off production fields.",
+  "cases": [
+    {
+      "case_id": "N1-SCHEMA",
+      "stage": "N1",
+      "substage": "N1.1",
+      "required": true,
+      "row_ids": [
+        "C01"
+      ],
+      "protocol": "foundation",
+      "network": "supplied-io-or-loopback",
+      "security": "per-assertion",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "scope": "foundation-only"
+      },
+      "outer_family": "per-assertion",
+      "inner_family": "per-assertion",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "unit",
+      "peer_config": {
+        "selector": "feature_foundations"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "feature_skeletons_do_not_open_unimplemented_yaml_or_measurement_protocols",
+        "future_fields_and_over_limit_documents_remain_rejected",
+        "measurement_rejects_future_protocols_and_oversized_documents"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup"
+      ],
+      "prerequisites": [
+        "rust-toolchain"
+      ],
+      "runner": "rust",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N1-LIMITS",
+      "stage": "N1",
+      "substage": "N1.1",
+      "required": true,
+      "row_ids": [],
+      "protocol": "foundation",
+      "network": "supplied-io-or-loopback",
+      "security": "per-assertion",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "scope": "foundation-only"
+      },
+      "outer_family": "per-assertion",
+      "inner_family": "per-assertion",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "unit",
+      "peer_config": {
+        "selector": "limit_foundations"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "registry_matches_live_production_constants_and_has_owned_boundary_cases"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup"
+      ],
+      "prerequisites": [
+        "rust-toolchain"
+      ],
+      "runner": "rust",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N1-STREAM",
+      "stage": "N1",
+      "substage": "N1.3",
+      "required": true,
+      "row_ids": [
+        "W01",
+        "W02",
+        "W03",
+        "W04",
+        "W05",
+        "G01",
+        "H01",
+        "H02",
+        "H03",
+        "H04",
+        "H05",
+        "H06"
+      ],
+      "protocol": "foundation",
+      "network": "supplied-io-or-loopback",
+      "security": "per-assertion",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "scope": "foundation-only"
+      },
+      "outer_family": "per-assertion",
+      "inner_family": "per-assertion",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "unit",
+      "peer_config": {
+        "selector": "stream_foundations"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "transport_options_reject_ambiguous_headers_before_io",
+        "http_first_header_preserves_prefix_raw_continuation_and_half_close_tail",
+        "legacy_h2_keeps_unframed_bytes_server_first_and_owned_whole_close",
+        "websocket_rejects_invalid_upgrade_responses_and_bounded_header_overflows",
+        "setup_deadline_releases_supplied_io_in_stream_adapters",
+        "cancelled_setup_releases_supplied_io_without_a_detached_task",
+        "ws_rejects_oversized_and_truncated_frames_instead_of_reporting_eof",
+        "ws_accepts_mihomo_clean_underlay_eof_only_at_complete_message_boundaries",
+        "dropping_an_established_ws_releases_its_only_io_owner",
+        "grpc_rejects_oversized_truncated_and_invalid_records",
+        "grpc_large_writes_obey_small_http2_windows_and_keep_byte_integrity",
+        "ws_partial_writes_empty_frames_ping_and_half_close_preserve_every_byte",
+        "grpc_handles_response_after_upload_fragmented_records_and_owned_stop",
+        "websocket_supplied_io_preserves_server_first_and_partial_writes",
+        "websocket_early_data_and_remaining_frames_keep_the_original_byte_order"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup"
+      ],
+      "prerequisites": [
+        "rust-toolchain"
+      ],
+      "runner": "rust",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N1-DATAGRAM",
+      "stage": "N1",
+      "substage": "N1.4",
+      "required": true,
+      "row_ids": [
+        "C05",
+        "C06",
+        "HY06",
+        "WG06"
+      ],
+      "protocol": "foundation",
+      "network": "supplied-io-or-loopback",
+      "security": "per-assertion",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "scope": "foundation-only"
+      },
+      "outer_family": "per-assertion",
+      "inner_family": "per-assertion",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "unit",
+      "peer_config": {
+        "selector": "datagram_foundations"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "shadowsocks_budget_accounts_for_cipher_headers_and_identity_chain",
+        "socks5_budget_retains_distinct_payload_and_envelope_limits",
+        "direct_budget_rejects_large_sends_and_drops_oversize_responses",
+        "layered_directional_budgets_account_for_ip_headers_and_exact_minima"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup"
+      ],
+      "prerequisites": [
+        "rust-toolchain"
+      ],
+      "runner": "rust",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N1-QUIC",
+      "stage": "N1",
+      "substage": "N1.4",
+      "required": true,
+      "row_ids": [
+        "C06",
+        "HY06"
+      ],
+      "protocol": "foundation",
+      "network": "supplied-io-or-loopback",
+      "security": "per-assertion",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "scope": "foundation-only"
+      },
+      "outer_family": "per-assertion",
+      "inner_family": "per-assertion",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "unit",
+      "peer_config": {
+        "selector": "quic_datagram_foundations"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "quic_minimum_budget_is_checked_before_io_and_exact_minimum_connects",
+        "pending_send_is_not_restarted_and_stop_cancels_without_waiting_for_writable",
+        "controlled_quic_datagram_seam_roundtrips_and_stop_closes_owned_io",
+        "mapped_peer_sends_to_one_physical_port_and_reports_the_logical_peer",
+        "incoming_queue_backpressures_without_discarding_a_controlled_burst",
+        "controlled_direct_datagrams_roundtrip_and_stop"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup"
+      ],
+      "prerequisites": [
+        "rust-toolchain"
+      ],
+      "runner": "rust",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N1-RESOLUTION",
+      "stage": "N1",
+      "substage": "N1.4",
+      "required": true,
+      "row_ids": [
+        "C03",
+        "C06",
+        "WG01",
+        "WG02"
+      ],
+      "protocol": "foundation",
+      "network": "supplied-io-or-loopback",
+      "security": "per-assertion",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "scope": "foundation-only"
+      },
+      "outer_family": "per-assertion",
+      "inner_family": "per-assertion",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "unit",
+      "peer_config": {
+        "selector": "resolution_foundations"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "resolver_dependency_depth_is_bounded_independently_of_concurrent_lookups",
+        "measurement_domain_resolution_reaches_both_final_and_upstream_ip_boundaries",
+        "runtime_uses_configured_dns_and_weak_binding_releases_owner",
+        "recursive_dns_dependency_fails_before_connecting_or_joining_its_own_flight",
+        "lookup_deadline_and_stop_cancel_pending_resolver_without_retaining_waiters",
+        "standalone_measurement_resolves_only_at_ip_boundary_with_address_policy_and_stop",
+        "unbound_and_disabled_runtime_resolution_never_fall_back_to_system_dns"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup"
+      ],
+      "prerequisites": [
+        "rust-toolchain"
+      ],
+      "runner": "rust",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N1-RESOURCES",
+      "stage": "N1",
+      "substage": "N1.1",
+      "required": true,
+      "row_ids": [],
+      "protocol": "foundation",
+      "network": "supplied-io-or-loopback",
+      "security": "per-assertion",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "scope": "foundation-only"
+      },
+      "outer_family": "per-assertion",
+      "inner_family": "per-assertion",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "unit",
+      "peer_config": {
+        "selector": "resource_foundations"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "twenty_quic_lifetimes_return_owned_resources_to_zero_then_remain_quiet",
+        "twenty_stream_lifetimes_and_cancelled_setups_remain_quiet",
+        "physical_tcp_guard_survives_connect_and_releases_on_stream_drop"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "resources"
+      ],
+      "prerequisites": [
+        "rust-toolchain"
+      ],
+      "runner": "rust",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N1-SECURITY",
+      "stage": "N1",
+      "substage": "N1.2",
+      "required": true,
+      "row_ids": [
+        "T01",
+        "T02",
+        "T03",
+        "T04",
+        "T05"
+      ],
+      "protocol": "foundation",
+      "network": "supplied-io-or-loopback",
+      "security": "per-assertion",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "scope": "foundation-only"
+      },
+      "outer_family": "per-assertion",
+      "inner_family": "per-assertion",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "unit",
+      "peer_config": {
+        "selector": "security::tls::tests"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "webpki_rejects_untrusted_wrong_name_and_expired_unless_explicitly_skipped",
+        "leaf_pin_is_trust_but_nonleaf_pin_checks_chain_name_and_expiry",
+        "ticket_storage_obeys_exact_node_budget_and_consumes_each_ticket_once",
+        "every_certificate_policy_verifies_tls12_and_tls13_handshake_signatures",
+        "vless_keeps_webpki_tls13_and_required_h2_after_anytls_connections",
+        "alpn_and_tls_resumption_are_isolated_between_node_policies",
+        "explicit_verification_name_does_not_change_sni_or_allow_skip_to_override_it",
+        "mutual_tls_identity_is_required_verified_and_not_shared_between_clients",
+        "tls_options_reject_invalid_alpn_identity_and_budget_before_using_a_stream",
+        "certificate_rejection_delivers_no_business_bytes_and_diagnostics_are_redacted",
+        "tls_close_write_sends_notify_without_closing_the_supplied_transport",
+        "tls_close_notify_flush_has_a_five_second_bound",
+        "cancelling_tls_handshake_releases_the_caller_supplied_stream"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup"
+      ],
+      "prerequisites": [
+        "rust-toolchain"
+      ],
+      "runner": "rust",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N1-XUDP",
+      "stage": "N1",
+      "substage": "N1.3",
+      "required": true,
+      "row_ids": [
+        "VM06",
+        "VL04"
+      ],
+      "protocol": "foundation",
+      "network": "supplied-io-or-loopback",
+      "security": "per-assertion",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "scope": "foundation-only"
+      },
+      "outer_family": "per-assertion",
+      "inner_family": "per-assertion",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "unit",
+      "peer_config": {
+        "selector": "xudp::tests"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "shared_xudp_receives_frames_without_a_vless_response_header",
+        "first_frame_matches_xray_mux_wire_format",
+        "followup_frame_carries_each_datagrams_destination",
+        "destination_codec_round_trips_all_address_families",
+        "normal_and_error_end_frames_are_distinguishable",
+        "oversized_response_is_rejected_before_payload_read",
+        "fragmented_receive_survives_cancellation_and_resumes",
+        "keepalive_data_is_consumed_without_becoming_an_udp_response",
+        "full_wire_payload_remains_available_to_proxy_inbounds"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup"
+      ],
+      "prerequisites": [
+        "rust-toolchain"
+      ],
+      "runner": "rust",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N1-REGRESSION",
+      "stage": "N1",
+      "substage": "N1.6",
+      "required": true,
+      "row_ids": [],
+      "protocol": "legacy",
+      "network": "supplied-io-or-loopback",
+      "security": "per-assertion",
+      "udp_codec": "per-assertion",
+      "field_values": {
+        "scope": "foundation-only"
+      },
+      "outer_family": "per-assertion",
+      "inner_family": "per-assertion",
+      "target_type": "controlled-fixture",
+      "upstream_graph": "per-assertion",
+      "peer_kind": "M",
+      "peer_config": {
+        "selector": "mihomo_interop"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "public_client_inbounds_interoperate_with_mihomo_in_both_directions"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity"
+      ],
+      "prerequisites": [
+        "rust-toolchain",
+        "M",
+        "apple-container"
+      ],
+      "runner": "mihomo-legacy",
+      "timeout_seconds": 900
+    },
+    {
+      "case_id": "N1-M-WS",
+      "stage": "N1",
+      "substage": "N1.3",
+      "required": true,
+      "row_ids": [
+        "W01",
+        "W02",
+        "W03"
+      ],
+      "protocol": "foundation",
+      "network": "ws",
+      "security": "plain",
+      "udp_codec": "none",
+      "field_values": {
+        "scope": "foundation-only",
+        "mode": "ws"
+      },
+      "outer_family": "ipv4-loopback",
+      "inner_family": "ipv4-loopback",
+      "target_type": "controlled-echo",
+      "upstream_graph": "direct",
+      "peer_kind": "M",
+      "peer_config": {
+        "factory": "scripts/src/vcore_scripts/protocol_streams.py",
+        "mode": "ws"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "server_first",
+        "payload_65536",
+        "trailer_exact",
+        "origin_complete",
+        "protect_once",
+        "driver_joined",
+        "resources_idle"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "resources"
+      ],
+      "prerequisites": [
+        "M",
+        "openssl",
+        "rust-toolchain"
+      ],
+      "runner": "native-stream",
+      "timeout_seconds": 60
+    },
+    {
+      "case_id": "N1-M-WSS",
+      "stage": "N1",
+      "substage": "N1.3",
+      "required": true,
+      "row_ids": [
+        "W01",
+        "W02",
+        "W03"
+      ],
+      "protocol": "foundation",
+      "network": "wss",
+      "security": "tls-pin",
+      "udp_codec": "none",
+      "field_values": {
+        "scope": "foundation-only",
+        "mode": "wss"
+      },
+      "outer_family": "ipv4-loopback",
+      "inner_family": "ipv4-loopback",
+      "target_type": "controlled-echo",
+      "upstream_graph": "direct",
+      "peer_kind": "M",
+      "peer_config": {
+        "factory": "scripts/src/vcore_scripts/protocol_streams.py",
+        "mode": "wss"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "server_first",
+        "payload_65536",
+        "trailer_exact",
+        "origin_complete",
+        "protect_once",
+        "driver_joined",
+        "resources_idle"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "resources"
+      ],
+      "prerequisites": [
+        "M",
+        "openssl",
+        "rust-toolchain"
+      ],
+      "runner": "native-stream",
+      "timeout_seconds": 60
+    },
+    {
+      "case_id": "N1-M-GRPC",
+      "stage": "N1",
+      "substage": "N1.3",
+      "required": true,
+      "row_ids": [
+        "G01"
+      ],
+      "protocol": "foundation",
+      "network": "grpc",
+      "security": "plain",
+      "udp_codec": "none",
+      "field_values": {
+        "scope": "foundation-only",
+        "mode": "grpc"
+      },
+      "outer_family": "ipv4-loopback",
+      "inner_family": "ipv4-loopback",
+      "target_type": "controlled-echo",
+      "upstream_graph": "direct",
+      "peer_kind": "M",
+      "peer_config": {
+        "factory": "scripts/src/vcore_scripts/protocol_streams.py",
+        "mode": "grpc"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "server_first",
+        "payload_65536",
+        "trailer_exact",
+        "origin_complete",
+        "protect_once",
+        "driver_joined",
+        "resources_idle"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "resources"
+      ],
+      "prerequisites": [
+        "M",
+        "openssl",
+        "rust-toolchain"
+      ],
+      "runner": "native-stream",
+      "timeout_seconds": 60
+    },
+    {
+      "case_id": "N1-M-GRPC-TLS",
+      "stage": "N1",
+      "substage": "N1.3",
+      "required": true,
+      "row_ids": [
+        "G01"
+      ],
+      "protocol": "foundation",
+      "network": "grpc-tls",
+      "security": "tls-pin",
+      "udp_codec": "none",
+      "field_values": {
+        "scope": "foundation-only",
+        "mode": "grpc-tls"
+      },
+      "outer_family": "ipv4-loopback",
+      "inner_family": "ipv4-loopback",
+      "target_type": "controlled-echo",
+      "upstream_graph": "direct",
+      "peer_kind": "M",
+      "peer_config": {
+        "factory": "scripts/src/vcore_scripts/protocol_streams.py",
+        "mode": "grpc-tls"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "server_first",
+        "payload_65536",
+        "trailer_exact",
+        "origin_complete",
+        "protect_once",
+        "driver_joined",
+        "resources_idle"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "resources"
+      ],
+      "prerequisites": [
+        "M",
+        "openssl",
+        "rust-toolchain"
+      ],
+      "runner": "native-stream",
+      "timeout_seconds": 60
+    },
+    {
+      "case_id": "N1-M-WS-ED",
+      "stage": "N1",
+      "substage": "N1.3",
+      "required": true,
+      "row_ids": [
+        "W01",
+        "W02",
+        "W03",
+        "W04",
+        "W05"
+      ],
+      "protocol": "foundation",
+      "network": "ws-header",
+      "security": "plain",
+      "udp_codec": "none",
+      "field_values": {
+        "scope": "foundation-only",
+        "mode": "ws-header"
+      },
+      "outer_family": "ipv4-loopback",
+      "inner_family": "ipv4-loopback",
+      "target_type": "controlled-echo",
+      "upstream_graph": "direct",
+      "peer_kind": "M",
+      "peer_config": {
+        "factory": "scripts/src/vcore_scripts/protocol_streams.py",
+        "mode": "ws-header"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "server_first",
+        "payload_65536",
+        "trailer_exact",
+        "origin_complete",
+        "protect_once",
+        "driver_joined",
+        "resources_idle"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "resources"
+      ],
+      "prerequisites": [
+        "M",
+        "openssl",
+        "rust-toolchain"
+      ],
+      "runner": "native-stream",
+      "timeout_seconds": 60
+    },
+    {
+      "case_id": "N1-V2-HTTP",
+      "stage": "N1",
+      "substage": "N1.3",
+      "required": true,
+      "row_ids": [
+        "H01",
+        "H02",
+        "H03",
+        "H04"
+      ],
+      "protocol": "foundation",
+      "network": "http",
+      "security": "plain",
+      "udp_codec": "none",
+      "field_values": {
+        "scope": "foundation-only",
+        "mode": "http"
+      },
+      "outer_family": "ipv4-loopback",
+      "inner_family": "ipv4-loopback",
+      "target_type": "controlled-echo",
+      "upstream_graph": "direct",
+      "peer_kind": "V2",
+      "peer_config": {
+        "factory": "scripts/src/vcore_scripts/protocol_streams.py",
+        "mode": "http"
+      },
+      "gap_source": "tests/protocols/combinations.json",
+      "expected_observation": [
+        "server_first",
+        "payload_65536",
+        "trailer_exact",
+        "origin_complete",
+        "protect_once",
+        "driver_joined",
+        "resources_idle"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "resources"
+      ],
+      "prerequisites": [
+        "V2",
+        "openssl",
+        "rust-toolchain"
+      ],
+      "runner": "native-stream",
+      "timeout_seconds": 60
+    },
+    {
+      "case_id": "N1-V2-H2",
+      "stage": "N1",
+      "substage": "N1.3",
+      "required": true,
+      "row_ids": [
+        "H05",
+        "H06"
+      ],
+      "protocol": "foundation",
+      "network": "h2",
+      "security": "tls-pin",
+      "udp_codec": "none",
+      "field_values": {
+        "scope": "foundation-only",
+        "mode": "h2"
+      },
+      "outer_family": "ipv4-loopback",
+      "inner_family": "ipv4-loopback",
+      "target_type": "controlled-echo",
+      "upstream_graph": "direct",
+      "peer_kind": "V2",
+      "peer_config": {
+        "factory": "scripts/src/vcore_scripts/protocol_streams.py",
+        "mode": "h2"
+      },
+      "gap_source": "tests/protocols/combinations.json",
+      "expected_observation": [
+        "server_first",
+        "payload_65536",
+        "trailer_exact",
+        "origin_complete",
+        "protect_once",
+        "driver_joined",
+        "resources_idle"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "resources"
+      ],
+      "prerequisites": [
+        "V2",
+        "openssl",
+        "rust-toolchain"
+      ],
+      "runner": "native-stream",
+      "timeout_seconds": 60
+    },
+    {
+      "case_id": "N1-V2-WS-HEADER",
+      "stage": "N1",
+      "substage": "N1.3",
+      "required": true,
+      "row_ids": [
+        "W01",
+        "W02",
+        "W03",
+        "W04",
+        "W05"
+      ],
+      "protocol": "foundation",
+      "network": "ws-header",
+      "security": "plain",
+      "udp_codec": "none",
+      "field_values": {
+        "scope": "foundation-only",
+        "mode": "ws-header"
+      },
+      "outer_family": "ipv4-loopback",
+      "inner_family": "ipv4-loopback",
+      "target_type": "controlled-echo",
+      "upstream_graph": "direct",
+      "peer_kind": "V2",
+      "peer_config": {
+        "factory": "scripts/src/vcore_scripts/protocol_streams.py",
+        "mode": "ws-header"
+      },
+      "gap_source": "tests/protocols/combinations.json",
+      "expected_observation": [
+        "server_first",
+        "payload_65536",
+        "trailer_exact",
+        "origin_complete",
+        "protect_once",
+        "driver_joined",
+        "resources_idle"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "resources"
+      ],
+      "prerequisites": [
+        "V2",
+        "openssl",
+        "rust-toolchain"
+      ],
+      "runner": "native-stream",
+      "timeout_seconds": 60
+    },
+    {
+      "case_id": "N1-V2-WS-PATH",
+      "stage": "N1",
+      "substage": "N1.3",
+      "required": true,
+      "row_ids": [
+        "W01",
+        "W02",
+        "W03",
+        "W04",
+        "W05"
+      ],
+      "protocol": "foundation",
+      "network": "ws-path",
+      "security": "plain",
+      "udp_codec": "none",
+      "field_values": {
+        "scope": "foundation-only",
+        "mode": "ws-path"
+      },
+      "outer_family": "ipv4-loopback",
+      "inner_family": "ipv4-loopback",
+      "target_type": "controlled-echo",
+      "upstream_graph": "direct",
+      "peer_kind": "V2",
+      "peer_config": {
+        "factory": "scripts/src/vcore_scripts/protocol_streams.py",
+        "mode": "ws-path"
+      },
+      "gap_source": "tests/protocols/combinations.json",
+      "expected_observation": [
+        "server_first",
+        "payload_65536",
+        "trailer_exact",
+        "origin_complete",
+        "protect_once",
+        "driver_joined",
+        "resources_idle"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "resources"
+      ],
+      "prerequisites": [
+        "V2",
+        "openssl",
+        "rust-toolchain"
+      ],
+      "runner": "native-stream",
+      "timeout_seconds": 60
+    },
+    {
+      "case_id": "N1-FEATURES",
+      "stage": "N1",
+      "substage": "N1.5",
+      "required": true,
+      "row_ids": [],
+      "protocol": "foundation",
+      "network": "none",
+      "security": "none",
+      "udp_codec": "none",
+      "field_values": {
+        "scope": "foundation-only"
+      },
+      "outer_family": "none",
+      "inner_family": "none",
+      "target_type": "none",
+      "upstream_graph": "none",
+      "peer_kind": "unit",
+      "peer_config": {
+        "runner": "features"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "independent-features",
+        "default-feature",
+        "no-default-feature",
+        "build-identity"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup"
+      ],
+      "prerequisites": [
+        "rust-toolchain"
+      ],
+      "runner": "features",
+      "timeout_seconds": 1200
+    },
+    {
+      "case_id": "N1-SCRIPTS",
+      "stage": "N1",
+      "substage": "N1.6",
+      "required": true,
+      "row_ids": [],
+      "protocol": "foundation",
+      "network": "none",
+      "security": "none",
+      "udp_codec": "none",
+      "field_values": {
+        "scope": "foundation-only"
+      },
+      "outer_family": "none",
+      "inner_family": "none",
+      "target_type": "none",
+      "upstream_graph": "none",
+      "peer_kind": "unit",
+      "peer_config": {
+        "runner": "scripts"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "offline-success",
+        "missing-duplicate-unknown-case",
+        "download-failure",
+        "timeout",
+        "sigint",
+        "partial-start",
+        "permission",
+        "peer-exit",
+        "cleanup-failure",
+        "redaction"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup"
+      ],
+      "prerequisites": [
+        "python-toolchain"
+      ],
+      "runner": "scripts",
+      "timeout_seconds": 300
+    }
+  ]
+}

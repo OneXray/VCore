@@ -13,7 +13,7 @@ use tokio::{
     time::Sleep,
 };
 
-pub(crate) const CLOSE_NOTIFY_TIMEOUT: Duration = Duration::from_secs(5);
+pub const CLOSE_NOTIFY_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub(super) struct TlsStream {
     inner: tokio_rustls::client::TlsStream<BoxStream>,

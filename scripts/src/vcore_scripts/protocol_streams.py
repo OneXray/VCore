@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import socket
 import socketserver
 import subprocess
 import tempfile
@@ -14,9 +15,8 @@ from pathlib import Path
 
 from .builds import CORE_DIR
 from .mihomo_isolation import reserve_port
-from .mihomo_release import download_mihomo
-from .native_release import download_native
-from .protocol_peers import OwnedProcess
+from .protocol_peers import OwnedProcess, run_command
+from .protocol_preflight import preflight
 
 CLIENT_ID = "b831381d-6324-4d53-ad4f-8cda48b30811"  # Public synthetic identity.
 GREETING, TRAILER = b"N1-server-first\n", b"N1-half-close\n"
@@ -31,6 +31,42 @@ STREAM_CASES = {
     "N1-V2-WS-HEADER": ("V2", "ws-header"),
     "N1-V2-WS-PATH": ("V2", "ws-path"),
 }
+
+
+def abnormal_cleanup(binary: Path, directory: Path, cert: Path, key: Path) -> dict:
+    """A real native peer must be joined even when its calling case unwinds."""
+
+    class InjectedFailure(Exception):
+        pass
+
+    record = {}
+    with contextlib.ExitStack() as stack:
+        port, reservation = reserve_port(stack)
+        config = directory / "cleanup-peer.json"
+        config.write_text(json.dumps(peer_config("M", "ws", port, cert, key)))
+        reservation.release_ipv4()
+        owner = OwnedProcess(
+            [str(binary), "-d", str(directory), "-f", str(config)],
+            directory / "cleanup-peer.log",
+            record,
+        )
+        try:
+            with owner:
+                owner.wait_tcp(port)
+                raise InjectedFailure
+        except InjectedFailure:
+            pass
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as rebind:
+            rebind.bind(("127.0.0.1", port))
+        if not record.get("joined") or owner.process.poll() is None:
+            raise RuntimeError("native abnormal cleanup failed")
+    return {
+        "passed": True,
+        "kind": "M",
+        "failure_injected": True,
+        "joined": True,
+        "port_rebound": True,
+    }
 
 
 class Echo(socketserver.BaseRequestHandler):
@@ -69,7 +105,7 @@ def origin():
 
 def certificates(directory: Path):
     cert, key = directory / "cert.pem", directory / "key.pem"
-    subprocess.run(
+    generated = run_command(
         [
             "openssl",
             "req",
@@ -88,17 +124,22 @@ def certificates(directory: Path):
             "-out",
             str(cert),
         ],
-        check=True,
-        capture_output=True,
         timeout=20,
+        limit=65536,
     )
-    der = subprocess.run(
+    der = run_command(
         ["openssl", "x509", "-in", str(cert), "-outform", "DER"],
-        check=True,
-        capture_output=True,
         timeout=10,
-    ).stdout
-    return cert, key, hashlib.sha256(der).hexdigest()
+        limit=65536,
+    )
+    if (
+        generated.returncode != 0
+        or der.returncode != 0
+        or not generated.cleanup
+        or not der.cleanup
+    ):
+        raise RuntimeError("synthetic certificate generation failed")
+    return cert, key, hashlib.sha256(der.stdout).hexdigest()
 
 
 def peer_config(kind, mode, port, cert, key):
@@ -165,7 +206,7 @@ def peer_config(kind, mode, port, cert, key):
     }
 
 
-def run_streams(output: Path, selected: list[str] | None = None):
+def run_streams(output: Path, selected: list[str] | None = None, *, artifacts=None):
     selected = list(STREAM_CASES) if selected is None else selected
     if (
         not selected
@@ -181,31 +222,20 @@ def run_streams(output: Path, selected: list[str] | None = None):
         "cleanup": False,
     }
     try:
-        peers = {}
-        for kind in sorted({STREAM_CASES[case][0] for case in selected}):
-            if kind == "M":
-                binary = download_mihomo()
-                version = subprocess.run(
-                    [str(binary), "-v"],
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                ).stdout.strip()
-                identity = {
-                    "kind": kind,
-                    "version": version,
-                    "binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
-                    "source_url": "https://github.com/MetaCubeX/mihomo/releases/latest/download/version.txt",
-                }
-            else:
-                artifact = download_native(kind, output / "binaries" / kind)
-                binary, identity = artifact.binary, artifact.identity
-            peers[kind] = binary
-            report["peers"].append(identity)
+        kinds = {STREAM_CASES[case][0] for case in selected}
+        if artifacts is None:
+            artifacts, report["preflight"] = preflight(output / "binaries", kinds)
+        peers = {kind: item.binary for kind, item in artifacts.items() if kind in kinds}
+        report["peers"] = [
+            item.identity for kind, item in artifacts.items() if kind in kinds
+        ]
         with tempfile.TemporaryDirectory(prefix="private-", dir=output) as temporary:
             temporary = Path(temporary)
             cert, key, pin = certificates(temporary)
+            if "M" in peers:
+                report["abnormal_cleanup"] = abnormal_cleanup(
+                    peers["M"], temporary, cert, key
+                )
             for case_id in selected:
                 kind, mode = STREAM_CASES[case_id]
                 record = {
@@ -216,6 +246,13 @@ def run_streams(output: Path, selected: list[str] | None = None):
                     "cleanup": {},
                 }
                 report["cases"].append(record)
+                if kind not in peers:
+                    record.update(
+                        status="BLOCKED",
+                        reason="required peer unavailable",
+                        cleanup={"joined": True, "started": False},
+                    )
+                    continue
                 started = time.monotonic()
                 try:
                     with contextlib.ExitStack() as stack:
@@ -248,7 +285,7 @@ def run_streams(output: Path, selected: list[str] | None = None):
                             }
                             probe_config = temporary / "probe.json"
                             probe_config.write_text(json.dumps(fixture))
-                            completed = subprocess.run(
+                            completed = run_command(
                                 [
                                     str(
                                         CORE_DIR
@@ -256,12 +293,12 @@ def run_streams(output: Path, selected: list[str] | None = None):
                                     ),
                                     str(probe_config),
                                 ],
-                                capture_output=True,
-                                text=True,
                                 timeout=20,
+                                limit=65536,
                             )
                             result = json.loads(completed.stdout)
                             record["rust_event"] = result
+                            record["command_exit_code"] = completed.returncode
                             record["origin"] = {
                                 "finished": echo.finished.wait(3),
                                 "accepted": echo.accepted,
@@ -275,6 +312,11 @@ def run_streams(output: Path, selected: list[str] | None = None):
                                 and result["outcome"] == "pass"
                                 and result["driver_joined"]
                                 and result["protect_calls"] == 1
+                                and result.get("resources_idle") is True
+                                and result.get("server_first") is True
+                                and result.get("payload_bytes") == 65536
+                                and result.get("tail_bytes") == len(TRAILER)
+                                and completed.cleanup
                                 and record["origin"]
                                 == {
                                     "finished": True,

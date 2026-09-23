@@ -19,6 +19,7 @@ from .mihomo_release import (
     _copy_and_hash,
     _https_response,
 )
+from .protocol_peers import run_command
 
 
 @dataclass(frozen=True)
@@ -62,6 +63,29 @@ def _download_native(kind: str, directory: Path, target: str | None) -> PeerArti
                 "linux-amd64": "v2ray-linux-64.zip",
             },
         ),
+        "XR": (
+            "XTLS/Xray-core",
+            "xray",
+            {
+                "darwin-arm64": "Xray-macos-arm64-v8a.zip",
+                "darwin-amd64": "Xray-macos-64.zip",
+                "linux-arm64": "Xray-linux-arm64-v8a.zip",
+                "linux-amd64": "Xray-linux-64.zip",
+            },
+        ),
+        "H": (
+            "HyNetworks/hysteria",
+            "hysteria",
+            {
+                target: f"hysteria-{target}"
+                for target in [
+                    "darwin-arm64",
+                    "darwin-amd64",
+                    "linux-arm64",
+                    "linux-amd64",
+                ]
+            },
+        ),
     }
     if kind not in assets or target not in assets[kind][2]:
         raise RuntimeError("unsupported official native peer target")
@@ -80,33 +104,17 @@ def _download_native(kind: str, directory: Path, target: str | None) -> PeerArti
         ):
             _https_response(response)
             archive_hash = _copy_and_hash(response, output, MAX_ARCHIVE_BYTES)
-        with zipfile.ZipFile(archive) as bundle:
-            matches = []
-            for member in bundle.infolist():
-                path = PurePosixPath(member.filename)
-                mode = stat.S_IFMT(member.external_attr >> 16)
-                if (
-                    path.is_absolute()
-                    or ".." in path.parts
-                    or "\\" in member.filename
-                    or ":" in member.filename
-                    or mode not in {0, stat.S_IFREG, stat.S_IFDIR}
-                    or member.flag_bits & 1
-                ):
-                    raise RuntimeError("unsafe official native peer archive")
-                if member.filename == name:
-                    matches.append(member)
-            if len(matches) != 1 or not 0 < matches[0].file_size <= MAX_BINARY_BYTES:
-                raise RuntimeError("invalid official native peer executable")
-            with bundle.open(matches[0]) as source, executable.open("wb") as output:
+        if kind == "H":
+            with archive.open("rb") as source, executable.open("wb") as output:
                 binary_hash = _copy_and_hash(source, output, MAX_BINARY_BYTES)
+        else:
+            binary_hash = _extract_zip(archive, executable, name)
         executable.chmod(0o755)
-        # Query before publishing; a failing executable is never a usable peer.
-        result = subprocess.run(
-            [str(executable), "version"], check=True, capture_output=True, timeout=10
-        )
-        version = result.stdout[:4096].decode("utf-8", errors="replace").strip()
-        if not version or len(result.stdout) > 4096:
+        result = run_command([str(executable), "version"], timeout=10, limit=4096)
+        if result.returncode != 0 or not result.cleanup:
+            raise RuntimeError("official native peer version check failed")
+        version = result.stdout.decode("utf-8", errors="replace").strip()
+        if not version:
             raise RuntimeError("invalid official native peer version output")
         os.replace(executable, binary)
     return PeerArtifact(
@@ -120,3 +128,27 @@ def _download_native(kind: str, directory: Path, target: str | None) -> PeerArti
             "version": version,
         },
     )
+
+
+def _extract_zip(archive: Path, executable: Path, name: str) -> str:
+    with zipfile.ZipFile(archive) as bundle:
+        matches = []
+        for member in bundle.infolist():
+            path = PurePosixPath(member.filename)
+            mode = stat.S_IFMT(member.external_attr >> 16)
+            if (
+                path.is_absolute()
+                or ".." in path.parts
+                or "\\" in member.filename
+                or ":" in member.filename
+                or mode not in {0, stat.S_IFREG, stat.S_IFDIR}
+                or member.flag_bits & 1
+            ):
+                raise RuntimeError("unsafe official native peer archive")
+            if member.filename == name:
+                matches.append(member)
+        if len(matches) != 1 or not 0 < matches[0].file_size <= MAX_BINARY_BYTES:
+            raise RuntimeError("invalid official native peer executable")
+        with bundle.open(matches[0]) as source, executable.open("wb") as output:
+            binary_hash = _copy_and_hash(source, output, MAX_BINARY_BYTES)
+    return binary_hash
