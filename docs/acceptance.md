@@ -17,6 +17,8 @@
 
 2026-09-23 追加的 [XHTTP 关闭对齐](acceptance/next-protocols/XHTTP-close.md)修正了既有生产 H2 的三种模式：应用上传 EOF 结束整条逻辑连接，不再保留下行半关闭。独立 H3 实验与官方 Mihomo 客户端完成同一 Xray 对端的行为对照；H3 仍未接入生产，历史 request-EOF/尾包失败不改记为成功，也不再作为 XHTTP 的客户端契约。
 
+同日 [N0-B 公共流接口实验](acceptance/next-protocols/N0-stream.md)完成TLS/普通WS/gRPC的注入IO、取消回收与关闭差分：12项Debug/Release测试、42项官方Mihomo检查及Apple/Android交叉检查通过。没有新增生产功能或依赖；Windows、真机和完整N0仍未签收。
+
 当前 source/tests 覆盖：
 
 - Invoke API v5、单实例生命周期、Debug/Release 运行时线程重入拒绝、panic 与同步清理；

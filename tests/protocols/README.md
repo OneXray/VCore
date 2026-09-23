@@ -21,6 +21,9 @@ outbound protocols:
 - [Controlled QUIC native peers](spikes/hysteria2/README.md): HY2 authentication,
   one-state hopping and Xray XHTTP/H3; separate half-close failures remain
   explicit limitations, not completed production protocol fields.
+- [Supplied-stream experiment](spikes/stream/README.md): TLS, ordinary WS and
+  gRPC public IO wrapping, owned cancellation, official Mihomo interoperability
+  and client-close differential. No production transport or YAML additions.
 
 ## Files and schema
 
