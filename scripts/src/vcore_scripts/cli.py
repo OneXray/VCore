@@ -10,6 +10,7 @@ from .builds import build_android, build_apple, build_windows
 from .checks import check_c_header, check_tls_dependencies
 from .mihomo import run_mihomo_interop
 from .mihomo_release import SUPPORTED_TARGETS, download_mihomo
+from .protocol_catalogs import CATALOG_DIR, check_protocol_catalogs
 from .tun2socks import run_demo
 
 
@@ -37,6 +38,18 @@ def _parser() -> argparse.ArgumentParser:
     checks = check.add_subparsers(dest="check", required=True)
     checks.add_parser("c-header", help="compile vcore.h as C and C++")
     checks.add_parser("tls-dependencies", help="validate the locked TLS graph")
+    coverage = checks.add_parser(
+        "protocol-coverage", help="validate planned protocol coverage declarations"
+    )
+    coverage.add_argument(
+        "--catalog-only",
+        action="store_true",
+        required=True,
+        help="check declarations only, not implementation or behavior acceptance",
+    )
+    coverage.add_argument(
+        "--catalog-dir", type=Path, default=CATALOG_DIR, help="directory of catalogs"
+    )
     mihomo = checks.add_parser(
         "mihomo-interop", help="run local protocol interoperability against mihomo"
     )
@@ -82,6 +95,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.command == "check":
             if args.check == "c-header":
                 check_c_header()
+            elif args.check == "protocol-coverage":
+                check_protocol_catalogs(args.catalog_dir)
             elif args.check == "mihomo-interop":
                 run_mihomo_interop(
                     extended=args.extended,

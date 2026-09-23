@@ -48,12 +48,21 @@ Android NDK 优先读取 `ANDROID_NDK_HOME`，否则使用 `$ANDROID_HOME/ndk/<v
 ```bash
 uv run --project scripts --locked vcore-scripts check c-header
 uv run --project scripts --locked vcore-scripts check tls-dependencies
+uv run --project scripts --locked vcore-scripts check protocol-coverage --catalog-only
 uv run --project scripts --locked python -m unittest discover -s scripts/tests
 uv run --project scripts --locked ruff check scripts
 uv run --project scripts --locked ruff format --check scripts
 ```
 
 `c-header` 在 macOS 使用 `xcrun clang/clang++`，其他平台使用 `PATH` 中的 `clang/clang++`。`tls-dependencies` 直接读取 `cargo metadata`，验证唯一的 OneXray/rustls 0.23.45 来自 GitHub `vcore/reality-0.23` 分支、官方 tokio-rustls 0.26.5、registry ring，并禁止 Watfaq 来源和 TLS 的 AWS-LC/FIPS provider。AWS-LC 仅允许出现在锁定官方 Shadowsocks 1.25.0 → registry shadowsocks-crypto 0.8.0 → aws-lc-rs → aws-lc-sys 链；额外使用方、非官方来源、重复版本和 FIPS 包均失败。该局部例外不更换 TLS/REALITY 的 ring provider。
+
+### 协议声明清单
+
+`protocol-coverage` **当前仅实现 `--catalog-only` 模式**，该 flag 必填；没有默认的阶段签收模式。它只读本仓库 `tests/protocols/fields.json` 和 `combinations.json`，也可用 `--catalog-dir <directory>` 指定一份待检查副本。不读取清单所引用的源码、研究目录或 URL，不下载或启动对端。
+
+检查 schema-v1 的完整145字段/69组合家族ID、重复JSON键、字段/来源/对端/override引用、协议适用范围、阶段与子包归属、必要观察项/模式维度、负例拒绝阶段、原生未知项说明及64个有序上游组合声明。稳定ID的增删必须同时审查版本化清单及验证器契约，不能靠改自报数量绕过漏项。来源只接受无凭据/查询参数的HTTPS链接或无 `..` 的相对路径，不检查其内容或网络可用性。
+
+有效清单退出0，stdout为JSON，`status: VALID`、`behavior_status: NOT RUN`；无效清单退出1、stderr只报告诊断，不输出JSON原文；缺少模式参数退出2。声明中不能写入PASS等运行结果。这个结果**不是145项字段或69项互通通过**，不解析条件说明或自动生成笛卡尔积；具体case、逐字段断言、运行报告、资源观测和阶段验收仍待后续实现。当前生产能力仍以 `docs/config.yaml` 为准。验证记录见 [N1清单校验](../docs/acceptance/next-protocols/N1-catalogs.md)。
 
 ## Windows tun2socks demo
 

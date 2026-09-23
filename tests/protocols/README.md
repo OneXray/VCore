@@ -122,3 +122,25 @@ Catalog validation alone cannot satisfy protocol acceptance.
 These unresolved entries are explicit development gates, not scope reductions.
 No third-party source patch, custom protocol server, weakened TLS audit, or
 unprotected socket is authorized by the catalogs.
+
+## Declaration validation
+
+From the VCore repository root:
+
+```sh
+uv run --project scripts --locked vcore-scripts check protocol-coverage --catalog-only
+```
+
+This explicit mode checks the complete schema-v1 ID sets (145 fields, 69 mode
+families), references, ownership, native-peer declarations and required metadata.
+It also preserves the declared 64 ordered upstream pairs. A valid result is
+`VALID` with behavior status `NOT RUN`, never protocol acceptance. Invalid inputs
+exit nonzero; duplicate JSON keys and embedded declaration-level PASS statuses
+are rejected. `--catalog-dir` selects a copy for inspection; the default is
+repository-local and independent of the caller's working directory.
+
+The checker does not read source references, contact peers, evaluate the prose
+contracts or expand family dimensions into executable cases. Case/result coverage,
+resource observations and stage sign-off are not yet implemented; omitting
+`--catalog-only` is an error. This is a partial N1.1 deliverable, not completed N1.6.
+See the [executed record](../../docs/acceptance/next-protocols/N1-catalogs.md).
