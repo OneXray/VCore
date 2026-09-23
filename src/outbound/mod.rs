@@ -3,6 +3,8 @@
 pub mod address;
 #[cfg(feature = "outbound-trojan")]
 pub mod trojan;
+#[cfg(feature = "outbound-vmess")]
+pub mod vmess;
 
 #[cfg(feature = "outbound-anytls")]
 mod anytls;
