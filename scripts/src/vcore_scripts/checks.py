@@ -178,8 +178,8 @@ def _tls_dependency_errors(metadata: dict[str, Any]) -> list[str]:
             return None
         return matches[0]
 
-    rustls = require_single("rustls", "0.23.43")
-    tokio_rustls = require_single("tokio-rustls", "0.26.4")
+    rustls = require_single("rustls", "0.23.45")
+    tokio_rustls = require_single("tokio-rustls", "0.26.5")
     ring = named("ring")
 
     if len(ring) != 1:
@@ -275,8 +275,8 @@ def check_tls_dependencies() -> None:
     )
     revision = rustls["source"].rsplit("#", 1)[1]
     print("TLS dependency check passed:")
-    print(f"- one OneXray/rustls 0.23.43 vcore/reality-0.23 @ {revision[:12]}")
-    print("- one official tokio-rustls 0.26.4")
+    print(f"- one OneXray/rustls 0.23.45 vcore/reality-0.23 @ {revision[:12]}")
+    print("- one official tokio-rustls 0.26.5")
     print(f"- one registry ring {ring['version']} provider")
     print("- no Watfaq or second rustls version; TLS uses ring only")
     if any(p["name"] == "aws-lc-rs" for p in metadata["packages"]):

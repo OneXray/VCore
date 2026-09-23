@@ -127,18 +127,18 @@ pub async fn compile_missing_session_hook(
 }
 
 #[test]
-fn reality_rejects_only_hybrid_group_despite_capability_flag() {
+fn default_reality_rejects_provider_without_classic_x25519() {
     let error = reality_config(vec![&HYBRID_SENTINEL]).unwrap_err();
     assert!(
         error
             .to_string()
-            .contains("does not support REALITY X25519 key reuse")
+            .contains("does not support REALITY key reuse for the selected group")
     );
     println!("hybrid-only builder rejected: {error}");
 }
 
 #[test]
-fn reality_ignores_preferred_hybrid_and_emits_classic_keyshare() {
+fn default_reality_ignores_preferred_hybrid_and_emits_classic_keyshare() {
     let config = reality_config(vec![
         &HYBRID_SENTINEL,
         rustls::crypto::ring::kx_group::X25519,

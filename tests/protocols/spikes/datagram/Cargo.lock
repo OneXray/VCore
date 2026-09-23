@@ -1293,8 +1293,8 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.43"
-source = "git+https://github.com/OneXray/rustls?rev=df261c84cbac4f708e63ac8644ce70daa90d771c#df261c84cbac4f708e63ac8644ce70daa90d771c"
+version = "0.23.45"
+source = "git+https://github.com/OneXray/rustls?rev=26f3efe5946dbe96410e85b8541ccf5fe7c244a5#26f3efe5946dbe96410e85b8541ccf5fe7c244a5"
 dependencies = [
  "once_cell",
  "ring",
@@ -1614,9 +1614,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-rustls"
-version = "0.26.4"
+version = "0.26.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1729aa945f29d91ba541258c8df89027d5792d85a8841fb65e8bf0f4ede4ef61"
+checksum = "b0c85f2c3ef0b1cd58b36682f4b17aaa995f0e5db534d85692b4903abce21f67"
 dependencies = [
  "rustls",
  "tokio",

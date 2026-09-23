@@ -13,7 +13,7 @@
 
 ## 自动化覆盖
 
-下一版协议从独立 N0 基线开始，进度见 [N0 基线与可行性门禁](acceptance/next-protocols/N0.md)。2026-09-22/23 的新基线与接口实验不继承本页历史通过状态，也不代表新五协议或平台交付已经完成。混合 REALITY 的自有 fork 局部实验已通过，但尚未接入生产依赖；[N0-D QUIC 原生入口](acceptance/next-protocols/N0-quic-entries.md)已验证，原生半关闭失败和 N0 其余门禁仍保留。
+下一版协议从独立 N0 基线开始，进度见 [N0 基线与可行性门禁](acceptance/next-protocols/N0.md)。2026-09-22/23 的新基线与接口实验不继承本页历史通过状态，也不代表新五协议或平台交付已经完成。混合 REALITY 的自有 fork 局部实验已通过；fork 依赖已升级，但 VCore 生产仍未启用混合组；[N0-D QUIC 原生入口](acceptance/next-protocols/N0-quic-entries.md)已验证，原生半关闭失败和 N0 其余门禁仍保留。
 
 2026-09-23 追加的 [XHTTP 关闭对齐](acceptance/next-protocols/XHTTP-close.md)修正了既有生产 H2 的三种模式：应用上传 EOF 结束整条逻辑连接，不再保留下行半关闭。独立 H3 实验与官方 Mihomo 客户端完成同一 Xray 对端的行为对照；H3 仍未接入生产，历史 request-EOF/尾包失败不改记为成功，也不再作为 XHTTP 的客户端契约。
 
@@ -21,7 +21,7 @@
 
 [N1 h2 补丁升级](acceptance/next-protocols/N1-h2.md)将生产和流实验的 h2 更新至官方稳定版0.4.19，修复已复现的 END_STREAM 后 RST 丢失完整响应问题。关闭回归、旧协议扩展互通和流实验重跑通过；这是 N1 前置子包，不代表完整 N1 或全依赖升级完成。
 
-[N1 依赖基线进度](acceptance/next-protocols/N1-dependencies.md)记录最新稳定版审计、rustls0.23.45独立同步分支，以及当前依赖来源恢复为OneXray/rustls。新版fork尚未发布或接入VCore；版本升级与地址修正的证据分开记录。
+[N1 依赖基线进度](acceptance/next-protocols/N1-dependencies.md)记录最新稳定版审计及依赖来源OneXray/rustls。获准将0.23.45同步结果推送到正式依赖分支后，VCore与四个实验工程已接入新版fork及官方tokio-rustls0.26.5；新版验证见[N1 TLS接入](acceptance/next-protocols/N1-tls.md)，与较早仅修改地址的证据分开记录。ring、classic REALITY、API v5/schema14均不变。
 
 当前 source/tests 覆盖：
 

@@ -443,14 +443,14 @@ except RuntimeError as error:
                 {
                     "id": "rustls-id",
                     "name": "rustls",
-                    "version": "0.23.43",
+                    "version": "0.23.45",
                     "source": "git+https://github.com/OneXray/rustls?branch=vcore/reality-0.23#"
                     + "a" * 40,
                 },
                 {
                     "id": "tokio-rustls-id",
                     "name": "tokio-rustls",
-                    "version": "0.26.4",
+                    "version": "0.26.5",
                     "source": registry,
                 },
                 {
@@ -470,6 +470,12 @@ except RuntimeError as error:
             },
         }
         self.assertEqual(_tls_dependency_errors(metadata), [])
+
+        for index, old_version in [(0, "0.23.43"), (1, "0.26.4")]:
+            with self.subTest(outdated_version=old_version):
+                outdated = copy.deepcopy(metadata)
+                outdated["packages"][index]["version"] = old_version
+                self.assertTrue(_tls_dependency_errors(outdated))
 
         old_origin = copy.deepcopy(metadata)
         old_origin["packages"][0]["source"] = (

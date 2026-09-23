@@ -11,11 +11,15 @@ cargo test --locked --manifest-path tests/protocols/spikes/security/Cargo.toml -
 cargo fmt --manifest-path tests/protocols/spikes/security/Cargo.toml -- --check
 ```
 
-The tests prove local API and record-buffer behavior, the current REALITY group
-selection restriction, and an external Rust HPKE adapter producing an ECH offer.
+The tests prove local API and record-buffer behavior, default REALITY's classic
+X25519 selection, and an external Rust HPKE adapter producing an ECH offer.
 They do not prove a native peer accepted ECH, Vision direct-mode interoperability,
 or production socket/lifecycle integration. The hybrid group is intentionally a
 sentinel, not a cryptographic implementation; its presence tests selection only.
+The fork also exposes explicit hybrid selection; these default-config tests do
+not exercise that opt-in API or claim hybrid is unavailable in the fork. The
+[N1 TLS update](../../../../docs/acceptance/next-protocols/N1-tls.md) records the
+new dependency validation without replacing the historical N0 result.
 
 The optional `missing-session-hook` feature is an intentional **compile-fail**
 probe. Do not include it in a successful-build feature set:

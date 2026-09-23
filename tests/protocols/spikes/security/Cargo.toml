@@ -10,12 +10,12 @@ publish = false
 missing-session-hook = []
 
 [dependencies]
-rustls = { version = "=0.23.43", default-features = false, features = ["ring", "std", "tls12", "reality"] }
-tokio-rustls = { version = "=0.26.4", default-features = false, features = ["ring", "tls12"] }
+rustls = { version = "=0.23.45", default-features = false, features = ["ring", "std", "tls12", "reality"] }
+tokio-rustls = { version = "=0.26.5", default-features = false, features = ["ring", "tls12"] }
 tokio = { version = "1", features = ["io-util"] }
 rcgen = { version = "=0.14.8", default-features = false, features = ["crypto", "ring"] }
 hpke = { version = "=0.13.0", default-features = false, features = ["std", "x25519"] }
 rand = "0.9"
 
 [patch.crates-io]
-rustls = { git = "https://github.com/OneXray/rustls", rev = "df261c84cbac4f708e63ac8644ce70daa90d771c" }
+rustls = { git = "https://github.com/OneXray/rustls", rev = "26f3efe5946dbe96410e85b8541ccf5fe7c244a5" }
