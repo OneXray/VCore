@@ -25,7 +25,7 @@ uv run --project scripts --locked vcore-scripts build windows
 - Android 命令在 macOS/Linux 运行，默认输出 `dist/android/{arm64-v8a,x86_64}/libvcore.so`。
 - Windows 命令只能在已安装 Visual Studio C++ 工具的 Windows 运行；命令从系统注册表读取原生 ARM64/x64 处理器架构，通过 `vswhere` 加载对应的 MSVC 环境，验证三项 PE 的 machine type 后输出 `dist/windows/<architecture>` 下的 DLL、Provider Host、Session Host 和记录 package integration revision、架构及三项 SHA-256 的 `vcore-windows-artifacts.json`。
 - 所有构建都使用 `Cargo.lock`，并检查产物内的 Invoke API v5/config revision 16 身份。
-- 标准 Apple、Android、Windows 构建显式包含两种客户端入站和五种出站，不依赖 `ffi` / `tun` 的传递 feature 来隐式补齐；不包含 `interop-test`。Apple/Android 的自定义 `VCORE_FEATURES` 不得将测试信任注入用于交付。
+- 标准 Apple、Android、Windows 构建显式包含两种客户端入站和六种代理出站（含 VMess），不依赖 `ffi` / `tun` 的传递 feature 来隐式补齐；不包含 `interop-test`。Apple/Android 的自定义 `VCORE_FEATURES` 不得将测试信任注入用于交付。
 
 Apple/Android 继续接受现有环境变量：
 

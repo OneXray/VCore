@@ -36,8 +36,9 @@ outbound protocols:
   families, and native-peer compatibility questions. A family is **not one
   executable case** and its array dimensions are not permission to generate
   unsupported Cartesian products.
-- `cases.json`: the frozen N1 executable foundation cases, assertion names,
-  field associations, official peers, input dimensions and required evidence.
+- `cases.json`: frozen executable cases for N1 foundations (21 groups), N2
+  Trojan (41 groups) and N3 VMess (117 groups), with assertion names, field
+  associations, official peers, input dimensions and required evidence.
 - `limits.json`: shared per-object limits and executable boundary case IDs;
   `limit_foundations` compares the registered numbers with Rust constants.
 
@@ -107,14 +108,20 @@ harness attaches real case IDs, native configurations, expected observations,
 command/version identities, results and cleanup evidence in a separate run directory.
 Catalog validation alone cannot satisfy protocol acceptance.
 
-## Important unresolved native combinations
+## N0 native questions and consumer evidence
 
-- V2Ray recognizes CommandMux, but its researched mux decoder reads a target on
-  a New frame and keeps the existing destination on Keep frames. Exact XUDP
-  multi-target/reply-address behavior must be proven independently.
-- V2Ray does contain packetaddr magic-destination interception and packet/stream
-  wrappers. This is a candidate capability, not a reason to mark every protocol
-  and transport combination passed.
+This research list is not a substitute for current consumer results. See the
+[N3 VMess report](../../docs/acceptance/next-protocols/N3.md) for the tested input,
+exact transport/codec coverage and peer limits; future VLESS combinations do not
+inherit VMess acceptance.
+
+- V2Ray recognizes CommandMux, but the N0 research found different New/Keep
+  target handling. N3 verifies its missing transports with separate associations
+  for each target type; same-association target changes and source isolation use
+  Mihomo. Do not claim V2Ray multi-target equivalence from those results.
+- N3 proves VMess packetaddr against native decoders, including controlled
+  domain resolution and actual peer buffer limits. The existence of V2Ray's
+  magic-destination wrapper alone still proves no other protocol combination.
 - No packetaddr magic-destination decoder was identified in the researched
   Xray source. XHTTP H3 plus packetaddr remains a required unresolved combination.
 - A working H3 handshake does not demonstrate all XHTTP leaf extensions,
@@ -123,7 +130,7 @@ Catalog validation alone cannot satisfy protocol acceptance.
   XHTTP legs need precise legal compositions and a deployable shared handler.
   Rejection rules still take precedence, particularly H3's standard-TLS rule.
 
-These unresolved entries are explicit development gates, not scope reductions.
+Remaining unresolved entries are explicit development gates, not scope reductions.
 No third-party source patch, custom protocol server, weakened TLS audit, or
 unprotected socket is authorized by the catalogs.
 
@@ -147,22 +154,30 @@ This declaration mode does not read source references, contact peers, evaluate
 the prose contracts or expand family dimensions. Its historical executed record
 is [N1 catalogs](../../docs/acceptance/next-protocols/N1-catalogs.md).
 
-## Executable N1 foundations
+## Executable stage gates
 
 ```sh
-uv run --project scripts --locked vcore-scripts check protocol-interop --stage N1 --list
-uv run --project scripts --locked vcore-scripts check protocol-interop --stage N1 --preflight
-uv run --project scripts --locked vcore-scripts check protocol-interop --stage N1
-uv run --project scripts --locked vcore-scripts check protocol-coverage --stage N1 --run-dir target/interop/runs/<run-id>
+uv run --project scripts --locked vcore-scripts check protocol-interop --stage N3 --list
+uv run --project scripts --locked vcore-scripts check protocol-interop --stage N3 --preflight
+uv run --project scripts --locked vcore-scripts check protocol-interop --stage N3
+uv run --project scripts --locked vcore-scripts check protocol-coverage --stage N3 --run-dir target/interop/runs/<run-id>
 ```
 
-Only N1 has executable stage cases at this point. `--case` (repeatable) and
+N3 is the current container-only stage runner; all peers, origins and upstream
+listeners follow the [isolation rule](../../docs/testing-isolation.md). Historical
+N1/N2 catalogs and reports remain available, but their server runners are not
+fully migrated and must not be rerun on the host. `--case` (repeatable) and
 `--protocol` select subsets for development, not full-stage acceptance. Empty,
-unknown or contradictory selections fail. The independent M/W/H/XR/V2 preflight
-checks official artifacts and environment readiness, never business acceptance;
-unavailable future W/H/XR capabilities do not block unrelated N1 M/V2 cases.
+unknown or contradictory selections fail. N3 preflight downloads fresh official
+M/V2 artifacts, checks versions inside owned containers, and verifies readiness
+and cleanup without declaring business acceptance.
 
-The 21 required groups include Rust configuration/limit/TLS/stream/XUDP/datagram/
+N3 has 109 native wire/public-consumer cases and eight local gates: configuration,
+codecs, cancellation, regression, Release, features, offline scripts, and quality
+including Apple/Android builds. Its 30 applicable field rows require the full
+structured report, not the catalog's VALID status.
+
+N1's historical 21 required groups include configuration/limit/TLS/stream/XUDP/datagram/
 QUIC/resolution/resource assertions, nine native stream cases, the existing
 Mihomo extended regression, feature smokes and offline harness failure tests.
 `row_ids` associate a foundation with future consumers; a group-level PASS does
