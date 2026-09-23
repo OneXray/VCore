@@ -24,6 +24,8 @@ use vcore::{
 };
 use vcore_n0_hysteria2_spike::{datagram, wire};
 
+mod xhttp;
+
 const PAYLOAD_BYTES: usize = 65536;
 const GREETING: &[u8] = b"N0-server-first\n";
 const TRAILER: &[u8] = b"N0-half-close\n";
@@ -55,6 +57,46 @@ impl ControllerFactory for ObservedBbr {
 
 fn field<'a>(config: &'a Value, name: &str) -> Result<&'a str, &'static str> {
     config[name].as_str().ok_or("invalid_fixture")
+}
+
+fn datagram_request() -> DatagramRequest {
+    DatagramRequest::new(DatagramSession::new(
+        InboundKind::Socks5,
+        "127.0.0.1:0".parse().unwrap(),
+    ))
+    .with_max_response_payload_size(datagram::PACKET_LIMIT as u16)
+}
+
+struct Hop<'a> {
+    connector: &'a dyn OutboundConnector,
+    context: &'a EstablishContext,
+    resource: Option<(Arc<datagram::DatagramSocket>, datagram::DatagramDriver)>,
+    rebinds: usize,
+    connect_calls: usize,
+    auth_requests: usize,
+}
+
+impl Hop<'_> {
+    async fn rebind(
+        &mut self,
+        endpoint: &Endpoint,
+        logical_peer: SocketAddr,
+        port: u16,
+    ) -> Result<(), &'static str> {
+        let transport = self
+            .connector
+            .open_datagram(datagram_request(), self.context)
+            .await
+            .map_err(|_| "hop_open")?;
+        let mut physical_peer = logical_peer;
+        physical_peer.set_port(port);
+        let (socket, driver) = datagram::attach_mapped(transport, logical_peer, physical_peer);
+        // Retain both owners until the QUIC endpoint is idle, including errors.
+        self.resource = Some((socket.clone(), driver));
+        endpoint.rebind_abstract(socket).map_err(|_| "hop_rebind")?;
+        self.rebinds += 1;
+        Ok(())
+    }
 }
 
 fn client_config(
@@ -105,8 +147,12 @@ async fn exercise(
     peer: SocketAddr,
     config: &Value,
     h3_task: &mut Option<JoinHandle<()>>,
+    phase: &mut &'static str,
+    hop: &mut Hop<'_>,
 ) -> Result<Value, &'static str> {
     let started = Instant::now();
+    *phase = "quic_handshake";
+    hop.connect_calls += 1;
     let connection = endpoint
         .connect(peer, field(config, "server_name")?)
         .map_err(|_| "connect_setup")?
@@ -117,6 +163,10 @@ async fn exercise(
             }
             _ => "quic_connect",
         })?;
+    *phase = "h3_setup";
+    if config["protocol"] == "xray-h3" {
+        return xhttp::exercise(connection, config, h3_task, phase).await;
+    }
     let (mut control, mut requests) =
         h3::client::new(h3_quinn::Connection::new(connection.clone()))
             .await
@@ -132,6 +182,8 @@ async fn exercise(
         .header("Hysteria-CC-RX", "0")
         .body(())
         .map_err(|_| "auth_request")?;
+    *phase = "h3_auth";
+    hop.auth_requests += 1;
     let mut auth = requests
         .send_request(request)
         .await
@@ -159,13 +211,17 @@ async fn exercise(
         return Err("cc_capability");
     }
     let setup_ms = started.elapsed().as_secs_f64() * 1000.0;
+    *phase = "tcp_open";
     let (mut send, mut receive) = connection.open_bi().await.map_err(|_| "tcp_open")?;
+    let connection_id = connection.stable_id();
+    let stream_id = send.id();
     send.write_all(&wire::tcp_request(field(config, "target")?).map_err(|_| "tcp_request")?)
         .await
         .map_err(|_| "tcp_header_send")?;
     wire::tcp_response(&mut receive)
         .await
         .map_err(|_| "tcp_response")?;
+    *phase = "server_first";
     let mut greeting = [0; GREETING.len()];
     receive
         .read_exact(&mut greeting)
@@ -177,18 +233,42 @@ async fn exercise(
     let payload: Vec<u8> = (0..PAYLOAD_BYTES)
         .map(|index| (index % 251) as u8)
         .collect();
+    *phase = "tcp_data";
     let data_started = Instant::now();
-    send.write_all(&payload)
+    let mut output = Vec::new();
+    if let Some(port) = config["hop_port"].as_u64() {
+        let port = u16::try_from(port).map_err(|_| "invalid_fixture")?;
+        if port == 0 || port == peer.port() || config["half_close"] != false {
+            return Err("invalid_hop_fixture");
+        }
+        let midpoint = PAYLOAD_BYTES / 2;
+        send.write_all(&payload[..midpoint])
+            .await
+            .map_err(|_| "pre_hop_send")?;
+        output.resize(midpoint, 0);
+        receive
+            .read_exact(&mut output)
+            .await
+            .map_err(|_| "pre_hop_receive")?;
+        if output != payload[..midpoint] {
+            return Err("pre_hop_mismatch");
+        }
+        *phase = "rebind";
+        hop.rebind(endpoint, peer, port).await?;
+    }
+    *phase = "tcp_data";
+    send.write_all(&payload[output.len()..])
         .await
         .map_err(|_| "tcp_data_send")?;
     let half_close = config["half_close"].as_bool().unwrap_or(true);
     if half_close {
         send.finish().map_err(|_| "tcp_half_close")?;
     }
-    let output = receive
-        .read_to_end(PAYLOAD_BYTES + TRAILER.len())
+    let suffix = receive
+        .read_to_end(PAYLOAD_BYTES + TRAILER.len() - output.len())
         .await
         .map_err(|_| "tcp_data_receive")?;
+    output.extend_from_slice(&suffix);
     if output.len() != PAYLOAD_BYTES + TRAILER.len()
         || output[..PAYLOAD_BYTES] != payload
         || &output[PAYLOAD_BYTES..] != TRAILER
@@ -212,6 +292,8 @@ async fn exercise(
     Ok(
         json!({"outcome": "pass", "udp_enabled": udp_enabled, "setup_ms": setup_ms,
         "payload_bytes": PAYLOAD_BYTES, "transfer_ms": transfer_ms,
+        "same_connection": connection_id == connection.stable_id(),
+        "same_stream": stream_id == send.id() && stream_id == receive.id(),
         "tcp_half_close": half_close, "server_first": true}),
     )
 }
@@ -248,16 +330,7 @@ async fn run(config: Value) -> Result<Value, &'static str> {
         Box::new(DirectOutbound::new(dialer))
     };
     let context = EstablishContext::with_timeout(Duration::from_secs(10));
-    let transport = connector
-        .open_datagram(
-            DatagramRequest::new(DatagramSession::new(
-                InboundKind::Socks5,
-                "127.0.0.1:0".parse().unwrap(),
-            ))
-            .with_max_response_payload_size(datagram::PACKET_LIMIT as u16),
-            &context,
-        )
-        .await;
+    let transport = connector.open_datagram(datagram_request(), &context).await;
     let transport = match transport {
         Ok(transport) => transport,
         Err(error) => {
@@ -285,9 +358,18 @@ async fn run(config: Value) -> Result<Value, &'static str> {
     .map_err(|_| "endpoint_setup")?;
     endpoint.set_default_client_config(client);
     let mut h3_task = None;
+    let mut phase = "setup";
+    let mut hop = Hop {
+        connector: &*connector,
+        context: &context,
+        resource: None,
+        rebinds: 0,
+        connect_calls: 0,
+        auth_requests: 0,
+    };
     let result = tokio::time::timeout_at(
         context.deadline(),
-        exercise(&endpoint, peer, &config, &mut h3_task),
+        exercise(&endpoint, peer, &config, &mut h3_task, &mut phase, &mut hop),
     )
     .await;
     let mut report = match result {
@@ -295,6 +377,10 @@ async fn run(config: Value) -> Result<Value, &'static str> {
         Ok(Err(reason)) => json!({"outcome": reason}),
         Err(_) => json!({"outcome": "deadline"}),
     };
+    report["phase"] = json!(phase);
+    report["rebinds"] = json!(hop.rebinds);
+    report["connect_calls"] = json!(hop.connect_calls);
+    report["auth_requests"] = json!(hop.auth_requests);
     let stop_started = Instant::now();
     let stop_deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     endpoint.close(0_u32.into(), b"N0 complete");
@@ -313,25 +399,43 @@ async fn run(config: Value) -> Result<Value, &'static str> {
     let idle = tokio::time::timeout_at(stop_deadline, endpoint.wait_idle())
         .await
         .is_ok();
-    let driver_result = tokio::time::timeout_at(stop_deadline, driver.stop()).await;
-    if let Ok(Err(error)) = &driver_result {
-        report["outcome"] = json!(if error.kind() == io::ErrorKind::PermissionDenied {
-            "protect_rejected"
-        } else {
-            "datagram_driver"
-        });
+    let mut stopped = h3_stopped && idle;
+    let mut stats = datagram::Stats::default();
+    for (index, (socket, driver)) in std::iter::once((socket, driver))
+        .chain(hop.resource)
+        .enumerate()
+    {
+        let driver_result = tokio::time::timeout_at(stop_deadline, driver.stop()).await;
+        if let Ok(Err(error)) = &driver_result {
+            report["outcome"] = json!(if error.kind() == io::ErrorKind::PermissionDenied {
+                "protect_rejected"
+            } else {
+                "datagram_driver"
+            });
+        }
+        stopped &= driver_result.is_ok()
+            && socket
+                .try_send(&quinn::udp::Transmit {
+                    destination: peer,
+                    ecn: None,
+                    contents: b"after-stop",
+                    segment_size: None,
+                    src_ip: None,
+                })
+                .is_err();
+        let current = socket.stats();
+        if index == 1 {
+            report["post_hop_sent_packets"] = json!(current.sent);
+            report["post_hop_received_packets"] = json!(current.received);
+        }
+        stats.sent += current.sent;
+        stats.received += current.received;
+        stats.peak_outgoing = stats.peak_outgoing.max(current.peak_outgoing);
+        stats.peak_incoming = stats.peak_incoming.max(current.peak_incoming);
+        stats.rejected_source += current.rejected_source;
+        stats.dropped_full += current.dropped_full;
     }
-    let stopped = socket
-        .try_send(&quinn::udp::Transmit {
-            destination: peer,
-            ecn: None,
-            contents: b"after-stop",
-            segment_size: None,
-            src_ip: None,
-        })
-        .is_err();
-    let stats = socket.stats();
-    report["stopped"] = json!(h3_stopped && idle && stopped && driver_result.is_ok());
+    report["stopped"] = json!(stopped);
     report["stop_ms"] = json!(stop_started.elapsed().as_secs_f64() * 1000.0);
     report["protect_calls"] = json!(protector.calls.load(Ordering::SeqCst));
     report["controller_builds"] = json!(bbr.0.load(Ordering::Relaxed));

@@ -114,19 +114,29 @@ impl Drop for DatagramDriver {
 }
 
 pub fn attach(
-    mut transport: Box<dyn DatagramTransport>,
+    transport: Box<dyn DatagramTransport>,
     peer: SocketAddr,
+) -> (Arc<DatagramSocket>, DatagramDriver) {
+    attach_mapped(transport, peer, peer)
+}
+
+/// Keep one logical QUIC peer while this transport owns exactly one physical
+/// endpoint. Each hop uses a fresh VCore transport; no direct socket creation.
+pub fn attach_mapped(
+    mut transport: Box<dyn DatagramTransport>,
+    logical_peer: SocketAddr,
+    physical_peer: SocketAddr,
 ) -> (Arc<DatagramSocket>, DatagramDriver) {
     let shared = Arc::new(Shared::default());
     let socket = Arc::new(DatagramSocket {
-        peer,
+        peer: logical_peer,
         shared: shared.clone(),
     });
     let cancel = CancellationToken::new();
     let task_shared = shared.clone();
     let task_cancel = cancel.clone();
     let task = tokio::spawn(async move {
-        let result = drive(&mut *transport, peer, &task_shared, &task_cancel).await;
+        let result = drive(&mut *transport, physical_peer, &task_shared, &task_cancel).await;
         task_shared.finish(result.as_ref().err().map(io::Error::kind));
         // A transport close must not hold the test's synchronous stop indefinitely.
         let closed =
@@ -309,6 +319,55 @@ mod tests {
         outbound::{DatagramRequest, DirectOutbound, EstablishContext, OutboundConnector},
         session::{DatagramSession, InboundKind},
     };
+
+    #[tokio::test]
+    async fn mapped_peer_sends_to_one_physical_port_and_reports_the_logical_peer() {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            let logical = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+            let physical = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+            let logical_peer = logical.local_addr().unwrap();
+            let physical_peer = physical.local_addr().unwrap();
+            let transport = DirectOutbound::new(Dialer::default())
+                .open_datagram(
+                    DatagramRequest::new(DatagramSession::new(InboundKind::Socks5, logical_peer))
+                        .with_max_response_payload_size(1400),
+                    &EstablishContext::default(),
+                )
+                .await
+                .unwrap();
+            let (socket, driver) = super::attach_mapped(transport, logical_peer, physical_peer);
+            socket
+                .try_send(&quinn::udp::Transmit {
+                    destination: logical_peer,
+                    ecn: None,
+                    contents: b"mapped",
+                    segment_size: None,
+                    src_ip: None,
+                })
+                .unwrap();
+            let mut payload = [0; 1400];
+            let (len, source) = physical.recv_from(&mut payload).await.unwrap();
+            assert_eq!(&payload[..len], b"mapped");
+            logical
+                .send_to(b"not-the-physical-peer", source)
+                .await
+                .unwrap();
+            while socket.stats().rejected_source == 0 {
+                tokio::task::yield_now().await;
+            }
+            physical.send_to(b"mapped-reply", source).await.unwrap();
+            let mut buffers = [IoSliceMut::new(&mut payload)];
+            let mut meta = [quinn::udp::RecvMeta::default()];
+            poll_fn(|cx| socket.poll_recv(cx, &mut buffers, &mut meta))
+                .await
+                .unwrap();
+            assert_eq!(meta[0].addr, logical_peer);
+            assert_eq!(&buffers[0][..meta[0].len], b"mapped-reply");
+            driver.stop().await.unwrap();
+        })
+        .await
+        .unwrap();
+    }
 
     #[tokio::test]
     async fn incoming_queue_backpressures_without_discarding_a_controlled_burst() {

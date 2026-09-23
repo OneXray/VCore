@@ -47,8 +47,8 @@ class Echo(socketserver.BaseRequestHandler):
 
 
 @contextlib.contextmanager
-def origin(half_close=True):
-    with socketserver.TCPServer(("127.0.0.1", 0), Echo) as server:
+def origin(half_close=True, *, host="127.0.0.1"):
+    with socketserver.TCPServer((host, 0), Echo) as server:
         server.accepted = 0
         server.received = 0
         server.failed = False
@@ -214,16 +214,19 @@ def check_case(
         }
 
 
-def download_hysteria(directory):
+def download_hysteria(directory, *, target=None):
     system = {"Darwin": "darwin", "Linux": "linux"}.get(platform.system())
     arch = {"arm64": "arm64", "aarch64": "arm64", "x86_64": "amd64"}.get(
         platform.machine()
     )
-    if not system or not arch:
+    if target is None and (not system or not arch):
         raise RuntimeError(
             "native Hysteria fixture asset mapping unavailable for this host"
         )
-    url = f"https://github.com/HyNetworks/hysteria/releases/latest/download/hysteria-{system}-{arch}"
+    selected = target or f"{system}-{arch}"
+    if selected not in {"darwin-arm64", "darwin-amd64", "linux-arm64", "linux-amd64"}:
+        raise RuntimeError("unsupported native Hysteria asset target")
+    url = f"https://github.com/HyNetworks/hysteria/releases/latest/download/hysteria-{selected}"
     binary = directory / "hysteria"
     request = urllib.request.Request(url, headers={"User-Agent": "VCore-N0-interop"})
     deadline = time.monotonic() + 90
@@ -246,9 +249,13 @@ def download_hysteria(directory):
                 digest.update(chunk)
         staged.chmod(0o755)
         os.replace(staged, binary)
-    version = subprocess.check_output(
-        [str(binary), "version"], text=True, timeout=10
-    ).strip()
+    version = (
+        None
+        if target is not None
+        else subprocess.check_output(
+            [str(binary), "version"], text=True, timeout=10
+        ).strip()
+    )
     return binary, {"url": url, "version": version, "sha256": digest.hexdigest()}
 
 

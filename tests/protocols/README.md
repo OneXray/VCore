@@ -18,6 +18,9 @@ outbound protocols:
   Quinn packet/congestion injection, WG packet/timer APIs and existing Dialer
   protection rejection.
 - [N0 baseline and remaining gates](../../docs/acceptance/next-protocols/N0.md).
+- [Controlled QUIC native peers](spikes/hysteria2/README.md): HY2 authentication,
+  one-state hopping and Xray XHTTP/H3; separate half-close failures remain
+  explicit limitations, not completed production protocol fields.
 
 ## Files and schema
 

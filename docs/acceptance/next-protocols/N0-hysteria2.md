@@ -1,6 +1,6 @@
 # N0-D：受控数据报上的 Hysteria2 最小互通
 
-日期：2026-09-22。**N0-D 的 auth/stream、DIRECT/SOCKS5 UDP 和 protect 子门禁 PASS；N0-D 与 N0 整体仍未通过。** 官方 Hysteria 单状态多端口入口、Xray H3 入口尚未执行。本文不开放生产字段，不签收 N5/N6。
+日期：2026-09-22。**本页保存当日 auth/stream、DIRECT/SOCKS5 UDP 和 protect 子门禁 PASS，以及原生半关闭 FAIL。** 当时官方 Hysteria 单状态多端口入口、Xray H3 入口尚未执行；2026-09-23 的后续结果见 [QUIC 原生入口](N0-quic-entries.md)。本文不开放生产字段，不签收 N5/N6，旧失败不被后续通过覆盖。
 
 ## 输入与对端身份
 
@@ -104,4 +104,4 @@ uv run --project scripts --locked python tests/protocols/spikes/hysteria2/run.py
 | `target/interop/n0-hysteria2-android-check.log` | `cd5522da6fc7932759be4f11e6573155b5216231c6e58bfee29e7b792c43e8b9` |
 | `target/interop/n0-hysteria2-half-close.log`（诊断 FAIL） | `fe9bd6354154ebc1fb506258dba854ba900a83bc3389424e0bd4464751147d46` |
 
-清理：仅结束本次子进程、移除自有临时证书/配置、释放端口预留。保留下载缓存、锁文件和证据；未改宿主网络、未创建 VM、未修改 rustls 仓库。通过的仅是本次子工作包，**N0-D 官方跳端口/Xray H3，以及 N0-C/E/F/G 的其他门禁继续保留原状态。**
+清理：仅结束当日子进程、移除自有临时证书/配置、释放端口预留。保留下载缓存、锁文件和证据；当日未改宿主网络、未创建 VM、未修改 rustls 仓库。此页通过的仅是当日子工作包；当前状态见 [N0](N0.md)，后续跳端口/Xray H3 验证不抵扣本页原生半关闭失败或其他门禁。

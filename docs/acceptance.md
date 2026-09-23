@@ -13,7 +13,7 @@
 
 ## 自动化覆盖
 
-下一版协议从独立 N0 基线开始，进度见 [N0 基线与可行性门禁](acceptance/next-protocols/N0.md)。2026-09-22 的新基线与接口实验不继承本页历史通过状态，也不代表新五协议或平台交付已经完成；当前混合 REALITY 前置条件仍有明确阻塞。
+下一版协议从独立 N0 基线开始，进度见 [N0 基线与可行性门禁](acceptance/next-protocols/N0.md)。2026-09-22/23 的新基线与接口实验不继承本页历史通过状态，也不代表新五协议或平台交付已经完成。混合 REALITY 的自有 fork 局部实验已通过，但尚未接入生产依赖；[N0-D QUIC 原生入口](acceptance/next-protocols/N0-quic-entries.md)已验证，原生半关闭失败和 N0 其余门禁仍保留。
 
 当前 source/tests 覆盖：
 
