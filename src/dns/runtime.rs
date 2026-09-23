@@ -136,6 +136,7 @@ struct IdleTcpConnection {
 struct PooledTcpConnection {
     stream: BoxStream,
     _slot: TcpPhysicalSlot,
+    _observation: crate::resources::observation::Guard,
 }
 
 struct TcpPhysicalSlot {
@@ -277,6 +278,9 @@ impl TcpConnectionPool {
         Ok(PooledTcpConnection {
             stream,
             _slot: slot,
+            _observation: crate::resources::observation::track(
+                crate::resources::observation::ResourceKind::Pool,
+            ),
         })
     }
 
@@ -380,7 +384,7 @@ impl TcpConnectionPool {
         {
             return;
         }
-        tokio::spawn(Self::reap_idle(
+        crate::resources::observation::spawn(Self::reap_idle(
             Arc::downgrade(self),
             self.reaper_cancel.clone(),
         ));
@@ -1908,7 +1912,6 @@ mod tests {
 
     use async_trait::async_trait;
     use tokio::{
-        io::{AsyncReadExt as _, AsyncWriteExt as _},
         net::{TcpListener, UdpSocket},
         sync::{Notify, Semaphore},
     };

@@ -8,6 +8,7 @@ use bytes::{BufMut as _, Bytes, BytesMut};
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, ReadBuf};
 use uuid::Uuid;
 
+use super::address::encode_port_first as encode_destination;
 use crate::{dispatch::BoxStream, session::Destination};
 
 const VLESS_VERSION: u8 = 0;
@@ -207,40 +208,11 @@ impl AsyncWrite for VlessStream {
     }
 }
 
-fn encode_destination(destination: &Destination, output: &mut BytesMut) -> io::Result<()> {
-    output.put_u16(destination.port());
-    match destination {
-        Destination::Ip(address) if address.is_ipv4() => {
-            output.put_u8(1);
-            let std::net::IpAddr::V4(ip) = address.ip() else {
-                unreachable!("is_ipv4 checked")
-            };
-            output.extend_from_slice(&ip.octets());
-        }
-        Destination::Domain { host, .. } => {
-            let length = u8::try_from(host.len()).map_err(|_| {
-                io::Error::new(io::ErrorKind::InvalidInput, "VLESS domain is too long")
-            })?;
-            output.put_u8(2);
-            output.put_u8(length);
-            output.extend_from_slice(host.as_bytes());
-        }
-        Destination::Ip(address) => {
-            output.put_u8(3);
-            let std::net::IpAddr::V6(ip) = address.ip() else {
-                unreachable!("non-IPv4 address is IPv6")
-            };
-            output.extend_from_slice(&ip.octets());
-        }
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
 
-    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+    use tokio::io::AsyncWriteExt as _;
 
     use super::*;
 

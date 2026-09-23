@@ -1,6 +1,6 @@
 # rustls REALITY 依赖与发布要求
 
-VCore 的 REALITY 客户端依赖自有 rustls 0.23 fork。仓库通过 GitHub 分支 `vcore/reality-0.23` 引用该 fork，并由 `Cargo.lock` 固定实际解析的提交。
+VCore 的 REALITY 客户端依赖自有 rustls 0.23 fork。仓库通过 GitHub 发布分支 `vcore/reality-0.23` 引用该 fork，并由 `Cargo.lock` 固定实际解析的提交。当前版本为 0.23.45，官方 tokio-rustls 为 0.26.5；REALITY 使用 registry x25519-dalek 3.0.0，显式启用 `static_secrets` / `zeroize`，该 feature 最低要求 Rust 1.85。升级执行范围见 [N1 依赖收口](acceptance/next-protocols/N1-x25519.md)。独立升级分支已经获准快进合入发布分支；两者指向相同已验证 revision `bb4092cc32a101869406d0b8242b173372a9d3ea`，后续引用复验见[N1 发布接线](acceptance/next-protocols/N1-publish.md)。
 
 ## 实现边界
 
@@ -13,13 +13,13 @@ fork 只增加连接级 REALITY 能力：
 
 fork 不创建线程、异步任务、连接池、全局映射或跨连接锁。VCore 只负责配置解析并选择普通 TLS 或 REALITY；握手字节和认证状态属于 rustls。
 
-普通 TLS 与 REALITY 必须使用不同的不可变 `ClientConfig`，不能在同一对象上热切换身份。线上协议见 [REALITY V1 客户端协议](reality-wire-protocol.md)。
+普通 TLS 与 REALITY 必须使用不同的不可变 `ClientConfig`，不能在同一对象上热切换身份。fork 的显式混合组接口并未启用到 VCore；生产继续使用 ring 和默认 classic X25519。线上协议见 [REALITY V1 客户端协议](reality-wire-protocol.md)。
 
 ## GitHub 分支依赖
 
 ```toml
 [patch.crates-io]
-rustls = { git = "https://github.com/OneVCore/rustls", branch = "vcore/reality-0.23" }
+rustls = { git = "https://github.com/OneXray/rustls", branch = "vcore/reality-0.23" }
 ```
 
 要求：

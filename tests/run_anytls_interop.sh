@@ -3,7 +3,8 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 CRATE_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
-REFERENCE_DIR=${ANYTLS_GO_DIR:-"$CRATE_DIR/../references/anytls-go"}
+: "${ANYTLS_GO_DIR:?Set ANYTLS_GO_DIR to the explicit anytls-go checkout}"
+REFERENCE_DIR=$ANYTLS_GO_DIR
 PASSWORD=${ANYTLS_INTEROP_PASSWORD:-vcore-anytls-interop}
 TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/vcore-anytls.XXXXXX")
 SERVER_PID=

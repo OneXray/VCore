@@ -13,6 +13,26 @@
 
 ## 自动化覆盖
 
+下一版协议从独立 N0 基线开始，进度见 [N0 基线与可行性门禁](acceptance/next-protocols/N0.md)。2026-09-22/23 的新基线与接口实验不继承本页历史通过状态，也不代表新五协议或平台交付已经完成。混合 REALITY 的自有 fork 局部实验已通过；fork 依赖已升级，但 VCore 生产仍未启用混合组；[N0-D QUIC 原生入口](acceptance/next-protocols/N0-quic-entries.md)已验证，原生半关闭失败和 N0 其余门禁仍保留。
+
+2026-09-23 追加的 [XHTTP 关闭对齐](acceptance/next-protocols/XHTTP-close.md)修正了既有生产 H2 的三种模式：应用上传 EOF 结束整条逻辑连接，不再保留下行半关闭。独立 H3 实验与官方 Mihomo 客户端完成同一 Xray 对端的行为对照；H3 仍未接入生产，历史 request-EOF/尾包失败不改记为成功，也不再作为 XHTTP 的客户端契约。
+
+同日 [N0-B 公共流接口实验](acceptance/next-protocols/N0-stream.md)完成TLS/普通WS/gRPC的注入IO、取消回收与关闭差分：12项Debug/Release测试、42项官方Mihomo检查及Apple/Android交叉检查通过。没有新增生产功能或依赖；Windows、真机和完整N0仍未签收。
+
+[N1 h2 补丁升级](acceptance/next-protocols/N1-h2.md)将生产和流实验的 h2 更新至官方稳定版0.4.19，修复已复现的 END_STREAM 后 RST 丢失完整响应问题。关闭回归、旧协议扩展互通和流实验重跑通过；这是 N1 前置子包，不代表完整 N1 或全依赖升级完成。
+
+[N1 依赖基线进度](acceptance/next-protocols/N1-dependencies.md)记录最新稳定版审计及依赖来源OneXray/rustls。获准将0.23.45同步结果推送到正式依赖分支后，VCore与四个实验工程已接入新版fork及官方tokio-rustls0.26.5；新版验证见[N1 TLS接入](acceptance/next-protocols/N1-tls.md)，与较早仅修改地址的证据分开记录。ring、classic REALITY、API v5/schema14均不变。
+
+[N1 基础与实验依赖更新](acceptance/next-protocols/N1-foundation-dependencies.md)继续升级基础库、smoltcp、WS/HPKE实验和兼容补丁锁，记录已批准的Windows SDK配套例外。全Debug/Release、全目标Clippy、真实对端回归和Apple/Android构建通过；不抵扣完整N1、新协议、真机或Windows原生门禁。
+
+[N1 声明清单校验](acceptance/next-protocols/N1-catalogs.md)提供 `check protocol-coverage --catalog-only`，冻结145字段/69组合ID并检查引用、归属及必要元数据。有效结果为 `VALID / NOT RUN`，不是字段行为PASS；后续可执行case与运行结果单独签收。
+
+[N1.2 共享安全机制](acceptance/next-protocols/N1-security.md)增加类型化名称/ALPN/mTLS策略与不可变身份缓存隔离，并将标准TLS CloseWrite对齐Mihomo。未新增公开配置字段，独立接口测试不抵扣后续新协议字段互通。
+
+[N1.3 共享流传输](acceptance/next-protocols/N1-stream.md)提供WS/gRPC/HTTP/legacy H2与独立XUDP帧层；15项定向测试、9项官方Mihomo/V2Ray传输用例、旧协议扩展互通及Apple/Android构建通过。该记录是独立历史子包，不代表新协议YAML已开放。
+
+[N1公共基础汇总](acceptance/next-protocols/N1.md)记录定向数据报预算、受控QUIC、runtime/测量resolver、测试作用域RAII观测、独立feature和统一执行/证据门禁。最后的fork密码依赖升级已在单独分支获准发布并接入，[最终N1复验](acceptance/next-protocols/N1-x25519.md)完成21组required/139项断言、Debug/Release、原生传输、旧协议及Apple/Android构建，N1签收。WireGuard预检仍因隔离内核缺设备类型而BLOCKED，只影响依赖它的N8；新协议YAML、物理平台和发布不提前签收。
+
 当前 source/tests 覆盖：
 
 - Invoke API v5、单实例生命周期、Debug/Release 运行时线程重入拒绝、panic 与同步清理；
@@ -35,13 +55,15 @@
 cargo test --locked --release --all-features --all-targets
 ```
 
-后续外部互操作以 mihomo 为对端，不从单元测试推断：
+后续外部互操作以 mihomo 官方最新稳定版预编译包为对端，不从单元测试推断。入口从官方 `latest/download/version.txt` 获取资产文件名所需的 release，再下载到本仓库的 `target/interop/`，通过二进制 `-v` 记录实际版本；不调用 GitHub API、不固定版本、不从本地源码编译、不依赖项目外目录。下载或解压失败不能使用旧缓存宣称通过：
 
 ```bash
 bash tests/run_mihomo_interop.sh
 ```
 
 该入口当前覆盖 8 个 HTTP 场景、8 个 SOCKS5 TCP/UDP 双向 IPv4/IPv6 场景及 17 个 AnyTLS 检查（12 个 TCP/UoT 数据场景、3 个独立测速、2 个证书拒绝）。版本、二进制 hash、超时及清理见 [scripts](../scripts/README.md#mihomo-协议互通)。既有 Xray / anytls-go 脚本保留为历史专用入口，未迁移的协议场景仍需补充 mihomo 证据，不能自动继承旧对端结果。
+
+2026-09-22 在 macOS ARM64 / Apple Container 1.4.1 执行 `uv run --project scripts --locked --offline vcore-scripts check mihomo-interop --container` 通过基础互通，包括上述 HTTP/SOCKS5/AnyTLS、SS 三算法、代理链、受控 EIH 中继、负例与生命周期清理；这里的 `--offline` 仅限制 uv 依赖解析，mihomo 仍在线下载。通过固定 `latest/download/version.txt` 下载到的官方原生和 Linux ARM64 程序，`-v` 均输出 `v1.19.31` / Go 1.26.8 / `with_gvisor`。程序 SHA-256 分别为 `fae1f37e28ee53fcf5be7a8bb121099db1fe442e44205734ed49c62579364090` 和 `1b315bc038d05f84ee86d232f3c3d2b020b5044e9b971bb8fe215b6e6a2148f3`；下载日志另记录压缩包摘要。本次未执行 `--extended`、30 分钟长测或设备/安装包验收，不继承下文旧自编译对端的扩展结果。自建对端和临时配置已清理。
 
 ## 协议与数据面
 

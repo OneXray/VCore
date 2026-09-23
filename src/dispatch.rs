@@ -72,6 +72,14 @@ impl From<io::Error> for DispatchError {
 
 #[async_trait]
 pub trait DatagramTransport: Send {
+    /// Payload budget for packets sent to and received from this logical peer.
+    /// Encapsulating transports subtract their headers from the upstream cap.
+    /// The default is the u16 wire ceiling; narrower paths must override it.
+    /// This never resolves a domain or opens IO.
+    fn payload_budget(&self, _peer: &crate::session::Destination) -> DatagramBudget {
+        DatagramBudget::new(u16::MAX, u16::MAX)
+    }
+
     async fn send(&mut self, datagram: Datagram) -> Result<(), DispatchError>;
 
     /// Receives one complete datagram.
@@ -229,6 +237,10 @@ struct ObservedDatagramTransport {
 
 #[async_trait]
 impl DatagramTransport for ObservedDatagramTransport {
+    fn payload_budget(&self, peer: &crate::session::Destination) -> DatagramBudget {
+        self.inner.payload_budget(peer)
+    }
+
     async fn send(&mut self, datagram: Datagram) -> Result<(), DispatchError> {
         self.inner.send(datagram).await
     }
@@ -413,3 +425,8 @@ mod tests {
         assert_eq!(stats.snapshot().handshake_current, 0);
     }
 }
+mod datagram;
+pub(crate) use datagram::bounded as bound_datagram;
+pub use datagram::{
+    DatagramBudget, QUIC_MIN_PAYLOAD_BYTES, WIREGUARD_MIN_INNER_MTU, WIREGUARD_TRANSPORT_OVERHEAD,
+};

@@ -1,0 +1,4813 @@
+{
+  "schema_version": 1,
+  "kind": "planned-field-catalog",
+  "baseline_date": "2026-09-22",
+  "vcore_baseline": "bbe5100abcf07b1158f86cff39cd835e1f32ccf9",
+  "field_count": 145,
+  "scope": [
+    "trojan",
+    "vmess",
+    "vless",
+    "hysteria2",
+    "wireguard"
+  ],
+  "status": "NOT RUN",
+  "status_meaning": "Declaration of required behavior only. Neither source inspection nor presence in this catalog proves implementation or wire interoperability.",
+  "common_requirements": {
+    "configuration": "Every field needs absent/default, valid non-default, wrong type, range/enum, null, unknown field and conditional-combination checks where applicable.",
+    "wire": "Expand by applicable protocol, network, security, UDP codec and IPv4/IPv6/domain. One row may require many concrete cases.",
+    "final_stages": [
+      "N9",
+      "N10"
+    ],
+    "peer_policy": "Apply matching mode-specific peer overrides; default_peer is not permission to ignore native-only modes. A failed Mihomo case is retained, never re-labelled PASS through a different peer.",
+    "unknown_modes": "required-but-peer-unproven; BLOCKED until proven. Do not drop the target or silently replace the codec.",
+    "runtime_dependency": "This catalog is repository-local. No script reads an external design document to determine coverage."
+  },
+  "peers": {
+    "M": {
+      "implementation": "Mihomo",
+      "source": "https://github.com/MetaCubeX/mihomo",
+      "artifact_policy": "official latest binary; record actual version and hashes; never build locally"
+    },
+    "W": {
+      "implementation": "WireGuard Linux kernel with wg-tools, or official wireguard-go",
+      "source": "https://www.wireguard.com/install/",
+      "artifact_policy": "record official package/source provenance, kernel/module, tools and isolated topology"
+    },
+    "H": {
+      "implementation": "Hysteria 2",
+      "source": "https://github.com/apernet/hysteria",
+      "artifact_policy": "official latest binary; record actual version and hashes"
+    },
+    "XR": {
+      "implementation": "Xray-core",
+      "source": "https://github.com/XTLS/Xray-core",
+      "artifact_policy": "official latest binary; record actual version and hashes"
+    },
+    "V2": {
+      "implementation": "V2Ray-core",
+      "source": "https://github.com/v2fly/v2ray-core",
+      "artifact_policy": "official latest binary; record actual version and hashes"
+    }
+  },
+  "peer_override_rules": [
+    {
+      "id": "wireguard-native",
+      "peer": "W",
+      "protocols": [
+        "wireguard"
+      ],
+      "when": "All wire behavior, including shared fields.",
+      "reason": "Mihomo has no WireGuard listener; do not substitute a Mihomo outbound or same-library self-pair.",
+      "sources": [
+        "M-WG",
+        "WG-PROTOCOL",
+        "WG-MAN"
+      ]
+    },
+    {
+      "id": "hysteria-hopping",
+      "peer": "H",
+      "protocols": [
+        "hysteria2"
+      ],
+      "when": "ports/hop-interval and every combination with Salamander, bandwidth or shared fields.",
+      "reason": "One native Hysteria QUIC state with a redirected multi-port ingress is required; independent Mihomo services do not share this state.",
+      "sources": [
+        "M-HY-IN",
+        "H-HOP-DOC",
+        "H-SERVER",
+        "H-CLIENT"
+      ]
+    },
+    {
+      "id": "hysteria-server-udp-disabled",
+      "peer": "H",
+      "protocols": [
+        "hysteria2"
+      ],
+      "when": "Server disableUDP=true; C05/HY2 DATAGRAM negative behavior.",
+      "reason": "Native Hysteria exposes the authenticated server UDP-disabled state; TCP must remain usable.",
+      "sources": [
+        "M-HY-IN",
+        "H-AUTH"
+      ]
+    },
+    {
+      "id": "vmess-http-camouflage",
+      "peer": "V2",
+      "protocols": [
+        "vmess"
+      ],
+      "when": "network=http; transport and applicable shared fields.",
+      "reason": "Native TCP header.type=http is distinct from a Mihomo HTTP inbound and from legacy H2.",
+      "sources": [
+        "M-VM-IN",
+        "M-HTTP",
+        "V2-CFG"
+      ]
+    },
+    {
+      "id": "vless-http-camouflage",
+      "peer": "XR",
+      "protocols": [
+        "vless"
+      ],
+      "when": "network=http; transport and applicable shared fields.",
+      "reason": "Use native TCP header.type=http; the Mihomo VLESS listener does not expose this transport.",
+      "sources": [
+        "M-VL-IN",
+        "M-HTTP",
+        "X-CFG"
+      ]
+    },
+    {
+      "id": "legacy-h2",
+      "peer": "V2",
+      "protocols": [
+        "vmess",
+        "vless"
+      ],
+      "when": "network=h2; native network=http with httpSettings, not gRPC or XHTTP.",
+      "reason": "V2Ray retains this native H2 listener; current Xray removed legacy H2.",
+      "sources": [
+        "M-VM-IN",
+        "M-VL-IN",
+        "M-H2",
+        "V2-CFG",
+        "V2-H2",
+        "X-CFG"
+      ]
+    },
+    {
+      "id": "ws-custom-or-path-early-data",
+      "peer": "V2",
+      "protocols": [
+        "trojan",
+        "vmess",
+        "vless"
+      ],
+      "when": "Standard WS only; max-early-data>0 and custom early-data header or an explicit empty header for path suffix.",
+      "reason": "V2Ray consumes earlyDataHeaderName and path early data. Default Sec-WebSocket-Protocol cases retain Mihomo. HTTPUpgrade is excluded.",
+      "sources": [
+        "M-WS",
+        "V2-WS",
+        "V2-UPGRADE"
+      ]
+    },
+    {
+      "id": "xhttp-h3",
+      "peer": "XR",
+      "protocols": [
+        "vless"
+      ],
+      "when": "XHTTP leg explicitly selects only h3; includes every applicable XHTTP/download/reuse field.",
+      "reason": "Use official Xray native H3, not an H3 client or a Mihomo TCP listener; dual legs must share a real handler.",
+      "sources": [
+        "M-XCLIENT",
+        "M-VL-IN",
+        "X-XHTTP"
+      ]
+    }
+  ],
+  "sources": {
+    "vcore-config": "docs/config.yaml",
+    "vcore-connector": "src/outbound/connector.rs",
+    "CR-TLS": "https://github.com/Watfaq/clash-rs/blob/39d06a49ccb5c812ed7cd70b3028f3efcebeae6b/clash-lib/src/proxy/transport/tls.rs",
+    "M-VL": "https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/adapter/outbound/vless.go",
+    "M-HY": "https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/adapter/outbound/hysteria2.go",
+    "vcore-tls": "src/security/tls.rs",
+    "M-WS": "https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/transport/vmess/websocket.go",
+    "V2-WS": "https://github.com/v2fly/v2ray-core/blob/58073c8ea61c115c15ec52098f1e6fba18760507/transport/internet/websocket/hub.go",
+    "V2-UPGRADE": "https://github.com/v2fly/v2ray-core/blob/58073c8ea61c115c15ec52098f1e6fba18760507/transport/internet/httpupgrade/hub.go",
+    "CR-TRANSPORT": "https://github.com/Watfaq/clash-rs/blob/39d06a49ccb5c812ed7cd70b3028f3efcebeae6b/clash-lib/src/proxy/transport/mod.rs",
+    "M-GUN": "https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/transport/gun/gun.go",
+    "M-HTTP": "https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/transport/vmess/http.go",
+    "M-H2": "https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/transport/vmess/h2.go",
+    "V2-CFG": "https://github.com/v2fly/v2ray-core/blob/58073c8ea61c115c15ec52098f1e6fba18760507/infra/conf/v4/transport_internet.go",
+    "V2-H2": "https://github.com/v2fly/v2ray-core/blob/58073c8ea61c115c15ec52098f1e6fba18760507/transport/internet/http/hub.go",
+    "X-CFG": "https://github.com/XTLS/Xray-core/blob/d562d8947d3175db86b4fa849742433a9876cb63/infra/conf/transport_internet.go",
+    "CR-TR": "https://github.com/Watfaq/clash-rs/tree/39d06a49ccb5c812ed7cd70b3028f3efcebeae6b/clash-lib/src/proxy/trojan",
+    "M-TR-IN": "https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/listener/trojan/server.go",
+    "CR-VM": "https://github.com/Watfaq/clash-rs/tree/39d06a49ccb5c812ed7cd70b3028f3efcebeae6b/clash-lib/src/proxy/vmess/vmess_impl",
+    "M-VM-IN": "https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/listener/sing_vmess/server.go",
+    "M-VM-CODEC": "https://github.com/MetaCubeX/sing-vmess/blob/9b7fdbf462a5cf6366628631ef426c1a91f5df82/protocol.go",
+    "M-PACKET": "https://github.com/MetaCubeX/sing-vmess/blob/9b7fdbf462a5cf6366628631ef426c1a91f5df82/packetaddr/packetaddr.go",
+    "M-VL-IN": "https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/listener/sing_vless/server.go",
+    "M-VL-SVC": "https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/listener/sing_vless/service.go",
+    "CR-VL": "https://github.com/Watfaq/clash-rs/blob/39d06a49ccb5c812ed7cd70b3028f3efcebeae6b/clash-lib/src/proxy/converters/vless.rs",
+    "M-VISION": "https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/transport/vless/vision/vision.go",
+    "vcore-xudp": "src/xudp.rs",
+    "M-XCFG": "https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/transport/xhttp/config.go",
+    "M-XREUSE": "https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/transport/xhttp/reuse.go",
+    "M-XCLIENT": "https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/transport/xhttp/client.go",
+    "M-XSERVER": "https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/transport/xhttp/server.go",
+    "X-XHTTP": "https://github.com/XTLS/Xray-core/blob/d562d8947d3175db86b4fa849742433a9876cb63/transport/internet/splithttp/hub.go",
+    "CR-SPLICE": "https://github.com/Watfaq/clash-rs/blob/39d06a49ccb5c812ed7cd70b3028f3efcebeae6b/clash-lib/src/proxy/transport/splice_tls.rs",
+    "R-HPKE": "https://github.com/OneXray/rustls/blob/df261c84cbac4f708e63ac8644ce70daa90d771c/provider-example/src/hpke.rs",
+    "M-MUX": "https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/adapter/outbound/singmux.go",
+    "M-MUX-CLIENT": "https://github.com/MetaCubeX/sing-mux/blob/v0.3.10/client.go",
+    "M-HY-CLIENT": "https://github.com/MetaCubeX/sing-quic/blob/1c242664697a/hysteria2/client.go",
+    "M-HY-IN": "https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/listener/sing_hysteria2/server.go",
+    "H-SERVER": "https://github.com/HyNetworks/hysteria/blob/e1366b173ccf5706e1e4630fe8aa654a4b574085/app/cmd/server.go",
+    "H-CLIENT": "https://github.com/HyNetworks/hysteria/blob/e1366b173ccf5706e1e4630fe8aa654a4b574085/app/cmd/client.go",
+    "H-AUTH": "https://github.com/HyNetworks/hysteria/blob/e1366b173ccf5706e1e4630fe8aa654a4b574085/core/server/server.go",
+    "M-WG": "https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/adapter/outbound/wireguard.go",
+    "WG-PROTOCOL": "https://www.wireguard.com/protocol/",
+    "WG-MAN": "https://git.zx2c4.com/wireguard-tools/about/src/man/wg.8",
+    "G-CARGO": "https://github.com/mullvad/gotatun/blob/3e25b63e197d2754f7ca37d55faf1980e033b80a/gotatun/Cargo.toml",
+    "G-NOISE": "https://github.com/mullvad/gotatun/blob/3e25b63e197d2754f7ca37d55faf1980e033b80a/gotatun/src/noise/mod.rs",
+    "B-CARGO": "https://github.com/cloudflare/boringtun/blob/6dcc889a95ad82400932f785d874421d70308195/boringtun/Cargo.toml",
+    "H-HOP-DOC": "https://v2.hysteria.network/docs/advanced/Port-Hopping/"
+  },
+  "fields": [
+    {
+      "id": "C01",
+      "path": "proxies[].name",
+      "protocols": [
+        "trojan",
+        "vmess",
+        "vless",
+        "hysteria2",
+        "wireguard"
+      ],
+      "contract": "必填；沿用现有 1–64 UTF-8 字节与保留名/字符规则，节点和组统一命名空间",
+      "required_observation": "本地路由引用；重名/非法名拒绝；N1",
+      "work_packages": [
+        "N1.1",
+        "N1.4",
+        "N2.4",
+        "N3.5",
+        "N4.4",
+        "N6.6",
+        "N8.5",
+        "N9.1"
+      ],
+      "responsible_stages": [
+        "N1",
+        "N2",
+        "N3",
+        "N4",
+        "N6",
+        "N8",
+        "N9"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "wireguard-native",
+        "hysteria-hopping",
+        "hysteria-server-udp-disabled",
+        "vmess-http-camouflage",
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "vcore-config",
+        "vcore-connector"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "C02",
+      "path": "proxies[].type",
+      "protocols": [
+        "trojan",
+        "vmess",
+        "vless",
+        "hysteria2",
+        "wireguard"
+      ],
+      "contract": "`wireguard`、`hysteria2`、`trojan`、`vmess`、`vless`",
+      "required_observation": "按 §1.1 选择真实对端；按 N2/N3/N4/N6/N8 开放",
+      "work_packages": [
+        "N1.1",
+        "N1.4",
+        "N2.4",
+        "N3.5",
+        "N4.4",
+        "N6.6",
+        "N8.5",
+        "N9.1"
+      ],
+      "responsible_stages": [
+        "N1",
+        "N2",
+        "N3",
+        "N4",
+        "N6",
+        "N8",
+        "N9"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "wireguard-native",
+        "hysteria-hopping",
+        "hysteria-server-udp-disabled",
+        "vmess-http-camouflage",
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "vcore-config",
+        "vcore-connector"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "C03",
+      "path": "proxies[].server",
+      "protocols": [
+        "trojan",
+        "vmess",
+        "vless",
+        "hysteria2",
+        "wireguard"
+      ],
+      "contract": "必填；DNS 名、IPv4 或 IPv6，不混入端口/URL",
+      "required_observation": "受控对端三类地址；prepare 解析与 IPv6/回环政策；N1",
+      "work_packages": [
+        "N1.1",
+        "N1.4",
+        "N2.4",
+        "N3.5",
+        "N4.4",
+        "N6.6",
+        "N8.5",
+        "N9.1"
+      ],
+      "responsible_stages": [
+        "N1",
+        "N2",
+        "N3",
+        "N4",
+        "N6",
+        "N8",
+        "N9"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "wireguard-native",
+        "hysteria-hopping",
+        "hysteria-server-udp-disabled",
+        "vmess-http-camouflage",
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "vcore-config",
+        "vcore-connector"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "C04",
+      "path": "proxies[].port",
+      "protocols": [
+        "trojan",
+        "vmess",
+        "vless",
+        "hysteria2",
+        "wireguard"
+      ],
+      "contract": "整数 1–65535；通常必填；HY2 显式 ports 时可省略，按 HY07 规则",
+      "required_observation": "对端监听端口；不把 0/缺失默认为 443；N1/N6",
+      "work_packages": [
+        "N1.1",
+        "N1.4",
+        "N2.4",
+        "N3.5",
+        "N4.4",
+        "N6.6",
+        "N8.5",
+        "N9.1"
+      ],
+      "responsible_stages": [
+        "N1",
+        "N2",
+        "N3",
+        "N4",
+        "N6",
+        "N8",
+        "N9"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "wireguard-native",
+        "hysteria-hopping",
+        "hysteria-server-udp-disabled",
+        "vmess-http-camouflage",
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "vcore-config",
+        "vcore-connector"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "C05",
+      "path": "proxies[].udp",
+      "protocols": [
+        "trojan",
+        "vmess",
+        "vless",
+        "hysteria2",
+        "wireguard"
+      ],
+      "contract": "bool，默认 false，沿用 VCore",
+      "required_observation": "控制业务 UDP；不是关闭 HY2/WG/H3 外层 UDP；每协议开关正反例；N1+协议阶段",
+      "work_packages": [
+        "N1.1",
+        "N1.4",
+        "N2.4",
+        "N3.5",
+        "N4.4",
+        "N6.6",
+        "N8.5",
+        "N9.1"
+      ],
+      "responsible_stages": [
+        "N1",
+        "N2",
+        "N3",
+        "N4",
+        "N6",
+        "N8",
+        "N9"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "wireguard-native",
+        "hysteria-hopping",
+        "hysteria-server-udp-disabled",
+        "vmess-http-camouflage",
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "vcore-config",
+        "vcore-connector"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "C06",
+      "path": "proxies[].dialer-proxy",
+      "protocols": [
+        "trojan",
+        "vmess",
+        "vless",
+        "hysteria2",
+        "wireguard"
+      ],
+      "contract": "可选具体节点或静态 select 组；省略使用既有物理 Dialer",
+      "required_observation": "混合 DAG、单次组快照、DIRECT/REJECT、IPv6、预算/期限；N1/N9",
+      "work_packages": [
+        "N1.1",
+        "N1.4",
+        "N2.4",
+        "N3.5",
+        "N4.4",
+        "N6.6",
+        "N8.5",
+        "N9.1"
+      ],
+      "responsible_stages": [
+        "N1",
+        "N2",
+        "N3",
+        "N4",
+        "N6",
+        "N8",
+        "N9"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "wireguard-native",
+        "hysteria-hopping",
+        "hysteria-server-udp-disabled",
+        "vmess-http-camouflage",
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "vcore-config",
+        "vcore-connector"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "T01",
+      "path": "proxies[].sni",
+      "protocols": [
+        "trojan",
+        "hysteria2"
+      ],
+      "contract": "Trojan/HY2；可选，默认 server；域名或合法 IP 认证名",
+      "required_observation": "listener 证书名称；不改变拨号地址；N1/N2/N6",
+      "work_packages": [
+        "N1.2",
+        "N2.4",
+        "N6.1"
+      ],
+      "responsible_stages": [
+        "N1",
+        "N2",
+        "N6"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "hysteria-hopping",
+        "hysteria-server-udp-disabled",
+        "ws-custom-or-path-early-data"
+      ],
+      "sources": [
+        "CR-TLS",
+        "M-VL",
+        "M-HY",
+        "vcore-tls"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "T02",
+      "path": "proxies[].servername",
+      "protocols": [
+        "vmess",
+        "vless"
+      ],
+      "contract": "VMess/VLESS；显式值优先，其次 WS Host（去端口），否则 server",
+      "required_observation": "标准 TLS 名称或 REALITY server-names；N1/N3/N4",
+      "work_packages": [
+        "N1.2",
+        "N3.5",
+        "N4.2"
+      ],
+      "responsible_stages": [
+        "N1",
+        "N3",
+        "N4"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vmess-http-camouflage",
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "CR-TLS",
+        "M-VL",
+        "M-HY",
+        "vcore-tls"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "T03",
+      "path": "proxies[].alpn",
+      "protocols": [
+        "trojan",
+        "vmess",
+        "vless",
+        "hysteria2"
+      ],
+      "contract": "有序字符串列表；TCP 默认空，WS 默认 `[http/1.1]`，gRPC/legacy H2 `[h2]`；XHTTP 默认 `[h2]`、也可 H1，显式仅 `[h3]` 选择 H3；HY2 缺省/空 `[h3]`",
+      "required_observation": "XHTTP H1/H2、HY2 用 M；legacy H2 用 V2Ray，XHTTP/H3 用 Xray；不匹配失败，无 H3→TCP 静默回落；N1/协议阶段",
+      "work_packages": [
+        "N1.2",
+        "N2.4",
+        "N3.5",
+        "N4.2",
+        "N6.1",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N1",
+        "N2",
+        "N3",
+        "N4",
+        "N6",
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "hysteria-hopping",
+        "hysteria-server-udp-disabled",
+        "vmess-http-camouflage",
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "CR-TLS",
+        "M-VL",
+        "M-HY",
+        "vcore-tls"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "T04",
+      "path": "proxies[].skip-cert-verify",
+      "protocols": [
+        "trojan",
+        "vmess",
+        "vless",
+        "hysteria2"
+      ],
+      "contract": "bool，默认 false；只用于标准 TLS",
+      "required_observation": "延续 VCore 证书策略，不能跳过握手签名、pin 或协议认证；N1",
+      "work_packages": [
+        "N1.2",
+        "N2.4",
+        "N3.5",
+        "N4.2",
+        "N6.1"
+      ],
+      "responsible_stages": [
+        "N1",
+        "N2",
+        "N3",
+        "N4",
+        "N6"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "hysteria-hopping",
+        "hysteria-server-udp-disabled",
+        "vmess-http-camouflage",
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "CR-TLS",
+        "M-VL",
+        "M-HY",
+        "vcore-tls"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "T05",
+      "path": "proxies[].fingerprint",
+      "protocols": [
+        "trojan",
+        "vmess",
+        "vless",
+        "hysteria2"
+      ],
+      "contract": "可选 SHA-256 证书摘要，64 hex 或现有冒号分隔格式",
+      "required_observation": "沿用 AnyTLS 的叶 pin / 非叶信任锚语义；pin+skip 仍必须匹配；N1",
+      "work_packages": [
+        "N1.2",
+        "N2.4",
+        "N3.5",
+        "N4.2",
+        "N6.1"
+      ],
+      "responsible_stages": [
+        "N1",
+        "N2",
+        "N3",
+        "N4",
+        "N6"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "hysteria-hopping",
+        "hysteria-server-udp-disabled",
+        "vmess-http-camouflage",
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "CR-TLS",
+        "M-VL",
+        "M-HY",
+        "vcore-tls"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "T06",
+      "path": "proxies[].name-cert-verify",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "VLESS；可选 DNS/IP 名，缺省采用认证名；不改变 SNI",
+      "required_observation": "标准 PKI/非叶 pin 路径的名称验证；叶 pin 与 skip 按既有优先级，不暗称仍做名称校验；N4",
+      "work_packages": [
+        "N4.2"
+      ],
+      "responsible_stages": [
+        "N4"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "CR-TLS",
+        "M-VL",
+        "M-HY",
+        "vcore-tls"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "T07",
+      "path": "proxies[].certificate",
+      "protocols": [
+        "vless",
+        "hysteria2"
+      ],
+      "contract": "VLESS/HY2；客户端证书 PEM 内容，与 private-key 同时出现",
+      "required_observation": "listener client-auth-type/client-auth-cert；有效链/错误 CA/过期/缺失证书；N4/N6",
+      "work_packages": [
+        "N4.2",
+        "N6.1"
+      ],
+      "responsible_stages": [
+        "N4",
+        "N6"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "hysteria-hopping",
+        "hysteria-server-udp-disabled",
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "CR-TLS",
+        "M-VL",
+        "M-HY",
+        "vcore-tls"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "T08",
+      "path": "proxies[].private-key",
+      "protocols": [
+        "vless",
+        "hysteria2"
+      ],
+      "contract": "VLESS/HY2；客户端私钥 PEM 内容，需匹配 certificate",
+      "required_observation": "密钥加载失败/不匹配在建链前失败；内容不回显；N4/N6",
+      "work_packages": [
+        "N4.2",
+        "N6.1"
+      ],
+      "responsible_stages": [
+        "N4",
+        "N6"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "hysteria-hopping",
+        "hysteria-server-udp-disabled",
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "CR-TLS",
+        "M-VL",
+        "M-HY",
+        "vcore-tls"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "W01",
+      "path": "proxies[].ws-opts.path",
+      "protocols": [
+        "trojan",
+        "vmess",
+        "vless"
+      ],
+      "contract": "默认 `/`；绝对路径，可带 query；路由路径与 query 分离",
+      "required_observation": "`ws-path`；非默认路径、转义/查询、错路径；N1+协议阶段",
+      "work_packages": [
+        "N1.3",
+        "N2.3",
+        "N3.4",
+        "N4.2"
+      ],
+      "responsible_stages": [
+        "N1",
+        "N2",
+        "N3",
+        "N4"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vmess-http-camouflage",
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-WS",
+        "V2-WS",
+        "V2-UPGRADE",
+        "CR-TRANSPORT"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "W02",
+      "path": "proxies[].ws-opts.headers",
+      "protocols": [
+        "trojan",
+        "vmess",
+        "vless"
+      ],
+      "contract": "字符串映射，默认空；不能覆盖 Upgrade/Connection/Sec-WebSocket-Key/Version 等握手字段",
+      "required_observation": "对端请求行为；非法头拒绝、凭据不外泄；N1",
+      "work_packages": [
+        "N1.3",
+        "N2.3",
+        "N3.4",
+        "N4.2"
+      ],
+      "responsible_stages": [
+        "N1",
+        "N2",
+        "N3",
+        "N4"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vmess-http-camouflage",
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-WS",
+        "V2-WS",
+        "V2-UPGRADE",
+        "CR-TRANSPORT"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "W03",
+      "path": "proxies[].ws-opts.headers.Host",
+      "protocols": [
+        "trojan",
+        "vmess",
+        "vless"
+      ],
+      "contract": "可选合法 authority；仅覆盖 HTTP Host，认证名回退规则见 T02",
+      "required_observation": "正确 Host、端口、IPv6 authority；N1",
+      "work_packages": [
+        "N1.3",
+        "N2.3",
+        "N3.4",
+        "N4.2"
+      ],
+      "responsible_stages": [
+        "N1",
+        "N2",
+        "N3",
+        "N4"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vmess-http-camouflage",
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-WS",
+        "V2-WS",
+        "V2-UPGRADE",
+        "CR-TRANSPORT"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "W04",
+      "path": "proxies[].ws-opts.max-early-data",
+      "protocols": [
+        "trojan",
+        "vmess",
+        "vless"
+      ],
+      "contract": "0–2048，默认 0；上限是 VCore 设计限额",
+      "required_observation": "分段前缀进 early-data，剩余数据进正常帧；首包顺序/边界/取消；N1",
+      "work_packages": [
+        "N1.3",
+        "N2.3",
+        "N3.4",
+        "N4.2"
+      ],
+      "responsible_stages": [
+        "N1",
+        "N2",
+        "N3",
+        "N4"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vmess-http-camouflage",
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-WS",
+        "V2-WS",
+        "V2-UPGRADE",
+        "CR-TRANSPORT"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "W05",
+      "path": "proxies[].ws-opts.early-data-header-name",
+      "protocols": [
+        "trojan",
+        "vmess",
+        "vless"
+      ],
+      "contract": "W04 启用时缺省 Sec-WebSocket-Protocol（VCore 默认）；标准 WS 可显式合法自定义头或空串（路径后缀），路径模式禁止 query；HTTPUpgrade 仅前述默认头；禁止与握手保留头冲突",
+      "required_observation": "M：默认头；V2Ray：标准 WS 自定义头/路径 ED，对应 wsSettings.earlyDataHeaderName；N1+协议阶段",
+      "work_packages": [
+        "N1.3",
+        "N2.3",
+        "N3.4",
+        "N4.2"
+      ],
+      "responsible_stages": [
+        "N1",
+        "N2",
+        "N3",
+        "N4"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vmess-http-camouflage",
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-WS",
+        "V2-WS",
+        "V2-UPGRADE",
+        "CR-TRANSPORT"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "W06",
+      "path": "proxies[].ws-opts.v2ray-http-upgrade",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "VLESS bool，默认 false",
+      "required_observation": "原生 WS handler 的 HTTPUpgrade 路径；与标准 WS 分别验收；N4",
+      "work_packages": [
+        "N4.2"
+      ],
+      "responsible_stages": [
+        "N4"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-WS",
+        "V2-WS",
+        "V2-UPGRADE",
+        "CR-TRANSPORT"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "W07",
+      "path": "proxies[].ws-opts.v2ray-http-upgrade-fast-open",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "VLESS bool，默认 false；要求 W06=true",
+      "required_observation": "首写提前但升级拒绝不得报成功；取消/首包不丢；N4",
+      "work_packages": [
+        "N4.2"
+      ],
+      "responsible_stages": [
+        "N4"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-WS",
+        "V2-WS",
+        "V2-UPGRADE",
+        "CR-TRANSPORT"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "G01",
+      "path": "proxies[].grpc-opts.grpc-service-name",
+      "protocols": [
+        "trojan",
+        "vmess",
+        "vless"
+      ],
+      "contract": "`network=grpc` 时必填非空；普通名映射 `/<name>/Tun`，`/` 开头值作为完整自定义路径",
+      "required_observation": "`grpc-service-name`；错误路径、大小写、取消单流；N1",
+      "work_packages": [
+        "N1.3",
+        "N2.3",
+        "N3.4",
+        "N4.2"
+      ],
+      "responsible_stages": [
+        "N1",
+        "N2",
+        "N3",
+        "N4"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vmess-http-camouflage",
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-GUN",
+        "CR-TRANSPORT"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "G02",
+      "path": "proxies[].grpc-opts.grpc-user-agent",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "VLESS 可选字符串；缺省 `grpc-go/1.36.0`，与研究基线一致",
+      "required_observation": "实际请求 UA；不改变 protobuf/framing；N4",
+      "work_packages": [
+        "N4.2"
+      ],
+      "responsible_stages": [
+        "N4"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-GUN",
+        "CR-TRANSPORT"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "G03",
+      "path": "proxies[].grpc-opts.ping-interval",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "VLESS 非负秒数，默认 0 不主动 PING",
+      "required_observation": "空闲 PING、对端关闭、Stop 取消；N4",
+      "work_packages": [
+        "N4.2"
+      ],
+      "responsible_stages": [
+        "N4"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-GUN",
+        "CR-TRANSPORT"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "G04",
+      "path": "proxies[].grpc-opts.max-connections",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "VLESS 非负整数；与 G05/G06 全零时归一为 1",
+      "required_observation": "连接池实际计数、取消/排队，不能只解析；N4",
+      "work_packages": [
+        "N4.2"
+      ],
+      "responsible_stages": [
+        "N4"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-GUN",
+        "CR-TRANSPORT"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "G05",
+      "path": "proxies[].grpc-opts.min-streams",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "VLESS 非负整数，默认 0",
+      "required_observation": "扩容阈值；达到阈值时行为可观测；N4",
+      "work_packages": [
+        "N4.2"
+      ],
+      "responsible_stages": [
+        "N4"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-GUN",
+        "CR-TRANSPORT"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "G06",
+      "path": "proxies[].grpc-opts.max-streams",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "VLESS 非负整数，默认 0；仅 max-connections=0 的调度分支生效",
+      "required_observation": "复用/扩容阈值，不是硬流数上限；后台任务与等待者有界；N4",
+      "work_packages": [
+        "N4.2"
+      ],
+      "responsible_stages": [
+        "N4"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-GUN",
+        "CR-TRANSPORT"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "H01",
+      "path": "proxies[].http-opts.method",
+      "protocols": [
+        "vmess",
+        "vless"
+      ],
+      "contract": "network=http；默认 GET；合法 HTTP method token，无空白/CRLF",
+      "required_observation": "Xray 或 V2Ray TCP header.http；首请求方法实际发送，之后恢复裸流；N1/N3/N4",
+      "work_packages": [
+        "N1.3",
+        "N3.4",
+        "N4.2"
+      ],
+      "responsible_stages": [
+        "N1",
+        "N3",
+        "N4"
+      ],
+      "default_peer": "V2",
+      "peer_override_rules": [
+        "vmess-http-camouflage",
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-HTTP",
+        "M-H2",
+        "V2-CFG",
+        "V2-H2",
+        "X-CFG"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "H02",
+      "path": "proxies[].http-opts.path",
+      "protocols": [
+        "vmess",
+        "vless"
+      ],
+      "contract": "字符串列表，缺省/空列表为 `[\"/\"]`；每次物理握手选一个绝对路径，无 CR/LF；按 URL.Path 处理",
+      "required_observation": "原生端 request.path；每个列表值用受控采样覆盖；不误当 query；N1/N3/N4",
+      "work_packages": [
+        "N1.3",
+        "N3.4",
+        "N4.2"
+      ],
+      "responsible_stages": [
+        "N1",
+        "N3",
+        "N4"
+      ],
+      "default_peer": "V2",
+      "peer_override_rules": [
+        "vmess-http-camouflage",
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-HTTP",
+        "M-H2",
+        "V2-CFG",
+        "V2-H2",
+        "X-CFG"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "H03",
+      "path": "proxies[].http-opts.headers",
+      "protocols": [
+        "vmess",
+        "vless"
+      ],
+      "contract": "字符串→字符串列表，默认空；值列表非空，无非法头/CRLF；不允许覆盖传输定界头",
+      "required_observation": "原生端+受控观测；不声称服务器强校验全部头；N1/N3/N4",
+      "work_packages": [
+        "N1.3",
+        "N3.4",
+        "N4.2"
+      ],
+      "responsible_stages": [
+        "N1",
+        "N3",
+        "N4"
+      ],
+      "default_peer": "V2",
+      "peer_override_rules": [
+        "vmess-http-camouflage",
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-HTTP",
+        "M-H2",
+        "V2-CFG",
+        "V2-H2",
+        "X-CFG"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "H04",
+      "path": "proxies[].http-opts.headers.Host",
+      "protocols": [
+        "vmess",
+        "vless"
+      ],
+      "contract": "可选合法 authority 列表；缺省 server，每次物理握手选一个；不改认证名/拨号地址",
+      "required_observation": "实际 Host、端口/IPv6 authority 与证书名分别验证；N1/N3/N4",
+      "work_packages": [
+        "N1.3",
+        "N3.4",
+        "N4.2"
+      ],
+      "responsible_stages": [
+        "N1",
+        "N3",
+        "N4"
+      ],
+      "default_peer": "V2",
+      "peer_override_rules": [
+        "vmess-http-camouflage",
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-HTTP",
+        "M-H2",
+        "V2-CFG",
+        "V2-H2",
+        "X-CFG"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "H05",
+      "path": "proxies[].h2-opts.host",
+      "protocols": [
+        "vmess",
+        "vless"
+      ],
+      "contract": "network=h2 时必填非空 authority 列表，每流选一个；不采用参考的占位默认名",
+      "required_observation": "V2Ray httpSettings.host；允许/拒绝 Host；N1/N3/N4",
+      "work_packages": [
+        "N1.3",
+        "N3.4",
+        "N4.2"
+      ],
+      "responsible_stages": [
+        "N1",
+        "N3",
+        "N4"
+      ],
+      "default_peer": "V2",
+      "peer_override_rules": [
+        "vmess-http-camouflage",
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-HTTP",
+        "M-H2",
+        "V2-CFG",
+        "V2-H2",
+        "X-CFG"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "H06",
+      "path": "proxies[].h2-opts.path",
+      "protocols": [
+        "vmess",
+        "vless"
+      ],
+      "contract": "默认 `/`，绝对路径；普通 HTTP/2 PUT body，不附加 gRPC framing",
+      "required_observation": "V2Ray httpSettings.path；TLS ALPN h2 / 明文 prior knowledge；错误非匹配前缀；N1/N3/N4",
+      "work_packages": [
+        "N1.3",
+        "N3.4",
+        "N4.2"
+      ],
+      "responsible_stages": [
+        "N1",
+        "N3",
+        "N4"
+      ],
+      "default_peer": "V2",
+      "peer_override_rules": [
+        "vmess-http-camouflage",
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-HTTP",
+        "M-H2",
+        "V2-CFG",
+        "V2-H2",
+        "X-CFG"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "TR01",
+      "path": "proxies[].password",
+      "protocols": [
+        "trojan"
+      ],
+      "contract": "必填非空字符串，不 trim",
+      "required_observation": "`users[].password`；SHA-224 认证、错误密码时目标零业务字节；N2",
+      "work_packages": [
+        "N2.1",
+        "N2.2",
+        "N2.4"
+      ],
+      "responsible_stages": [
+        "N2"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "ws-custom-or-path-early-data"
+      ],
+      "sources": [
+        "CR-TR",
+        "M-TR-IN"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "TR02",
+      "path": "proxies[].network",
+      "protocols": [
+        "trojan"
+      ],
+      "contract": "默认 `tcp`；`tcp/ws/grpc`",
+      "required_observation": "TLS 原始流、ws-path、grpc-service-name 三条实际路径；N2",
+      "work_packages": [
+        "N2.3",
+        "N2.4"
+      ],
+      "responsible_stages": [
+        "N2"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "ws-custom-or-path-early-data"
+      ],
+      "sources": [
+        "CR-TR",
+        "M-TR-IN"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "VM01",
+      "path": "proxies[].uuid",
+      "protocols": [
+        "vmess"
+      ],
+      "contract": "必填标准 UUID；规范解析",
+      "required_observation": "`users[].uuid`；错误身份、时间窗、重放；N3",
+      "work_packages": [
+        "N3.1",
+        "N3.5"
+      ],
+      "responsible_stages": [
+        "N3"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vmess-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data"
+      ],
+      "sources": [
+        "CR-VM",
+        "M-VM-IN",
+        "M-VM-CODEC",
+        "M-PACKET"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "VM02",
+      "path": "proxies[].alterId",
+      "protocols": [
+        "vmess"
+      ],
+      "contract": "默认 0，只接受 0",
+      "required_observation": "AEAD 认证；不进入旧式认证；N3",
+      "work_packages": [
+        "N3.1",
+        "N3.5"
+      ],
+      "responsible_stages": [
+        "N3"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vmess-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data"
+      ],
+      "sources": [
+        "CR-VM",
+        "M-VM-IN",
+        "M-VM-CODEC",
+        "M-PACKET"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "VM03",
+      "path": "proxies[].cipher",
+      "protocols": [
+        "vmess"
+      ],
+      "contract": "`auto`（默认）、`aes-128-gcm`、`chacha20-poly1305`、`none`；`zero` 归一为 none",
+      "required_observation": "每种显式值及 auto 都验收；auto 按实际 AES 硬件能力选择，非仅架构名称；N3",
+      "work_packages": [
+        "N3.2",
+        "N3.5"
+      ],
+      "responsible_stages": [
+        "N3"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vmess-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data"
+      ],
+      "sources": [
+        "CR-VM",
+        "M-VM-IN",
+        "M-VM-CODEC",
+        "M-PACKET"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "VM04",
+      "path": "proxies[].network",
+      "protocols": [
+        "vmess"
+      ],
+      "contract": "默认 `tcp`；`tcp/ws/grpc/http/h2`",
+      "required_observation": "M：tcp/ws/grpc；V2Ray：http/h2；错误值不回落 TCP；N3",
+      "work_packages": [
+        "N3.4",
+        "N3.5"
+      ],
+      "responsible_stages": [
+        "N3"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vmess-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data"
+      ],
+      "sources": [
+        "CR-VM",
+        "M-VM-IN",
+        "M-VM-CODEC",
+        "M-PACKET"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "VM05",
+      "path": "proxies[].tls",
+      "protocols": [
+        "vmess"
+      ],
+      "contract": "bool，默认 false；false 时禁止被忽略的 TLS 专属配置",
+      "required_observation": "原生 VMess listener 省略证书即明文，提供 certificate/private-key 即 TLS；N3",
+      "work_packages": [
+        "N3.4",
+        "N3.5"
+      ],
+      "responsible_stages": [
+        "N3"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vmess-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data"
+      ],
+      "sources": [
+        "CR-VM",
+        "M-VM-IN",
+        "M-VM-CODEC",
+        "M-PACKET"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "VM06",
+      "path": "proxies[].packet-encoding",
+      "protocols": [
+        "vmess"
+      ],
+      "contract": "默认空为原始 UDP；`xudp/packetaddr`",
+      "required_observation": "三条解码路径分别验收；packetaddr 域名先由受控 VCore DNS 解析成 IP；N3",
+      "work_packages": [
+        "N3.3",
+        "N3.5"
+      ],
+      "responsible_stages": [
+        "N3"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vmess-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data"
+      ],
+      "sources": [
+        "CR-VM",
+        "M-VM-IN",
+        "M-VM-CODEC",
+        "M-PACKET"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "VM07",
+      "path": "proxies[].global-padding",
+      "protocols": [
+        "vmess"
+      ],
+      "contract": "bool，默认 false；仅 auto/AES/ChaCha 可 true",
+      "required_observation": "对端解帧成功且长度实际变化；none/zero+true 拒绝；N3",
+      "work_packages": [
+        "N3.2",
+        "N3.5"
+      ],
+      "responsible_stages": [
+        "N3"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vmess-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data"
+      ],
+      "sources": [
+        "CR-VM",
+        "M-VM-IN",
+        "M-VM-CODEC",
+        "M-PACKET"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "VM08",
+      "path": "proxies[].authenticated-length",
+      "protocols": [
+        "vmess"
+      ],
+      "contract": "bool，默认 false；仅 auto/AES/ChaCha 可 true",
+      "required_observation": "正常/篡改长度认证；与 VM07 的 00/01/10/11 四组合；N3",
+      "work_packages": [
+        "N3.2",
+        "N3.5"
+      ],
+      "responsible_stages": [
+        "N3"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vmess-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data"
+      ],
+      "sources": [
+        "CR-VM",
+        "M-VM-IN",
+        "M-VM-CODEC",
+        "M-PACKET"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "VL01",
+      "path": "proxies[].uuid",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "必填标准 UUID",
+      "required_observation": "`users[].uuid`；认证失败不通业务；N4",
+      "work_packages": [
+        "N4.1"
+      ],
+      "responsible_stages": [
+        "N4"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-VL-SVC",
+        "CR-VL",
+        "M-VISION",
+        "vcore-xudp"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "VL02",
+      "path": "proxies[].network",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "默认 `tcp`；`tcp/ws/grpc/http/h2/xhttp`",
+      "required_observation": "M：tcp/ws/grpc/XHTTP H1/H2；Xray：http/XHTTP H3；V2Ray：h2；N4/N5",
+      "work_packages": [
+        "N4.1",
+        "N4.2",
+        "N5.1",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N4",
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-VL-SVC",
+        "CR-VL",
+        "M-VISION",
+        "vcore-xudp"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "VL03",
+      "path": "proxies[].flow",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "默认空；`xtls-rprx-vision`",
+      "required_observation": "`users[].flow`；不截断、不猜测别名；N4",
+      "work_packages": [
+        "N4.3",
+        "N7.1"
+      ],
+      "responsible_stages": [
+        "N4",
+        "N7"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-VL-SVC",
+        "CR-VL",
+        "M-VISION",
+        "vcore-xudp"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "VL04",
+      "path": "proxies[].packet-encoding",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "默认 `xudp`；`packetaddr`、`packet`（别名）、`none`（显式原始 UDP）",
+      "required_observation": "CommandMux/XUDP、packetaddr、CommandUDP；N4",
+      "work_packages": [
+        "N4.1",
+        "N4.3"
+      ],
+      "responsible_stages": [
+        "N4"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-VL-SVC",
+        "CR-VL",
+        "M-VISION",
+        "vcore-xudp"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "VL05",
+      "path": "proxies[].tls",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "bool，默认 false；安全封装设置时须 true",
+      "required_observation": "标准 TLS/REALITY/附加封装或显式明文入口；N4/N7",
+      "work_packages": [
+        "N4.2",
+        "N7.5"
+      ],
+      "responsible_stages": [
+        "N4",
+        "N7"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-VL-SVC",
+        "CR-VL",
+        "M-VISION",
+        "vcore-xudp"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "VL06",
+      "path": "proxies[].encryption",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "缺省/空/`none`；或 `mlkem768x25519plus.{native,xorpub,random}.{1rtt,0rtt}.…`",
+      "required_observation": "`decryption` 对应串；完整 key/padding 链语法、三外观×两RTT、票据和错误密钥；N7",
+      "work_packages": [
+        "N7.1"
+      ],
+      "responsible_stages": [
+        "N7"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-VL-SVC",
+        "CR-VL",
+        "M-VISION",
+        "vcore-xudp"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "X01",
+      "path": "proxies[].xhttp-opts.path",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "默认 `/`；路径型 placement 规范化尾 `/`",
+      "required_observation": "xhttp-config.path；路径与序号/会话解析",
+      "work_packages": [
+        "N5.1",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-XCFG",
+        "M-XREUSE",
+        "M-XCLIENT",
+        "M-XSERVER",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "X02",
+      "path": "proxies[].xhttp-opts.host",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "显式值优先，否则 servername→server；IPv6 authority 加方括号",
+      "required_observation": "xhttp-config.host；不限 Host 的 listener 可测双腿不同 Host",
+      "work_packages": [
+        "N5.1",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-XCFG",
+        "M-XREUSE",
+        "M-XCLIENT",
+        "M-XSERVER",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "X03",
+      "path": "proxies[].xhttp-opts.mode",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "`auto/packet-up/stream-up/stream-one`；默认 auto",
+      "required_observation": "REALITY 无下载腿→stream-one、有下载腿→stream-up，其余→packet-up",
+      "work_packages": [
+        "N5.1",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-XCFG",
+        "M-XREUSE",
+        "M-XCLIENT",
+        "M-XSERVER",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "X04",
+      "path": "proxies[].xhttp-opts.headers",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "字符串 map，默认空；禁止非法 HTTP 头/CRLF/覆盖传输定界字段",
+      "required_observation": "请求头、独立下载腿覆盖；不把 headermap 仅存储而未发送",
+      "work_packages": [
+        "N5.1",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-XCFG",
+        "M-XREUSE",
+        "M-XCLIENT",
+        "M-XSERVER",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "X05",
+      "path": "proxies[].xhttp-opts.no-grpc-header",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "bool，默认 false；用于流式模式",
+      "required_observation": "改变 application/grpc 头；packet-up 显式 true 拒绝而非忽略",
+      "work_packages": [
+        "N5.1",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-XCFG",
+        "M-XREUSE",
+        "M-XCLIENT",
+        "M-XSERVER",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "X06",
+      "path": "proxies[].xhttp-opts.x-padding-bytes",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "默认 `100-1000`；区间下限至少 1",
+      "required_observation": "对端同名；空 padding 在原生服务端会被拒绝，不列为正向值",
+      "work_packages": [
+        "N5.1",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-XCFG",
+        "M-XREUSE",
+        "M-XCLIENT",
+        "M-XSERVER",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "X07",
+      "path": "proxies[].xhttp-opts.x-padding-obfs-mode",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "bool，默认 false",
+      "required_observation": "对端同名；两种 padding 编码分别跑",
+      "work_packages": [
+        "N5.1",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-XCFG",
+        "M-XREUSE",
+        "M-XCLIENT",
+        "M-XSERVER",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "X08",
+      "path": "proxies[].xhttp-opts.x-padding-key",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "X07=false 时固定 x_padding；true 时 queryInHeader/query/cookie 必填非空",
+      "required_observation": "同名对端；header placement 不需要此键",
+      "work_packages": [
+        "N5.1",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-XCFG",
+        "M-XREUSE",
+        "M-XCLIENT",
+        "M-XSERVER",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "X09",
+      "path": "proxies[].xhttp-opts.x-padding-header",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "X07=false 时固定 Referer；true 时 header/queryInHeader 必填合法头名",
+      "required_observation": "同名对端；其他 placement 不接受无效覆盖",
+      "work_packages": [
+        "N5.1",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-XCFG",
+        "M-XREUSE",
+        "M-XCLIENT",
+        "M-XSERVER",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "X10",
+      "path": "proxies[].xhttp-opts.x-padding-placement",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "X07=false 固定 queryInHeader；true 时显式 `queryInHeader/header/query/cookie`",
+      "required_observation": "每个 placement 匹配原生对端；不填不能假称已混淆",
+      "work_packages": [
+        "N5.1",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-XCFG",
+        "M-XREUSE",
+        "M-XCLIENT",
+        "M-XSERVER",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "X11",
+      "path": "proxies[].xhttp-opts.x-padding-method",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "默认 repeat-x；X07=true 时可 `repeat-x/tokenish`",
+      "required_observation": "false+tokenish 拒绝，避免参考实现忽略；tokenish 长度容差",
+      "work_packages": [
+        "N5.1",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-XCFG",
+        "M-XREUSE",
+        "M-XCLIENT",
+        "M-XSERVER",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "X12",
+      "path": "proxies[].xhttp-opts.uplink-http-method",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "默认 POST；`POST/PUT/PATCH/DELETE`",
+      "required_observation": "同名对端；逐方法上传。原生 GET 是下载、OPTIONS 是预检，不作上传",
+      "work_packages": [
+        "N5.1",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-XCFG",
+        "M-XREUSE",
+        "M-XCLIENT",
+        "M-XSERVER",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "X13",
+      "path": "proxies[].xhttp-opts.session-placement",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "默认 path；`path/query/header/cookie`",
+      "required_observation": "对端同名；各位置会话隔离",
+      "work_packages": [
+        "N5.1",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-XCFG",
+        "M-XREUSE",
+        "M-XCLIENT",
+        "M-XSERVER",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "X14",
+      "path": "proxies[].xhttp-opts.session-key",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "path 省略；header 默认 X-Session；query/cookie 默认 x_session",
+      "required_observation": "对端同名；错键不能绑定到其他会话",
+      "work_packages": [
+        "N5.1",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-XCFG",
+        "M-XREUSE",
+        "M-XCLIENT",
+        "M-XSERVER",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "X15",
+      "path": "proxies[].xhttp-opts.session-table",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "默认空：固定 32 字符随机 hex；uuid；预定义表或去重自定义 ASCII 表",
+      "required_observation": "原生服务端按 opaque ID；合法字符、随机性与命名空间检查",
+      "work_packages": [
+        "N5.1",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-XCFG",
+        "M-XREUSE",
+        "M-XCLIENT",
+        "M-XSERVER",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "X16",
+      "path": "proxies[].xhttp-opts.session-length",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "自定义/预定义字符表时默认 `16-32`；空 table/uuid 模式不得显式配置无效长度",
+      "required_observation": "允许范围须有至少 2^31 种 ID，长度有界；显式 hex 走字符表分支，不等同空 table",
+      "work_packages": [
+        "N5.1",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-XCFG",
+        "M-XREUSE",
+        "M-XCLIENT",
+        "M-XSERVER",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "X17",
+      "path": "proxies[].xhttp-opts.seq-placement",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "packet-up；默认 path；`path/query/header/cookie`",
+      "required_observation": "对端同名；序号重复/乱序/缺失；流模式不得填无效 override",
+      "work_packages": [
+        "N5.1",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-XCFG",
+        "M-XREUSE",
+        "M-XCLIENT",
+        "M-XSERVER",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "X18",
+      "path": "proxies[].xhttp-opts.seq-key",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "path 省略；header 默认 X-Seq；query/cookie 默认 x_seq",
+      "required_observation": "对端同名；序号与 session 的键不得冲突",
+      "work_packages": [
+        "N5.1",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-XCFG",
+        "M-XREUSE",
+        "M-XCLIENT",
+        "M-XSERVER",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "X19",
+      "path": "proxies[].xhttp-opts.uplink-data-placement",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "默认 body；`body/header/cookie/auto`，auto 归一 body",
+      "required_observation": "对端同名；header/cookie 仅 packet-up，分块 Base64URL",
+      "work_packages": [
+        "N5.1",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-XCFG",
+        "M-XREUSE",
+        "M-XCLIENT",
+        "M-XSERVER",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "X20",
+      "path": "proxies[].xhttp-opts.uplink-data-key",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "header/cookie 时必填；body 时省略",
+      "required_observation": "对端同名；缺块/乱序/多块、与session/seq键冲突拒绝",
+      "work_packages": [
+        "N5.1",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-XCFG",
+        "M-XREUSE",
+        "M-XCLIENT",
+        "M-XSERVER",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "X21",
+      "path": "proxies[].xhttp-opts.uplink-chunk-size",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "0 自适应；header/cookie 显式值至少 64；仅非 body 有意义",
+      "required_observation": "默认 cookie 2048–3072、header 3072–4096；对端分块边界",
+      "work_packages": [
+        "N5.1",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-XCFG",
+        "M-XREUSE",
+        "M-XCLIENT",
+        "M-XSERVER",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "X22",
+      "path": "proxies[].xhttp-opts.sc-max-each-post-bytes",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "正数区间，默认 1000000；用于 packet-up",
+      "required_observation": "原生 server 上限；拆 POST、边界与超限拒绝",
+      "work_packages": [
+        "N5.1",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-XCFG",
+        "M-XREUSE",
+        "M-XCLIENT",
+        "M-XSERVER",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "X23",
+      "path": "proxies[].xhttp-opts.sc-min-posts-interval-ms",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "非负区间且 Max>0，默认 30 毫秒；用于 packet-up",
+      "required_observation": "允许 0-N，但纯0拒绝；实际间隔、背压和取消；不是服务端字段",
+      "work_packages": [
+        "N5.1",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-XCFG",
+        "M-XREUSE",
+        "M-XCLIENT",
+        "M-XSERVER",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "X24",
+      "path": "proxies[].xhttp-opts.reuse-settings.max-concurrency",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "非负区间，默认 0",
+      "required_observation": "每条候选 transport 的并发挑选阈值；不等于全节点业务数限制",
+      "work_packages": [
+        "N5.2",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-XCFG",
+        "M-XREUSE",
+        "M-XCLIENT",
+        "M-XSERVER",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "X25",
+      "path": "proxies[].xhttp-opts.reuse-settings.max-connections",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "非负区间，默认 0",
+      "required_observation": "参考实现先扩到该数量，候选全忙仍可扩容；**不是硬连接上限**",
+      "work_packages": [
+        "N5.2",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-XCFG",
+        "M-XREUSE",
+        "M-XCLIENT",
+        "M-XSERVER",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "X26",
+      "path": "proxies[].xhttp-opts.reuse-settings.c-max-reuse-times",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "非负区间，默认 0 表示不按此项限制",
+      "required_observation": "每次复用增加计数，耗尽退休、不打断在用流",
+      "work_packages": [
+        "N5.2",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-XCFG",
+        "M-XREUSE",
+        "M-XCLIENT",
+        "M-XSERVER",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "X27",
+      "path": "proxies[].xhttp-opts.reuse-settings.h-max-request-times",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "非负区间，默认 0",
+      "required_observation": "按 GetTransport 领取扣预算，**不是每个 packet-up POST** 扣一次",
+      "work_packages": [
+        "N5.2",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-XCFG",
+        "M-XREUSE",
+        "M-XCLIENT",
+        "M-XSERVER",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "X28",
+      "path": "proxies[].xhttp-opts.reuse-settings.h-max-reusable-secs",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "非负秒区间，默认 0",
+      "required_observation": "到期后不分配新请求，活动请求正常结束",
+      "work_packages": [
+        "N5.2",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-XCFG",
+        "M-XREUSE",
+        "M-XCLIENT",
+        "M-XSERVER",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "X29",
+      "path": "proxies[].xhttp-opts.reuse-settings.h-keep-alive-period",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "整数秒；0=H2 45秒/H3 10秒，负值禁用，正值指定周期",
+      "required_observation": "M：H2 PING；Xray：H3 QUIC keepalive；H1 无效非默认值拒绝",
+      "work_packages": [
+        "N5.2",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-XCFG",
+        "M-XREUSE",
+        "M-XCLIENT",
+        "M-XSERVER",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "D01",
+      "path": "proxies[].xhttp-opts.download-settings.path",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "缺省继承，显式覆盖按 X01 规范化",
+      "required_observation": "同一原生 handler 的等价路径；不能宣称不同session库能互通；N5",
+      "work_packages": [
+        "N5.2",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-XREUSE",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "D02",
+      "path": "proxies[].xhttp-opts.download-settings.host",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "缺省继承主 host；最终为空时按下载 servername/server 推导",
+      "required_observation": "同一 listener 不限 Host 或显式匹配；N5",
+      "work_packages": [
+        "N5.2",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-XREUSE",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "D03",
+      "path": "proxies[].xhttp-opts.download-settings.headers",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "缺省继承；map 替换，{} 清空",
+      "required_observation": "两腿请求头隔离；N5",
+      "work_packages": [
+        "N5.2",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-XREUSE",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "D04",
+      "path": "proxies[].xhttp-opts.download-settings.server",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "缺省继承；域名/IPv4/IPv6",
+      "required_observation": "同一 handler 的其他绑定地址/域名别名；N5",
+      "work_packages": [
+        "N5.2",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-XREUSE",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "D05",
+      "path": "proxies[].xhttp-opts.download-settings.port",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "缺省继承；整数 1–65535",
+      "required_observation": "单个 Mihomo listener 的 port 列表/区间共享 handler，可测试不同端口；N5",
+      "work_packages": [
+        "N5.2",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-XREUSE",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "D06",
+      "path": "proxies[].xhttp-opts.download-settings.tls",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "缺省继承；bool 显式覆盖",
+      "required_observation": "同一 handler 两腿安全配置须兼容；单个原生 handler 无明文/TLS混搭入口；N5",
+      "work_packages": [
+        "N5.2",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-XREUSE",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "D07",
+      "path": "proxies[].xhttp-opts.download-settings.servername",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "缺省继承；可覆盖",
+      "required_observation": "证书 SAN/REALITY 多 server-names；N5",
+      "work_packages": [
+        "N5.2",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-XREUSE",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "D08",
+      "path": "proxies[].xhttp-opts.download-settings.alpn",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "缺省继承；H1/H2 或仅 `[h3]`",
+      "required_observation": "M：共享 handler 的 H1/H2；Xray：同一 H3 handler；不能用两个独立 listener 冒充共享会话；N5",
+      "work_packages": [
+        "N5.2",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-XREUSE",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "D09",
+      "path": "proxies[].xhttp-opts.download-settings.skip-cert-verify",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "缺省继承；false 必须可覆盖 true",
+      "required_observation": "复用 T04 策略与负例；N5",
+      "work_packages": [
+        "N5.2",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-XREUSE",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "D10",
+      "path": "proxies[].xhttp-opts.download-settings.name-cert-verify",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "缺省继承；空清除显式override",
+      "required_observation": "恢复下载腿默认认证名；N5",
+      "work_packages": [
+        "N5.2",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-XREUSE",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "D11",
+      "path": "proxies[].xhttp-opts.download-settings.fingerprint",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "缺省继承；空清除 pin，非空用 T05",
+      "required_observation": "重新计算安全策略，不复用旧pin连接；N5",
+      "work_packages": [
+        "N5.2",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-XREUSE",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "D12",
+      "path": "proxies[].xhttp-opts.download-settings.certificate",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "缺省继承；改变/清除时与 private-key 成对",
+      "required_observation": "同一 listener 的 mTLS 多身份；N5",
+      "work_packages": [
+        "N5.2",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-XREUSE",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "D13",
+      "path": "proxies[].xhttp-opts.download-settings.private-key",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "缺省继承；改变/清除时与 certificate 成对",
+      "required_observation": "缓存隔离和密钥匹配；N5",
+      "work_packages": [
+        "N5.2",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-XREUSE",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "D14",
+      "path": "proxies[].xhttp-opts.download-settings.reality-opts.public-key",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "子对象缺省继承；非空对象必须完整提供 key，{} 清除此腿 REALITY",
+      "required_observation": "同一服务端对应 key；错误key负例；N5",
+      "work_packages": [
+        "N5.2",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-XREUSE",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "D15",
+      "path": "proxies[].xhttp-opts.download-settings.reality-opts.short-id",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "对象替换时默认空，可显式有效 ID",
+      "required_observation": "对端允许多个 short-id；不能只填本字段期望继承key；N5",
+      "work_packages": [
+        "N5.2",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-XREUSE",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "D16",
+      "path": "proxies[].xhttp-opts.download-settings.reality-opts.support-x25519mlkem768",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "对象替换时默认 false，bool",
+      "required_observation": "真实混合 key share；N7",
+      "work_packages": [
+        "N7.2",
+        "N7.5"
+      ],
+      "responsible_stages": [
+        "N7"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-XREUSE",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "D17",
+      "path": "proxies[].xhttp-opts.download-settings.ech-opts.enable",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "对象替换时默认 false；false/{} 清除 ECH",
+      "required_observation": "状态及节点隔离；N7",
+      "work_packages": [
+        "N7.3",
+        "N7.5"
+      ],
+      "responsible_stages": [
+        "N7"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-XREUSE",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "D18",
+      "path": "proxies[].xhttp-opts.download-settings.ech-opts.config",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "对象替换时默认空；启用时显式 Base64 或走查询",
+      "required_observation": "错配置不明文回落成功；N7",
+      "work_packages": [
+        "N7.3",
+        "N7.5"
+      ],
+      "responsible_stages": [
+        "N7"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-XREUSE",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "D19",
+      "path": "proxies[].xhttp-opts.download-settings.ech-opts.query-server-name",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "对象替换时按下载认证名；显式 DNS 名",
+      "required_observation": "独立 HTTPS RR 查询/缓存键，禁止依赖递归；N7",
+      "work_packages": [
+        "N7.3",
+        "N7.5"
+      ],
+      "responsible_stages": [
+        "N7"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-XREUSE",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "D20",
+      "path": "proxies[].xhttp-opts.download-settings.shadow-tls-opts.version",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "对象缺省继承；存在时同 S07 默认/值；{} 清除",
+      "required_observation": "同一原生handler版本匹配；N7",
+      "work_packages": [
+        "N7.4",
+        "N7.5"
+      ],
+      "responsible_stages": [
+        "N7"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-XREUSE",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "D21",
+      "path": "proxies[].xhttp-opts.download-settings.shadow-tls-opts.password",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "对象替换后按所选版本要求",
+      "required_observation": "v3同一listener多用户；错误密码；N7",
+      "work_packages": [
+        "N7.4",
+        "N7.5"
+      ],
+      "responsible_stages": [
+        "N7"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-XREUSE",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "D22",
+      "path": "proxies[].xhttp-opts.download-settings.restls-opts.password",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "对象替换后必须完整认证，{} 清除",
+      "required_observation": "同一handler密码匹配；N7",
+      "work_packages": [
+        "N7.4",
+        "N7.5"
+      ],
+      "responsible_stages": [
+        "N7"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-XREUSE",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "D23",
+      "path": "proxies[].xhttp-opts.download-settings.restls-opts.version-hint",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "对象替换后显式 tls12/tls13",
+      "required_observation": "原生handshake目标对应版本；N7",
+      "work_packages": [
+        "N7.4",
+        "N7.5"
+      ],
+      "responsible_stages": [
+        "N7"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-XREUSE",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "D24",
+      "path": "proxies[].xhttp-opts.download-settings.restls-opts.restls-script",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "对象替换时默认空，可覆盖",
+      "required_observation": "同一对端实际可接受的记录序列；N7",
+      "work_packages": [
+        "N7.4",
+        "N7.5"
+      ],
+      "responsible_stages": [
+        "N7"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-XREUSE",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "D25",
+      "path": "proxies[].xhttp-opts.download-settings.jls-opts.username",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "对象替换后与 password 成对；{} 清除",
+      "required_observation": "同一listener多用户；N7",
+      "work_packages": [
+        "N7.4",
+        "N7.5"
+      ],
+      "responsible_stages": [
+        "N7"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-XREUSE",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "D26",
+      "path": "proxies[].xhttp-opts.download-settings.jls-opts.password",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "对象替换后必需密码",
+      "required_observation": "认证负例与票据/缓存隔离；N7",
+      "work_packages": [
+        "N7.4",
+        "N7.5"
+      ],
+      "responsible_stages": [
+        "N7"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-XREUSE",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "D27",
+      "path": "proxies[].xhttp-opts.download-settings.reuse-settings.max-concurrency",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "对象缺省继承；对象存在时本项默认 0，按 X24",
+      "required_observation": "下载腿独立计数；N5",
+      "work_packages": [
+        "N5.2",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-XREUSE",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "D28",
+      "path": "proxies[].xhttp-opts.download-settings.reuse-settings.max-connections",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "同上，按 X25；不是硬上限",
+      "required_observation": "独立扩容；N5",
+      "work_packages": [
+        "N5.2",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-XREUSE",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "D29",
+      "path": "proxies[].xhttp-opts.download-settings.reuse-settings.c-max-reuse-times",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "同上，按 X26",
+      "required_observation": "独立退休；N5",
+      "work_packages": [
+        "N5.2",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-XREUSE",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "D30",
+      "path": "proxies[].xhttp-opts.download-settings.reuse-settings.h-max-request-times",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "同上，按 X27",
+      "required_observation": "按领取transport计数；N5",
+      "work_packages": [
+        "N5.2",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-XREUSE",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "D31",
+      "path": "proxies[].xhttp-opts.download-settings.reuse-settings.h-max-reusable-secs",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "同上，按 X28",
+      "required_observation": "独立到期；N5",
+      "work_packages": [
+        "N5.2",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-XREUSE",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "D32",
+      "path": "proxies[].xhttp-opts.download-settings.reuse-settings.h-keep-alive-period",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "同上，0=H2 45秒/H3 10秒，负数禁用",
+      "required_observation": "M：H2；Xray：H3；H1无效值拒绝；N5",
+      "work_packages": [
+        "N5.2",
+        "N5.4"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-XREUSE",
+        "X-XHTTP"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "S01",
+      "path": "proxies[].reality-opts.public-key",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "opts 启用时必填，32字节 Base64URL X25519 key",
+      "required_observation": "reality-config.private-key；普通 key 现有行为回归；N4",
+      "work_packages": [
+        "N4.2",
+        "N4.3"
+      ],
+      "responsible_stages": [
+        "N4"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-VL-SVC",
+        "CR-SPLICE",
+        "R-HPKE"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "S02",
+      "path": "proxies[].reality-opts.short-id",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "偶数位 hex，最多8字节，默认空",
+      "required_observation": "reality-config.short-id；错误值/错误格式；N4",
+      "work_packages": [
+        "N4.2",
+        "N4.3"
+      ],
+      "responsible_stages": [
+        "N4"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-VL-SVC",
+        "CR-SPLICE",
+        "R-HPKE"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "S03",
+      "path": "proxies[].reality-opts.support-x25519mlkem768",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "bool，默认 false",
+      "required_observation": "true 必须真实混合 key share；与 Encryption ML-KEM 不同；N7，受 N0-E 门禁",
+      "work_packages": [
+        "N7.2"
+      ],
+      "responsible_stages": [
+        "N7"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-VL-SVC",
+        "CR-SPLICE",
+        "R-HPKE"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "S04",
+      "path": "proxies[].ech-opts.enable",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "bool，默认 false",
+      "required_observation": "listener ech-key；必须检查 ECH accepted，拒绝不能变明文成功；N7",
+      "work_packages": [
+        "N7.3"
+      ],
+      "responsible_stages": [
+        "N7"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-VL-SVC",
+        "CR-SPLICE",
+        "R-HPKE"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "S05",
+      "path": "proxies[].ech-opts.config",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "Base64 ECHConfigList；启用时可显式提供",
+      "required_observation": "正确/错误/不兼容config与刷新；显式值优先，免DNS探测；N7",
+      "work_packages": [
+        "N7.3"
+      ],
+      "responsible_stages": [
+        "N7"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-VL-SVC",
+        "CR-SPLICE",
+        "R-HPKE"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "S06",
+      "path": "proxies[].ech-opts.query-server-name",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "未给config时的HTTPS RR查询DNS名；默认认证名",
+      "required_observation": "prepare/bootstrap独立解析路线，不递归待建出站；受控DNS+Mihomo；N7",
+      "work_packages": [
+        "N7.3"
+      ],
+      "responsible_stages": [
+        "N7"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-VL-SVC",
+        "CR-SPLICE",
+        "R-HPKE"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "S07",
+      "path": "proxies[].shadow-tls-opts.version",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "1/2/3；非空opts省略version默认2",
+      "required_observation": "shadow-tls.version；逐版本数据/错误认证；N7",
+      "work_packages": [
+        "N7.4"
+      ],
+      "responsible_stages": [
+        "N7"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-VL-SVC",
+        "CR-SPLICE",
+        "R-HPKE"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "S08",
+      "path": "proxies[].shadow-tls-opts.password",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "v2/v3必填；v1无需密码",
+      "required_observation": "v2 password / v3 users[].password；N7",
+      "work_packages": [
+        "N7.4"
+      ],
+      "responsible_stages": [
+        "N7"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-VL-SVC",
+        "CR-SPLICE",
+        "R-HPKE"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "S09",
+      "path": "proxies[].restls-opts.password",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "opts启用时必填密码",
+      "required_observation": "res-tls.password；错误记录认证与回落不可算成功；N7",
+      "work_packages": [
+        "N7.4"
+      ],
+      "responsible_stages": [
+        "N7"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-VL-SVC",
+        "CR-SPLICE",
+        "R-HPKE"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "S10",
+      "path": "proxies[].restls-opts.version-hint",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "opts启用时显式 tls12/tls13",
+      "required_observation": "同一原生handshake目标实际版本；N7",
+      "work_packages": [
+        "N7.4"
+      ],
+      "responsible_stages": [
+        "N7"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-VL-SVC",
+        "CR-SPLICE",
+        "R-HPKE"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "S11",
+      "path": "proxies[].restls-opts.restls-script",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "可选协议脚本，默认空采用协议默认",
+      "required_observation": "语法/长度/时序有界；脚本无任意代码执行；真实record序列；N7",
+      "work_packages": [
+        "N7.4"
+      ],
+      "responsible_stages": [
+        "N7"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-VL-SVC",
+        "CR-SPLICE",
+        "R-HPKE"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "S12",
+      "path": "proxies[].jls-opts.username",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "opts启用时必填非空",
+      "required_observation": "jls-config.users[].username；N7",
+      "work_packages": [
+        "N7.4"
+      ],
+      "responsible_stages": [
+        "N7"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-VL-SVC",
+        "CR-SPLICE",
+        "R-HPKE"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "S13",
+      "path": "proxies[].jls-opts.password",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "与username配对必填非空",
+      "required_observation": "jls-config.users[].password；N7",
+      "work_packages": [
+        "N7.4"
+      ],
+      "responsible_stages": [
+        "N7"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-VL",
+        "M-VL-IN",
+        "M-VL-SVC",
+        "CR-SPLICE",
+        "R-HPKE"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "M01",
+      "path": "proxies[].smux.enabled",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "bool，默认 false",
+      "required_observation": "原生 mux handler；关闭/启用两条路径",
+      "work_packages": [
+        "N5.3"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-MUX",
+        "M-MUX-CLIENT"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "M02",
+      "path": "proxies[].smux.protocol",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "默认 h2mux；`h2mux/smux/yamux`",
+      "required_observation": "每种 wire protocol 独立解码，不与 XUDP 混淆",
+      "work_packages": [
+        "N5.3"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-MUX",
+        "M-MUX-CLIENT"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "M03",
+      "path": "proxies[].smux.max-connections",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "非负整数，默认0，按 sing-mux调度语义",
+      "required_observation": "并发扩容/取消/资源计数",
+      "work_packages": [
+        "N5.3"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-MUX",
+        "M-MUX-CLIENT"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "M04",
+      "path": "proxies[].smux.min-streams",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "默认0；M03=M05=0时归一8",
+      "required_observation": "扩容阈值实际生效",
+      "work_packages": [
+        "N5.3"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-MUX",
+        "M-MUX-CLIENT"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "M05",
+      "path": "proxies[].smux.max-streams",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "非负整数，默认0；仅 max-connections=0 的分支使用",
+      "required_observation": "transport复用/扩容阈值，不是所有分支都执行的硬上限",
+      "work_packages": [
+        "N5.3"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-MUX",
+        "M-MUX-CLIENT"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "M06",
+      "path": "proxies[].smux.padding",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "bool，默认 false",
+      "required_observation": "listener mux-option.padding；帧开销/错配",
+      "work_packages": [
+        "N5.3"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-MUX",
+        "M-MUX-CLIENT"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "M07",
+      "path": "proxies[].smux.only-tcp",
+      "protocols": [
+        "vless"
+      ],
+      "contract": "bool，默认 false",
+      "required_observation": "true时UDP仍走VL04原编码，false时UDP走mux；udp=false仍禁止业务UDP",
+      "work_packages": [
+        "N5.3"
+      ],
+      "responsible_stages": [
+        "N5"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "vless-http-camouflage",
+        "legacy-h2",
+        "ws-custom-or-path-early-data",
+        "xhttp-h3"
+      ],
+      "sources": [
+        "M-MUX",
+        "M-MUX-CLIENT"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "HY01",
+      "path": "proxies[].password",
+      "protocols": [
+        "hysteria2"
+      ],
+      "contract": "字符串，默认空；保留原始字节",
+      "required_observation": "listener `users` 的值是认证密码，键是标签；空/正确/错误密码；N6",
+      "work_packages": [
+        "N6.1",
+        "N6.6"
+      ],
+      "responsible_stages": [
+        "N6"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "hysteria-hopping",
+        "hysteria-server-udp-disabled"
+      ],
+      "sources": [
+        "M-HY",
+        "M-HY-CLIENT",
+        "M-HY-IN",
+        "H-SERVER",
+        "H-CLIENT",
+        "H-AUTH"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "HY02",
+      "path": "proxies[].obfs",
+      "protocols": [
+        "hysteria2"
+      ],
+      "contract": "省略关闭，值为 `salamander`",
+      "required_observation": "listener obfs；双端开/关、单端开、错误包；N6",
+      "work_packages": [
+        "N6.4",
+        "N6.5",
+        "N6.6"
+      ],
+      "responsible_stages": [
+        "N6"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "hysteria-hopping",
+        "hysteria-server-udp-disabled"
+      ],
+      "sources": [
+        "M-HY",
+        "M-HY-CLIENT",
+        "M-HY-IN",
+        "H-SERVER",
+        "H-CLIENT",
+        "H-AUTH"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "HY03",
+      "path": "proxies[].obfs-password",
+      "protocols": [
+        "hysteria2"
+      ],
+      "contract": "HY02 启用时必填非空，与认证密码独立",
+      "required_observation": "listener obfs-password；错密钥失败、短包不 panic；N6",
+      "work_packages": [
+        "N6.4",
+        "N6.5",
+        "N6.6"
+      ],
+      "responsible_stages": [
+        "N6"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "hysteria-hopping",
+        "hysteria-server-udp-disabled"
+      ],
+      "sources": [
+        "M-HY",
+        "M-HY-CLIENT",
+        "M-HY-IN",
+        "H-SERVER",
+        "H-CLIENT",
+        "H-AUTH"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "HY04",
+      "path": "proxies[].up",
+      "protocols": [
+        "hysteria2"
+      ],
+      "contract": "非负整数/十进制整数字符串或带单位速率；裸数 Mbps，省略/0 自动；单位 `[KMGT]?[bB]ps`，b=bit/B=byte，十进制倍率",
+      "required_observation": "客户端上行结合服务端接收上限；固定带宽用 Brutal，自适应分支独立；N6",
+      "work_packages": [
+        "N6.3",
+        "N6.6"
+      ],
+      "responsible_stages": [
+        "N6"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "hysteria-hopping",
+        "hysteria-server-udp-disabled"
+      ],
+      "sources": [
+        "M-HY",
+        "M-HY-CLIENT",
+        "M-HY-IN",
+        "H-SERVER",
+        "H-CLIENT",
+        "H-AUTH"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "HY05",
+      "path": "proxies[].down",
+      "protocols": [
+        "hysteria2"
+      ],
+      "contract": "与 up 同类型；独立省略/0，在认证中发 CC-RX=0；正数换算字节/秒",
+      "required_observation": "服务端按自身上限和客户端声明发数据；单设 down 与双设都测；N6",
+      "work_packages": [
+        "N6.3",
+        "N6.6"
+      ],
+      "responsible_stages": [
+        "N6"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "hysteria-hopping",
+        "hysteria-server-udp-disabled"
+      ],
+      "sources": [
+        "M-HY",
+        "M-HY-CLIENT",
+        "M-HY-IN",
+        "H-SERVER",
+        "H-CLIENT",
+        "H-AUTH"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "HY06",
+      "path": "proxies[].udp-mtu",
+      "protocols": [
+        "hysteria2"
+      ],
+      "contract": "整数，省略/0 为 1197；有效配置 64–65535，发送取实际 QUIC DATAGRAM 上限更小值",
+      "required_observation": "指 HY2 分片消息预算，不是 TUN MTU；头开销/超限/分片/重组；N6",
+      "work_packages": [
+        "N6.2",
+        "N6.6"
+      ],
+      "responsible_stages": [
+        "N6"
+      ],
+      "default_peer": "M",
+      "peer_override_rules": [
+        "hysteria-hopping",
+        "hysteria-server-udp-disabled"
+      ],
+      "sources": [
+        "M-HY",
+        "M-HY-CLIENT",
+        "M-HY-IN",
+        "H-SERVER",
+        "H-CLIENT",
+        "H-AUTH"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "HY07",
+      "path": "proxies[].ports",
+      "protocols": [
+        "hysteria2"
+      ],
+      "contract": "可选逗号分隔端口/闭区间字符串；端口 1–65535，重叠/重复归一；非空集合决定初始及后续端口，port 可省略，同时存在则 ports 优先；不接收空项、倒序、通配符",
+      "required_observation": "H：官方 Linux 单实例将多端口重定向到同一 QUIC socket；单 port 基线仍用 M；N6",
+      "work_packages": [
+        "N6.5",
+        "N6.6"
+      ],
+      "responsible_stages": [
+        "N6"
+      ],
+      "default_peer": "H",
+      "peer_override_rules": [
+        "hysteria-hopping",
+        "hysteria-server-udp-disabled"
+      ],
+      "sources": [
+        "M-HY",
+        "M-HY-CLIENT",
+        "M-HY-IN",
+        "H-SERVER",
+        "H-CLIENT",
+        "H-AUTH"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "HY08",
+      "path": "proxies[].hop-interval",
+      "protocols": [
+        "hysteria2"
+      ],
+      "contract": "配置 ports 时可用整数秒 N 或字符串 N/N-M；默认30，5≤N≤M，时长必须可由内部有界定时器表示；无 ports、0、越界/倒序拒绝",
+      "required_observation": "H：固定/随机时长，端口集合与 Salamander 组合；Mihomo 会夹小值，VCore 明确严格拒绝；N6",
+      "work_packages": [
+        "N6.5",
+        "N6.6"
+      ],
+      "responsible_stages": [
+        "N6"
+      ],
+      "default_peer": "H",
+      "peer_override_rules": [
+        "hysteria-hopping",
+        "hysteria-server-udp-disabled"
+      ],
+      "sources": [
+        "M-HY",
+        "M-HY-CLIENT",
+        "M-HY-IN",
+        "H-SERVER",
+        "H-CLIENT",
+        "H-AUTH"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "WG01",
+      "path": "proxies[].ip",
+      "protocols": [
+        "wireguard"
+      ],
+      "contract": "IPv4 隧道源地址，可裸 IP 或 CIDR，裸值 /32；与 ipv6 至少一个；禁止空串/错族，保留 host 位",
+      "required_observation": "peer AllowedIPs 中登记客户端 /32；内层 IPv4 源地址实际正确；单栈/双栈",
+      "work_packages": [
+        "N8.1",
+        "N8.3",
+        "N8.5"
+      ],
+      "responsible_stages": [
+        "N8"
+      ],
+      "default_peer": "W",
+      "peer_override_rules": [
+        "wireguard-native"
+      ],
+      "sources": [
+        "M-WG",
+        "WG-PROTOCOL",
+        "WG-MAN",
+        "G-CARGO",
+        "G-NOISE",
+        "B-CARGO"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "WG02",
+      "path": "proxies[].ipv6",
+      "protocols": [
+        "wireguard"
+      ],
+      "contract": "IPv6 隧道源地址，可裸 IP 或 CIDR，裸值 /128；与 ip 至少一个；受 VCore IPv6 总开关约束",
+      "required_observation": "peer 登记 /128；IPv6-only/双栈；缺某族不能借 DIRECT 绕过",
+      "work_packages": [
+        "N8.1",
+        "N8.3",
+        "N8.5"
+      ],
+      "responsible_stages": [
+        "N8"
+      ],
+      "default_peer": "W",
+      "peer_override_rules": [
+        "wireguard-native"
+      ],
+      "sources": [
+        "M-WG",
+        "WG-PROTOCOL",
+        "WG-MAN",
+        "G-CARGO",
+        "G-NOISE",
+        "B-CARGO"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "WG03",
+      "path": "proxies[].private-key",
+      "protocols": [
+        "wireguard"
+      ],
+      "contract": "必填 Base64，解码严格32字节；按 WG 密钥解析，**不是 T08 的 TLS PEM**",
+      "required_observation": "官方 wg 派生公钥注册 peer；错 key/长度失败，日志不含私钥",
+      "work_packages": [
+        "N8.2",
+        "N8.5"
+      ],
+      "responsible_stages": [
+        "N8"
+      ],
+      "default_peer": "W",
+      "peer_override_rules": [
+        "wireguard-native"
+      ],
+      "sources": [
+        "M-WG",
+        "WG-PROTOCOL",
+        "WG-MAN",
+        "G-CARGO",
+        "G-NOISE",
+        "B-CARGO"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "WG04",
+      "path": "proxies[].public-key",
+      "protocols": [
+        "wireguard"
+      ],
+      "contract": "必填服务端 Base64 公钥，解码严格32字节",
+      "required_observation": "正确/错误服务端身份；错误在共享 setup deadline 内失败",
+      "work_packages": [
+        "N8.2",
+        "N8.5"
+      ],
+      "responsible_stages": [
+        "N8"
+      ],
+      "default_peer": "W",
+      "peer_override_rules": [
+        "wireguard-native"
+      ],
+      "sources": [
+        "M-WG",
+        "WG-PROTOCOL",
+        "WG-MAN",
+        "G-CARGO",
+        "G-NOISE",
+        "B-CARGO"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "WG05",
+      "path": "proxies[].pre-shared-key",
+      "protocols": [
+        "wireguard"
+      ],
+      "contract": "可选 Base64，出现时严格32字节；省略不用额外 PSK",
+      "required_observation": "正确/缺失/错误 PSK 组合；错误时目标零业务数据",
+      "work_packages": [
+        "N8.2",
+        "N8.5"
+      ],
+      "responsible_stages": [
+        "N8"
+      ],
+      "default_peer": "W",
+      "peer_override_rules": [
+        "wireguard-native"
+      ],
+      "sources": [
+        "M-WG",
+        "WG-PROTOCOL",
+        "WG-MAN",
+        "G-CARGO",
+        "G-NOISE",
+        "B-CARGO"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "WG06",
+      "path": "proxies[].mtu",
+      "protocols": [
+        "wireguard"
+      ],
+      "contract": "缺省/0=1408；非零1280–65535，再受上游数据报预算约束；有效值不足1280明确失败",
+      "required_observation": "inner IP 长度、TCP MSS、UDP边界/最大值+1；不能把它当业务 UDP payload 或依赖外层分片",
+      "work_packages": [
+        "N8.1",
+        "N8.3",
+        "N8.4",
+        "N8.5"
+      ],
+      "responsible_stages": [
+        "N8"
+      ],
+      "default_peer": "W",
+      "peer_override_rules": [
+        "wireguard-native"
+      ],
+      "sources": [
+        "M-WG",
+        "WG-PROTOCOL",
+        "WG-MAN",
+        "G-CARGO",
+        "G-NOISE",
+        "B-CARGO"
+      ],
+      "behavior_status": "NOT RUN"
+    },
+    {
+      "id": "WG07",
+      "path": "proxies[].persistent-keepalive",
+      "protocols": [
+        "wireguard"
+      ],
+      "contract": "整数秒0–65535，默认0关闭",
+      "required_observation": "0/25秒空闲行为；区分协议正常握手/确认与持久保活；Stop后无定时包",
+      "work_packages": [
+        "N8.2",
+        "N8.4",
+        "N8.5"
+      ],
+      "responsible_stages": [
+        "N8"
+      ],
+      "default_peer": "W",
+      "peer_override_rules": [
+        "wireguard-native"
+      ],
+      "sources": [
+        "M-WG",
+        "WG-PROTOCOL",
+        "WG-MAN",
+        "G-CARGO",
+        "G-NOISE",
+        "B-CARGO"
+      ],
+      "behavior_status": "NOT RUN"
+    }
+  ]
+}

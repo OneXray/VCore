@@ -1,7 +1,8 @@
 //! Opt-in interoperability coverage against the local `anytls-go` reference
 //! server.
 //!
-//! Run with `bash tests/run_anytls_interop.sh`. The test is ignored by default
+//! Set `ANYTLS_GO_DIR` to an explicit checkout, then run
+//! `bash tests/run_anytls_interop.sh`. The test is ignored by default
 //! and only compiles with `interop-test`. Its certificate verifier intentionally
 //! trusts the reference server's dynamically generated self-signed certificate,
 //! but still verifies the TLS handshake signature. This verifier lives only in

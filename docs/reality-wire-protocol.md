@@ -1,6 +1,6 @@
 # REALITY V1 客户端协议
 
-本文定义 VCore 自有 rustls fork 当前实现的 classic REALITY V1 客户端线上行为。它不是通用 REALITY 规范，也不承诺浏览器 ClientHello 模拟。
+本文定义 VCore 当前启用的 classic REALITY V1 客户端线上行为。它不是通用 REALITY 规范，也不承诺浏览器 ClientHello 模拟。自有 rustls fork 另有显式选择混合密钥交换的接口，但 VCore 尚未接入对应 provider 或公开配置；升级 fork 不改变本文的生产边界。
 
 ## 版本边界
 

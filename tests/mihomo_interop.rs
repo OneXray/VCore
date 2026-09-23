@@ -337,6 +337,11 @@ fn port(variable: &str) -> u16 {
 #[test]
 #[ignore = "requires managed mihomo processes; run tests/run_mihomo_interop.sh"]
 fn public_client_inbounds_interoperate_with_mihomo_in_both_directions() {
+    #[cfg(feature = "interop-test")]
+    let mut _case = vcore::resources::case_events::Case::new(
+        "N1-REGRESSION",
+        "public_client_inbounds_interoperate_with_mihomo_in_both_directions",
+    );
     let upstream = port("VCORE_MIHOMO_UPSTREAM");
     let upstream_host = peer_ip(0);
     let downstream = port("VCORE_MIHOMO_DOWNSTREAM");

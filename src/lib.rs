@@ -30,12 +30,21 @@ pub mod routing;
         feature = "outbound-anytls",
         feature = "outbound-socks5",
         feature = "outbound-shadowsocks",
-        feature = "outbound-vless"
+        feature = "outbound-vless",
+        feature = "outbound-trojan",
+        feature = "outbound-vmess",
+        feature = "outbound-hysteria2",
+        feature = "outbound-wireguard"
     ),
     any(feature = "ffi", test)
 ))]
 mod runtime;
-#[cfg(any(feature = "outbound-anytls", feature = "outbound-vless"))]
+#[cfg(any(
+    feature = "outbound-anytls",
+    feature = "outbound-vless",
+    feature = "stream-transport",
+    feature = "outbound-hysteria2"
+))]
 pub mod security;
 pub mod session;
 #[cfg(any(
@@ -53,14 +62,18 @@ mod tcp_sniffer;
     test
 ))]
 pub(crate) mod traffic;
-#[cfg(feature = "outbound-vless")]
+#[cfg(any(
+    feature = "outbound-vless",
+    feature = "stream-transport",
+    feature = "quic-transport"
+))]
 pub mod transport;
 #[cfg(all(feature = "tun", any(unix, windows)))]
 mod tun_runtime;
 #[cfg(all(windows, feature = "ffi"))]
 #[doc(hidden)]
 pub mod windows;
-#[cfg(feature = "outbound-vless")]
+#[cfg(any(feature = "outbound-vless", feature = "outbound-vmess"))]
 pub mod xudp;
 
 pub use error::{Result, VCoreError};

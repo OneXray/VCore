@@ -46,6 +46,7 @@ Read the relevant document completely before changing that area:
 8. When copying or modifying third-party source, record the upstream project and preserve all applicable license terms. Audit linked dependencies against the resolved release graph. Do not describe independent rewrites, protocol interoperability, or architectural references as derived source without evidence; Credits provide context and attribution, not a substitute for release license review.
 9. Keep every public surface—code, documentation, tests, examples, commits, issues, pull requests, reviews, CI output, and releases—limited to VCore and public dependencies. Keep private downstream repository or product identities, links, implementation details, status, artifacts, and roadmaps outside this repository and its GitHub surfaces. Before publishing, search the staged diff and proposed GitHub text for downstream identifiers.
 10. Make changes on a separate branch, never directly on `main`.
+11. Use the official latest stable third-party dependencies, including test-only experiments. Check current non-prerelease, non-yanked releases when selecting or upgrading them; reference projects' old pins are not a version policy. Keep lockfiles for reproducible validation, refresh affected dependency audits, and rerun applicable tests. If freshness conflicts with the approved fork/provider or a platform's compatible dependency set, report the conflict and obtain an explicit exception or scope decision instead of silently retaining an old version or changing the security architecture.
 
 # Validation
 

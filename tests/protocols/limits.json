@@ -1,0 +1,329 @@
+{
+  "schema_version": 1,
+  "kind": "runtime-limit-registry",
+  "scope": "N1 shared foundations and inherited ResourceLimits defaults; per-object bounds, not global admission caps",
+  "limits": [
+    {
+      "id": "config-bytes",
+      "value": 262144,
+      "unit": "bytes",
+      "owner": "config::MAX_CONFIG_BYTES",
+      "saturation": "reject oversized YAML",
+      "cancellation": "parse owns no background work",
+      "boundary_cases": [
+        "N1-SCHEMA"
+      ]
+    },
+    {
+      "id": "establish-timeout",
+      "value": 10000,
+      "unit": "milliseconds",
+      "owner": "outbound::DEFAULT_ESTABLISH_TIMEOUT",
+      "saturation": "fail entire setup at absolute deadline",
+      "cancellation": "drop pending setup at cancellation",
+      "boundary_cases": [
+        "N1-RESOLUTION",
+        "N1-STREAM"
+      ]
+    },
+    {
+      "id": "tls-buffer",
+      "value": 65536,
+      "unit": "bytes",
+      "owner": "ResourceLimits::tls_buffer_limit",
+      "saturation": "backpressure TLS records",
+      "cancellation": "drop owned IO on Stop",
+      "boundary_cases": [
+        "N1-SECURITY"
+      ]
+    },
+    {
+      "id": "tls-close",
+      "value": 5000,
+      "unit": "milliseconds",
+      "owner": "security::CLOSE_NOTIFY_TIMEOUT",
+      "saturation": "fail bounded close_notify flush",
+      "cancellation": "cancel flush and release IO",
+      "boundary_cases": [
+        "N1-SECURITY"
+      ]
+    },
+    {
+      "id": "tls-resumption",
+      "value": 4,
+      "unit": "sessions",
+      "owner": "security::TLS_RESUMPTION_SESSION_BUDGET",
+      "saturation": "evict retained sessions within isolated identity cache",
+      "cancellation": "drop cache owner",
+      "boundary_cases": [
+        "N1-SECURITY"
+      ]
+    },
+    {
+      "id": "stream-chunk",
+      "value": 16384,
+      "unit": "bytes",
+      "owner": "transport::STREAM_CHUNK_BYTES",
+      "saturation": "split writes at chunk boundary",
+      "cancellation": "drop queued chunk on cancellation",
+      "boundary_cases": [
+        "N1-STREAM"
+      ]
+    },
+    {
+      "id": "stream-buffer",
+      "value": 65536,
+      "unit": "bytes",
+      "owner": "transport::STREAM_BUFFER_BYTES",
+      "saturation": "backpressure writes; reject oversized WS/gRPC message",
+      "cancellation": "Stop owns driver join",
+      "boundary_cases": [
+        "N1-STREAM"
+      ]
+    },
+    {
+      "id": "http-head",
+      "value": 16384,
+      "unit": "bytes",
+      "owner": "transport::HTTP_HEAD_BYTES",
+      "saturation": "reject oversized HTTP header",
+      "cancellation": "drop parser and supplied IO",
+      "boundary_cases": [
+        "N1-STREAM"
+      ]
+    },
+    {
+      "id": "http-headers",
+      "value": 100,
+      "unit": "headers",
+      "owner": "transport::HTTP_HEADER_COUNT",
+      "saturation": "reject excess fields",
+      "cancellation": "drop parser and supplied IO",
+      "boundary_cases": [
+        "N1-STREAM"
+      ]
+    },
+    {
+      "id": "ws-early-data",
+      "value": 2048,
+      "unit": "bytes",
+      "owner": "transport::MAX_EARLY_DATA_BYTES",
+      "saturation": "reject invalid option, put excess initial bytes in data frames",
+      "cancellation": "no separate task",
+      "boundary_cases": [
+        "N1-STREAM"
+      ]
+    },
+    {
+      "id": "xudp-metadata",
+      "value": 512,
+      "unit": "bytes",
+      "owner": "xudp::MAX_METADATA_LENGTH",
+      "saturation": "reject oversized metadata before body allocation",
+      "cancellation": "drop persistent partial frame on association close",
+      "boundary_cases": [
+        "N1-XUDP"
+      ]
+    },
+    {
+      "id": "io-poll",
+      "value": 32,
+      "unit": "iterations",
+      "owner": "limits::IO_POLL_BUDGET",
+      "saturation": "yield before processing another control/discard burst",
+      "cancellation": "cooperative cancellation between polls",
+      "boundary_cases": [
+        "N1-STREAM",
+        "N1-DATAGRAM"
+      ]
+    },
+    {
+      "id": "quic-queue",
+      "value": 32,
+      "unit": "datagrams-per-direction",
+      "owner": "transport::quic::QUEUE_LIMIT",
+      "saturation": "WouldBlock TX; pause RX, plus one in-flight send",
+      "cancellation": "cancel and join owner; clear queues",
+      "boundary_cases": [
+        "N1-QUIC"
+      ]
+    },
+    {
+      "id": "quic-close",
+      "value": 1000,
+      "unit": "milliseconds",
+      "owner": "transport::quic::CLOSE_TIMEOUT",
+      "saturation": "time out upstream close",
+      "cancellation": "drop transport after bounded close and join task",
+      "boundary_cases": [
+        "N1-QUIC"
+      ]
+    },
+    {
+      "id": "quic-minimum",
+      "value": 1200,
+      "unit": "bytes",
+      "owner": "dispatch::QUIC_MIN_PAYLOAD_BYTES",
+      "saturation": "reject insufficient directional path budget before QUIC",
+      "cancellation": "no QUIC task created on rejection",
+      "boundary_cases": [
+        "N1-QUIC",
+        "N1-DATAGRAM"
+      ]
+    },
+    {
+      "id": "wireguard-minimum",
+      "value": 1280,
+      "unit": "bytes",
+      "owner": "dispatch::WIREGUARD_MIN_INNER_MTU",
+      "saturation": "reject insufficient inner MTU after overhead and padding alignment",
+      "cancellation": "budget seam only; protocol ownership waits for N8",
+      "boundary_cases": [
+        "N1-DATAGRAM"
+      ]
+    },
+    {
+      "id": "wireguard-overhead",
+      "value": 32,
+      "unit": "bytes",
+      "owner": "dispatch::WIREGUARD_TRANSPORT_OVERHEAD",
+      "saturation": "subtract header/tag before 16-byte alignment",
+      "cancellation": "budget seam only",
+      "boundary_cases": [
+        "N1-DATAGRAM"
+      ]
+    },
+    {
+      "id": "resolution-depth",
+      "value": 32,
+      "unit": "nested-lookups",
+      "owner": "dns::resolution::MAX_RESOLUTION_DEPTH",
+      "saturation": "reject dependency recursion/depth, no system fallback",
+      "cancellation": "shared deadline and runtime cancellation",
+      "boundary_cases": [
+        "N1-RESOLUTION"
+      ]
+    },
+    {
+      "id": "packet-queue",
+      "value": 256,
+      "unit": "items",
+      "owner": "ResourceLimits::packet_queue_capacity",
+      "saturation": "retain existing per-object queue/cache/buffer policy in docs/runtime-resource-policy.md",
+      "cancellation": "existing runtime-owned cancellation and Stop barrier",
+      "boundary_cases": [
+        "N1-REGRESSION"
+      ]
+    },
+    {
+      "id": "event-queue",
+      "value": 128,
+      "unit": "items",
+      "owner": "ResourceLimits::event_queue_capacity",
+      "saturation": "retain existing per-object queue/cache/buffer policy in docs/runtime-resource-policy.md",
+      "cancellation": "existing runtime-owned cancellation and Stop barrier",
+      "boundary_cases": [
+        "N1-REGRESSION"
+      ]
+    },
+    {
+      "id": "udp-payload",
+      "value": 65535,
+      "unit": "bytes",
+      "owner": "ResourceLimits::max_datagram_size",
+      "saturation": "retain existing per-object queue/cache/buffer policy in docs/runtime-resource-policy.md",
+      "cancellation": "existing runtime-owned cancellation and Stop barrier",
+      "boundary_cases": [
+        "N1-REGRESSION"
+      ]
+    },
+    {
+      "id": "tun-packet",
+      "value": 1500,
+      "unit": "bytes",
+      "owner": "ResourceLimits::tun_max_datagram_size",
+      "saturation": "retain existing per-object queue/cache/buffer policy in docs/runtime-resource-policy.md",
+      "cancellation": "existing runtime-owned cancellation and Stop barrier",
+      "boundary_cases": [
+        "N1-REGRESSION"
+      ]
+    },
+    {
+      "id": "tcp-buffer",
+      "value": 32768,
+      "unit": "bytes",
+      "owner": "ResourceLimits::tcp_buffer_per_direction",
+      "saturation": "retain existing per-object queue/cache/buffer policy in docs/runtime-resource-policy.md",
+      "cancellation": "existing runtime-owned cancellation and Stop barrier",
+      "boundary_cases": [
+        "N1-REGRESSION"
+      ]
+    },
+    {
+      "id": "dns-cache",
+      "value": 256,
+      "unit": "entries",
+      "owner": "ResourceLimits::dns_address_cache_entries",
+      "saturation": "retain existing per-object queue/cache/buffer policy in docs/runtime-resource-policy.md",
+      "cancellation": "existing runtime-owned cancellation and Stop barrier",
+      "boundary_cases": [
+        "N1-REGRESSION"
+      ]
+    },
+    {
+      "id": "dns-hints",
+      "value": 256,
+      "unit": "entries",
+      "owner": "ResourceLimits::dns_redir_host_entries",
+      "saturation": "retain existing per-object queue/cache/buffer policy in docs/runtime-resource-policy.md",
+      "cancellation": "existing runtime-owned cancellation and Stop barrier",
+      "boundary_cases": [
+        "N1-REGRESSION"
+      ]
+    },
+    {
+      "id": "tun-dns-ingress",
+      "value": 128,
+      "unit": "items",
+      "owner": "ResourceLimits::tun_dns_ingress_queue_capacity",
+      "saturation": "retain existing per-object queue/cache/buffer policy in docs/runtime-resource-policy.md",
+      "cancellation": "existing runtime-owned cancellation and Stop barrier",
+      "boundary_cases": [
+        "N1-REGRESSION"
+      ]
+    },
+    {
+      "id": "tun-dns-response",
+      "value": 128,
+      "unit": "items",
+      "owner": "ResourceLimits::tun_dns_response_queue_capacity",
+      "saturation": "retain existing per-object queue/cache/buffer policy in docs/runtime-resource-policy.md",
+      "cancellation": "existing runtime-owned cancellation and Stop barrier",
+      "boundary_cases": [
+        "N1-REGRESSION"
+      ]
+    },
+    {
+      "id": "xhttp-send",
+      "value": 65536,
+      "unit": "bytes",
+      "owner": "ResourceLimits::xhttp_send_buffer_size",
+      "saturation": "retain existing per-object queue/cache/buffer policy in docs/runtime-resource-policy.md",
+      "cancellation": "existing runtime-owned cancellation and Stop barrier",
+      "boundary_cases": [
+        "N1-REGRESSION"
+      ]
+    },
+    {
+      "id": "xhttp-upload",
+      "value": 65536,
+      "unit": "bytes",
+      "owner": "ResourceLimits::xhttp_upload_chunk_size",
+      "saturation": "retain existing per-object queue/cache/buffer policy in docs/runtime-resource-policy.md",
+      "cancellation": "existing runtime-owned cancellation and Stop barrier",
+      "boundary_cases": [
+        "N1-REGRESSION"
+      ]
+    }
+  ]
+}

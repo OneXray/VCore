@@ -1,9 +1,9 @@
 use std::{future::Future, io, net::SocketAddr, pin::Pin};
 
+use crate::dialer::PhysicalDatagram as UdpSocket;
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures_util::future::select_all;
-use tokio::net::UdpSocket;
 
 use crate::{
     dialer::Dialer,
@@ -73,10 +73,13 @@ impl OutboundConnector for DirectOutbound {
         request: DatagramRequest,
         _context: &EstablishContext,
     ) -> Result<Box<dyn DatagramTransport>, DispatchError> {
-        Ok(Box::new(DirectDatagramTransport::new(
-            self.dialer.clone(),
-            usize::from(request.max_response_payload_size()),
-        )))
+        Ok(crate::dispatch::bound_datagram(
+            Box::new(DirectDatagramTransport::new(
+                self.dialer.clone(),
+                usize::from(request.max_response_payload_size()),
+            )),
+            request.budget(),
+        ))
     }
 }
 
@@ -171,6 +174,18 @@ impl DirectDatagramTransport {
 
 #[async_trait]
 impl DatagramTransport for DirectDatagramTransport {
+    fn payload_budget(&self, peer: &Destination) -> crate::dispatch::DatagramBudget {
+        let wire_limit = if matches!(peer, Destination::Ip(address) if address.is_ipv6()) {
+            65_527
+        } else {
+            65_507
+        };
+        crate::dispatch::DatagramBudget::new(
+            wire_limit,
+            (self.max_response_payload_size as u16).min(wire_limit),
+        )
+    }
+
     async fn send(&mut self, datagram: Datagram) -> Result<(), DispatchError> {
         let Destination::Ip(address) = datagram.remote else {
             return Err(DispatchError::HostUnreachable);

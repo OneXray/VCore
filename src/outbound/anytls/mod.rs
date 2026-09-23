@@ -167,9 +167,12 @@ impl OutboundConnector for AnyTlsOutbound {
             .client
             .open_stream(stream_session, &magic_destination(), context)
             .await?;
-        Ok(Box::new(
-            self.client
-                .start_uot(stream, request.max_response_payload_size())?,
+        Ok(crate::dispatch::bound_datagram(
+            Box::new(
+                self.client
+                    .start_uot(stream, request.max_response_payload_size())?,
+            ),
+            request.budget(),
         ))
     }
 

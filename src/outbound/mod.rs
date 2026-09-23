@@ -1,5 +1,7 @@
 //! Composable proxy connectors and the built-in DIRECT dispatcher.
 
+pub mod address;
+
 #[cfg(feature = "outbound-anytls")]
 mod anytls;
 mod connector;
@@ -63,8 +65,8 @@ pub use anytls::{AnyTlsLifecycle, AnyTlsOutbound, AnyTlsStream, AnyTlsTlsConnect
 #[cfg(any(feature = "ffi", test))]
 pub(crate) use connector::SelectUpstreamMember;
 pub use connector::{
-    ConnectedStream, ConnectorDispatcher, DatagramRequest, EstablishContext, OutboundConnector,
-    SelectUpstream, UpstreamPath, server_destination,
+    ConnectedStream, ConnectorDispatcher, DEFAULT_ESTABLISH_TIMEOUT, DatagramRequest,
+    EstablishContext, OutboundConnector, SelectUpstream, UpstreamPath, server_destination,
 };
 pub(crate) use connector::{
     MAX_OUTBOUND_DIAGNOSTIC_MESSAGE_BYTES, OutboundDiagnostic, capture_outbound_diagnostic,
@@ -579,7 +581,7 @@ impl VlessOutbound {
         // behavior; a per-association random value would claim reuse semantics
         // that this runtime cannot honor.
         Ok(XudpTransport::new(
-            stream,
+            Box::new(VlessStream::new(stream, bytes::Bytes::new())),
             [0_u8; 8],
             request.max_response_payload_size(),
         ))
@@ -604,7 +606,7 @@ impl OutboundConnector for VlessOutbound {
     ) -> Result<Box<dyn DatagramTransport>, DispatchError> {
         self.connect_vless_xudp(&request, context)
             .await
-            .map(|transport| Box::new(transport) as Box<dyn DatagramTransport>)
+            .map(|transport| crate::dispatch::bound_datagram(Box::new(transport), request.budget()))
     }
 }
 

@@ -51,13 +51,8 @@ impl std::fmt::Debug for SecurityClient {
                 .debug_tuple("SecurityClient::Standard")
                 .field(client)
                 .finish(),
-            SecurityBackend::Reality {
-                server_name,
-                buffer_limit,
-                ..
-            } => formatter
+            SecurityBackend::Reality { buffer_limit, .. } => formatter
                 .debug_struct("SecurityClient::Reality")
-                .field("server_name", server_name)
                 .field("buffer_limit", buffer_limit)
                 .finish_non_exhaustive(),
         }
