@@ -37,7 +37,7 @@ outbound protocols:
   executable case** and its array dimensions are not permission to generate
   unsupported Cartesian products.
 - `cases.json`: frozen executable cases for N1 foundations (21 groups), N2
-  Trojan (41 groups) and N3 VMess (117 groups), with assertion names, field
+  Trojan (41 groups), N3 VMess (117 groups) and N4 VLESS (145 groups), with assertion names, field
   associations, official peers, input dimensions and required evidence.
 - `limits.json`: shared per-object limits and executable boundary case IDs;
   `limit_foundations` compares the registered numbers with Rust constants.
@@ -73,8 +73,8 @@ address families; therefore **145 fields does not mean 145 tests**.
 | M | Mihomo native listener, the default |
 | W | Linux WireGuard with wg-tools, or official wireguard-go |
 | H | Hysteria 2 for shared-state port hopping and server UDP-disabled behavior |
-| XR | Xray for VLESS HTTP camouflage and XHTTP H3 |
-| V2 | V2Ray for legacy H2, VMess HTTP camouflage and extended standard-WS early data |
+| XR | Xray for XHTTP H3 and advanced VLESS branches |
+| V2 | V2Ray for legacy H2, VMess/VLESS HTTP camouflage and extended standard-WS early data |
 
 Evaluate a field's override rule against the **actual complete mode**. For
 example a shared TLS field on an H3 leg uses XR, while the same field on an
@@ -163,12 +163,12 @@ uv run --project scripts --locked vcore-scripts check protocol-interop --stage N
 uv run --project scripts --locked vcore-scripts check protocol-coverage --stage N3 --run-dir target/interop/runs/<run-id>
 ```
 
-N3 is the current container-only stage runner; all peers, origins and upstream
+N3 and N4 are container-only stage runners; all peers, origins and upstream
 listeners follow the [isolation rule](../../docs/testing-isolation.md). Historical
 N1/N2 catalogs and reports remain available, but their server runners are not
 fully migrated and must not be rerun on the host. `--case` (repeatable) and
 `--protocol` select subsets for development, not full-stage acceptance. Empty,
-unknown or contradictory selections fail. N3 preflight downloads fresh official
+unknown or contradictory selections fail. N3/N4 preflight downloads fresh official
 M/V2 artifacts, checks versions inside owned containers, and verifies readiness
 and cleanup without declaring business acceptance.
 
@@ -176,6 +176,22 @@ N3 has 109 native wire/public-consumer cases and eight local gates: configuratio
 codecs, cancellation, regression, Release, features, offline scripts, and quality
 including Apple/Android builds. Its 30 applicable field rows require the full
 structured report, not the catalog's VALID status.
+
+Replace `--stage N3` with `--stage N4` for VLESS: 136 native wire/public
+consumer cases and nine local gates (configuration, codecs, transports, Vision,
+regression, Release, features, scripts, and quality/builds), covering 39 applicable
+field rows. Ordinary TLS and REALITY Vision must each prove inner TLS 1.3
+direct-mode bytes; inner TLS 1.2/non-TLS remain separate controls. Four transport
+families each run 20 public lifecycle and 20 owned-resource cycles. Eighteen
+close cases compare the real Mihomo client against the same isolated native peer.
+Three WS + REALITY cases (standard WS and normal/fast-open HTTPUpgrade) have
+separately labeled layered close checks: VCore still connects
+to the REALITY listener, while the Mihomo reference uses a standard-TLS WS
+listener because its WS client does not implement REALITY. This is not a
+same-combination differential result; base/negative cases independently exercise
+the real WS + REALITY listener.
+Existing XHTTP three-mode and split-download regressions are included; N5 new
+XHTTP branches and N7 advanced security remain separate, unclaimed gates.
 
 N1's historical 21 required groups include configuration/limit/TLS/stream/XUDP/datagram/
 QUIC/resolution/resource assertions, nine native stream cases, the existing

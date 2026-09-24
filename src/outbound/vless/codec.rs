@@ -1,4 +1,5 @@
 use std::{
+    future::Future,
     io,
     pin::Pin,
     task::{Context, Poll},
@@ -8,7 +9,7 @@ use bytes::{BufMut as _, Bytes, BytesMut};
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, ReadBuf};
 use uuid::Uuid;
 
-use super::address::encode_port_first as encode_destination;
+use crate::outbound::address::encode_port_first as encode_destination;
 use crate::{dispatch::BoxStream, session::Destination};
 
 const VLESS_VERSION: u8 = 0;
@@ -16,6 +17,7 @@ const VLESS_VERSION: u8 = 0;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VlessCommand {
     Tcp,
+    Udp,
     Mux,
 }
 
@@ -23,6 +25,7 @@ impl VlessCommand {
     const fn wire_value(self) -> u8 {
         match self {
             Self::Tcp => 1,
+            Self::Udp => 2,
             Self::Mux => 3,
         }
     }
@@ -33,17 +36,31 @@ pub fn encode_request_header(
     command: VlessCommand,
     destination: Option<&Destination>,
 ) -> io::Result<Bytes> {
-    if (command == VlessCommand::Tcp) != destination.is_some() {
+    encode_header(uuid, command, destination, false)
+}
+
+pub(super) fn encode_header(
+    uuid: Uuid,
+    command: VlessCommand,
+    destination: Option<&Destination>,
+    vision: bool,
+) -> io::Result<Bytes> {
+    if (command != VlessCommand::Mux) != destination.is_some() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "VLESS TCP requires a destination and mux must omit it",
+            "VLESS TCP/UDP requires a destination and mux must omit it",
         ));
     }
 
     let mut output = BytesMut::with_capacity(64);
     output.put_u8(VLESS_VERSION);
     output.extend_from_slice(uuid.as_bytes());
-    output.put_u8(0); // protobuf addons length; Vision is outside the current XHTTP scope
+    if vision {
+        output.put_u8(18);
+        output.extend_from_slice(b"\x0a\x10xtls-rprx-vision");
+    } else {
+        output.put_u8(0);
+    }
     output.put_u8(command.wire_value());
     if let Some(destination) = destination {
         encode_destination(destination, &mut output)?;
@@ -79,30 +96,77 @@ where
 /// is available. Keeping both handshakes lazy avoids waiting for that response
 /// before the caller has had a chance to send its first request payload.
 pub struct VlessStream {
-    inner: BoxStream,
+    inner: Option<BoxStream>,
     request_header: Bytes,
     request_header_written: usize,
+    request_header_flushed: bool,
     response_header: [u8; 2],
     response_header_read: usize,
     response_header_done: bool,
+    whole_close: bool,
+    closed: bool,
+    deadline: Option<Pin<Box<tokio::time::Sleep>>>,
 }
 
 impl VlessStream {
     #[must_use]
     pub const fn new(inner: BoxStream, request_header: Bytes) -> Self {
         Self {
-            inner,
+            inner: Some(inner),
             request_header,
             request_header_written: 0,
+            request_header_flushed: false,
             response_header: [0; 2],
             response_header_read: 0,
             response_header_done: false,
+            whole_close: false,
+            closed: false,
+            deadline: None,
         }
     }
 
+    pub fn with_deadline(
+        inner: BoxStream,
+        request_header: Bytes,
+        deadline: tokio::time::Instant,
+    ) -> Self {
+        let mut stream = Self::new(inner, request_header);
+        stream.deadline = Some(Box::pin(tokio::time::sleep_until(deadline)));
+        stream
+    }
+
+    pub(super) fn with_whole_close(mut self) -> Self {
+        self.whole_close = true;
+        self
+    }
+
+    fn check_setup(&mut self, cx: &mut Context<'_>) -> io::Result<()> {
+        if self.inner.is_none() {
+            return Err(io::ErrorKind::BrokenPipe.into());
+        }
+        if !self.response_header_done
+            && self
+                .deadline
+                .as_mut()
+                .is_some_and(|deadline| deadline.as_mut().poll(cx).is_ready())
+        {
+            self.inner.take();
+            return Err(io::ErrorKind::TimedOut.into());
+        }
+        Ok(())
+    }
+
+    fn finish<T>(&mut self, result: Poll<io::Result<T>>) -> Poll<io::Result<T>> {
+        if matches!(result, Poll::Ready(Err(_))) {
+            self.inner.take();
+        }
+        result
+    }
+
     fn poll_request_header(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        self.check_setup(cx)?;
         while self.request_header_written < self.request_header.len() {
-            let written = match Pin::new(&mut *self.inner)
+            let written = match Pin::new(self.inner.as_mut().expect("checked open"))
                 .poll_write(cx, &self.request_header[self.request_header_written..])
             {
                 Poll::Pending => return Poll::Pending,
@@ -124,7 +188,7 @@ impl VlessStream {
 
         while self.response_header_read < self.response_header.len() {
             let mut buffer = ReadBuf::new(&mut self.response_header[self.response_header_read..]);
-            match Pin::new(&mut *self.inner).poll_read(cx, &mut buffer) {
+            match Pin::new(self.inner.as_mut().expect("checked open")).poll_read(cx, &mut buffer) {
                 Poll::Pending => return Poll::Pending,
                 Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
                 Poll::Ready(Ok(())) if buffer.filled().is_empty() => {
@@ -158,17 +222,33 @@ impl AsyncRead for VlessStream {
         cx: &mut Context<'_>,
         buffer: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
-        match self.poll_request_header(cx) {
-            Poll::Pending => return Poll::Pending,
-            Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
-            Poll::Ready(Ok(())) => {}
+        if buffer.remaining() == 0 || self.closed {
+            return Poll::Ready(Ok(()));
         }
-        match self.poll_response_header(cx) {
-            Poll::Pending => return Poll::Pending,
-            Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
-            Poll::Ready(Ok(())) => {}
-        }
-        Pin::new(&mut *self.inner).poll_read(cx, buffer)
+        let result = (|| {
+            match self.poll_request_header(cx) {
+                Poll::Pending => return Poll::Pending,
+                Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
+                Poll::Ready(Ok(())) => {}
+            }
+            // Framed adapters may accept a write into their bounded queue.
+            // Server-first protocols need the request on the wire before a
+            // response read, even if the application never writes payload.
+            if !self.request_header_flushed {
+                match Pin::new(self.inner.as_mut().expect("checked open")).poll_flush(cx) {
+                    Poll::Pending => return Poll::Pending,
+                    Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
+                    Poll::Ready(Ok(())) => self.request_header_flushed = true,
+                }
+            }
+            match self.poll_response_header(cx) {
+                Poll::Pending => return Poll::Pending,
+                Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
+                Poll::Ready(Ok(())) => {}
+            }
+            Pin::new(self.inner.as_mut().expect("checked open")).poll_read(cx, buffer)
+        })();
+        self.finish(result)
     }
 }
 
@@ -178,33 +258,54 @@ impl AsyncWrite for VlessStream {
         cx: &mut Context<'_>,
         buffer: &[u8],
     ) -> Poll<Result<usize, io::Error>> {
-        match self.poll_request_header(cx) {
-            Poll::Pending => return Poll::Pending,
-            Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
-            Poll::Ready(Ok(())) => {}
-        }
-        Pin::new(&mut *self.inner).poll_write(cx, buffer)
+        let result = (|| {
+            match self.poll_request_header(cx) {
+                Poll::Pending => return Poll::Pending,
+                Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
+                Poll::Ready(Ok(())) => {}
+            }
+            Pin::new(self.inner.as_mut().expect("checked open")).poll_write(cx, buffer)
+        })();
+        self.finish(result)
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
-        match self.poll_request_header(cx) {
-            Poll::Pending => return Poll::Pending,
-            Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
-            Poll::Ready(Ok(())) => {}
-        }
-        Pin::new(&mut *self.inner).poll_flush(cx)
+        let result = (|| {
+            match self.poll_request_header(cx) {
+                Poll::Pending => return Poll::Pending,
+                Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
+                Poll::Ready(Ok(())) => {}
+            }
+            Pin::new(self.inner.as_mut().expect("checked open")).poll_flush(cx)
+        })();
+        self.finish(result)
     }
 
     fn poll_shutdown(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Result<(), io::Error>> {
-        match self.poll_request_header(cx) {
-            Poll::Pending => return Poll::Pending,
-            Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
-            Poll::Ready(Ok(())) => {}
+        if self.closed {
+            return Poll::Ready(Ok(()));
         }
-        Pin::new(&mut *self.inner).poll_shutdown(cx)
+        if self.whole_close {
+            std::task::ready!(self.as_mut().poll_flush(cx))?;
+            self.closed = true;
+            // HTTP camouflage has no Mihomo CloseWrite. Drop the supplied
+            // OwnedStream, which also wakes reads via its shared session token.
+            self.inner.take();
+            self.deadline.take();
+            return Poll::Ready(Ok(()));
+        }
+        let result = (|| {
+            match self.poll_request_header(cx) {
+                Poll::Pending => return Poll::Pending,
+                Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
+                Poll::Ready(Ok(())) => {}
+            }
+            Pin::new(self.inner.as_mut().expect("checked open")).poll_shutdown(cx)
+        })();
+        self.finish(result)
     }
 }
 

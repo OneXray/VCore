@@ -18,25 +18,7 @@ pub(crate) const DEFAULT_TLS_BUFFER_LIMIT: usize = 64 * 1024;
 /// REALITY disables resumption and does not consume this budget.
 pub const TLS_RESUMPTION_SESSION_BUDGET: usize = 4;
 
-/// Certificate policy shared by TLS transports. A matching leaf pin is the
-/// trust decision; a non-leaf pin still verifies the chain and name. Explicit
-/// pin/name checks take precedence over `skip_cert_verify`, as in Mihomo.
-#[derive(Clone, Default, PartialEq, Eq)]
-pub struct TlsCertificatePolicy {
-    pub verification_name: Option<String>,
-    pub skip_cert_verify: bool,
-    pub fingerprint: Option<[u8; 32]>,
-}
-
-impl std::fmt::Debug for TlsCertificatePolicy {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("TlsCertificatePolicy")
-            .field("explicit_name", &self.verification_name.is_some())
-            .field("skip_cert_verify", &self.skip_cert_verify)
-            .field("pinned", &self.fingerprint.is_some())
-            .finish()
-    }
-}
+pub use crate::config::TlsCertificatePolicy;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum TlsVersions {
@@ -77,6 +59,29 @@ pub struct TlsClientIdentity {
 }
 
 impl TlsClientIdentity {
+    pub fn from_pem(certificate: &str, private_key: &str) -> io::Result<Self> {
+        use rustls::pki_types::pem::PemObject;
+        let invalid = || io::Error::new(io::ErrorKind::InvalidInput, "invalid TLS client identity");
+        if certificate.len().saturating_add(private_key.len()) > crate::config::MAX_CONFIG_BYTES {
+            return Err(invalid());
+        }
+        let certificates = CertificateDer::pem_slice_iter(certificate.as_bytes())
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| invalid())?;
+        let mut keys = PrivateKeyDer::pem_slice_iter(private_key.as_bytes());
+        let key = keys.next().ok_or_else(invalid)?.map_err(|_| invalid())?;
+        if keys.next().is_some() || certificates.is_empty() {
+            return Err(invalid());
+        }
+        rustls::sign::CertifiedKey::from_der(
+            certificates.clone(),
+            key.clone_key(),
+            &rustls::crypto::ring::default_provider(),
+        )
+        .map_err(|_| invalid())?;
+        Ok(Self { certificates, key })
+    }
+
     pub fn from_der(
         certificates: Vec<CertificateDer<'static>>,
         key: PrivateKeyDer<'static>,
@@ -93,7 +98,7 @@ impl std::fmt::Debug for TlsClientIdentity {
 
 /// TLS protocol policy for a standard WebPKI client.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg(any(feature = "outbound-vless", test))]
+#[cfg(test)]
 pub(crate) enum StandardTlsProfile {
     /// VLESS XHTTP is TLS 1.3 and HTTP/2 only.
     VlessXhttp,
@@ -122,7 +127,7 @@ impl std::fmt::Debug for StandardTlsClient {
 }
 
 impl StandardTlsClient {
-    #[cfg(any(feature = "outbound-vless", test))]
+    #[cfg(test)]
     pub(crate) fn new(
         context: &SecurityContext,
         server_name: impl Into<String>,
@@ -289,6 +294,34 @@ impl StandardTlsClient {
         }
 
         Ok(Box::new(super::stream::TlsStream::new(tls)))
+    }
+
+    #[cfg(feature = "outbound-vless")]
+    pub(crate) async fn connect_vision(
+        &self,
+        stream: BoxStream,
+        stats: Arc<super::vision::SpliceStats>,
+    ) -> io::Result<(BoxStream, super::vision::SpliceControl)> {
+        let name = ServerName::try_from(self.server_name.clone())
+            .map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?;
+        let tls = self
+            .connector
+            .connect_with(name, super::vision::RecordIo::new(stream), |connection| {
+                connection.set_buffer_limit(Some(self.buffer_limit))
+            })
+            .await
+            .map_err(|error| io::Error::new(error.kind(), "Vision TLS handshake failed"))?;
+        if self
+            .required_alpn
+            .as_deref()
+            .is_some_and(|required| tls.get_ref().1.alpn_protocol() != Some(required))
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "TLS server did not negotiate the required ALPN",
+            ));
+        }
+        super::vision::SpliceTls::wrap(tls, stats)
     }
 
     #[cfg(test)]

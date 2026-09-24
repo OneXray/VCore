@@ -18,8 +18,8 @@ use crate::{
 use super::{
     SecurityContext,
     tls::{
-        DEFAULT_TLS_BUFFER_LIMIT, StandardTlsClient, StandardTlsProfile,
-        TLS_RESUMPTION_SESSION_BUDGET,
+        DEFAULT_TLS_BUFFER_LIMIT, StandardTlsClient, TLS_RESUMPTION_SESSION_BUDGET,
+        TlsClientOptions, TlsVersions,
     },
 };
 
@@ -31,6 +31,7 @@ pub const REALITY_CLIENT_VERSION: [u8; 3] = [26, 7, 11];
 
 #[derive(Clone)]
 enum SecurityBackend {
+    Plain,
     Standard(StandardTlsClient),
     Reality {
         connector: TlsConnector,
@@ -47,6 +48,7 @@ pub struct SecurityClient {
 impl std::fmt::Debug for SecurityClient {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.backend {
+            SecurityBackend::Plain => formatter.write_str("SecurityClient::Plain"),
             SecurityBackend::Standard(client) => formatter
                 .debug_tuple("SecurityClient::Standard")
                 .field(client)
@@ -166,14 +168,35 @@ impl SecurityClient {
             ));
         }
         let backend = match config {
-            SecurityConfig::Tls(tls) => SecurityBackend::Standard(StandardTlsClient::new(
+            SecurityConfig::None => SecurityBackend::Plain,
+            SecurityConfig::Tls(tls) => SecurityBackend::Standard(StandardTlsClient::with_options(
                 context,
                 &tls.server_name,
-                StandardTlsProfile::VlessXhttp,
+                TlsClientOptions {
+                    versions: if tls.tls13_only {
+                        TlsVersions::Tls13
+                    } else {
+                        TlsVersions::Tls12And13
+                    },
+                    alpn: tls.alpn.clone(),
+                    required_alpn: tls.required_alpn.clone(),
+                    certificate: tls.certificate.clone(),
+                    identity: tls
+                        .identity
+                        .as_ref()
+                        .map(|identity| {
+                            super::TlsClientIdentity::from_pem(
+                                &identity.certificate,
+                                &identity.private_key,
+                            )
+                        })
+                        .transpose()?,
+                },
                 resumption_sessions,
                 buffer_limit,
             )?),
             SecurityConfig::Reality(reality) => {
+                let alpn = reality.alpn.clone();
                 let reality = RealityClientConfig::new(
                     reality.public_key,
                     &reality.short_id,
@@ -190,7 +213,7 @@ impl SecurityClient {
                 tls_config.enable_early_data = false;
                 // Xray REALITY does not echo ALPN, so XHTTP deliberately starts
                 // h2 even when negotiated ALPN is nil.
-                tls_config.alpn_protocols = vec![b"h2".to_vec()];
+                tls_config.alpn_protocols = alpn;
                 SecurityBackend::Reality {
                     connector: TlsConnector::from(Arc::new(tls_config)),
                     server_name: config.server_name().to_owned(),
@@ -204,6 +227,7 @@ impl SecurityClient {
 
     pub async fn connect(&self, stream: BoxStream) -> io::Result<BoxStream> {
         match &self.backend {
+            SecurityBackend::Plain => Ok(stream),
             SecurityBackend::Standard(client) => client.connect(stream).await,
             SecurityBackend::Reality {
                 connector,
@@ -223,9 +247,41 @@ impl SecurityClient {
         }
     }
 
+    pub(crate) async fn connect_vision(
+        &self,
+        stream: BoxStream,
+        stats: Arc<super::vision::SpliceStats>,
+    ) -> io::Result<(BoxStream, super::vision::SpliceControl)> {
+        match &self.backend {
+            SecurityBackend::Plain => Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Vision requires TLS",
+            )),
+            SecurityBackend::Standard(client) => client.connect_vision(stream, stats).await,
+            SecurityBackend::Reality {
+                connector,
+                server_name,
+                buffer_limit,
+            } => {
+                let name = ServerName::try_from(server_name.clone())
+                    .map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?;
+                let tls = connector
+                    .connect_with(name, super::vision::RecordIo::new(stream), |connection| {
+                        connection.set_buffer_limit(Some(*buffer_limit))
+                    })
+                    .await
+                    .map_err(|error| {
+                        io::Error::new(error.kind(), "Vision REALITY handshake failed")
+                    })?;
+                super::vision::SpliceTls::wrap(tls, stats)
+            }
+        }
+    }
+
     #[cfg(test)]
     const fn buffer_limit(&self) -> usize {
         match &self.backend {
+            SecurityBackend::Plain => 0,
             SecurityBackend::Standard(client) => client.buffer_limit(),
             SecurityBackend::Reality { buffer_limit, .. } => *buffer_limit,
         }
@@ -248,15 +304,15 @@ mod tests {
             id: uuid::Uuid::parse_str("b831381d-6324-4d53-ad4f-8cda48b30811").unwrap(),
             encryption: VlessEncryption::None,
             flow: String::new(),
-            security: SecurityConfig::Tls(TlsConfig {
-                server_name: "example.com".to_owned(),
-            }),
-            xhttp: XHttpConfig {
+            security: SecurityConfig::Tls(TlsConfig::xhttp("example.com".to_owned())),
+            transport: crate::config::VlessTransport::Xhttp(XHttpConfig {
                 path: "/xhttp".to_owned(),
                 host: "example.com".to_owned(),
                 mode: XHttpMode::StreamOne,
                 download: None,
-            },
+            }),
+            packet_encoding: crate::config::VlessPacketEncoding::Xudp,
+            stream_options: Default::default(),
         }
     }
 
@@ -296,6 +352,7 @@ mod tests {
             server_name: "download.example.com".to_owned(),
             public_key: [7; 32],
             short_id: vec![1, 2, 3, 4],
+            alpn: vec![b"h2".to_vec()],
         });
         let client = SecurityClient::from_security_with_context(
             &security,

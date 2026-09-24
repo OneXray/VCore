@@ -166,6 +166,140 @@ pub async fn websocket(stream: BoxStream, uri: &str, deadline: Instant) -> io::R
     .await
 }
 
+/// V2Ray HTTPUpgrade uses a validated HTTP/1 upgrade followed by raw bytes,
+/// without WebSocket masking or frames. Fast-open advances only the supplied
+/// prefix; setup never succeeds until the peer's 101 has been validated.
+pub async fn http_upgrade(
+    mut stream: BoxStream,
+    options: &WebSocketOptions,
+    initial_data: &[u8],
+    fast_open: bool,
+    deadline: Instant,
+) -> io::Result<BoxStream> {
+    timeout_at(deadline, async move {
+        let mut headers = options.headers.clone();
+        let mut early = 0;
+        if let Some(ed) = &options.early_data {
+            let WebSocketEarlyData::Header { name, max_bytes } = ed else {
+                return Err(invalid_options());
+            };
+            if name != "sec-websocket-protocol" {
+                return Err(invalid_options());
+            }
+            early = (*max_bytes).min(initial_data.len());
+            if early > 0 {
+                headers.insert(
+                    name.clone(),
+                    URL_SAFE_NO_PAD
+                        .encode(&initial_data[..early])
+                        .parse()
+                        .map_err(|_| invalid_options())?,
+                );
+            }
+        }
+        if !headers.contains_key("host") {
+            headers.insert(
+                "host",
+                options
+                    .uri
+                    .authority()
+                    .ok_or_else(invalid_options)?
+                    .as_str()
+                    .parse()
+                    .map_err(|_| invalid_options())?,
+            );
+        }
+        let mut head = format!(
+            "GET {} HTTP/1.1\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n",
+            options.uri.path_and_query().map_or("/", |p| p.as_str())
+        )
+        .into_bytes();
+        for (name, value) in &headers {
+            head.extend_from_slice(name.as_str().as_bytes());
+            head.extend_from_slice(b": ");
+            head.extend_from_slice(value.as_bytes());
+            head.extend_from_slice(b"\r\n");
+        }
+        head.extend_from_slice(b"\r\n");
+        if head.len() > super::HTTP_HEAD_BYTES {
+            return Err(invalid_options());
+        }
+        stream.write_all(&head).await?;
+        if fast_open {
+            stream.write_all(&initial_data[early..]).await?;
+        }
+        stream.flush().await?;
+        let (response, tail) = super::http_head::read_response(&mut stream).await?;
+        let single = |name| {
+            let mut values = response.headers().get_all(name).iter();
+            let value = values.next();
+            if values.next().is_some() { None } else { value }
+        };
+        if response.status() != 101
+            || response.version() != http::Version::HTTP_11
+            || !single("upgrade").is_some_and(|v| v.as_bytes().eq_ignore_ascii_case(b"websocket"))
+            || !single("connection").is_some_and(|v| {
+                v.to_str().is_ok_and(|v| {
+                    v.split(',')
+                        .any(|token| token.trim().eq_ignore_ascii_case("upgrade"))
+                })
+            })
+            || response.headers().contains_key("content-length")
+            || response.headers().contains_key("transfer-encoding")
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "invalid HTTPUpgrade response",
+            ));
+        }
+        if !fast_open {
+            stream.write_all(&initial_data[early..]).await?;
+            stream.flush().await?;
+        }
+        Ok(Box::new(UpgradeStream {
+            stream,
+            tail: tail.into(),
+        }) as BoxStream)
+    })
+    .await
+    .map_err(|_| io::Error::from(io::ErrorKind::TimedOut))?
+}
+
+struct UpgradeStream {
+    stream: BoxStream,
+    tail: Bytes,
+}
+impl AsyncRead for UpgradeStream {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        output: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        if !self.tail.is_empty() {
+            let count = output.remaining().min(self.tail.len());
+            output.put_slice(&self.tail[..count]);
+            self.tail.advance(count);
+            return Poll::Ready(Ok(()));
+        }
+        Pin::new(&mut self.stream).poll_read(cx, output)
+    }
+}
+impl AsyncWrite for UpgradeStream {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.stream).poll_write(cx, buf)
+    }
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.stream).poll_flush(cx)
+    }
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.stream).poll_shutdown(cx)
+    }
+}
+
 async fn connect_inner(
     stream: BoxStream,
     options: &WebSocketOptions,

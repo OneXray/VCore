@@ -12,6 +12,7 @@ import contextlib
 import os
 import select
 import socket
+import ssl
 import struct
 import sys
 import threading
@@ -50,6 +51,13 @@ def serve_tcp(control, mode, ipv6=False):
                 return
             stream, _ = listener.accept()
             control.sendall(b"A")
+            if mode in (16, 18):
+                context = tls_context(
+                    ssl.TLSVersion.TLSv1_3 if mode == 16 else ssl.TLSVersion.TLSv1_2
+                )
+                stream.settimeout(15)
+                stream = context.wrap_socket(stream, server_side=True)
+                control.sendall(b"\x13" if stream.version() == "TLSv1.3" else b"\x12")
             with stream:
                 stream.settimeout(15)
                 if mode == 13:  # bounded-lifetime echo; client-first and cancellation
@@ -74,7 +82,7 @@ def serve_tcp(control, mode, ipv6=False):
                     stream.sendall(b"ok")
                 else:
                     stream.sendall(b"hello")
-                    if mode == 10:
+                    if mode in (10, 16, 18):
                         data = receive_exact(stream, 10 * 1024 * 1024)
                         if data != b"\x5a" * len(data):
                             raise ValueError("bulk data")
@@ -99,7 +107,7 @@ def serve(control):
             control.settimeout(15)
             control.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             family = control.recv(1)
-            if family and 10 <= (family[0] & 0x7F) <= 15:
+            if family and (family[0] & 0x7F) in (*range(10, 17), 18):
                 serve_tcp(control, family[0] & 0x7F, bool(family[0] & 0x80))
                 return
             if family not in (b"\x04", b"\x06", b"\x11"):
@@ -152,11 +160,42 @@ def dns_response(packet, ipv4):
     return bytes(response)
 
 
+def tls_context(version):
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.minimum_version = version
+    context.maximum_version = version
+    context.set_ecdh_curve("X25519")
+    context.load_cert_chain(
+        os.environ["VCORE_ORIGIN_CERT"], os.environ["VCORE_ORIGIN_KEY"]
+    )
+    context.set_alpn_protocols(["h2", "http/1.1"])
+    context.num_tickets = 0
+    return context
+
+
+def camouflage():
+    """Container-only TLS 1.3 target for REALITY's authenticated handshake."""
+    context = tls_context(ssl.TLSVersion.TLSv1_3)
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind(("0.0.0.0", 24001))
+        listener.listen(8)
+        while True:
+            stream, _ = listener.accept()
+            stream.settimeout(5)
+            try:
+                with context.wrap_socket(stream, server_side=True) as secured:
+                    secured.recv(1)
+            except OSError:
+                stream.close()
+
+
 def main():
     if sys.platform != "linux" or os.environ.get("VCORE_ISOLATED_ORIGIN") != "1":
         raise SystemExit(
             "BLOCKED: this origin must be launched by the container harness"
         )
+    if os.environ.get("VCORE_ORIGIN_CERT"):
+        threading.Thread(target=camouflage, daemon=True).start()
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
         listener.bind(("0.0.0.0", 24000))
         listener.listen(8)

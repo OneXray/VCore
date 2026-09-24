@@ -18,7 +18,7 @@ pub enum VmessPacketEncoding {
 }
 
 #[derive(Clone, PartialEq, Eq)]
-pub enum VmessTransport {
+pub enum StreamTransport {
     Tcp,
     WebSocket {
         uri: String,
@@ -38,7 +38,7 @@ pub enum VmessTransport {
         uris: Vec<String>,
     },
 }
-impl std::fmt::Debug for VmessTransport {
+impl std::fmt::Debug for StreamTransport {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
             Self::Tcp => "Tcp",
@@ -49,7 +49,7 @@ impl std::fmt::Debug for VmessTransport {
         })
     }
 }
-impl VmessTransport {
+impl StreamTransport {
     pub fn required_alpn(&self) -> Option<&'static [u8]> {
         match self {
             Self::WebSocket { .. } => Some(b"http/1.1"),
@@ -113,29 +113,29 @@ fn http_options<'a>(
 
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct RawWs {
+pub(super) struct RawWs {
     #[serde(default, deserialize_with = "deserialize_present_option")]
-    path: Option<String>,
+    pub(super) path: Option<String>,
     #[serde(default)]
-    headers: BTreeMap<String, String>,
+    pub(super) headers: BTreeMap<String, String>,
     #[serde(rename = "max-early-data", default)]
-    max_early_data: u16,
+    pub(super) max_early_data: u16,
     #[serde(
         rename = "early-data-header-name",
         default,
         deserialize_with = "deserialize_present_option"
     )]
-    early_data_header_name: Option<String>,
+    pub(super) early_data_header_name: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct RawGrpc {
+pub(super) struct RawGrpc {
     #[serde(rename = "grpc-service-name")]
-    service: String,
+    pub(super) service: String,
 }
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct RawHttp {
+pub(super) struct RawHttp {
     #[serde(default, deserialize_with = "deserialize_present_option")]
     method: Option<String>,
     #[serde(default)]
@@ -145,7 +145,7 @@ struct RawHttp {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct RawH2 {
+pub(super) struct RawH2 {
     host: Vec<String>,
     #[serde(default, deserialize_with = "deserialize_present_option")]
     path: Option<String>,
@@ -153,14 +153,14 @@ struct RawH2 {
 
 fn uri(scheme: &str, authority: &str, path: &str) -> Result<String> {
     if !path.starts_with('/') || path.contains(['\r', '\n', '#']) {
-        return invalid("invalid VMess transport path");
+        return invalid("invalid stream transport path");
     }
     let uri = http::Uri::builder()
         .scheme(scheme)
         .authority(authority)
         .path_and_query(path)
         .build()
-        .map_err(|_| crate::VCoreError::InvalidConfig("invalid VMess transport URI".into()))?;
+        .map_err(|_| crate::VCoreError::InvalidConfig("invalid stream transport URI".into()))?;
     if uri.to_string().len() > 16 * 1024 - 256 {
         return invalid("VMess transport URI exceeds limit");
     }
@@ -206,7 +206,7 @@ pub struct VmessOutboundConfig {
     pub packet_encoding: VmessPacketEncoding,
     pub server_name: String,
     pub tls: Option<super::AnyTlsCertificatePolicy>,
-    pub transport: VmessTransport,
+    pub transport: StreamTransport,
 }
 impl std::fmt::Debug for VmessOutboundConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -307,133 +307,16 @@ impl RawVmess {
         {
             return invalid("VMess TLS options require tls=true");
         }
-        let authority = if self.server.parse::<std::net::Ipv6Addr>().is_ok() {
-            format!("[{}]:{}", self.server, self.port)
-        } else {
-            format!("{}:{}", self.server, self.port)
-        };
-        let scheme = if self.tls { "https" } else { "http" };
-        let mut fallback_name = self.server.clone();
-        let transport = match (
+        let (transport, fallback_name) = normalize_transport(
+            &self.server,
+            self.port,
+            self.tls,
             self.network.as_deref().unwrap_or("tcp"),
             self.ws,
             self.grpc,
             self.http,
             self.h2,
-        ) {
-            ("tcp", None, None, None, None) => VmessTransport::Tcp,
-            ("ws", ws, None, None, None) => {
-                let ws = ws.unwrap_or_default();
-                if ws.max_early_data > 2048
-                    || (ws.max_early_data == 0 && ws.early_data_header_name.is_some())
-                {
-                    return invalid("invalid VMess early-data options");
-                }
-                for (key, value) in &ws.headers {
-                    if key.eq_ignore_ascii_case("host") {
-                        fallback_name = authority_host(value)?;
-                    }
-                }
-                let transport = VmessTransport::WebSocket {
-                    uri: uri(
-                        if self.tls { "wss" } else { "ws" },
-                        &authority,
-                        ws.path.as_deref().unwrap_or("/"),
-                    )?,
-                    headers: ws.headers,
-                    max_early_data: ws.max_early_data,
-                    early_data_header_name: ws
-                        .early_data_header_name
-                        .unwrap_or_else(|| "Sec-WebSocket-Protocol".into()),
-                };
-                #[cfg(feature = "stream-transport")]
-                if transport.websocket_options().is_err() {
-                    return invalid("invalid VMess WebSocket options");
-                }
-                transport
-            }
-            ("grpc", None, Some(grpc), None, None) if !grpc.service.is_empty() => {
-                let path = if grpc.service.starts_with('/') {
-                    grpc.service
-                } else {
-                    format!("/{}/Tun", grpc.service)
-                };
-                if path.contains('?') {
-                    return invalid("invalid VMess gRPC path");
-                }
-                VmessTransport::Grpc {
-                    uri: uri(scheme, &authority, &path)?,
-                }
-            }
-            ("http", None, None, http, None) => {
-                let mut http = http.unwrap_or_default();
-                if http.path.is_empty() {
-                    http.path.push("/".into());
-                }
-                let method = http.method.unwrap_or_else(|| "GET".into());
-                if method.parse::<http::Method>().is_err()
-                    || http.headers.values().any(Vec::is_empty)
-                {
-                    return invalid("invalid VMess HTTP options");
-                }
-                for (key, values) in &http.headers {
-                    let name: http::HeaderName = key.parse().map_err(|_| {
-                        crate::VCoreError::InvalidConfig("invalid VMess HTTP header".into())
-                    })?;
-                    for value in values {
-                        if value.parse::<http::HeaderValue>().is_err() {
-                            return invalid("invalid VMess HTTP value");
-                        }
-                        if name == "host" {
-                            authority_host(value)?;
-                        }
-                    }
-                }
-                let uris = http
-                    .path
-                    .iter()
-                    .map(|path| {
-                        if !path.starts_with('/') || path.contains(['\r', '\n']) {
-                            return invalid("invalid VMess HTTP path");
-                        }
-                        let mut url = url::Url::parse(&format!("{scheme}://{authority}/"))
-                            .map_err(|_| {
-                                crate::VCoreError::InvalidConfig("invalid VMess HTTP URI".into())
-                            })?;
-                        url.set_path(path);
-                        Ok(url.to_string())
-                    })
-                    .collect::<Result<Vec<_>>>()?;
-                #[cfg(feature = "stream-transport")]
-                for uri in &uris {
-                    if http_options(
-                        &method,
-                        uri,
-                        http.headers.iter().map(|(key, values)| {
-                            (key, values.iter().max_by_key(|v| v.len()).unwrap().clone())
-                        }),
-                    )
-                    .is_err()
-                    {
-                        return invalid("invalid VMess HTTP options");
-                    }
-                }
-                VmessTransport::Http {
-                    method,
-                    uris,
-                    headers: http.headers,
-                }
-            }
-            ("h2", None, None, None, Some(h2)) if !h2.host.is_empty() => {
-                let mut uris = Vec::new();
-                for host in h2.host {
-                    authority_host(&host)?;
-                    uris.push(uri(scheme, &host, h2.path.as_deref().unwrap_or("/"))?);
-                }
-                VmessTransport::H2 { uris }
-            }
-            _ => return invalid("VMess transport options do not match network"),
-        };
+        )?;
         let server_name = self.servername.unwrap_or(fallback_name);
         validate_host(&server_name, "VMess servername")?;
         let tls = if self.tls {
@@ -498,4 +381,137 @@ impl RawVmess {
             }),
         ))
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn normalize_transport(
+    server: &str,
+    port: u16,
+    tls: bool,
+    network: &str,
+    ws: Option<RawWs>,
+    grpc: Option<RawGrpc>,
+    http: Option<RawHttp>,
+    h2: Option<RawH2>,
+) -> Result<(StreamTransport, String)> {
+    let authority = if server.parse::<std::net::Ipv6Addr>().is_ok() {
+        format!("[{}]:{}", server, port)
+    } else {
+        format!("{}:{}", server, port)
+    };
+    let scheme = if tls { "https" } else { "http" };
+    let mut fallback_name = server.to_owned();
+    let transport = match (network, ws, grpc, http, h2) {
+        ("tcp", None, None, None, None) => StreamTransport::Tcp,
+        ("ws", ws, None, None, None) => {
+            let ws = ws.unwrap_or_default();
+            if ws.max_early_data > 2048
+                || (ws.max_early_data == 0 && ws.early_data_header_name.is_some())
+            {
+                return invalid("invalid VMess early-data options");
+            }
+            for (key, value) in &ws.headers {
+                if key.eq_ignore_ascii_case("host") {
+                    fallback_name = authority_host(value)?;
+                }
+            }
+            let transport = StreamTransport::WebSocket {
+                uri: uri(
+                    if tls { "wss" } else { "ws" },
+                    &authority,
+                    ws.path.as_deref().unwrap_or("/"),
+                )?,
+                headers: ws.headers,
+                max_early_data: ws.max_early_data,
+                early_data_header_name: ws
+                    .early_data_header_name
+                    .unwrap_or_else(|| "Sec-WebSocket-Protocol".into()),
+            };
+            #[cfg(feature = "stream-transport")]
+            if transport.websocket_options().is_err() {
+                return invalid("invalid VMess WebSocket options");
+            }
+            transport
+        }
+        ("grpc", None, Some(grpc), None, None) if !grpc.service.is_empty() => {
+            let path = if grpc.service.starts_with('/') {
+                grpc.service
+            } else {
+                format!("/{}/Tun", grpc.service)
+            };
+            if path.contains('?') {
+                return invalid("invalid VMess gRPC path");
+            }
+            StreamTransport::Grpc {
+                uri: uri(scheme, &authority, &path)?,
+            }
+        }
+        ("http", None, None, http, None) => {
+            let mut http = http.unwrap_or_default();
+            if http.path.is_empty() {
+                http.path.push("/".into());
+            }
+            let method = http.method.unwrap_or_else(|| "GET".into());
+            if method.parse::<http::Method>().is_err() || http.headers.values().any(Vec::is_empty) {
+                return invalid("invalid HTTP transport options");
+            }
+            for (key, values) in &http.headers {
+                let name: http::HeaderName = key.parse().map_err(|_| {
+                    crate::VCoreError::InvalidConfig("invalid HTTP transport header".into())
+                })?;
+                for value in values {
+                    if value.parse::<http::HeaderValue>().is_err() {
+                        return invalid("invalid HTTP transport value");
+                    }
+                    if name == "host" {
+                        authority_host(value)?;
+                    }
+                }
+            }
+            let uris = http
+                .path
+                .iter()
+                .map(|path| {
+                    if !path.starts_with('/') || path.contains(['\r', '\n']) {
+                        return invalid("invalid HTTP transport path");
+                    }
+                    let mut url =
+                        url::Url::parse(&format!("{scheme}://{authority}/")).map_err(|_| {
+                            crate::VCoreError::InvalidConfig("invalid HTTP transport URI".into())
+                        })?;
+                    url.set_path(path);
+                    Ok(url.to_string())
+                })
+                .collect::<Result<Vec<_>>>()?;
+            #[cfg(feature = "stream-transport")]
+            for uri in &uris {
+                if http_options(
+                    &method,
+                    uri,
+                    http.headers.iter().map(|(key, values)| {
+                        (key, values.iter().max_by_key(|v| v.len()).unwrap().clone())
+                    }),
+                )
+                .is_err()
+                {
+                    return invalid("invalid HTTP transport options");
+                }
+            }
+            StreamTransport::Http {
+                method,
+                uris,
+                headers: http.headers,
+            }
+        }
+        ("h2", None, None, None, Some(h2)) if !h2.host.is_empty() => {
+            let mut uris = Vec::new();
+            for host in h2.host {
+                authority_host(&host)?;
+                uris.push(uri(scheme, &host, h2.path.as_deref().unwrap_or("/"))?);
+            }
+            StreamTransport::H2 { uris }
+        }
+        _ => return invalid("stream transport options do not match network"),
+    };
+    Ok((transport, fallback_name))
 }

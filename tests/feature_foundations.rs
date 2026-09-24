@@ -14,8 +14,17 @@ fn feature_skeletons_do_not_open_unimplemented_yaml_or_measurement_protocols() {
         assert!(Config::parse_yaml(yaml.as_bytes()).is_err());
     }
     assert_eq!(vcore::INVOKE_API_VERSION, 5);
-    assert_eq!(vcore::CONFIG_VERSION, 16);
-    assert!(vcore::BUILD_IDENTITY.ends_with("invokeApiVersion=5;configVersion=16"));
+    assert_eq!(vcore::CONFIG_VERSION, 17);
+    assert!(vcore::BUILD_IDENTITY.ends_with("invokeApiVersion=5;configVersion=17"));
+}
+
+#[test]
+fn vless_yaml_follows_its_own_feature() {
+    let yaml=b"socks-port: 1080\nproxies: [{name: node, type: vless, server: localhost, port: 443, uuid: 07070707-0707-0707-0707-070707070707}]\nrules: ['MATCH,node']\n";
+    assert_eq!(
+        Config::parse_yaml(yaml).is_ok(),
+        cfg!(feature = "outbound-vless")
+    );
 }
 
 #[test]

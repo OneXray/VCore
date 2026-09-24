@@ -374,6 +374,72 @@
         "N3-CODEC",
         "N3-PUBLIC-TCP-UDP-ISOLATION"
       ]
+    },
+    {
+      "id": "vless-udp-frame",
+      "value": 65537,
+      "unit": "bytes",
+      "owner": "limits::VLESS_UDP_FRAME_BYTES",
+      "saturation": "reject length beyond u16 payload and prefix",
+      "cancellation": "drop owned buffers and join cancelled node drivers",
+      "boundary_cases": [
+        "N4-CODEC"
+      ]
+    },
+    {
+      "id": "vision-content",
+      "value": 8171,
+      "unit": "bytes",
+      "owner": "limits::VISION_CONTENT_BYTES",
+      "saturation": "split writes; retain one bounded frame",
+      "cancellation": "drop owned buffers and join cancelled node drivers",
+      "boundary_cases": [
+        "N4-VISION"
+      ]
+    },
+    {
+      "id": "vision-tls-record",
+      "value": 18432,
+      "unit": "bytes",
+      "owner": "limits::VISION_TLS_RECORD_BYTES",
+      "saturation": "fail malformed outer TLS; stop inner classification",
+      "cancellation": "drop owned buffers and join cancelled node drivers",
+      "boundary_cases": [
+        "N4-VISION"
+      ]
+    },
+    {
+      "id": "vision-hello",
+      "value": 65536,
+      "unit": "bytes",
+      "owner": "limits::VISION_HELLO_BYTES",
+      "saturation": "disable inner hello classification at cap",
+      "cancellation": "drop owned buffers and join cancelled node drivers",
+      "boundary_cases": [
+        "N4-VISION"
+      ]
+    },
+    {
+      "id": "grpc-idle",
+      "value": 4,
+      "unit": "connections",
+      "owner": "limits::GRPC_IDLE_CONNECTIONS",
+      "saturation": "retire excess idle; no active business cap",
+      "cancellation": "drop owned buffers and join cancelled node drivers",
+      "boundary_cases": [
+        "N4-TRANSPORT"
+      ]
+    },
+    {
+      "id": "grpc-ping-timeout",
+      "value": 15,
+      "unit": "seconds",
+      "owner": "limits::GRPC_PING_TIMEOUT_SECONDS",
+      "saturation": "close a physical transport if its PING is unanswered",
+      "cancellation": "drop owned buffers and join cancelled node drivers",
+      "boundary_cases": [
+        "N4-TRANSPORT"
+      ]
     }
   ]
 }

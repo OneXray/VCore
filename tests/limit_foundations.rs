@@ -17,6 +17,15 @@ fn registry_matches_live_production_constants_and_has_owned_boundary_cases() {
     use vcore::{ResourceLimits, dispatch, transport};
     let defaults = ResourceLimits::default();
     let expected = BTreeMap::from([
+        ("vless-udp-frame", vcore::limits::VLESS_UDP_FRAME_BYTES),
+        ("vision-content", vcore::limits::VISION_CONTENT_BYTES),
+        ("vision-tls-record", vcore::limits::VISION_TLS_RECORD_BYTES),
+        ("vision-hello", vcore::limits::VISION_HELLO_BYTES),
+        ("grpc-idle", vcore::limits::GRPC_IDLE_CONNECTIONS),
+        (
+            "grpc-ping-timeout",
+            vcore::limits::GRPC_PING_TIMEOUT_SECONDS,
+        ),
         ("config-bytes", vcore::config::MAX_CONFIG_BYTES),
         (
             "establish-timeout",

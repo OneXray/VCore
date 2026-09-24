@@ -444,17 +444,23 @@ def run_protocol_interop(
     try:
         run.update(run_identity(stage, selected, preflight_only))
         with exclusive_run(), deadline(run["suite_timeout_seconds"]):
-            if preflight_only and stage == "N3":
-                from .protocol_vmess_container import run as preflight_vmess
+            if preflight_only and stage in {"N3", "N4"}:
+                if stage == "N3":
+                    from .protocol_vmess_container import run as preflight_vmess
+                else:
+                    from .protocol_vless_container import run as preflight_vmess
+                protocol_name = "vmess" if stage == "N3" else "vless"
 
                 native = [
                     case["case_id"]
                     for case in selected
-                    if case["runner"] == "native-vmess"
+                    if case["runner"] == "native-" + protocol_name
                 ]
                 if preflight_vmess(output / "native", native, preflight_only=True):
-                    raise RuntimeError("VMess container preflight failed")
-                peers = read_json(output / "native/vmess-results.json")["peers"]
+                    raise RuntimeError("container protocol preflight failed")
+                peers = read_json(output / f"native/{protocol_name}-results.json")[
+                    "peers"
+                ]
                 (output / "peers.json").write_text(json.dumps(peers, indent=2) + "\n")
             elif preflight_only:
                 _, peers = preflight(
@@ -476,6 +482,10 @@ def run_protocol_interop(
                     execute(selected, run, output, records)
                 elif stage == "N3":
                     from .protocol_vmess_acceptance import execute
+
+                    execute(selected, run, output, records)
+                elif stage == "N4":
+                    from .protocol_vless_acceptance import execute
 
                     execute(selected, run, output, records)
                 else:
@@ -535,6 +545,9 @@ def run_protocol_interop(
                 else "VMess protocol consumer evidence with "
                 "container-only servers and origins.\n\n"
                 if stage == "N3"
+                else "VLESS N4 consumer evidence with container-only peers; "
+                "N5/N7 remain separate gates.\n\n"
+                if stage == "N4"
                 else "Foundation-only evidence; "
                 "production protocol field consumers remain NOT RUN.\n\n"
             )

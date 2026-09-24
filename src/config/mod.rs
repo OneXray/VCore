@@ -23,8 +23,11 @@ mod shadowsocks;
 pub use shadowsocks::{ShadowsocksCipher, ShadowsocksOutboundConfig};
 mod trojan;
 pub use trojan::{TrojanOutboundConfig, TrojanTransport};
+mod vless;
+pub use vless::{GrpcOptions, VlessStreamOptions};
 mod vmess;
-pub use vmess::{VmessCipher, VmessOutboundConfig, VmessPacketEncoding, VmessTransport};
+pub use vmess::StreamTransport as VmessTransport;
+pub use vmess::{StreamTransport, VmessCipher, VmessOutboundConfig, VmessPacketEncoding};
 
 #[cfg(feature = "ffi")]
 mod measure;
@@ -324,7 +327,7 @@ impl ProxyConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct VlessOutboundConfig {
     pub address: String,
     pub port: u16,
@@ -332,7 +335,45 @@ pub struct VlessOutboundConfig {
     pub encryption: VlessEncryption,
     pub flow: String,
     pub security: SecurityConfig,
-    pub xhttp: XHttpConfig,
+    pub transport: VlessTransport,
+    pub packet_encoding: VlessPacketEncoding,
+    pub stream_options: VlessStreamOptions,
+}
+
+impl std::fmt::Debug for VlessOutboundConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VlessOutboundConfig")
+            .finish_non_exhaustive()
+    }
+}
+
+impl VlessOutboundConfig {
+    pub fn xhttp(&self) -> Option<&XHttpConfig> {
+        match &self.transport {
+            VlessTransport::Xhttp(config) => Some(config),
+            VlessTransport::Stream(_) => None,
+        }
+    }
+    pub fn download(&self) -> Option<&XHttpDownloadConfig> {
+        self.xhttp().and_then(|config| config.download.as_deref())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum VlessTransport {
+    Stream(StreamTransport),
+    Xhttp(XHttpConfig),
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+pub enum VlessPacketEncoding {
+    #[default]
+    #[serde(rename = "xudp")]
+    Xudp,
+    #[serde(rename = "none")]
+    Raw,
+    #[serde(rename = "packetaddr", alias = "packet")]
+    PacketAddr,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -377,6 +418,7 @@ pub enum VlessEncryption {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SecurityConfig {
+    None,
     Tls(TlsConfig),
     Reality(RealityConfig),
 }
@@ -385,6 +427,7 @@ impl SecurityConfig {
     #[must_use]
     pub fn server_name(&self) -> &str {
         match self {
+            Self::None => "",
             Self::Tls(config) => &config.server_name,
             Self::Reality(config) => &config.server_name,
         }
@@ -394,6 +437,55 @@ impl SecurityConfig {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TlsConfig {
     pub server_name: String,
+    pub alpn: Vec<Vec<u8>>,
+    pub tls13_only: bool,
+    pub required_alpn: Option<Vec<u8>>,
+    pub certificate: TlsCertificatePolicy,
+    pub identity: Option<TlsIdentityPem>,
+}
+
+/// Data-only certificate policy, also available in builds without TLS IO.
+/// A matching leaf pin is the trust decision; a non-leaf pin still verifies
+/// the chain and name. Explicit pin/name checks precede `skip_cert_verify`.
+#[derive(Clone, Default, PartialEq, Eq)]
+pub struct TlsCertificatePolicy {
+    pub verification_name: Option<String>,
+    pub skip_cert_verify: bool,
+    pub fingerprint: Option<[u8; 32]>,
+}
+
+impl std::fmt::Debug for TlsCertificatePolicy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TlsCertificatePolicy")
+            .field("explicit_name", &self.verification_name.is_some())
+            .field("skip_cert_verify", &self.skip_cert_verify)
+            .field("pinned", &self.fingerprint.is_some())
+            .finish()
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct TlsIdentityPem {
+    pub certificate: String,
+    pub private_key: String,
+}
+impl std::fmt::Debug for TlsIdentityPem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TlsIdentityPem").finish_non_exhaustive()
+    }
+}
+
+impl TlsConfig {
+    pub fn xhttp(server_name: String) -> Self {
+        Self {
+            server_name,
+            alpn: vec![b"h2".to_vec()],
+            tls13_only: true,
+            required_alpn: Some(b"h2".to_vec()),
+            certificate: Default::default(),
+            identity: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -401,6 +493,7 @@ pub struct RealityConfig {
     pub server_name: String,
     pub public_key: [u8; 32],
     pub short_id: Vec<u8>,
+    pub alpn: Vec<Vec<u8>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -698,42 +791,7 @@ enum RawOutbound {
         dialer_proxy: Option<String>,
     },
     #[serde(rename = "vless")]
-    Vless {
-        name: String,
-        server: String,
-        port: u16,
-        uuid: String,
-        #[serde(default)]
-        udp: bool,
-        tls: bool,
-        network: String,
-        #[serde(default)]
-        encryption: String,
-        #[serde(default)]
-        flow: String,
-        #[serde(default, deserialize_with = "deserialize_present_option")]
-        servername: Option<String>,
-        #[serde(default, deserialize_with = "deserialize_present_option")]
-        alpn: Option<Vec<String>>,
-        #[serde(
-            rename = "dialer-proxy",
-            default,
-            deserialize_with = "deserialize_present_option"
-        )]
-        dialer_proxy: Option<String>,
-        #[serde(
-            rename = "reality-opts",
-            default,
-            deserialize_with = "deserialize_present_option"
-        )]
-        reality_opts: Option<RawRealitySettings>,
-        #[serde(
-            rename = "xhttp-opts",
-            default,
-            deserialize_with = "deserialize_present_option"
-        )]
-        xhttp_opts: Option<RawXHttpSettings>,
-    },
+    Vless(vless::RawVless),
     #[serde(rename = "socks5")]
     Socks5 {
         name: String,
@@ -1568,39 +1626,7 @@ impl RawOutbound {
                 udp,
                 ProxyProtocol::Shadowsocks(shadowsocks::normalize(server, port, cipher, password)?),
             ),
-            Self::Vless {
-                name,
-                server,
-                port,
-                uuid,
-                udp,
-                tls,
-                network,
-                encryption,
-                flow,
-                servername,
-                alpn,
-                dialer_proxy,
-                reality_opts,
-                xhttp_opts,
-            } => (
-                name,
-                dialer_proxy,
-                udp,
-                ProxyProtocol::Vless(normalize_vless(
-                    server,
-                    port,
-                    uuid,
-                    tls,
-                    network,
-                    encryption,
-                    flow,
-                    servername,
-                    alpn,
-                    reality_opts,
-                    xhttp_opts,
-                )?),
-            ),
+            Self::Vless(raw) => raw.normalize()?,
             Self::Socks5 {
                 name,
                 server,
@@ -1655,65 +1681,6 @@ impl RawOutbound {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn normalize_vless(
-    server: String,
-    port: u16,
-    uuid: String,
-    tls: bool,
-    network: String,
-    encryption: String,
-    flow: String,
-    servername: Option<String>,
-    alpn: Option<Vec<String>>,
-    reality_opts: Option<RawRealitySettings>,
-    xhttp_opts: Option<RawXHttpSettings>,
-) -> Result<VlessOutboundConfig> {
-    validate_host(&server, "VLESS server")?;
-    validate_port(port, "VLESS")?;
-    let id = parse_standard_uuid(&uuid)?;
-    if !matches!(encryption.as_str(), "" | "none") {
-        return invalid("VLESS encryption must be empty or `none`");
-    }
-    if !flow.is_empty() {
-        return invalid("VLESS flow must be empty");
-    }
-    if !tls {
-        return invalid("VLESS tls must be true");
-    }
-    if network != "xhttp" {
-        return invalid("VLESS network must be `xhttp`");
-    }
-    if let Some(alpn) = alpn
-        && alpn.as_slice() != ["h2"]
-    {
-        return invalid("VLESS alpn must be [h2] when configured");
-    }
-    let server_name_is_explicit = servername.is_some();
-    let server_name = servername.unwrap_or_else(|| server.clone());
-    validate_host(&server_name, "VLESS servername")?;
-    let security = match reality_opts {
-        Some(reality) => SecurityConfig::Reality(reality.normalize(server_name)?),
-        None => SecurityConfig::Tls(TlsConfig { server_name }),
-    };
-    let xhttp = xhttp_opts.unwrap_or_default().normalize(
-        &server,
-        port,
-        server_name_is_explicit.then_some(security.server_name()),
-        security.server_name(),
-        &security,
-    )?;
-    Ok(VlessOutboundConfig {
-        address: server,
-        port,
-        id,
-        encryption: VlessEncryption::None,
-        flow,
-        security,
-        xhttp,
-    })
-}
-
 impl RawRealitySettings {
     fn normalize(self, server_name: String) -> Result<RealityConfig> {
         let decoded = URL_SAFE_NO_PAD
@@ -1741,6 +1708,7 @@ impl RawRealitySettings {
             server_name,
             public_key,
             short_id,
+            alpn: vec![b"h2".to_vec()],
         })
     }
 }
@@ -1963,6 +1931,7 @@ impl RawXHttpDownloadSettings {
             None => {
                 let mut security = default_security.clone();
                 match &mut security {
+                    SecurityConfig::None => return invalid("XHTTP requires TLS"),
                     SecurityConfig::Tls(config) => config.server_name = server_name,
                     SecurityConfig::Reality(config) => config.server_name = server_name,
                 }
@@ -2812,9 +2781,7 @@ proxies:
 
     fn first_xhttp_download(config: &Config) -> &XHttpDownloadConfig {
         first_vless(config)
-            .xhttp
-            .download
-            .as_deref()
+            .download()
             .expect("expected XHTTP download settings")
     }
 
@@ -2864,10 +2831,13 @@ proxies:
         assert_eq!(first_vless(&config).address, "203.0.113.1");
         assert!(matches!(
             &first_vless(&config).security,
-            SecurityConfig::Tls(TlsConfig { server_name }) if server_name == "example.com"
+            SecurityConfig::Tls(TlsConfig { server_name, .. }) if server_name == "example.com"
         ));
-        assert_eq!(first_vless(&config).xhttp.mode, XHttpMode::PacketUp);
-        assert!(first_vless(&config).xhttp.download.is_none());
+        assert_eq!(
+            first_vless(&config).xhttp().unwrap().mode,
+            XHttpMode::PacketUp
+        );
+        assert!(first_vless(&config).xhttp().unwrap().download.is_none());
     }
 
     #[test]
@@ -3047,9 +3017,12 @@ geo-update-interval: 24"#,
             );
         let config = Config::parse_yaml(yaml.as_bytes()).unwrap();
         assert_eq!(first_vless(&config).flow, "");
-        assert_eq!(first_vless(&config).xhttp.path, "/");
-        assert_eq!(first_vless(&config).xhttp.host, "example.com");
-        assert_eq!(first_vless(&config).xhttp.mode, XHttpMode::PacketUp);
+        assert_eq!(first_vless(&config).xhttp().unwrap().path, "/");
+        assert_eq!(first_vless(&config).xhttp().unwrap().host, "example.com");
+        assert_eq!(
+            first_vless(&config).xhttp().unwrap().mode,
+            XHttpMode::PacketUp
+        );
         assert!(matches!(
             config.inbounds[1],
             InboundConfig::Tun(TunInboundConfig { mtu: 1_500, .. })
@@ -3211,7 +3184,7 @@ geo-update-interval: 24"#,
             .replace("servername: example.com", "servername: '::1'")
             .replace("      host: example.com\n", "");
         let config = Config::parse_yaml(yaml.as_bytes()).unwrap();
-        assert_eq!(first_vless(&config).xhttp.host, "[::1]");
+        assert_eq!(first_vless(&config).xhttp().unwrap().host, "[::1]");
     }
 
     #[test]
@@ -3223,19 +3196,25 @@ geo-update-interval: 24"#,
         assert_eq!(reality.server_name, "example.com");
         assert_eq!(reality.public_key, [7_u8; 32]);
         assert_eq!(reality.short_id, [1, 0xa2]);
-        assert_eq!(first_vless(&config).xhttp.mode, XHttpMode::StreamOne);
+        assert_eq!(
+            first_vless(&config).xhttp().unwrap().mode,
+            XHttpMode::StreamOne
+        );
     }
 
     #[test]
     fn auto_mode_tracks_the_security_transport() {
         let tls = Config::parse_yaml(CURRENT_TLS.as_bytes()).unwrap();
-        assert_eq!(first_vless(&tls).xhttp.mode, XHttpMode::PacketUp);
+        assert_eq!(first_vless(&tls).xhttp().unwrap().mode, XHttpMode::PacketUp);
         let reality = Config::parse_yaml(reality_yaml().as_bytes()).unwrap();
-        assert_eq!(first_vless(&reality).xhttp.mode, XHttpMode::StreamOne);
+        assert_eq!(
+            first_vless(&reality).xhttp().unwrap().mode,
+            XHttpMode::StreamOne
+        );
         let reality_with_download = with_xhttp_download(&reality_yaml(), "");
         let reality_with_download = Config::parse_yaml(reality_with_download.as_bytes()).unwrap();
         assert_eq!(
-            first_vless(&reality_with_download).xhttp.mode,
+            first_vless(&reality_with_download).xhttp().unwrap().mode,
             XHttpMode::StreamUp
         );
     }
@@ -3244,13 +3223,22 @@ geo-update-interval: 24"#,
     fn accepts_explicit_supported_xhttp_modes() {
         let packet_up = CURRENT_TLS.replace("mode: auto", "mode: packet-up");
         let packet_up = Config::parse_yaml(packet_up.as_bytes()).unwrap();
-        assert_eq!(first_vless(&packet_up).xhttp.mode, XHttpMode::PacketUp);
+        assert_eq!(
+            first_vless(&packet_up).xhttp().unwrap().mode,
+            XHttpMode::PacketUp
+        );
         let stream_one = CURRENT_TLS.replace("mode: auto", "mode: stream-one");
         let stream_one = Config::parse_yaml(stream_one.as_bytes()).unwrap();
-        assert_eq!(first_vless(&stream_one).xhttp.mode, XHttpMode::StreamOne);
+        assert_eq!(
+            first_vless(&stream_one).xhttp().unwrap().mode,
+            XHttpMode::StreamOne
+        );
         let stream_up = CURRENT_TLS.replace("mode: auto", "mode: stream-up");
         let stream_up = Config::parse_yaml(stream_up.as_bytes()).unwrap();
-        assert_eq!(first_vless(&stream_up).xhttp.mode, XHttpMode::StreamUp);
+        assert_eq!(
+            first_vless(&stream_up).xhttp().unwrap().mode,
+            XHttpMode::StreamUp
+        );
 
         for (mode, expected) in [
             ("packet-up", XHttpMode::PacketUp),
@@ -3259,7 +3247,7 @@ geo-update-interval: 24"#,
             let yaml = with_xhttp_download(CURRENT_TLS, "")
                 .replace("mode: auto", &format!("mode: {mode}"));
             let config = Config::parse_yaml(yaml.as_bytes()).unwrap();
-            assert_eq!(first_vless(&config).xhttp.mode, expected);
+            assert_eq!(first_vless(&config).xhttp().unwrap().mode, expected);
         }
     }
 
@@ -3274,9 +3262,12 @@ geo-update-interval: 24"#,
         assert_eq!(download.host, "example.com");
         assert!(matches!(
             &download.security,
-            SecurityConfig::Tls(TlsConfig { server_name }) if server_name == "example.com"
+            SecurityConfig::Tls(TlsConfig { server_name, .. }) if server_name == "example.com"
         ));
-        assert_eq!(first_vless(&tls_inherited).xhttp.mode, XHttpMode::PacketUp);
+        assert_eq!(
+            first_vless(&tls_inherited).xhttp().unwrap().mode,
+            XHttpMode::PacketUp
+        );
 
         let download_reality_key = URL_SAFE_NO_PAD.encode([9_u8; 32]);
         let tls_to_reality = with_xhttp_download(
@@ -3304,7 +3295,10 @@ geo-update-interval: 24"#,
         assert_eq!(download_reality.server_name, "reality-download.example.com");
         assert_eq!(download_reality.public_key, [9_u8; 32]);
         assert_eq!(download_reality.short_id, [2, 0xa3]);
-        assert_eq!(first_vless(&tls_to_reality).xhttp.mode, XHttpMode::PacketUp);
+        assert_eq!(
+            first_vless(&tls_to_reality).xhttp().unwrap().mode,
+            XHttpMode::PacketUp
+        );
 
         let reality_inherited = with_xhttp_download(&reality_yaml(), "");
         let reality_inherited = Config::parse_yaml(reality_inherited.as_bytes()).unwrap();
@@ -3313,7 +3307,7 @@ geo-update-interval: 24"#,
             &first_vless(&reality_inherited).security
         );
         assert_eq!(
-            first_vless(&reality_inherited).xhttp.mode,
+            first_vless(&reality_inherited).xhttp().unwrap().mode,
             XHttpMode::StreamUp
         );
 
@@ -3330,7 +3324,10 @@ geo-update-interval: 24"#,
         };
         assert_eq!(download_reality.server_name, "tls-download.example.com");
         assert_eq!(
-            first_vless(&reality_with_explicit_tls).xhttp.mode,
+            first_vless(&reality_with_explicit_tls)
+                .xhttp()
+                .unwrap()
+                .mode,
             XHttpMode::StreamUp
         );
     }
@@ -4097,7 +4094,7 @@ authentication:
             CURRENT_TLS.replace("alpn: [h2]", "alpn: [http/1.1]"),
             CURRENT_TLS.replace(
                 "    alpn: [h2]",
-                "    alpn: [h2]\n    skip-cert-verify: false",
+                "    alpn: [h2]\n    skip-cert-verify: null",
             ),
             CURRENT_TLS.replace("    alpn: [h2]", "    alpn: [h2]\n    allowInsecure: true"),
             CURRENT_TLS.replace("path: /x", "path: '/bad path'"),

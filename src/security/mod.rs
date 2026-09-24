@@ -7,6 +7,8 @@ mod resumption;
 mod stream;
 mod tls;
 mod verifier;
+#[cfg(feature = "outbound-vless")]
+pub(crate) mod vision;
 
 #[cfg(feature = "outbound-vless")]
 pub use client::{REALITY_CLIENT_VERSION, SecurityClient};

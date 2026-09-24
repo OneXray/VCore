@@ -4,11 +4,11 @@
   <a href="../README.md">English</a> · <a href="./README.zh_CN.md">简体中文</a> · Русский
 </p>
 
-VCore — независимое клиентское прокси-ядро на Rust, не привязанное к конкретному хост-приложению. Через строгую YAML-конфигурацию и Invoke API v5 оно предоставляет граф прокси, статические группы `select`, DNS, правила маршрутизации, GeoData, HTTP/SOCKS5 listeners, плоскость данных TUN и loopback Controller. Внутренняя ревизия схемы конфигурации — 16; она присутствует только в ответе `version` и `buildIdentity`, но не записывается в YAML.
+VCore — независимое клиентское прокси-ядро на Rust, не привязанное к конкретному хост-приложению. Через строгую YAML-конфигурацию и Invoke API v5 оно предоставляет граф прокси, статические группы `select`, DNS, правила маршрутизации, GeoData, HTTP/SOCKS5 listeners, плоскость данных TUN и loopback Controller. Внутренняя ревизия схемы конфигурации — 17; она присутствует только в ответе `version` и `buildIdentity`, но не записывается в YAML.
 
 ## Возможности
 
-- Исходящие подключения: VLESS + XHTTP + TLS/REALITY, SOCKS5 CONNECT/UDP ASSOCIATE, AnyTLS TCP/UoT, Shadowsocks 2022, [Trojan TCP/UDP через TLS/WS/gRPC](../docs/trojan.md), [VMess AEAD через TCP/WS/gRPC/HTTP/H2](../docs/vmess.md) и DIRECT.
+- Исходящие подключения: [VLESS TCP/WS/gRPC/HTTP/H2/XHTTP, TLS/REALITY и Vision](../docs/vless.md), SOCKS5 CONNECT/UDP ASSOCIATE, AnyTLS TCP/UoT, Shadowsocks 2022, [Trojan TCP/UDP через TLS/WS/gRPC](../docs/trojan.md), [VMess AEAD через TCP/WS/gRPC/HTTP/H2](../docs/vmess.md) и DIRECT.
 - Цепочки прокси: `dialer-proxy` образует ориентированный ациклический граф произвольной длины. Если узел A указывает на B, физический путь имеет вид `client -> B -> A -> target`.
 - Группы прокси: статические группы `select` сохраняют порядок участников; участниками могут быть конкретные узлы, вложенные группы, `DIRECT` и `REJECT`. Выбор текущей session можно менять через Controller. `dialer-proxy` принимает узел или группу; DIRECT в группе верхнего уровня подключается к заранее разрешённому серверу текущего узла.
 - Маршрутизация: последовательно применяются `DOMAIN`, `DOMAIN-SUFFIX`, `DOMAIN-KEYWORD`, `GEOSITE`, `GEOIP`, `IP-CIDR`, `IP-CIDR6`, `DST-PORT`, `NETWORK` и завершающее правило `MATCH`.
@@ -113,6 +113,7 @@ TCP sessions, обычные UDP associations, half-open connections, outbound h
 - [AnyTLS outbound](../docs/anytls.md)
 - [Trojan outbound](../docs/trojan.md)
 - [VMess AEAD outbound](../docs/vmess.md)
+- [VLESS и Vision outbound](../docs/vless.md)
 - [Клиентский протокол REALITY V1](../docs/reality-wire-protocol.md)
 - [Зависимость rustls REALITY и требования к выпуску](../docs/rustls-reality-release.md)
 - [Runtime Controller](../docs/controller-api.md)

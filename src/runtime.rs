@@ -737,9 +737,7 @@ fn build_proxy_graph(
                 #[cfg(feature = "outbound-vless")]
                 {
                     let download_upstream = config
-                        .xhttp
-                        .download
-                        .as_ref()
+                        .download()
                         .map(|_| {
                             build_upstream_path(
                                 proxy.dialer_proxy,
@@ -900,7 +898,7 @@ async fn prepare_proxy_endpoints(
             let upload_address = proxy.address();
             let upload_port = proxy.port();
             let download = match &proxy.protocol {
-                ProxyProtocol::Vless(config) => config.xhttp.download.as_deref(),
+                ProxyProtocol::Vless(config) => config.download(),
                 ProxyProtocol::Socks5(_)
                 | ProxyProtocol::Trojan(_)
                 | ProxyProtocol::Vmess(_)
@@ -975,7 +973,7 @@ fn security_counts(proxies: &[ProxyConfig]) -> (usize, usize) {
         (0, 0),
         |(client_count, standard_count), proxy| match &proxy.protocol {
             ProxyProtocol::Vless(config) => {
-                let download = config.xhttp.download.as_deref();
+                let download = config.download();
                 (
                     client_count + 1 + usize::from(download.is_some()),
                     standard_count
@@ -1892,6 +1890,7 @@ rules:
                     server_name: "example.com".to_owned(),
                     public_key: [7; 32],
                     short_id: vec![1, 2, 3, 4],
+                    alpn: vec![b"h2".to_vec()],
                 });
             mixed_security.push(reality);
         }

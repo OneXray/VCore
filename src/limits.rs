@@ -3,6 +3,14 @@ use crate::{Result, VCoreError};
 /// Fairness bound for control/discard work in one poll or receive iteration.
 pub const IO_POLL_BUDGET: usize = 32;
 
+/// Per-object VLESS bounds, never business-flow admission limits.
+pub const VLESS_UDP_FRAME_BYTES: usize = 65537;
+pub const VISION_CONTENT_BYTES: usize = 8192 - 21;
+pub const VISION_TLS_RECORD_BYTES: usize = 18 * 1024;
+pub const VISION_HELLO_BYTES: usize = 65536;
+pub const GRPC_IDLE_CONNECTIONS: usize = 4;
+pub const GRPC_PING_TIMEOUT_SECONDS: usize = 15;
+
 /// Historical iOS TUN footprint target retained for best-effort telemetry.
 ///
 /// Crossing this value never changes a runtime lifecycle result.

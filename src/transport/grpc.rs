@@ -178,26 +178,16 @@ async fn connect(
     // Do not await response headers here: Mihomo may only flush them after the
     // first VLESS bytes. Request writing and response reading must be independent.
     Ok((
-        Box::new(Grpc {
-            _observation: crate::resources::observation::track(
-                crate::resources::observation::ResourceKind::Session,
-            ),
+        Box::new(Grpc::new(
+            response,
+            send,
             framing,
             half_close,
-            upload_closed: false,
-            response: Some(response),
-            receive: None,
-            send,
-            deadline: Box::pin(tokio::time::sleep_until(deadline)),
-            frame: Bytes::new(),
-            wire: BytesMut::new(),
-            payload: Bytes::new(),
-            queued: Bytes::new(),
-            eof: false,
-            data_eof: false,
+            deadline,
             close,
-            abort,
-        }),
+            Some(abort),
+            None,
+        )),
         owner,
     ))
 }
@@ -218,13 +208,51 @@ struct Grpc {
     eof: bool,
     data_eof: bool,
     close: Arc<Close>,
-    abort: AbortHandle,
+    abort: Option<AbortHandle>,
+    _lease: Option<super::grpc_pool::Lease>,
+}
+
+pub(super) async fn pooled_stream(
+    sender: h2::client::SendRequest<Bytes>,
+    uri: &str,
+    user_agent: &str,
+    deadline: Instant,
+    lease: super::grpc_pool::Lease,
+) -> io::Result<BoxStream> {
+    let request = http::Request::builder()
+        .method("POST")
+        .uri(uri)
+        .header("content-type", "application/grpc")
+        .header("te", "trailers")
+        .header("user-agent", user_agent)
+        .body(())
+        .map_err(|_| invalid())?;
+    let mut sender = timeout_at(deadline, sender.ready())
+        .await
+        .map_err(|_| io::Error::from(io::ErrorKind::TimedOut))?
+        .map_err(|_| io::Error::from(io::ErrorKind::ConnectionAborted))?;
+    let (response, send) = sender
+        .send_request(request, false)
+        .map_err(|_| io::Error::from(io::ErrorKind::ConnectionAborted))?;
+    Ok(Box::new(Grpc::new(
+        response,
+        send,
+        Framing::Gun,
+        false,
+        deadline,
+        Arc::default(),
+        None,
+        Some(lease),
+    )))
 }
 
 impl Drop for Grpc {
     fn drop(&mut self) {
         self.close.stop();
-        self.abort.abort();
+        self.send.send_reset(h2::Reason::CANCEL);
+        if let Some(abort) = &self.abort {
+            abort.abort();
+        }
     }
 }
 
@@ -233,7 +261,47 @@ fn invalid() -> io::Error {
 }
 
 impl Grpc {
+    fn stopped(&self) -> bool {
+        self.close.stopped.load(Ordering::SeqCst)
+            || self._lease.as_ref().is_some_and(|lease| lease.stopped())
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        response: ResponseFuture,
+        send: SendStream<Bytes>,
+        framing: Framing,
+        half_close: bool,
+        deadline: Instant,
+        close: Arc<Close>,
+        abort: Option<AbortHandle>,
+        lease: Option<super::grpc_pool::Lease>,
+    ) -> Self {
+        Self {
+            _observation: crate::resources::observation::track(
+                crate::resources::observation::ResourceKind::Session,
+            ),
+            framing,
+            half_close,
+            upload_closed: false,
+            response: Some(response),
+            receive: None,
+            send,
+            deadline: Box::pin(tokio::time::sleep_until(deadline)),
+            frame: Bytes::new(),
+            wire: BytesMut::new(),
+            payload: Bytes::new(),
+            queued: Bytes::new(),
+            eof: false,
+            data_eof: false,
+            close,
+            abort,
+            _lease: lease,
+        }
+    }
     fn drain(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        if self.stopped() {
+            return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
+        }
         for _ in 0..crate::limits::IO_POLL_BUDGET {
             if self.queued.is_empty() {
                 self.send.reserve_capacity(0);
@@ -299,7 +367,7 @@ impl AsyncRead for Grpc {
             return Poll::Ready(Ok(()));
         }
         this.close.reader.register(cx.waker());
-        if this.close.stopped.load(Ordering::SeqCst) || this.eof {
+        if this.stopped() || this.eof {
             return Poll::Ready(Ok(()));
         }
         if let Some(response) = &mut this.response {
@@ -418,7 +486,7 @@ impl AsyncWrite for Grpc {
         cx: &mut Context<'_>,
         input: &[u8],
     ) -> Poll<io::Result<usize>> {
-        if self.close.stopped.load(Ordering::SeqCst) || self.upload_closed {
+        if self.stopped() || self.upload_closed {
             return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
         }
         ready!(self.drain(cx))?;
@@ -459,14 +527,17 @@ impl AsyncWrite for Grpc {
             }
             return Poll::Ready(Ok(()));
         }
-        // Mihomo gun.Conn.Close and h2Conn.Close cancel the whole connection,
-        // not just HTTP/2 END_STREAM. The owner's stop is the join barrier.
+        // Close the logical byte stream. A pooled physical connection belongs
+        // to the node and must survive another stream's RST_STREAM.
         self.close.stop();
         self.send.send_reset(h2::Reason::CANCEL);
         self.response = None;
         self.receive = None;
         self.queued = Bytes::new();
-        self.abort.abort();
+        self._lease.take();
+        if let Some(abort) = &self.abort {
+            abort.abort();
+        }
         Poll::Ready(Ok(()))
     }
 }

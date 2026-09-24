@@ -48,7 +48,7 @@ Windows L3 接口及其 Session Host netstack 使用 1400 MTU，因此按 IPv6 U
 
 `stream-transport` 仅包装传入 IO，不创建 socket 或 DNS。WS/HTTP响应首部最多16 KiB、100字段；WS用户请求头最多100字段，额外固定升级头和early-data仍计入16 KiB总预算。WS early-data最多2,048原始字节，头名称/路径后缀由类型化选项区分。WS消息和单帧最多64 KiB，写入切块16 KiB；HTTP首包正文直接写入，不整体复制或持续按HTTP正文定界。
 
-共享gRPC/legacy H2每个实例仅拥有一条底层连接与一个逻辑流，不是连接池或全局并发许可。流窗口64 KiB、连接窗口128 KiB、最大HTTP/2帧和发送缓冲各16 KiB、解码负载64 KiB。读侧按实际消费量释放窗口；每poll最多处理32个片段/控制消息。原有gRPC和legacy H2的shutdown关闭整个逻辑连接；Trojan使用独立duplex模式，仅发送END_STREAM并保留读取。两种模式的owner.stop都等待驱动任务退出；Drop只做取消兜底，不作为同步停止通过证据。WS/HTTP按底层CloseWrite语义保留读方向。所有握手使用调用方同一个绝对deadline。
+共享的无池gRPC/legacy H2适配器每个实例仅拥有一条底层连接与一个逻辑流，不是全局并发许可；VLESS另有下文描述的节点级gRPC池。流窗口64 KiB、连接窗口128 KiB、最大HTTP/2帧和发送缓冲各16 KiB、解码负载64 KiB。读侧按实际消费量释放窗口；每poll最多处理32个片段/控制消息。原有gRPC和legacy H2的shutdown关闭整个逻辑连接；Trojan使用独立duplex模式，仅发送END_STREAM并保留读取。两种模式的owner.stop都等待驱动任务退出；Drop只做取消兜底，不作为同步停止通过证据。WS/HTTP适配器按底层CloseWrite语义工作，协议包装层可以根据Mihomo契约结束整个逻辑流。所有握手使用调用方同一个绝对deadline。
 
 XUDP现在只拥有已认证流上的帧编码；VLESS响应头由VLESS包装层处理。元数据仍最多512字节，单payload仍受调用方预算和u16 wire上限约束，不新增全局会话额度。
 
@@ -59,6 +59,14 @@ Trojan 原生 UDP 每关联仅持有一个流和最多 8455 字节待解析数�
 ## VMess 出站
 
 VMess AEAD 的 TCP 写分片最多 4 KiB，UDP 完整 body 最多 15,000 字节，wire 解析最多 16 KiB。packetaddr 从 body 中另扣 IPv4 7 / IPv6 19 字节地址开销；XUDP 独立元数据最多 512 字节，收发与调用方预算分别取交集。没有协议内 UDP socket 或连接池；gRPC/H2 driver 由节点跟踪并同步 join，半帧发送取消立即关闭 IO，增量读取保留状态。16 位加密帧计数耗尽前关闭，不能重复 nonce。完整语义见 [VMess](vmess.md)。
+
+## VLESS 出站
+
+VLESS gRPC 按节点拥有物理池，每条连接一个有界 H2 驱动、每个调用一个有原期限的等待 future，不新增固定业务流/握手数量上限。仅空闲缓存最多保留 4 条连接，退役不影响活动流；逻辑流关闭只取消自己。PING 为每物理连接串行单个在途请求（ACK 期限 15 秒），Stop 取消并 join 所有驱动，不能用 Drop 代替停止屏障。
+
+raw/packetaddr 每关联一个已建流，接收 wire 上限 65,537 字节；packetaddr 从 u16 body 上限另扣 IPv4 7 / IPv6 19 字节。发送取消关闭 IO，接收取消保留解析状态；每 32 个超调用方预算包让出执行权。首次发送与响应头沿用原建链期限；无独立 UDP socket、系统解析或全局额度。XUDP 保持共享帧层，具体关闭与目标语义见 [VLESS](vless.md)。
+
+Vision 每次接受的内容最多 8,171 字节，发送队列最多一帧；外层单 TLS 记录最多 18 KiB，内层 hello 分类保留最多 64 KiB，超限关闭外层或停止内层分类。接收 padding 按 1 KiB 暂存逐段丢弃，每 poll 最多 32 步。读写 direct 切换分别保留 TLS 明文/裸流边界和 flush 顺序；Stop 不留下后台读取泵。局部常量在 `tests/protocols/limits.json` 绑定生产值及定向验收。
 
 ## HTTP 代理入站
 

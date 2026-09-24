@@ -10,7 +10,8 @@ pub const STREAM_BUFFER_BYTES: usize = 64 * 1024;
 mod ws;
 #[cfg(feature = "stream-transport")]
 pub use ws::{
-    MAX_EARLY_DATA_BYTES, WebSocketEarlyData, WebSocketOptions, connect_websocket, websocket,
+    MAX_EARLY_DATA_BYTES, WebSocketEarlyData, WebSocketOptions, connect_websocket, http_upgrade,
+    websocket,
 };
 
 #[cfg(feature = "stream-transport")]
@@ -21,7 +22,11 @@ pub use http_head::{HTTP_HEAD_BYTES, HTTP_HEADER_COUNT};
 #[cfg(feature = "stream-transport")]
 mod grpc;
 #[cfg(feature = "stream-transport")]
+mod grpc_pool;
+#[cfg(feature = "stream-transport")]
 pub use grpc::{Driver as StreamDriver, grpc, grpc_duplex, legacy_h2};
+#[cfg(feature = "stream-transport")]
+pub use grpc_pool::GrpcPool;
 
 #[cfg(feature = "stream-transport")]
 mod http_obfs;

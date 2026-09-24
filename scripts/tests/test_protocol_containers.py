@@ -16,6 +16,20 @@ from vcore_scripts.protocol_vmess_udp_container import client_config
 
 
 class ContainerTests(unittest.TestCase):
+    def test_long_roles_keep_bounded_distinct_owned_container_names(self):
+        lab = SimpleNamespace(run_id="0123456789ab")
+        roles = [
+            "xhttp-stream-up-download-reality-tls-origin",
+            "xhttp-stream-up-download-reality-tls-server",
+            "xhttp-stream-up-download-reality-tls-upstream",
+        ]
+        peers = [ContainerPeer(lab, Path("fixture"), role) for role in roles]
+        self.assertEqual(len({peer.name for peer in peers}), len(roles))
+        for peer, role in zip(peers, roles, strict=True):
+            self.assertLessEqual(len(peer.name), 63)
+            self.assertIn(lab.run_id, peer.name)
+            self.assertEqual(peer.record["role"], role)
+
     def test_non_private_network_fails_before_image_or_launch(self):
         network = dict(configuration=dict(mode="shared", labels={"purpose": NETWORK}))
         with (

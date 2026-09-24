@@ -4,7 +4,7 @@
 
 ## 公共契约
 
-1. [配置协议](config.yaml)：配置修订版 15 的完整 YAML 示例、静态 `select` 代理组及组上游和严格字段边界。
+1. [配置协议](config.yaml)：配置修订版 17 的完整 YAML 示例、静态 `select` 代理组及组上游和严格字段边界。
 2. [Invoke API](invoke-api.md)：API v5 的请求格式、生命周期和平台回调。
 3. [AnyTLS 出站](anytls.md)：TLS、会话复用、填充、TCP/UoT 和清理语义。
 4. [REALITY V1 协议](reality-wire-protocol.md)：握手、认证、连接状态和失败边界。
@@ -16,6 +16,8 @@
 10. [SOCKS5 代理入站](socks5-proxy.md)：CONNECT、授权 UDP 关联、双栈与同端口监听、来源隔离和回收。
 11. [Shadowsocks 2022 出站](shadowsocks.md)：官方依赖、配置/IO 适配、AWS-LC 局部例外、已知风险与未完成互通门槛。
 12. [Trojan 出站](trojan.md)：TLS/WS/gRPC、原生 UDP、有界 framing、半关闭及同步回收。
+13. [VMess AEAD 出站](vmess.md)：AEAD、五种流传输、UDP 编码、公开接线及同步回收。
+14. [VLESS 与 Vision 出站](vless.md)：六种流传输、TLS/mTLS/经典 REALITY、Vision、gRPC 池、UDP 编码及关闭语义。
 
 ## 平台与运行架构
 
