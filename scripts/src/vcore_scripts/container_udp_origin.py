@@ -16,6 +16,7 @@ import ssl
 import struct
 import sys
 import threading
+import time
 
 CAPACITY = 20000
 SLOTS = threading.BoundedSemaphore(8)
@@ -110,7 +111,7 @@ def serve(control):
             if family and (family[0] & 0x7F) in (*range(10, 17), 18):
                 serve_tcp(control, family[0] & 0x7F, bool(family[0] & 0x80))
                 return
-            if family not in (b"\x04", b"\x06", b"\x11"):
+            if family not in (b"\x04", b"\x06", b"\x11", b"\x13", b"\x14"):
                 return
             ipv6 = family == b"\x06"
             with socket.socket(
@@ -120,17 +121,44 @@ def serve(control):
                     udp.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
                 udp.bind(("::" if ipv6 else "0.0.0.0", 0))
                 control.sendall(struct.pack("!H", udp.getsockname()[1]))
+                peer_ipv4 = (
+                    socket.inet_ntop(socket.AF_INET, receive_exact(control, 4))
+                    if family == b"\x13"
+                    else None
+                )
+                seen = False
+                dns = family in (b"\x11", b"\x13")
+                dns_deadline = time.monotonic() + 240
                 for _ in range(20000):
-                    ready, _, _ = select.select([control, udp], [], [], 30)
-                    if not ready or control in ready:
+                    wait = (
+                        min(30, max(0, dns_deadline - time.monotonic())) if dns else 30
+                    )
+                    if not wait:
+                        return
+                    ready, _, _ = select.select([control, udp], [], [], wait)
+                    if control in ready:
                         return  # EOF/cancel closes this association's UDP socket.
+                    if not ready:
+                        if dns:
+                            # Runtime-owned DNS can be quiet during TCP or an
+                            # IP-only UDP phase. Keep it until control closes,
+                            # within the same bounded 240-second fixture lifetime.
+                            continue
+                        return
                     packet, source = udp.recvfrom(CAPACITY + 1)
                     if len(packet) > CAPACITY:
                         return
+                    if family == b"\x14":
+                        # A native origin blackhole, not a protocol peer. Report
+                        # only first receipt; all handshake bytes are discarded.
+                        if not seen:
+                            control.sendall(b"A")
+                            seen = True
+                        continue
                     control.sendall(struct.pack("!HH", len(packet), source[1]) + packet)
                     response = (
-                        dns_response(packet, control.getsockname()[0])
-                        if family == b"\x11"
+                        dns_response(packet, control.getsockname()[0], peer_ipv4)
+                        if family in (b"\x11", b"\x13")
                         else packet
                     )
                     if udp.sendto(response, source) != len(response):
@@ -142,9 +170,12 @@ def serve(control):
         SLOTS.release()
 
 
-def dns_response(packet, ipv4):
+def dns_response(packet, ipv4, peer_ipv4=None):
     """Only the synthetic business name is answerable; never system DNS."""
     question = b"\x0dvcore-fixture\x04test\x00"
+    peer_question = b"\x04peer\x07fixture\x04test\x00"
+    if peer_ipv4 and packet[12 : 12 + len(peer_question)] == peer_question:
+        question, ipv4 = peer_question, peer_ipv4
     if (
         len(packet) < 12 + len(question) + 4
         or packet[12 : 12 + len(question)] != question

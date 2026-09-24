@@ -68,6 +68,18 @@ raw/packetaddr 每关联一个已建流，接收 wire 上限 65,537 字节；pac
 
 Vision 每次接受的内容最多 8,171 字节，发送队列最多一帧；外层单 TLS 记录最多 18 KiB，内层 hello 分类保留最多 64 KiB，超限关闭外层或停止内层分类。接收 padding 按 1 KiB 暂存逐段丢弃，每 poll 最多 32 步。读写 direct 切换分别保留 TLS 明文/裸流边界和 flush 顺序；Stop 不留下后台读取泵。局部常量在 `tests/protocols/limits.json` 绑定生产值及定向验收。
 
+### XHTTP / sing-mux
+
+XHTTP 自定义头最多 100 项 / 8 KiB，生成后的请求最多 128 项 / 16 KiB。POST 配置上限为 16 MiB，但实际按固定上传块处理，不能按该上限为每条连接预分配。每节点池最多保留 64 个空闲 transport；H1 每条候选最多保留 4 个可复用上传 socket，取消的下载 GET 不回池。退役只停止新分配，不关闭已取得 lease 的逻辑流；主、下载腿分别持有池与安全策略。
+
+packet-up 的聚合驱动最多保留一个待发送批次和一个在途批次，每批 64 KiB 且不超过采样的 POST 上限；HTTP 线编码另受自身预算约束。缓冲满时给写侧背压，flush 只确认已获 POST 响应的字节。每逻辑连接一个节点所有的计时器/上传任务，Drop 取消、Stop 同步 join；shutdown 跳过正常聚合等待但不绕过一秒待决上传关闭上限。
+
+H3 每连接接收窗口 128 KiB、每流 64 KiB、发送窗口 64 KiB，最多接收 8 条单向协议控制流，拒绝对端主动双向流；禁用 QUIC DATAGRAM 与 PMTUD。外层数据报请求预算 1400 字节，实际可用值与上游取交集，低于 1200 字节在发送前拒绝。默认保活 10 秒，空闲超时 300 秒。关闭先保留至多 1 秒 QUIC 关闭交换，再取消并 join Quinn 内部任务，最后关闭受控数据报，不以 Drop 充当屏障。
+
+sing-mux 空闲会话缓存最多 16 条；smux 写队列 16 项、每写块 16 KiB，每逻辑流接收队列 4 项、每帧最多 u16 长度。关闭通知使用合并唤醒，不增加无界控制队列。yamux 使用官方库与自有驱动：命令队列 16 项，每物理连接接收窗口预算 16 MiB，每次写切块 16 KiB。单条 yamux 物理连接累计分配 64 个流后停止新分配，已有流继续，空闲即回收；新请求使用新连接，不构成全节点业务上限。这避免“逻辑 lease 已释放但库尚未处理 reset”时触发官方库的整连接 TooManyStreams 关闭。h2mux 默认空闲 PING 30 秒、ACK 等待 15 秒。
+
+sing-mux padding 只包装最初 16 次写入；解析头固定 4 字节，数据分段读取、padding 用 1 KiB scratch 丢弃。单流取消释放自己的 IO，节点 Stop 取消全部协议驱动并同步等待；public runtime Stop 与 owned outbound Stop 分别验收。字段与线格式见 [XHTTP 与 sing-mux](xhttp.md)。
+
 ## HTTP 代理入站
 
 HTTP 代理入站不是 TUN 转发缓冲区的使用者：请求 / 响应各使用 8 KiB 预读与复制缓冲区，头部 32 KiB / 100 字段、chunk 行 1 KiB、trailer 8 KiB / 100 字段。正文不整体缓存，不设全局业务连接准入数；先绑定后启动，Stop 取消并等待所有入站连接任务。读头、正文空闲和临时响应数量边界见 [HTTP 代理入站](http-proxy.md)。

@@ -184,6 +184,10 @@ def load_manifest(path: Path = CATALOG_DIR / "cases.json") -> list[dict]:
 
     if [case for case in cases if case["stage"] == "N4"] != vless_definitions():
         raise ValueError("N4 frozen required cases or metadata changed")
+    from .protocol_xhttp_acceptance import definitions as xhttp_definitions
+
+    if [case for case in cases if case["stage"] == "N5"] != xhttp_definitions():
+        raise ValueError("N5 frozen required cases or metadata changed")
     return cases
 
 
@@ -276,7 +280,7 @@ def validate_results(required: list[dict], results: list[dict]) -> None:
             or result.get("scope")
             != (
                 "protocol-consumer"
-                if case["stage"] in {"N2", "N3", "N4"}
+                if case["stage"] in {"N2", "N3", "N4", "N5"}
                 else "foundation-only"
             )
         ):
@@ -322,7 +326,7 @@ def new_result(case: dict) -> dict:
         "row_ids": case["row_ids"],
         "peer_kind": case["peer_kind"],
         "scope": "protocol-consumer"
-        if case["stage"] in {"N2", "N3", "N4"}
+        if case["stage"] in {"N2", "N3", "N4", "N5"}
         else "foundation-only",
         "status": "NOT RUN",
         "assertions": {},
@@ -376,13 +380,15 @@ def check_run(
     paths = [entry["path"] for entry in artifacts]
     if len(paths) != len(set(paths)):
         raise ValueError("duplicate evidence artifact")
-    if stage in {"N2", "N3", "N4"}:
+    if stage in {"N2", "N3", "N4", "N5"}:
         if stage == "N2":
             from .protocol_trojan_acceptance import check
         elif stage == "N3":
             from .protocol_vmess_acceptance import check
-        else:
+        elif stage == "N4":
             from .protocol_vless_acceptance import check
+        else:
+            from .protocol_xhttp_acceptance import check
 
         for evidence in artifacts:
             artifact(run_dir, evidence["path"], evidence["sha256"])

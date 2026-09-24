@@ -37,7 +37,8 @@ outbound protocols:
   executable case** and its array dimensions are not permission to generate
   unsupported Cartesian products.
 - `cases.json`: frozen executable cases for N1 foundations (21 groups), N2
-  Trojan (41 groups), N3 VMess (117 groups) and N4 VLESS (145 groups), with assertion names, field
+  Trojan (41 groups), N3 VMess (117 groups), N4 VLESS (145 groups), and N5
+  XHTTP/sing-mux (416 groups), with assertion names, field
   associations, official peers, input dimensions and required evidence.
 - `limits.json`: shared per-object limits and executable boundary case IDs;
   `limit_foundations` compares the registered numbers with Rust constants.
@@ -123,7 +124,10 @@ inherit VMess acceptance.
   domain resolution and actual peer buffer limits. The existence of V2Ray's
   magic-destination wrapper alone still proves no other protocol combination.
 - No packetaddr magic-destination decoder was identified in the researched
-  Xray source. XHTTP H3 plus packetaddr remains a required unresolved combination.
+  Xray source. N5 explicitly layers official Xray XHTTP over a separate Mihomo
+  VLESS decoder for packetaddr and sing-mux; this does not claim direct Xray
+  decoder support. H3 client identity checks use the approved xcaddy-built Caddy
+  gateway, with both legs reaching the same native Xray XHTTP handler.
 - A working H3 handshake does not demonstrate all XHTTP leaf extensions,
   sing-mux, or independent download-leg inheritance/security combinations.
 - Advanced wrappers on native-only transports and cross-security/cross-version
@@ -163,7 +167,7 @@ uv run --project scripts --locked vcore-scripts check protocol-interop --stage N
 uv run --project scripts --locked vcore-scripts check protocol-coverage --stage N3 --run-dir target/interop/runs/<run-id>
 ```
 
-N3 and N4 are container-only stage runners; all peers, origins and upstream
+N3, N4, and N5 are container-only stage runners; all peers, origins and upstream
 listeners follow the [isolation rule](../../docs/testing-isolation.md). Historical
 N1/N2 catalogs and reports remain available, but their server runners are not
 fully migrated and must not be rerun on the host. `--case` (repeatable) and
@@ -192,6 +196,21 @@ same-combination differential result; base/negative cases independently exercise
 the real WS + REALITY listener.
 Existing XHTTP three-mode and split-download regressions are included; N5 new
 XHTTP branches and N7 advanced security remain separate, unclaimed gates.
+
+Replace `--stage N3` with `--stage N5` for XHTTP/sing-mux: 406 native/public
+cases, seven local gates, and three security groups covering 57 field rows.
+The security groups contain 112 identity/inheritance cases; do not add their
+internal count to the 416 required groups. HTTP versions, modes, ordinary
+security, finite request enums, explicit download legs, and three mux wire
+protocols have frozen consumers. Independent tuning uses pairwise coverage,
+not an unconstrained Cartesian product. Thirty-five close cases use the same
+mode's official Mihomo reference. Six representative topologies each run 20
+public lifecycle and 20 owned-resource cycles, checking idle resources at Stop
+return and at least five seconds of subsequent quiet. Independent upload and
+download handshake cancellation is observed separately before and after Stop.
+The N5 preflight downloads current M/XR/V2 binaries and builds the approved
+Caddy gateway, checking versions inside owned containers without business
+traffic. Advanced security and full VLESS acceptance still require N7.
 
 N1's historical 21 required groups include configuration/limit/TLS/stream/XUDP/datagram/
 QUIC/resolution/resource assertions, nine native stream cases, the existing

@@ -178,6 +178,14 @@ impl VlessStream {
             }
             self.request_header_written += written;
         }
+        // Complete the handshake's write ownership before handing the supplied
+        // transport to payload writes or reads. A read-side flush must never
+        // consume the completion of a concurrently pending packet-up write:
+        // its writer would then replay bytes whose acknowledgement was lost.
+        if !self.request_header_flushed {
+            std::task::ready!(Pin::new(self.inner.as_mut().expect("checked open")).poll_flush(cx))?;
+            self.request_header_flushed = true;
+        }
         Poll::Ready(Ok(()))
     }
 
@@ -230,16 +238,6 @@ impl AsyncRead for VlessStream {
                 Poll::Pending => return Poll::Pending,
                 Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
                 Poll::Ready(Ok(())) => {}
-            }
-            // Framed adapters may accept a write into their bounded queue.
-            // Server-first protocols need the request on the wire before a
-            // response read, even if the application never writes payload.
-            if !self.request_header_flushed {
-                match Pin::new(self.inner.as_mut().expect("checked open")).poll_flush(cx) {
-                    Poll::Pending => return Poll::Pending,
-                    Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
-                    Poll::Ready(Ok(())) => self.request_header_flushed = true,
-                }
             }
             match self.poll_response_header(cx) {
                 Poll::Pending => return Poll::Pending,

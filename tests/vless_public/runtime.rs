@@ -3,7 +3,7 @@ use super::*;
 #[test]
 #[ignore = "isolated N4 runner"]
 fn public_udp_isolation() {
-    let _case = Case::new("N4-PUBLIC", "runtime::public_udp_isolation");
+    let _case = Case::start("N4-PUBLIC", "runtime::public_udp_isolation");
     let f = fixture();
     initialize(&f);
     let port = free_port();
@@ -42,7 +42,9 @@ fn public_udp_isolation() {
         packet.extend(address(other.target, false));
         packet.extend(b"other-target");
         second.client.send_to(&packet, second.relay).unwrap();
-        if codec == "none" {
+        if codec == "none"
+            && !(f["node"]["smux"]["enabled"] == true && f["node"]["smux"]["only-tcp"] != true)
+        {
             other.quiet();
         } else {
             other.udp(b"other-target");
@@ -60,7 +62,7 @@ fn public_udp_isolation() {
 #[ignore = "isolated N4 runner"]
 fn public_entrypoints() {
     use std::os::{fd::AsRawFd, unix::net::UnixDatagram};
-    let _case = Case::new("N4-PUBLIC", "runtime::public_entrypoints");
+    let _case = Case::start("N4-PUBLIC", "runtime::public_entrypoints");
     let f = fixture();
     initialize(&f);
     let port = free_port();
@@ -190,17 +192,17 @@ fn exchange(client: &mut TcpStream, bytes: &[u8]) {
 #[test]
 #[ignore = "isolated N4 runner"]
 fn public_lifecycle() {
-    let _case = Case::new("N4-PUBLIC", "runtime::public_lifecycle");
+    let _case = Case::start("N4-PUBLIC", "runtime::public_lifecycle");
     let f = fixture();
     initialize(&f);
     Core::start(&config(f["node"].clone(), free_port())).stop();
     for cycle in 0..20 {
-        let _cycle = Case::new("N4-LIFE", "stop_and_remain_quiet");
+        let _cycle = Case::start("N4-LIFE", "stop_and_remain_quiet");
         let baseline = fd_count();
         let port = free_port();
         let mut held = None;
         let mut udp = None;
-        let mut blackhole = None;
+        let mut blackholes = Vec::new();
         match cycle % 5 {
             0 => {
                 let core = Core::start(&config(f["node"].clone(), port));
@@ -218,21 +220,42 @@ fn public_lifecycle() {
                 drop(occupied);
             }
             2 => {
-                let mut origin = Origin::new(&f, 15, false);
+                let h3 = f["node"]["alpn"] == json!(["h3"]);
+                let origin = Origin::new(&f, if h3 { 20 } else { 15 }, false);
                 let mut node = f["node"].clone();
                 node["server"] = json!(origin.target.ip().to_string());
                 node["port"] = json!(origin.target.port());
+                let target = origin.target;
+                blackholes.push((origin, h3));
+                // Explicit XHTTP legs start concurrently. Give each its own
+                // observer: the serial TCP blackhole otherwise reports the
+                // second queued accept only after the first connection closes.
+                if node["network"] == "xhttp" && node["xhttp-opts"]["download-settings"].is_object()
+                {
+                    let download = &mut node["xhttp-opts"]["download-settings"];
+                    let down_h3 = download.get("alpn").map_or(h3, |v| *v == json!(["h3"]));
+                    let origin = Origin::new(&f, if down_h3 { 20 } else { 15 }, false);
+                    download["server"] = json!(origin.target.ip().to_string());
+                    download["port"] = json!(origin.target.port());
+                    blackholes.push((origin, down_h3));
+                }
                 let core = Core::start(&config(node, port));
                 let mut client = login(port);
                 let mut request = vec![5, 1, 0];
-                request.extend(address(origin.target, false));
+                request.extend(address(target, false));
                 client.write_all(&request).unwrap();
-                origin.marker(b'A');
+                // Prove every physical handshake is in flight before Stop.
+                for (origin, _) in &mut blackholes {
+                    origin.marker(b'A');
+                }
                 core.stop();
                 let _ = client.read(&mut [0; 32]);
                 drop(client);
-                origin.marker(b'D');
-                blackhole = Some(origin);
+                for (origin, quic) in &mut blackholes {
+                    if !*quic {
+                        origin.marker(b'D');
+                    }
+                }
             }
             _ => {
                 let core = Core::start(&config(f["node"].clone(), port));
@@ -260,9 +283,8 @@ fn public_lifecycle() {
         }
         // All retained descriptors belong to the test, never the runtime. Check
         // immediately on Stop return, not after giving cleanup a grace period.
-        let retained = usize::from(held.is_some()) * 2
-            + usize::from(udp.is_some()) * 6
-            + usize::from(blackhole.is_some());
+        let retained =
+            usize::from(held.is_some()) * 2 + usize::from(udp.is_some()) * 6 + blackholes.len();
         assert!(
             fd_count() <= baseline + retained,
             "descriptors retained at Stop return"
@@ -286,16 +308,18 @@ fn public_lifecycle() {
                     );
                 }
             }
-            if let Some(origin) = &mut blackhole {
+            for (origin, _) in &mut blackholes {
                 origin.observer.set_nonblocking(true).unwrap();
-                assert_eq!(
-                    origin.observer.read(&mut [0]).unwrap_err().kind(),
-                    io::ErrorKind::WouldBlock
+                let mut marker = [0; 2];
+                let result = origin.observer.read(&mut marker);
+                assert!(
+                    matches!(&result, Err(error) if error.kind() == io::ErrorKind::WouldBlock),
+                    "blackhole event after Stop: {result:?}, {marker:?}"
                 );
             }
             thread::sleep(Duration::from_millis(25));
         }
-        drop((held, udp, blackhole, tcp, udp_guard));
+        drop((held, udp, blackholes, tcp, udp_guard));
         assert!(fd_count() <= baseline);
     }
 }
@@ -312,7 +336,7 @@ fn select(controller: u16, name: &str) {
 #[test]
 #[ignore = "isolated N4 runner"]
 fn grpc_pool_keeps_physical_selection_until_new_transport() {
-    let _case = Case::new(
+    let _case = Case::start(
         "N4-PUBLIC",
         "runtime::grpc_pool_keeps_physical_selection_until_new_transport",
     );
@@ -333,8 +357,31 @@ fn grpc_pool_keeps_physical_selection_until_new_transport() {
     let core = Core::start(&yaml);
     let (mut old, mut origin) = live(port, &f);
     select(controller, "REJECT");
-    // Default max-connections=1 keeps the original authenticated physical hop.
-    echo(port, &f);
+    if f["node"]["network"] == "xhttp"
+        && f["node"]["alpn"] == json!(["http/1.1"])
+        && f["node"]["smux"]["enabled"] != true
+    {
+        // H1 can recycle a completed POST, but an active download GET cannot
+        // carry another logical session. Its new physical connection must see
+        // the new REJECT selection; the old session keeps its original path.
+        let mut unused = Origin::new(&f, 13, false);
+        let mut denied = login(port);
+        let mut request = vec![5, 1, 0];
+        request.extend(address(unused.target, false));
+        denied.write_all(&request).unwrap();
+        let mut reply = [0; 10];
+        denied.read_exact(&mut reply).unwrap();
+        if reply[1] == 0 {
+            // A lazily opened XHTTP request can report its failure after the
+            // local SOCKS handshake, but must never reach the target.
+            denied.write_all(b"must-not-reach-origin").unwrap();
+            assert_closed(&mut denied);
+        }
+        unused.quiet();
+    } else {
+        // Multiplexed transports can reuse the original authenticated hop.
+        echo(port, &f);
+    }
     exchange(&mut old, b"same-transport");
     core.stop();
     assert_closed(&mut old);
@@ -343,7 +390,7 @@ fn grpc_pool_keeps_physical_selection_until_new_transport() {
 #[test]
 #[ignore = "isolated N4 runner"]
 fn public_graph() {
-    let _case = Case::new("N4-PUBLIC", "runtime::public_graph");
+    let _case = Case::start("N4-PUBLIC", "runtime::public_graph");
     let f = fixture();
     initialize(&f);
     let port = free_port();
@@ -355,9 +402,33 @@ fn public_graph() {
         node["grpc-opts"]["max-connections"] = json!(0);
         node["grpc-opts"]["max-streams"] = json!(1);
     }
+    if node["network"] == "xhttp" {
+        node["xhttp-opts"]["reuse-settings"] = json!({"h-max-request-times":"1"});
+        if node["xhttp-opts"]["download-settings"].is_object() {
+            node["xhttp-opts"]["download-settings"]["reuse-settings"] =
+                json!({"h-max-request-times":"1"});
+        }
+    }
+    if node["smux"]["enabled"] == true {
+        node["smux"]["max-connections"] = json!(0);
+        node["smux"]["max-streams"] = json!(1);
+    }
     node["dialer-proxy"] = json!("hop");
     node["server"] = json!("peer.fixture.test");
     let mut yaml = config(node.clone(), port);
+    let mut dns_origin = Origin::new(&f, 19, false);
+    dns_origin
+        .observer
+        .write_all(
+            &f["node"]["server"]
+                .as_str()
+                .unwrap()
+                .parse::<Ipv4Addr>()
+                .unwrap()
+                .octets(),
+        )
+        .unwrap();
+    dns(&mut yaml, &dns_origin, "DIRECT");
     yaml["proxies"]
         .as_array_mut()
         .unwrap()
@@ -428,7 +499,7 @@ fn public_graph() {
 #[test]
 #[ignore = "isolated N4 runner"]
 fn public_ipv6_and_gates() {
-    let _case = Case::new("N4-PUBLIC", "runtime::public_ipv6_and_gates");
+    let _case = Case::start("N4-PUBLIC", "runtime::public_ipv6_and_gates");
     let f = fixture();
     initialize(&f);
     let port = free_port();
@@ -476,7 +547,7 @@ async fn owned_resources() {
         resources::observation::{ResourceKind, ResourceProbe},
         session::{Datagram, DatagramSession, InboundKind, StreamSession},
     };
-    let _case = Case::new("N4-PUBLIC", "runtime::owned_resources");
+    let _case = Case::start("N4-PUBLIC", "runtime::owned_resources");
     let f = fixture();
     let parsed =
         Config::parse_yaml(config(f["node"].clone(), 1080).to_string().as_bytes()).unwrap();
@@ -484,7 +555,7 @@ async fn owned_resources() {
         unreachable!()
     };
     for _ in 0..20 {
-        let mut case = Case::new("N4-OWNED", "stop_and_remain_quiet");
+        let mut case = Case::start("N4-OWNED", "stop_and_remain_quiet");
         let probe = ResourceProbe::default();
         case.checkpoint("baseline", probe.snapshot());
         probe

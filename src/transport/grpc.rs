@@ -256,6 +256,31 @@ impl Drop for Grpc {
     }
 }
 
+/// sing-mux uses plain HTTP/2 CONNECT streams, not gRPC records.
+#[cfg(feature = "outbound-vless")]
+pub(super) async fn mux_stream(
+    sender: h2::client::SendRequest<Bytes>,
+    deadline: Instant,
+) -> io::Result<BoxStream> {
+    let mut sender = sender.ready().await.map_err(|_| invalid())?;
+    let request = http::Request::builder()
+        .method("CONNECT")
+        .uri("https://localhost")
+        .body(())
+        .map_err(|_| invalid())?;
+    let (response, send) = sender.send_request(request, false).map_err(|_| invalid())?;
+    Ok(Box::new(Grpc::new(
+        response,
+        send,
+        Framing::Plain,
+        false,
+        deadline,
+        Arc::default(),
+        None,
+        None,
+    )))
+}
+
 fn invalid() -> io::Error {
     io::ErrorKind::InvalidData.into()
 }

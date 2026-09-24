@@ -127,6 +127,17 @@ impl std::fmt::Debug for StandardTlsClient {
 }
 
 impl StandardTlsClient {
+    #[cfg(feature = "outbound-vless")]
+    pub(crate) fn quic_config(&self) -> io::Result<(Arc<ClientConfig>, String)> {
+        if self.required_alpn.as_deref() != Some(b"h3") {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "QUIC requires an HTTP/3 TLS policy",
+            ));
+        }
+        Ok((self.connector.config().clone(), self.server_name.clone()))
+    }
+
     #[cfg(test)]
     pub(crate) fn new(
         context: &SecurityContext,

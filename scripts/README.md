@@ -60,6 +60,21 @@ uv run --project scripts --locked ruff format --check scripts
 
 ### 协议声明清单
 
+N5 前置原生能力诊断（不是阶段签收）另有以下入口，输出目录必须是本仓库 `target/interop/runs/` 下尚不存在的直接子目录：
+
+```sh
+uv run --project scripts --locked vcore-scripts check xhttp-peers --run-dir target/interop/runs/<fresh-run>
+uv run --project scripts --locked vcore-scripts check xhttp-peers --identities-only --run-dir target/interop/runs/<fresh-identity-run>
+uv run --project scripts --locked vcore-scripts check xhttp-gateway --run-dir target/interop/runs/<fresh-gateway-run>
+uv run --project scripts --locked vcore-scripts check xhttp-gateway --identities-only --run-dir target/interop/runs/<fresh-gateway-identities>
+```
+
+官方 Mihomo 客户端、Mihomo/Xray 服务端与原站均隔离容器化，guest MTU 显式 1500、不修改宿主或共享网络。普通探针区分 Xray 直接解码与 Xray XHTTP → 原生 Mihomo VLESS 分层解码；身份探针独立检查下载腿缺失/过期/错误 CA 证书。已确认的原生能力缺口保留 FAIL 并非零退出，详见 [N5 前置记录](../docs/acceptance/next-protocols/N5-progress.md)。69 字节探针不替代完整字段、负例、资源或 VCore 消费者验收。
+
+`xhttp-gateway` 使用[明确批准的 xcaddy 构建例外](../docs/testing-isolation.md)：PATH 需有 Go 和官方最新稳定 xcaddy（可用 `go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest` 安装），每次通过官方 latest 重定向确认稳定版本，再 `xcaddy build latest` 编译 linux/arm64。生成源码/锁、构建日志/hash 和容器内版本留在该次目录；不查 API、不加插件、不改第三方、不改宿主 HOME。Mihomo/Xray 仍下载官方 latest 资产。网关仅终结 H3/mTLS 并以 h2c 转发到同一个原生 Xray XHTTP handler，不是两个 listener 模拟共享会话。
+
+普通网关探针包含双向 10 MiB、server-first、整连接关闭、TCP/XUDP echo 和两腿身份负例。`--identities-only` 只运行小流量对照并读回原生 QUIC 证书错误码，另核对原站零连接；详细 trace 留在临时容器，不在大流量用例启用。认证生效与客户端及时返回错误是两个维度，超时仍 FAIL / 非零退出，不能把网关诊断当成 N5 验收入口。
+
 `protocol-coverage --catalog-only`只检查本仓库`tests/protocols/fields.json`和`combinations.json`声明，也可用`--catalog-dir <directory>`指定副本。不读取清单所引用的源码、研究目录或URL，不下载或启动对端。必须显式选择`--catalog-only`或下面的`--run-dir`结果模式。
 
 检查 schema-v1 的完整145字段/69组合家族ID、重复JSON键、字段/来源/对端/override引用、协议适用范围、阶段与子包归属、必要观察项/模式维度、负例拒绝阶段、原生未知项说明及64个有序上游组合声明。稳定ID的增删必须同时审查版本化清单及验证器契约，不能靠改自报数量绕过漏项。来源只接受无凭据/查询参数的HTTPS链接或无 `..` 的相对路径，不检查其内容或网络可用性。
@@ -85,9 +100,13 @@ uv run --project scripts --locked vcore-scripts check protocol-interop --stage N
 uv run --project scripts --locked vcore-scripts check protocol-interop --stage N4 --preflight
 uv run --project scripts --locked vcore-scripts check protocol-interop --stage N4
 uv run --project scripts --locked vcore-scripts check protocol-coverage --stage N4 --run-dir target/interop/runs/<run-id>
+uv run --project scripts --locked vcore-scripts check protocol-interop --stage N5 --list
+uv run --project scripts --locked vcore-scripts check protocol-interop --stage N5 --preflight
+uv run --project scripts --locked vcore-scripts check protocol-interop --stage N5
+uv run --project scripts --locked vcore-scripts check protocol-coverage --stage N5 --run-dir target/interop/runs/<run-id>
 ```
 
-统一入口具有 N1 公共基础（21 组 required）、N2 Trojan（41 组 / 18 字段）、N3 VMess（117 组 / 30 字段）和 N4 VLESS（145 组 / 39 字段）的独立清单。`cases.json` 逐组列出断言、字段关联、对端、期限和证据类型；`limits.json` 引用可执行边界 case，Rust 测试核对真实常量。未来阶段没有可执行 required 集合时非零返回 NOT RUN。N1/N2 的历史宿主服务入口未全部迁移，不得用于新的服务端验收；全容器阶段入口是 N3/N4。阶段之间不继承 PASS。
+统一入口具有 N1 公共基础（21 组 required）、N2 Trojan（41 组 / 18 字段）、N3 VMess（117 组 / 30 字段）、N4 VLESS（145 组 / 39 字段）和 N5 XHTTP / sing-mux（416 组 / 57 字段）的独立清单。`cases.json` 逐组列出断言、字段关联、对端、期限和证据类型；`limits.json` 引用可执行边界 case，Rust 测试核对真实常量。未来阶段没有可执行 required 集合时非零返回 NOT RUN。N1/N2 的历史宿主服务入口未全部迁移，不得用于新的服务端验收；全容器阶段入口是 N3/N4/N5。阶段之间不继承 PASS。
 
 N2三种传输分别执行真实Mihomo TCP/UDP、上游/组、HTTP/模拟TUN/DNS、外层IPv6、证书/路径负例和UDP隔离；公共Invoke生命周期、协议自有资源各20轮，每轮Stop返回即检查，再静默5秒。域名UDP因Mihomo listener缺口由Xray单独补验，自定义头/路径ED由V2Ray补验；失败与对端缓冲限制保留在[N2.2记录](../docs/acceptance/next-protocols/N2-tcp.md)。`fields.json`按row ID汇总，只有完整执行、原始事件和所有必需项通过才可签收；单独运行原生子工具用于开发定位，不替代统一门禁。
 
@@ -113,6 +132,12 @@ uv run --project scripts --locked python -m vcore_scripts.protocol_vless_contain
 ```
 
 `protocol_vless` 提供按传输模式筛选的便捷入口，复用同一容器夹具。N4 不签收 N5 的 XHTTP 新功能，也不签收 N7 的高级安全；完整 VLESS 仍需后续阶段。
+
+N5 的冻结清单为 416 组 required / 57 个字段（X01–X29、D01–D15/D27–D32、M01–M07）。七个本地门禁、406 个原生/公开路径及三个安全组分别记录；安全组内部为 112 项身份与双腿行为检查，不把组数与内部断言相加计算覆盖率。有限枚举逐项、耦合 HTTP 版本/安全/mode/下载分支显式覆盖；独立调节项按 pairwise 组合，不宣称无约束笛卡尔积。
+
+H1/H2 以官方 Mihomo 为主；H3 用 Xray，V2Ray 补 HTTP/H2/自定义 ED 外层。非 Mihomo 传输需要 packetaddr/sing-mux 时明确接入独立 Mihomo decoder；H3 客户端身份由获准的最新 xcaddy/Caddy 网关验证，仍只有一个后端 XHTTP 会话 handler。SOCKS 首跳与最终 listener 分开容器，保留 Mihomo 回环保护。六个代表拓扑各执行 20 轮公共启停及 20 轮自有资源检查，共 240 轮，Stop 当时归零再静默 5 秒。关闭用官方 Mihomo 同模式客户端差分，不要求 EOF 后尾包。
+
+N5 包含 Debug/Release、默认/独立/生产 feature、既有协议回归、资源常量登记、Apple 五目标及 Android 两 ABI 构建。`--preflight` 只下载并在自有隔离容器内读取 M/XR/V2/Caddy 版本与哈希，不做业务，不签收 required case。阶段主入口每次重新取得官方 latest；二进制身份固定用于同轮全部 case，配置/密钥随临时容器夹具清理。N5 单独开发入口仍可用于定位，但部分选择、缺失结构化事件或原始报告均不能通过完整 coverage。
 
 N3 UDP 同参数客户端对照现已全链路容器化，仍是独立诊断，不是阶段门禁：
 

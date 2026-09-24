@@ -44,7 +44,7 @@ inbound-socks5 = []
 outbound-anytls = ["dep:md-5"]
 outbound-socks5 = []
 outbound-shadowsocks = ["dep:shadowsocks", "dep:log"]
-outbound-vless = ["rustls/reality", "stream-transport"]
+outbound-vless = ["rustls/reality", "stream-transport", "quic-transport", "dep:hyper", "dep:hyper-util", "dep:h3", "dep:h3-quinn", "dep:yamux", "tokio-util/compat"]
 outbound-trojan = ["stream-transport"]
 outbound-vmess = ["stream-transport", "dep:aes", "dep:crc32fast", "dep:md-5", "dep:ring", "dep:shake"]
 # Foundation-only features; YAML registration waits for their protocol stage.
@@ -78,7 +78,11 @@ bytes = "1"
 crc32fast = { version = "1.5.2", optional = true }
 futures-util = { version = "0.3", features = ["sink"] }
 h2 = "0.4.19"
+h3 = { version = "=0.0.8", default-features = false, optional = true }
+h3-quinn = { version = "=0.0.10", default-features = false, optional = true }
 http = "1"
+hyper = { version = "=1.11.1", default-features = false, features = ["client", "http1"], optional = true }
+hyper-util = { version = "=0.1.20", default-features = false, features = ["tokio"], optional = true }
 httparse = { version = "1.10", optional = true }
 idna = "1.1"
 libc = "0.2"
@@ -108,6 +112,7 @@ url = "2"
 uuid = { version = "1", features = ["serde"] }
 vcore-netstack = { path = "crates/vcore-netstack", optional = true }
 webpki-roots = "1"
+yamux = { version = "=0.14.1", optional = true }
 
 [target.'cfg(any(target_os = "ios", target_os = "macos"))'.dependencies]
 oslog = { version = "0.2", default-features = false }
@@ -147,6 +152,7 @@ windows-collections = { version = "=0.3.2", optional = true }
 windows-core = { version = "=0.62.2", optional = true }
 
 [dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
 # Independent EIH relay fixture only; production crypto remains the official SS crate.
 aes = "0.9"
 blake3 = "1"

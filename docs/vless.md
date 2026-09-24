@@ -1,6 +1,6 @@
 # VLESS 出站
 
-`outbound-vless` 使用共享 Dialer、上游图及 TLS/REALITY；协议不创建独立 socket 或系统 DNS。Invoke v5 不变，当前配置修订为 17。[N4 本地阶段验收](acceptance/next-protocols/N4.md)已通过；本文描述当前实现，不代表 N5/N7 的完整 VLESS 或物理平台已经签收。
+`outbound-vless` 使用共享 Dialer、上游图及 TLS/REALITY；协议不创建独立 socket 或系统 DNS。Invoke v5 不变，当前配置修订为 18。[N4 基础/传输/Vision](acceptance/next-protocols/N4.md)和 [N5 XHTTP/sing-mux](acceptance/next-protocols/N5.md)已通过本地阶段验收；N7 高级安全、物理平台与发布仍未签收，不能称为完整 VLESS 交付。
 
 ## 配置与传输
 
@@ -11,8 +11,9 @@
 - WS 的 ED 支持默认头、自定义头或路径（上限 2048 字节）。`v2ray-http-upgrade` 开启升级后裸流；`v2ray-http-upgrade-fast-open` 必须与前者一起启用，只允许默认 ED 头。fast-open 提前发协议首包但仍等待合法 101，拒绝不返回连接成功。
 - gRPC 接入 `grpc-user-agent`（默认 `grpc-go/1.36.0`）、非负秒数 `ping-interval`（0 不主动 PING），以及三项池阈值。空闲连接总是复用；max-connections>0 时按连接上限/min-streams 扩容，否则按 max-streams 复用阈值扩容。三项全零归一 max-connections=1；显式正 max-connections 与正 max-streams 互斥。阈值不是硬流数上限。物理连接归节点所有，关闭逻辑流不会杀死兄弟流；复用不重选上游组。
 - gRPC 不新增业务流/建链数量额度；每个物理连接一个自有驱动，每个等待调用只保留自身 future、取消与原期限，不派生队列任务。每节点最多保留 4 条空闲连接，多余空闲连接退役且不影响活动流。空闲 PING 等待 ACK 最多 15 秒，节点 Stop 取消并 join 所有驱动。
-- 现有显式 `network: xhttp` 保留 TLS 1.3 / HTTP/2、经典 REALITY、三个模式及独立下载腿。配置和继承规则见 [config.yaml](config.yaml)。XHTTP 必须开启 TLS，ALPN 仍严格为 `[h2]`。
-- Vision 仅允许 `network: tcp`、`tls: true`，外层强制 TLS 1.3 或经典 REALITY；UDP 仅 XUDP。配置阶段拒绝 WS/gRPC/HTTP/H2/XHTTP、raw/packetaddr 与 Vision 的组合，包括未启用业务 UDP 但显式选错编码。N5/N7 新分支仍拒绝。
+- `network: xhttp` 支持 H1/H2 明文、TLS1.3 或经典 REALITY，H3 仅标准 TLS1.3。请求字段、独立下载腿、池与版本选择见 [XHTTP](xhttp.md)。H3 的物理 UDP 仍由原 Dialer/上游图创建。
+- `smux` 以独立的 h2mux/smux v1/yamux 承载逻辑 TCP/UDP；不是 XUDP。only-tcp、调度及关闭边界见 [XHTTP 与 sing-mux](xhttp.md)。
+- Vision 仅允许 `network: tcp`、`tls: true`，外层强制 TLS 1.3 或经典 REALITY；UDP 仅 XUDP。配置阶段拒绝 WS/gRPC/HTTP/H2/XHTTP、raw/packetaddr、sing-mux 与 Vision 的组合，包括未启用业务 UDP 但显式选错编码。N7 高级安全仍拒绝。
 - Vision 请求不自动降级；对端用户不支持 Vision 时业务失败。Mihomo 服务端允许为 Vision 用户显式配置空 flow，这属于普通 VLESS 模式，不是错误 flow 的拒绝用例。
 
 ## Vision
@@ -47,6 +48,6 @@ VLESS 响应头允许延迟到业务响应前；TCP 不等待它才允许发送�
 
 ## 验证边界
 
-所有服务端、原站、DNS 和对照入口均遵守[容器隔离规则](testing-isolation.md)。`protocol_vless` 是增量开发入口，不是 N4 完整阶段门禁；ignored 测试未实际执行不计通过。N5 的新 XHTTP 分支和 N7 的高级安全不属于 N4 签收范围。
+所有服务端、原站、DNS 和对照入口均遵守[容器隔离规则](testing-isolation.md)。`protocol_vless` 是增量开发入口，不是 N4 完整阶段门禁；ignored 测试未实际执行不计通过。新 XHTTP/sing-mux 由 N5 的独立完整运行签收，不继承 N4 结果；HTTPUpgrade/fast-open + 新 sing-mux 未在 N5 单独展开。N7 高级安全仍不属于已签收范围。
 
 WS + REALITY（普通 WS、HTTPUpgrade、fast-open）的数据及认证使用真实 Mihomo listener；关闭验证采用明确标注的分层参照。当前 Mihomo WS 客户端分支未接入 REALITY，不能作为同组合对照，因此使用标准 TLS 的同种传输客户端关闭基线，并独立验证 REALITY。不得将该结果写成 Mihomo WS + REALITY 客户端互通或同组合差分通过。

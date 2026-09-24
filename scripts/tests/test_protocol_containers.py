@@ -7,15 +7,73 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from vcore_scripts.container_udp_origin import main as origin_main
+from vcore_scripts.container_udp_origin import serve as origin_serve
 from vcore_scripts.protocol_containers import NETWORK, ContainerLab, ContainerPeer
 from vcore_scripts.protocol_vmess_udp_ab import main, options
 from vcore_scripts.protocol_vmess_udp_container import client_config
 
 
 class ContainerTests(unittest.TestCase):
+    def test_dns_fixture_remains_owned_across_idle_business_phases(self):
+        control, udp = MagicMock(), MagicMock()
+        control.recv.return_value = b"\x11"
+        control.getsockname.return_value = ("192.0.2.55", 24000)
+        udp.getsockname.return_value = ("0.0.0.0", 53001)
+        query = b"\x00" * 12 + b"\x0dvcore-fixture\x04test\x00\x00\x01\x00\x01"
+        udp.recvfrom.return_value = (query, ("192.0.2.2", 40001))
+        udp.sendto.side_effect = lambda data, _peer: len(data)
+        with (
+            patch("vcore_scripts.container_udp_origin.socket.socket") as socket,
+            patch("vcore_scripts.container_udp_origin.SLOTS"),
+            patch(
+                "vcore_scripts.container_udp_origin.select.select",
+                side_effect=[
+                    ([], [], []),
+                    ([udp], [], []),
+                    ([control], [], []),
+                ],
+            ),
+        ):
+            socket.return_value.__enter__.return_value = udp
+            origin_serve(control)
+        udp.sendto.assert_called_once()
+        self.assertEqual(udp.sendto.call_args.args[1], ("192.0.2.2", 40001))
+        with (
+            patch("vcore_scripts.container_udp_origin.socket.socket") as socket,
+            patch("vcore_scripts.container_udp_origin.SLOTS"),
+            patch(
+                "vcore_scripts.container_udp_origin.time.monotonic",
+                side_effect=[0, 241],
+            ),
+            patch("vcore_scripts.container_udp_origin.select.select") as wait,
+        ):
+            socket.return_value.__enter__.return_value = udp
+            origin_serve(control)
+        wait.assert_not_called()
+
+    def test_quic_mtu_applies_only_to_the_owned_guest_network(self):
+        lab = SimpleNamespace(
+            run_id="fixture", mtu=1500, image="fixture@sha256:synthetic"
+        )
+        peer = ContainerPeer(lab, Path("fixture"), "quic")
+        with (
+            patch(
+                "vcore_scripts.protocol_containers.command",
+                side_effect=RuntimeError("captured launch"),
+            ) as launch,
+            self.assertRaisesRegex(RuntimeError, "captured launch"),
+        ):
+            peer.start(["peer"])
+        arguments = launch.call_args.args
+        self.assertEqual(
+            arguments[arguments.index("--network") + 1], NETWORK + ",mtu=1500"
+        )
+        self.assertNotIn("--cap-add", arguments)
+        self.assertNotIn("--publish", arguments)
+
     def test_long_roles_keep_bounded_distinct_owned_container_names(self):
         lab = SimpleNamespace(run_id="0123456789ab")
         roles = [

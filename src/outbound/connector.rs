@@ -576,7 +576,7 @@ impl UpstreamPath {
 
     /// Pins a native UDP proxy server without performing DNS after prepare.
     /// Resolving here and opening IO below share the context's group snapshot.
-    #[cfg(feature = "outbound-shadowsocks")]
+    #[cfg(any(feature = "outbound-shadowsocks", feature = "outbound-vless"))]
     pub(crate) fn datagram_server(
         &self,
         server: &Destination,

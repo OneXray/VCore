@@ -96,7 +96,7 @@ fn tcp_and_existing_xhttp_reject_mismatched_and_future_options() {
     );
     for fields in [
         json!({"network":"tcp","xhttp-opts":{}}),
-        json!({"network":"xhttp","tls":false}),
+        json!({"network":"xhttp","tls":false,"fingerprint":"ab".repeat(32)}),
         json!({"tls":false,"servername":"secret.invalid"}),
         json!({"tls":false,"alpn":[]}),
         json!({"packet-encoding":""}),

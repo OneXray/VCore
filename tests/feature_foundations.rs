@@ -14,8 +14,8 @@ fn feature_skeletons_do_not_open_unimplemented_yaml_or_measurement_protocols() {
         assert!(Config::parse_yaml(yaml.as_bytes()).is_err());
     }
     assert_eq!(vcore::INVOKE_API_VERSION, 5);
-    assert_eq!(vcore::CONFIG_VERSION, 17);
-    assert!(vcore::BUILD_IDENTITY.ends_with("invokeApiVersion=5;configVersion=17"));
+    assert_eq!(vcore::CONFIG_VERSION, 18);
+    assert!(vcore::BUILD_IDENTITY.ends_with("invokeApiVersion=5;configVersion=18"));
 }
 
 #[test]

@@ -16,7 +16,7 @@
 
 下一版协议从独立 N0 基线开始，进度见 [N0 基线与可行性门禁](acceptance/next-protocols/N0.md)。2026-09-22/23 的新基线与接口实验不继承本页历史通过状态，也不代表新五协议或平台交付已经完成。混合 REALITY 的自有 fork 局部实验已通过；fork 依赖已升级，但 VCore 生产仍未启用混合组；[N0-D QUIC 原生入口](acceptance/next-protocols/N0-quic-entries.md)已验证，原生半关闭失败和 N0 其余门禁仍保留。
 
-2026-09-23 追加的 [XHTTP 关闭对齐](acceptance/next-protocols/XHTTP-close.md)修正了既有生产 H2 的三种模式：应用上传 EOF 结束整条逻辑连接，不再保留下行半关闭。独立 H3 实验与官方 Mihomo 客户端完成同一 Xray 对端的行为对照；H3 仍未接入生产，历史 request-EOF/尾包失败不改记为成功，也不再作为 XHTTP 的客户端契约。
+2026-09-23 追加的 [XHTTP 关闭对齐](acceptance/next-protocols/XHTTP-close.md)修正了既有生产 H2 的三种模式：应用上传 EOF 结束整条逻辑连接，不再保留下行半关闭。独立 H3 实验与官方 Mihomo 客户端完成同一 Xray 对端的行为对照；当时 H3 尚未接入生产，后续接入见 N5。历史 request-EOF/尾包失败不改记为成功，也不再作为 XHTTP 的客户端契约。
 
 同日 [N0-B 公共流接口实验](acceptance/next-protocols/N0-stream.md)完成TLS/普通WS/gRPC的注入IO、取消回收与关闭差分：12项Debug/Release测试、42项官方Mihomo检查及Apple/Android交叉检查通过。没有新增生产功能或依赖；Windows、真机和完整N0仍未签收。
 
@@ -46,14 +46,17 @@
 
 同日 [N4 VLESS 阶段签收](acceptance/next-protocols/N4.md)完成基础传输、HTTPUpgrade/fast-open、gRPC 池、TLS/mTLS/经典 REALITY、Vision 和三种 UDP 编码，回归既有 XHTTP。145/145 组 required、39/39 字段、160 轮生命周期/资源检查及独立 coverage 通过；171 个隔离容器均清理，Apple/Android Release 构建通过。WS + REALITY 的三种形态因官方客户端能力缺口采用明确标注的分层关闭参照，数据/认证仍对真实 Mihomo REALITY listener；不是同组合客户端差分通过。schema 17 / Invoke v5，N5/N7、设备和发布保持独立门禁。
 
+2026-09-25 [N5 XHTTP/sing-mux 阶段签收](acceptance/next-protocols/N5.md)完成 H1/H2/H3、请求字段、独立下载安全/复用及 h2mux/smux/yamux。单次完整运行 416/416 组 required、57/57 字段、240 轮生命周期/资源检查与独立 coverage 通过；三个安全组内部 112/112 检查，769/769 个所属容器回收，Apple/Android Release 构建通过。Xray 的直接 packetaddr/sing-mux 和 H3 客户端证书认证缺口分别使用明示的 Mihomo decoder 分层、获准 xcaddy/Caddy H3/mTLS → 单个 Xray handler；不冒称 Xray 直接支持。schema 18 / Invoke v5，N7 高级安全及设备/发布仍未签收。[开发记录](acceptance/next-protocols/N5-progress.md)保留原失败，官方 Mihomo 双腿上传错误的 6 项诊断超时不改记 PASS。
+
 当前 source/tests 覆盖：
 
 - Invoke API v5、单实例生命周期、Debug/Release 运行时线程重入拒绝、panic 与同步清理；
-- schema revision 17、IPv6、严格 YAML、节点 / `select` 组上游混合 DAG 和 node-only 测速；
+- schema revision 18、IPv6、严格 YAML、节点 / `select` 组上游混合 DAG 和 node-only 测速；
 - 组上游与路由的共享选择、SOCKS5 UDP 建链快照、潜在 DIRECT 首跳准备、独立下载端点和深图回收；
 - HTTP 本机 / 认证共享、双栈监听回滚、逐请求认证与分发、Keep-Alive / 正文定界、CONNECT / Upgrade、10 MiB 双向摘要与活动连接 Stop；
 - SOCKS5 入站认证、三类目标、半关闭、TCP 授权 UDP、源端口学习/隔离、IPv6 作用域固定端口/学习端口匹配与跨接口隔离、过期/满队列/慢上游取消及纯 SOCKS5 Controller（作用域匹配为合成地址测试，不代表物理 LAN 验证）；
 - VLESS TCP/WS/gRPC/HTTP/H2/XHTTP、HTTPUpgrade/fast-open、TLS/mTLS/经典 REALITY、Vision、gRPC 池、三种 UDP 编码、响应头/期限/取消与同步 Stop；
+- XHTTP H1/H2/H3、请求字段/有界 packet-up 聚合、双腿安全/连接池/受控 QUIC，以及独立 h2mux/smux/yamux、padding/only-tcp 和单流隔离；
 - SOCKS5、AnyTLS、代理链、DNS、规则、GeoData 和 HTTP/TLS/QUIC 嗅探；
 - AnyTLS 有序 ALPN、WebPKI / 跳过 / 叶与非叶 pin、TLS 1.2/1.3 伪造签名拒绝、节点间策略隔离和精确恢复票据预算；
 - Trojan TLS/WS/gRPC、TCP 半关闭、原生 UDP 的有界帧与来源隔离、strict 配置、具体/组上游、独立测速及同步资源回收；
@@ -86,7 +89,7 @@ bash tests/run_mihomo_interop.sh
 | 能力 | 自动化 | 外部进程互操作 | 物理 TUN / 安装包 |
 | --- | --- | --- | --- |
 | VLESS 基础传输、TLS/mTLS/REALITY、Vision、三 UDP 编码 | 严格配置、feature、codec/取消、池与公共运行时；[N4 证据](acceptance/next-protocols/N4.md) | Mihomo 为主，V2Ray 补 HTTP/H2/扩展 ED；WS + REALITY 关闭参照的三项范围差异单列 | 新能力未验证；仅 Apple/Android 构建通过 |
-| 既有 VLESS + XHTTP H2 + TLS/REALITY | 三种模式及独立下载腿回归 | N4 全容器数据、三模式关闭与 TLS/REALITY 下载腿；N5 新分支尚未签收 | Windows ARM64 仅有旧版本开发包记录，不继承为当前版本设备通过 |
+| VLESS XHTTP H1/H2/H3 与 sing-mux | 请求/安全/池/严格配置、受控 UDP、公共入口与资源；[N5 证据](acceptance/next-protocols/N5.md) | Mihomo 为主，Xray 补 H3；packetaddr/mux 分层解码及 Caddy mTLS 网关明确标注；HTTPUpgrade/fast-open + 新 sing-mux 未专项验收 | 仅 Apple/Android 构建；Windows ARM64 旧版本包记录不继承为当前版本设备通过 |
 | SOCKS5 CONNECT / UDP ASSOCIATE 出站 | 已覆盖 | mihomo TCP/UDP、IPv4/IPv6 | Windows ARM64 历史开发包已覆盖 |
 | SOCKS5 CONNECT / TCP 授权 UDP 入站 | 已覆盖 | mihomo 双向 TCP/UDP、IPv4/IPv6 | 真实 LAN / 物理 IPv6 未验证 |
 | AnyTLS TCP / UoT v2、ALPN / 证书策略 | 已覆盖 | mihomo 公开 YAML，TCP/UoT IPv4/IPv6、测速及证书拒绝 | 旧能力有 Windows ARM64 历史开发包记录；新 TLS 字段未做设备验证 |

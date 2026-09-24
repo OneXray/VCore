@@ -8,12 +8,10 @@ use std::{
 };
 
 use bytes::{Buf, Bytes};
-use h2::{
-    RecvStream, SendStream,
-    client::{ResponseFuture, SendRequest},
-};
 use http::{Method, Request, StatusCode, Uri};
-use rand::RngExt as _;
+use http_io::{
+    Download as RecvStream, ResponseFuture, Sender as SendRequest, Upload as SendStream,
+};
 use tokio::{
     io::{AsyncRead, AsyncWrite, ReadBuf},
     task::JoinHandle,
@@ -21,9 +19,19 @@ use tokio::{
 };
 
 use crate::dispatch::BoxStream;
+mod h2_driver;
+mod h3_driver;
+pub(crate) use h3_driver::QuicTransport;
+mod http_io;
+mod packet_up;
+mod pool;
+mod request;
 
-const MIN_X_PADDING: usize = 100;
-const MAX_X_PADDING: usize = 1_000;
+pub(crate) enum TransportIo {
+    Stream(BoxStream),
+    Quic(Box<QuicTransport>),
+}
+
 const DEFAULT_UPLOAD_CHUNK_SIZE: usize = 64 * 1024;
 const MAX_H2_HEADER_LIST_SIZE: u32 = 16 * 1024;
 const DEFAULT_H2_SEND_BUFFER_SIZE: usize = 64 * 1024;
@@ -43,6 +51,10 @@ pub struct XHttpConfig {
     pub host: String,
     pub path: String,
     pub mode: XHttpMode,
+    pub headers: crate::config::XHttpHeaders,
+    pub request: Arc<crate::config::XHttpRequestOptions>,
+    pub http_version: crate::config::XHttpVersion,
+    pub reuse: Option<Arc<crate::config::XHttpReuseConfig>>,
 }
 
 impl XHttpConfig {
@@ -65,7 +77,15 @@ impl XHttpConfig {
                 "invalid XHTTP path",
             ));
         }
-        Ok(Self { host, path, mode })
+        Ok(Self {
+            host,
+            path,
+            mode,
+            headers: Default::default(),
+            request: Default::default(),
+            http_version: Default::default(),
+            reuse: None,
+        })
     }
 }
 
@@ -75,20 +95,53 @@ pub struct XHttpClient {
     request: RequestTemplate,
     send_buffer_size: usize,
     upload_chunk_size: usize,
+    http_version: crate::config::XHttpVersion,
+    owner: Arc<DriverOwner>,
+    reuse: Option<Arc<crate::config::XHttpReuseConfig>>,
+    pool: Arc<pool::Pool>,
+}
+
+#[derive(Debug)]
+struct ConnectionLease {
+    _driver: Arc<ConnectionGuard>,
+    _usage: Option<pool::Usage>,
+}
+
+impl From<Arc<ConnectionGuard>> for ConnectionLease {
+    fn from(driver: Arc<ConnectionGuard>) -> Self {
+        Self {
+            _driver: driver,
+            _usage: None,
+        }
+    }
 }
 
 impl XHttpClient {
     #[must_use]
     pub fn new(config: XHttpConfig) -> Self {
-        let XHttpConfig { host, path, mode } = config;
+        let XHttpConfig {
+            host,
+            path,
+            mode,
+            headers,
+            request,
+            http_version,
+            reuse,
+        } = config;
         Self {
             mode,
             request: RequestTemplate {
                 host: Arc::from(host),
                 path: Arc::from(path),
+                headers,
+                options: request,
             },
             send_buffer_size: DEFAULT_H2_SEND_BUFFER_SIZE,
             upload_chunk_size: DEFAULT_UPLOAD_CHUNK_SIZE,
+            http_version,
+            owner: Arc::default(),
+            pool: Arc::new(pool::Pool::new(reuse.clone())),
+            reuse,
         }
     }
 
@@ -118,7 +171,26 @@ impl XHttpClient {
     /// Returns an XHTTP logical connection. Like Mihomo's XHTTP connection,
     /// `shutdown()` closes both directions; it is not a TCP half-close.
     pub async fn connect(&self, stream: BoxStream) -> io::Result<BoxStream> {
+        if self.owner.cancellation.is_cancelled() {
+            return Err(connection_closed());
+        }
+        if self.http_version == crate::config::XHttpVersion::Http1
+            && self.mode != XHttpMode::StreamOne
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "XHTTP HTTP/1 split mode requires two supplied connections",
+            ));
+        }
         let (sender, connection) = self.handshake(stream).await?;
+        self.connect_http(sender, connection.into()).await
+    }
+
+    async fn connect_http(
+        &self,
+        sender: SendRequest,
+        connection: ConnectionLease,
+    ) -> io::Result<BoxStream> {
         match self.mode {
             XHttpMode::StreamOne => self.connect_stream_one(sender, connection).await,
             XHttpMode::StreamUp => {
@@ -144,6 +216,136 @@ impl XHttpClient {
         }
     }
 
+    /// Opens a logical session, dialing only when no reusable physical transport
+    /// is available. The caller's absolute setup deadline is never reset.
+    pub async fn open<F, Fut>(
+        &self,
+        deadline: tokio::time::Instant,
+        mut connect: F,
+    ) -> io::Result<BoxStream>
+    where
+        F: FnMut() -> Fut,
+        Fut: Future<Output = io::Result<BoxStream>>,
+    {
+        self.open_transport(deadline, || {
+            let next = connect();
+            async { next.await.map(TransportIo::Stream) }
+        })
+        .await
+    }
+
+    pub(crate) async fn open_transport<F, Fut>(
+        &self,
+        deadline: tokio::time::Instant,
+        mut connect: F,
+    ) -> io::Result<BoxStream>
+    where
+        F: FnMut() -> Fut,
+        Fut: Future<Output = io::Result<TransportIo>>,
+    {
+        let operation = async {
+            let (sender, driver) = self.acquire(false, &mut connect).await?;
+            if self.needs_separate_download() {
+                let (download, download_driver) =
+                    self.handshake_transport(connect().await?).await?;
+                return self
+                    .connect_split(
+                        sender,
+                        self,
+                        download,
+                        ConnectionGuards::split(driver, download_driver.into()),
+                    )
+                    .await;
+            }
+            self.connect_http(sender, driver).await
+        };
+        tokio::select! {biased;
+            () = self.owner.cancellation.cancelled() => Err(connection_closed()),
+            result = tokio::time::timeout_at(deadline, operation) => result.map_err(|_|io::Error::from(io::ErrorKind::TimedOut))?,
+        }
+    }
+
+    pub async fn open_with_download<U, D, UF, DF>(
+        &self,
+        deadline: tokio::time::Instant,
+        download_client: &Self,
+        upload: U,
+        download: D,
+    ) -> io::Result<BoxStream>
+    where
+        U: FnOnce() -> UF,
+        D: FnOnce() -> DF,
+        UF: Future<Output = io::Result<BoxStream>>,
+        DF: Future<Output = io::Result<BoxStream>>,
+    {
+        self.open_with_download_transports(
+            deadline,
+            download_client,
+            || async { upload().await.map(TransportIo::Stream) },
+            || async { download().await.map(TransportIo::Stream) },
+        )
+        .await
+    }
+
+    pub(crate) async fn open_with_download_transports<U, D, UF, DF>(
+        &self,
+        deadline: tokio::time::Instant,
+        download_client: &Self,
+        upload: U,
+        download: D,
+    ) -> io::Result<BoxStream>
+    where
+        U: FnOnce() -> UF,
+        D: FnOnce() -> DF,
+        UF: Future<Output = io::Result<TransportIo>>,
+        DF: Future<Output = io::Result<TransportIo>>,
+    {
+        if self.mode == XHttpMode::StreamOne {
+            return Err(request::invalid_request());
+        }
+        let operation = async {
+            let up = self.acquire(false, upload);
+            let down = download_client.acquire(true, download);
+            let ((upload_sender, upload_connection), (download_sender, download_connection)) =
+                tokio::try_join!(up, down)?;
+            self.connect_split(
+                upload_sender,
+                download_client,
+                download_sender,
+                ConnectionGuards::split(upload_connection, download_connection),
+            )
+            .await
+        };
+        tokio::select! {biased;
+            () = self.owner.cancellation.cancelled() => Err(connection_closed()),
+            () = download_client.owner.cancellation.cancelled() => Err(connection_closed()),
+            result = tokio::time::timeout_at(deadline,operation) => result.map_err(|_|io::Error::from(io::ErrorKind::TimedOut))?,
+        }
+    }
+
+    async fn acquire<F, Fut>(
+        &self,
+        download: bool,
+        connect: F,
+    ) -> io::Result<(SendRequest, ConnectionLease)>
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = io::Result<TransportIo>>,
+    {
+        let policy = if self.http_version != crate::config::XHttpVersion::Http1 {
+            pool::Policy::Multiplexed
+        } else if !download && self.mode == XHttpMode::PacketUp {
+            pool::Policy::Recyclable
+        } else {
+            pool::Policy::Exclusive
+        };
+        self.pool
+            .acquire(policy, || async {
+                self.handshake_transport(connect().await?).await
+            })
+            .await
+    }
+
     /// Connects XHTTP upload and download over independent secured HTTP/2 streams.
     ///
     /// `self` and `upload_stream` always carry upload requests. The download client and
@@ -155,6 +357,11 @@ impl XHttpClient {
         download_client: &XHttpClient,
         download_stream: BoxStream,
     ) -> io::Result<BoxStream> {
+        if self.owner.cancellation.is_cancelled()
+            || download_client.owner.cancellation.is_cancelled()
+        {
+            return Err(connection_closed());
+        }
         if self.mode == XHttpMode::StreamOne {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -165,8 +372,19 @@ impl XHttpClient {
         let (upload_sender, upload_connection) = self.handshake(upload_stream).await?;
         let (download_sender, download_connection) =
             download_client.handshake(download_stream).await?;
-        let connections = ConnectionGuards::split(upload_connection, download_connection);
+        let connections =
+            ConnectionGuards::split(upload_connection.into(), download_connection.into());
+        self.connect_split(upload_sender, download_client, download_sender, connections)
+            .await
+    }
 
+    async fn connect_split(
+        &self,
+        upload_sender: SendRequest,
+        download_client: &Self,
+        download_sender: SendRequest,
+        connections: ConnectionGuards,
+    ) -> io::Result<BoxStream> {
         match self.mode {
             XHttpMode::StreamUp => {
                 self.connect_stream_up_with_download(
@@ -193,28 +411,85 @@ impl XHttpClient {
     async fn handshake(
         &self,
         stream: BoxStream,
-    ) -> io::Result<(SendRequest<Bytes>, ConnectionGuard)> {
-        let mut builder = h2::client::Builder::new();
-        builder
-            .max_header_list_size(MAX_H2_HEADER_LIST_SIZE)
-            .max_send_buffer_size(self.send_buffer_size)
-            .enable_push(false);
-        let (sender, connection) = builder.handshake(stream).await.map_err(io_other)?;
-        let connection = ConnectionGuard::spawn(connection);
-        Ok((sender, connection))
+    ) -> io::Result<(SendRequest, Arc<ConnectionGuard>)> {
+        self.handshake_transport(TransportIo::Stream(stream)).await
+    }
+
+    pub(crate) fn http_version(&self) -> crate::config::XHttpVersion {
+        self.http_version
+    }
+
+    #[cfg(feature = "interop-test")]
+    pub(crate) fn quic_pings(&self) -> Vec<u64> {
+        self.pool.quic_pings()
+    }
+
+    fn handshake_transport(
+        &self,
+        transport: TransportIo,
+    ) -> futures_util::future::BoxFuture<'_, io::Result<(SendRequest, Arc<ConnectionGuard>)>> {
+        Box::pin(async move {
+            tokio::select! {biased;
+                () = self.owner.cancellation.cancelled() => Err(connection_closed()),
+                result = async {
+                    match transport {
+                        TransportIo::Stream(stream) if self.http_version != crate::config::XHttpVersion::Http3 => self.handshake_active(stream).await,
+                        TransportIo::Quic(transport) if self.http_version == crate::config::XHttpVersion::Http3 => h3_driver::connect(*transport, self.reuse.as_ref().map_or(0, |r| r.keep_alive_seconds), &self.owner).await,
+                        _ => Err(request::invalid_request()),
+                    }
+                } => result,
+            }
+        })
+    }
+
+    async fn handshake_active(
+        &self,
+        stream: BoxStream,
+    ) -> io::Result<(SendRequest, Arc<ConnectionGuard>)> {
+        if self.http_version == crate::config::XHttpVersion::Http1 {
+            return http_io::http1(stream, &self.owner)
+                .await
+                .map(|(sender, guard)| (sender, Arc::new(guard)));
+        }
+        h2_driver::connect(
+            stream,
+            self.send_buffer_size,
+            self.reuse
+                .as_ref()
+                .map_or(0, |options| options.keep_alive_seconds),
+            &self.owner,
+        )
+        .await
+    }
+
+    pub async fn stop(&self) {
+        self.begin_stop();
+        self.pool.clear();
+        self.owner.tasks.close();
+        self.owner.tasks.wait().await;
+    }
+
+    pub(crate) fn begin_stop(&self) {
+        let _admission = self.owner.admission.lock().unwrap();
+        self.owner.cancellation.cancel();
+        self.owner.tasks.close();
+    }
+
+    pub(crate) fn needs_separate_download(&self) -> bool {
+        self.http_version == crate::config::XHttpVersion::Http1 && self.mode != XHttpMode::StreamOne
     }
 
     async fn connect_stream_one(
         &self,
-        sender: SendRequest<Bytes>,
-        connection: ConnectionGuard,
+        sender: SendRequest,
+        connection: ConnectionLease,
     ) -> io::Result<BoxStream> {
         let mut sender = sender;
         let request = self.stream_request(Method::POST, None, None, true)?;
-        let (response, upload) = sender.send_request(request, false).map_err(io_other)?;
+        let (response, upload) = sender.send_request(request, false).await?;
         Ok(Box::new(XHttpStream::new(StreamOne {
             upload,
-            download: Downlink::pending(response, "stream-one"),
+            download: Downlink::pending(response, "stream-one", true),
             upload_chunk_size: self.upload_chunk_size,
             send_closed: false,
             _connection: connection,
@@ -223,27 +498,26 @@ impl XHttpClient {
 
     async fn connect_packet_up_with_download(
         &self,
-        upload_sender: SendRequest<Bytes>,
+        upload_sender: SendRequest,
         download_client: &XHttpClient,
-        download_sender: SendRequest<Bytes>,
+        download_sender: SendRequest,
         connections: ConnectionGuards,
     ) -> io::Result<BoxStream> {
-        let session_id: Arc<str> = Arc::from(random_session_id());
+        let session_id: Arc<str> = Arc::from(self.request.options.session_id.generate());
         let mut download_sender = download_sender;
         let request =
             download_client.stream_request(Method::GET, Some(session_id.as_ref()), None, false)?;
-        let (response, _) = download_sender
-            .send_request(request, true)
-            .map_err(io_other)?;
+        let (response, _) = download_sender.send_request(request, true).await?;
 
         Ok(Box::new(XHttpStream::new(PacketUp {
-            sender: upload_sender,
-            request: self.request.clone(),
-            session_id,
-            sequence: 0,
-            upload_chunk_size: self.upload_chunk_size,
-            pending_write: None,
-            download: Downlink::pending(response, "packet-up download"),
+            upload: packet_up::Writer::new(
+                upload_sender,
+                self.request.clone(),
+                session_id,
+                self.upload_chunk_size,
+                &self.owner,
+            )?,
+            download: Downlink::pending(response, "packet-up download", false),
             closed: false,
             _connections: connections,
         })))
@@ -251,29 +525,25 @@ impl XHttpClient {
 
     async fn connect_stream_up_with_download(
         &self,
-        upload_sender: SendRequest<Bytes>,
+        upload_sender: SendRequest,
         download_client: &XHttpClient,
-        download_sender: SendRequest<Bytes>,
+        download_sender: SendRequest,
         connections: ConnectionGuards,
     ) -> io::Result<BoxStream> {
-        let session_id: Arc<str> = Arc::from(random_session_id());
+        let session_id: Arc<str> = Arc::from(self.request.options.session_id.generate());
         let mut download_sender = download_sender;
         let request =
             download_client.stream_request(Method::GET, Some(session_id.as_ref()), None, false)?;
-        let (download_response, _) = download_sender
-            .send_request(request, true)
-            .map_err(io_other)?;
+        let (download_response, _) = download_sender.send_request(request, true).await?;
 
         let mut upload_sender = upload_sender;
         let request = self.stream_request(Method::POST, Some(session_id.as_ref()), None, true)?;
-        let (upload_response, upload) = upload_sender
-            .send_request(request, false)
-            .map_err(io_other)?;
+        let (upload_response, upload) = upload_sender.send_request(request, false).await?;
 
         Ok(Box::new(XHttpStream::new(StreamUp {
             upload,
             upload_response: UploadResponse::pending(upload_response),
-            download: Downlink::pending(download_response, "stream-up download"),
+            download: Downlink::pending(download_response, "stream-up download", false),
             upload_chunk_size: self.upload_chunk_size,
             send_closed: false,
             _connections: connections,
@@ -387,6 +657,8 @@ impl<T: AsyncWrite + Unpin> AsyncWrite for XHttpStream<T> {
 struct RequestTemplate {
     host: Arc<str>,
     path: Arc<str>,
+    headers: crate::config::XHttpHeaders,
+    options: Arc<crate::config::XHttpRequestOptions>,
 }
 
 impl RequestTemplate {
@@ -397,28 +669,104 @@ impl RequestTemplate {
         sequence: Option<u64>,
         grpc_content_type: bool,
     ) -> io::Result<Request<()>> {
-        let uri = build_uri(self.host.as_ref(), self.path.as_ref(), session_id, sequence)?;
-        let padding_len = rand::rng().random_range(MIN_X_PADDING..=MAX_X_PADDING);
-        let referer = format!(
-            "https://{}{}?x_padding={}",
-            self.host,
-            normalized_base_path(self.path.as_ref()),
-            "X".repeat(padding_len)
-        );
-
-        let mut builder = Request::builder()
-            .method(method)
-            .uri(uri)
-            .header("referer", referer);
-        if grpc_content_type {
+        use crate::config::xhttp::MetaPlacement;
+        let base = if self.options.session == MetaPlacement::Path
+            || self.options.sequence == MetaPlacement::Path
+        {
+            build_uri(self.host.as_ref(), self.path.as_ref(), None, None)?
+        } else {
+            Uri::builder()
+                .scheme("https")
+                .authority(self.host.as_ref())
+                .path_and_query(self.path.as_ref())
+                .build()
+                .map_err(|_| request::invalid_request())?
+        };
+        let method = if method == Method::GET {
+            method
+        } else {
+            self.options.uplink_method.clone()
+        };
+        let mut builder = Request::builder().method(method).uri(base.clone());
+        *builder.headers_mut().expect("valid request") = self.headers.as_map().clone();
+        if grpc_content_type && !self.options.no_grpc_header {
             builder = builder.header("content-type", "application/grpc");
         }
-        builder.body(()).map_err(io_other)
+        let mut request = builder.body(()).map_err(io_other)?;
+        request::apply_padding(&mut request, &base, &self.options.padding)?;
+        if let Some(session_id) = session_id {
+            request::apply_metadata(&mut request, &self.options.session, session_id)?;
+        }
+        if let Some(sequence) = sequence {
+            request::apply_metadata(&mut request, &self.options.sequence, &sequence.to_string())?;
+        }
+        request::check_size(&request)?;
+        Ok(request)
     }
 }
 
 struct ConnectionGuard {
     task: JoinHandle<()>,
+    cancel: Option<tokio_util::sync::CancellationToken>,
+}
+
+#[derive(Debug, Default)]
+struct DriverOwner {
+    admission: std::sync::Mutex<()>,
+    cancellation: tokio_util::sync::CancellationToken,
+    tasks: tokio_util::task::TaskTracker,
+}
+
+impl DriverOwner {
+    fn spawn(
+        &self,
+        future: impl Future<Output = ()> + Send + 'static,
+    ) -> io::Result<ConnectionGuard> {
+        let _admission = self.admission.lock().unwrap();
+        if self.cancellation.is_cancelled() {
+            return Err(connection_closed());
+        }
+        let token = self.cancellation.clone();
+        let observation =
+            crate::resources::observation::track(crate::resources::observation::ResourceKind::Task);
+        let task = self
+            .tasks
+            .spawn(crate::resources::observation::bind(async move {
+                let _observation = observation;
+                tokio::select! {biased; ()=token.cancelled()=>{}, ()=future=>{} }
+            }));
+        Ok(ConnectionGuard { task, cancel: None })
+    }
+
+    fn spawn_managed(
+        &self,
+        future: impl Future<Output = ()> + Send + 'static,
+        cancel: tokio_util::sync::CancellationToken,
+    ) -> io::Result<ConnectionGuard> {
+        let _admission = self.admission.lock().unwrap();
+        if self.cancellation.is_cancelled() {
+            return Err(connection_closed());
+        }
+        let observation =
+            crate::resources::observation::track(crate::resources::observation::ResourceKind::Task);
+        let task = self
+            .tasks
+            .spawn(crate::resources::observation::bind(async move {
+                let _observation = observation;
+                future.await;
+            }));
+        Ok(ConnectionGuard {
+            task,
+            cancel: Some(cancel),
+        })
+    }
+}
+
+impl Drop for DriverOwner {
+    fn drop(&mut self) {
+        self.cancellation.cancel();
+        self.tasks.close();
+    }
 }
 
 impl std::fmt::Debug for ConnectionGuard {
@@ -429,48 +777,36 @@ impl std::fmt::Debug for ConnectionGuard {
     }
 }
 
-impl ConnectionGuard {
-    fn spawn<T>(connection: h2::client::Connection<T, Bytes>) -> Self
-    where
-        T: AsyncRead + AsyncWrite + Unpin + Send + 'static,
-    {
-        let task = tokio::spawn(async move {
-            if let Err(error) = connection.await {
-                tracing::warn!(
-                    reason = ?error.reason(),
-                    is_io = error.is_io(),
-                    is_go_away = error.is_go_away(),
-                    is_reset = error.is_reset(),
-                    is_remote = error.is_remote(),
-                    "XHTTP HTTP/2 connection failed"
-                );
-            }
-        });
-        Self { task }
-    }
-}
-
 impl Drop for ConnectionGuard {
     fn drop(&mut self) {
-        self.task.abort();
+        if let Some(cancel) = &self.cancel {
+            cancel.cancel();
+        } else {
+            self.task.abort();
+        }
     }
 }
 
 #[derive(Debug)]
 struct ConnectionGuards {
-    _upload: ConnectionGuard,
-    _download: Option<ConnectionGuard>,
+    _upload: ConnectionLease,
+    _download: Option<ConnectionLease>,
 }
 
 impl ConnectionGuards {
-    fn single(connection: ConnectionGuard) -> Self {
+    fn permit_upload_recycle(&mut self) {
+        if let Some(usage) = &mut self._upload._usage {
+            usage.permit_recycle();
+        }
+    }
+    fn single(connection: ConnectionLease) -> Self {
         Self {
             _upload: connection,
             _download: None,
         }
     }
 
-    fn split(upload: ConnectionGuard, download: ConnectionGuard) -> Self {
+    fn split(upload: ConnectionLease, download: ConnectionLease) -> Self {
         Self {
             _upload: upload,
             _download: Some(download),
@@ -482,6 +818,7 @@ enum DownlinkState {
     Pending {
         response: Pin<Box<ResponseFuture>>,
         operation: &'static str,
+        allow_other_success: bool,
     },
     Active(RecvStream),
     Eof,
@@ -493,11 +830,16 @@ struct Downlink {
 }
 
 impl Downlink {
-    fn pending(response: ResponseFuture, operation: &'static str) -> Self {
+    fn pending(
+        response: ResponseFuture,
+        operation: &'static str,
+        allow_other_success: bool,
+    ) -> Self {
         Self {
             state: DownlinkState::Pending {
                 response: Box::pin(response),
                 operation,
+                allow_other_success,
             },
             current: Bytes::new(),
         }
@@ -512,7 +854,7 @@ impl Downlink {
             return Poll::Ready(Ok(()));
         }
 
-        loop {
+        for _ in 0..MAX_UPLOAD_RESPONSE_FRAMES_PER_POLL {
             if self.current.has_remaining() {
                 let count = self.current.remaining().min(output.remaining());
                 output.put_slice(&self.current[..count]);
@@ -520,10 +862,7 @@ impl Downlink {
                 let DownlinkState::Active(stream) = &mut self.state else {
                     unreachable!("buffered data only exists for an active response")
                 };
-                stream
-                    .flow_control()
-                    .release_capacity(count)
-                    .map_err(io_other)?;
+                stream.release_capacity(count)?;
                 return Poll::Ready(Ok(()));
             }
 
@@ -531,9 +870,12 @@ impl Downlink {
                 DownlinkState::Pending {
                     response,
                     operation,
+                    allow_other_success,
                 } => match response.as_mut().poll(cx) {
                     Poll::Ready(Ok(response)) => {
-                        if let Err(error) = ensure_success(response.status(), operation) {
+                        if let Err(error) =
+                            ensure_success(response.status(), operation, *allow_other_success)
+                        {
                             self.state = DownlinkState::Eof;
                             return Poll::Ready(Err(error));
                         }
@@ -541,13 +883,13 @@ impl Downlink {
                     }
                     Poll::Ready(Err(error)) => {
                         self.state = DownlinkState::Eof;
-                        return Poll::Ready(Err(io_other(error)));
+                        return Poll::Ready(Err(error));
                     }
                     Poll::Pending => return Poll::Pending,
                 },
                 DownlinkState::Active(stream) => match stream.poll_data(cx) {
                     Poll::Ready(Some(Ok(data))) => self.current = data,
-                    Poll::Ready(Some(Err(error))) => return Poll::Ready(Err(io_other(error))),
+                    Poll::Ready(Some(Err(error))) => return Poll::Ready(Err(error)),
                     Poll::Ready(None) => {
                         self.state = DownlinkState::Eof;
                         return Poll::Ready(Ok(()));
@@ -557,15 +899,17 @@ impl Downlink {
                 DownlinkState::Eof => return Poll::Ready(Ok(())),
             }
         }
+        cx.waker().wake_by_ref();
+        Poll::Pending
     }
 }
 
 struct StreamOne {
-    upload: SendStream<Bytes>,
+    upload: SendStream,
     download: Downlink,
     upload_chunk_size: usize,
     send_closed: bool,
-    _connection: ConnectionGuard,
+    _connection: ConnectionLease,
 }
 
 impl AsyncRead for StreamOne {
@@ -600,7 +944,7 @@ impl AsyncWrite for StreamOne {
         let capacity = if capacity == 0 {
             match self.upload.poll_capacity(cx) {
                 Poll::Ready(Some(Ok(capacity))) => capacity,
-                Poll::Ready(Some(Err(error))) => return Poll::Ready(Err(io_other(error))),
+                Poll::Ready(Some(Err(error))) => return Poll::Ready(Err(error)),
                 Poll::Ready(None) => {
                     return Poll::Ready(Err(io::Error::new(
                         io::ErrorKind::BrokenPipe,
@@ -614,8 +958,7 @@ impl AsyncWrite for StreamOne {
         };
         let count = requested.min(capacity);
         self.upload
-            .send_data(Bytes::copy_from_slice(&input[..count]), false)
-            .map_err(io_other)?;
+            .send_data(Bytes::copy_from_slice(&input[..count]), false)?;
         Poll::Ready(Ok(count))
     }
 
@@ -625,9 +968,7 @@ impl AsyncWrite for StreamOne {
 
     fn poll_shutdown(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         if !self.send_closed {
-            self.upload
-                .send_data(Bytes::new(), true)
-                .map_err(io_other)?;
+            self.upload.send_data(Bytes::new(), true)?;
             self.send_closed = true;
         }
         Poll::Ready(Ok(()))
@@ -658,7 +999,9 @@ impl UploadResponse {
             match &mut self.state {
                 UploadResponseState::Pending(response) => match response.as_mut().poll(cx) {
                     Poll::Ready(Ok(response)) => {
-                        if let Err(error) = ensure_success(response.status(), "stream-up upload") {
+                        if let Err(error) =
+                            ensure_success(response.status(), "stream-up upload", true)
+                        {
                             self.state = UploadResponseState::Done;
                             return Poll::Ready(Err(error));
                         }
@@ -666,7 +1009,7 @@ impl UploadResponse {
                     }
                     Poll::Ready(Err(error)) => {
                         self.state = UploadResponseState::Done;
-                        return Poll::Ready(Err(io_other(error)));
+                        return Poll::Ready(Err(error));
                     }
                     Poll::Pending => return Poll::Pending,
                 },
@@ -674,10 +1017,7 @@ impl UploadResponse {
                     Poll::Ready(Some(Ok(data))) => {
                         drained_frames = drained_frames.saturating_add(1);
                         drained_bytes = drained_bytes.saturating_add(data.len());
-                        stream
-                            .flow_control()
-                            .release_capacity(data.len())
-                            .map_err(io_other)?;
+                        stream.release_capacity(data.len())?;
                         if upload_response_drain_budget_exhausted(drained_frames, drained_bytes) {
                             cx.waker().wake_by_ref();
                             return Poll::Pending;
@@ -685,7 +1025,7 @@ impl UploadResponse {
                     }
                     Poll::Ready(Some(Err(error))) => {
                         self.state = UploadResponseState::Done;
-                        return Poll::Ready(Err(io_other(error)));
+                        return Poll::Ready(Err(error));
                     }
                     Poll::Ready(None) => {
                         self.state = UploadResponseState::Done;
@@ -711,7 +1051,7 @@ fn upload_response_drain_budget_exhausted(frames: usize, bytes: usize) -> bool {
 }
 
 struct StreamUp {
-    upload: SendStream<Bytes>,
+    upload: SendStream,
     upload_response: UploadResponse,
     download: Downlink,
     upload_chunk_size: usize,
@@ -757,7 +1097,7 @@ impl AsyncWrite for StreamUp {
         let capacity = if capacity == 0 {
             match self.upload.poll_capacity(cx) {
                 Poll::Ready(Some(Ok(capacity))) => capacity,
-                Poll::Ready(Some(Err(error))) => return Poll::Ready(Err(io_other(error))),
+                Poll::Ready(Some(Err(error))) => return Poll::Ready(Err(error)),
                 Poll::Ready(None) => {
                     return Poll::Ready(Err(io::Error::new(
                         io::ErrorKind::BrokenPipe,
@@ -771,8 +1111,7 @@ impl AsyncWrite for StreamUp {
         };
         let count = requested.min(capacity);
         self.upload
-            .send_data(Bytes::copy_from_slice(&input[..count]), false)
-            .map_err(io_other)?;
+            .send_data(Bytes::copy_from_slice(&input[..count]), false)?;
         Poll::Ready(Ok(count))
     }
 
@@ -788,24 +1127,15 @@ impl AsyncWrite for StreamUp {
             return Poll::Ready(Err(error));
         }
         if !self.send_closed {
-            self.upload
-                .send_data(Bytes::new(), true)
-                .map_err(io_other)?;
+            self.upload.send_data(Bytes::new(), true)?;
             self.send_closed = true;
         }
         Poll::Ready(Ok(()))
     }
 }
 
-type PendingWrite = Pin<Box<dyn Future<Output = io::Result<usize>> + Send + 'static>>;
-
 struct PacketUp {
-    sender: SendRequest<Bytes>,
-    request: RequestTemplate,
-    session_id: Arc<str>,
-    sequence: u64,
-    upload_chunk_size: usize,
-    pending_write: Option<PendingWrite>,
+    upload: packet_up::Writer,
     download: Downlink,
     closed: bool,
     _connections: ConnectionGuards,
@@ -817,6 +1147,7 @@ impl AsyncRead for PacketUp {
         cx: &mut Context<'_>,
         output: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
+        self.upload.check_read(cx)?;
         self.download.poll_read(cx, output)
     }
 }
@@ -833,56 +1164,18 @@ impl AsyncWrite for PacketUp {
                 "XHTTP packet-up upload is closed",
             )));
         }
-        if input.is_empty() {
-            return Poll::Ready(Ok(0));
-        }
-        if self.pending_write.is_none() {
-            let count = input.len().min(self.upload_chunk_size);
-            let data = Bytes::copy_from_slice(&input[..count]);
-            let sender = self.sender.clone();
-            let request = self.request.clone();
-            let session_id = self.session_id.clone();
-            let sequence = self.sequence;
-            self.sequence = self.sequence.checked_add(1).ok_or_else(|| {
-                io::Error::new(io::ErrorKind::InvalidData, "XHTTP sequence overflow")
-            })?;
-            self.pending_write = Some(Box::pin(async move {
-                post_packet(sender, request, session_id, sequence, data).await?;
-                Ok(count)
-            }));
-        }
-
-        let future = self.pending_write.as_mut().expect("pending write exists");
-        match future.as_mut().poll(cx) {
-            Poll::Ready(result) => {
-                self.pending_write = None;
-                Poll::Ready(result)
-            }
-            Poll::Pending => Poll::Pending,
-        }
+        Pin::new(&mut self.upload).poll_write(cx, input)
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        let Some(future) = self.pending_write.as_mut() else {
-            return Poll::Ready(Ok(()));
-        };
-        match future.as_mut().poll(cx) {
-            Poll::Ready(Ok(_)) => {
-                self.pending_write = None;
-                Poll::Ready(Ok(()))
-            }
-            Poll::Ready(Err(error)) => {
-                self.pending_write = None;
-                Poll::Ready(Err(error))
-            }
-            Poll::Pending => Poll::Pending,
-        }
+        Pin::new(&mut self.upload).poll_flush(cx)
     }
 
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        match self.as_mut().poll_flush(cx) {
+        match Pin::new(&mut self.upload).poll_shutdown(cx) {
             Poll::Ready(Ok(())) => {
                 self.closed = true;
+                self._connections.permit_upload_recycle();
                 Poll::Ready(Ok(()))
             }
             other => other,
@@ -890,24 +1183,29 @@ impl AsyncWrite for PacketUp {
     }
 }
 
-async fn post_packet(
-    sender: SendRequest<Bytes>,
-    request: RequestTemplate,
-    session_id: Arc<str>,
-    sequence: u64,
-    data: Bytes,
-) -> io::Result<()> {
+async fn post_packet(sender: SendRequest, request: Request<()>, data: Bytes) -> io::Result<()> {
     let mut sender = sender;
-    let request = request.build(
-        Method::POST,
-        Some(session_id.as_ref()),
-        Some(sequence),
-        false,
-    )?;
-    let (response, mut upload) = sender.send_request(request, false).map_err(io_other)?;
-    upload.send_data(data, true).map_err(io_other)?;
-    let response = response.await.map_err(io_other)?;
-    ensure_success(response.status(), "packet-up upload")?;
+    let empty = data.is_empty();
+    let (response, mut upload) = sender.send_request(request, empty).await?;
+    if !empty {
+        upload.send_data(data, true)?;
+    }
+    let response = response.await?;
+    ensure_success(response.status(), "packet-up upload", false)?;
+    let mut body = response.into_body();
+    let mut drained = 0usize;
+    while let Some(data) = std::future::poll_fn(|cx| body.poll_data(cx)).await {
+        let data = data?;
+        drained = drained.saturating_add(data.len());
+        if drained > request::MAX_REQUEST_BYTES {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "XHTTP upload response exceeds its drain budget",
+            ));
+        }
+        body.release_capacity(data.len())?;
+        tokio::task::yield_now().await;
+    }
     Ok(())
 }
 
@@ -953,19 +1251,12 @@ fn normalized_base_path(raw_path: &str) -> String {
     path
 }
 
-fn random_session_id() -> String {
-    let bytes: [u8; 16] = rand::random();
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut output = String::with_capacity(32);
-    for byte in bytes {
-        output.push(char::from(HEX[usize::from(byte >> 4)]));
-        output.push(char::from(HEX[usize::from(byte & 0x0f)]));
-    }
-    output
-}
-
-fn ensure_success(status: StatusCode, operation: &str) -> io::Result<()> {
-    if status.is_success() {
+fn ensure_success(
+    status: StatusCode,
+    operation: &str,
+    allow_other_success: bool,
+) -> io::Result<()> {
+    if status == StatusCode::OK || (allow_other_success && status.is_success()) {
         Ok(())
     } else {
         Err(io::Error::other(format!(
@@ -1220,11 +1511,10 @@ mod tests {
         let client =
             XHttpClient::new(XHttpConfig::new("example.com", "/x", XHttpMode::PacketUp).unwrap());
         let mut stream = client.connect(Box::new(client_io)).await.unwrap();
-        let mut accepted = post_accepted;
-        tokio::select! {
-            result = stream.write_all(b"pending") => panic!("POST unexpectedly completed: {result:?}"),
-            result = &mut accepted => result.unwrap(),
-        }
+        stream.write_all(b"pending").await.unwrap();
+        // Buffered write completion is not a POST acknowledgement. The owned
+        // timer sends without further caller IO; the peer never acknowledges.
+        post_accepted.await.unwrap();
         let started = std::time::Instant::now();
         tokio::time::timeout(Duration::from_secs(2), stream.shutdown())
             .await

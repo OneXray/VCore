@@ -1,8 +1,239 @@
 {
   "schema_version": 1,
   "kind": "runtime-limit-registry",
-  "scope": "N1 shared foundations and inherited ResourceLimits defaults; per-object bounds, not global admission caps",
+  "scope": "N1 shared foundations through N5 protocol consumers; per-object bounds, not global admission caps",
   "limits": [
+    {
+      "id": "xhttp-custom-header-bytes",
+      "value": 8192,
+      "unit": "bytes",
+      "owner": "limits::XHTTP_CUSTOM_HEADER_BYTES",
+      "saturation": "reject aggregate custom header overflow before IO",
+      "cancellation": "reject before creating runtime IO or tasks",
+      "boundary_cases": [
+        "N5-CFG"
+      ]
+    },
+    {
+      "id": "xhttp-custom-headers",
+      "value": 100,
+      "unit": "headers",
+      "owner": "limits::XHTTP_CUSTOM_HEADERS",
+      "saturation": "reject custom header count overflow before IO",
+      "cancellation": "reject before creating runtime IO or tasks",
+      "boundary_cases": [
+        "N5-CFG"
+      ]
+    },
+    {
+      "id": "xhttp-padding",
+      "value": 4096,
+      "unit": "bytes",
+      "owner": "limits::XHTTP_PADDING_BYTES",
+      "saturation": "reject configured padding overflow before IO",
+      "cancellation": "reject before creating runtime IO or tasks",
+      "boundary_cases": [
+        "N5-CFG"
+      ]
+    },
+    {
+      "id": "xhttp-post",
+      "value": 16777216,
+      "unit": "bytes",
+      "owner": "limits::XHTTP_POST_BYTES",
+      "saturation": "reject post size overflow before IO; bound retained upload",
+      "cancellation": "reject before creating runtime IO or tasks",
+      "boundary_cases": [
+        "N5-CFG"
+      ]
+    },
+    {
+      "id": "xhttp-packet-batch",
+      "value": 65536,
+      "unit": "bytes-per-batch",
+      "owner": "limits::XHTTP_PACKET_BATCH_BYTES",
+      "saturation": "backpressure one filling batch and one in-flight batch; never allocate the configured POST maximum",
+      "cancellation": "logical drop cancels the timer/upload; node Stop joins the owned driver",
+      "boundary_cases": [
+        "N5-UNIT"
+      ]
+    },
+    {
+      "id": "xhttp-request-bytes",
+      "value": 16384,
+      "unit": "bytes",
+      "owner": "limits::XHTTP_REQUEST_BYTES",
+      "saturation": "reject oversized constructed request including generated metadata",
+      "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
+      "boundary_cases": [
+        "N5-UNIT"
+      ]
+    },
+    {
+      "id": "xhttp-request-headers",
+      "value": 128,
+      "unit": "headers",
+      "owner": "limits::XHTTP_REQUEST_HEADERS",
+      "saturation": "reject excess constructed headers including payload chunks",
+      "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
+      "boundary_cases": [
+        "N5-UNIT"
+      ]
+    },
+    {
+      "id": "xhttp-idle-entries",
+      "value": 64,
+      "unit": "entries",
+      "owner": "limits::XHTTP_IDLE_ENTRIES",
+      "saturation": "retire excess idle transports without imposing active business quota",
+      "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
+      "boundary_cases": [
+        "N5-UNIT"
+      ]
+    },
+    {
+      "id": "xhttp-idle-h1",
+      "value": 4,
+      "unit": "connections-per-entry",
+      "owner": "limits::XHTTP_IDLE_H1_CONNECTIONS",
+      "saturation": "retire excess idle H1 connections; active requests keep ownership",
+      "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
+      "boundary_cases": [
+        "N5-UNIT"
+      ]
+    },
+    {
+      "id": "xhttp-body-queue",
+      "value": 2,
+      "unit": "chunks",
+      "owner": "limits::XHTTP_BODY_QUEUE",
+      "saturation": "backpressure owned H1 commands and body chunks",
+      "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
+      "boundary_cases": [
+        "N5-UNIT"
+      ]
+    },
+    {
+      "id": "xhttp-body-chunk",
+      "value": 16384,
+      "unit": "bytes",
+      "owner": "limits::XHTTP_BODY_CHUNK",
+      "saturation": "split streaming writes; a packet-up body uses the separately bounded xhttp-packet-batch limit",
+      "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
+      "boundary_cases": [
+        "N5-UNIT"
+      ]
+    },
+    {
+      "id": "xhttp-h3-uni-streams",
+      "value": 8,
+      "unit": "streams-per-connection",
+      "owner": "limits::XHTTP_H3_UNI_STREAMS",
+      "saturation": "QUIC flow control bounds remote control streams",
+      "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
+      "boundary_cases": [
+        "N5-UNIT"
+      ]
+    },
+    {
+      "id": "xhttp-h3-stream-window",
+      "value": 65536,
+      "unit": "bytes",
+      "owner": "limits::XHTTP_H3_STREAM_WINDOW",
+      "saturation": "QUIC receive flow control backpressures peer per stream",
+      "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
+      "boundary_cases": [
+        "N5-UNIT"
+      ]
+    },
+    {
+      "id": "xhttp-h3-connection-window",
+      "value": 131072,
+      "unit": "bytes",
+      "owner": "limits::XHTTP_H3_CONNECTION_WINDOW",
+      "saturation": "QUIC aggregate receive flow control",
+      "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
+      "boundary_cases": [
+        "N5-UNIT"
+      ]
+    },
+    {
+      "id": "xhttp-h3-send-window",
+      "value": 65536,
+      "unit": "bytes",
+      "owner": "limits::XHTTP_H3_SEND_WINDOW",
+      "saturation": "QUIC send window backpressures pending writes",
+      "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
+      "boundary_cases": [
+        "N5-UNIT"
+      ]
+    },
+    {
+      "id": "sing-mux-idle",
+      "value": 16,
+      "unit": "connections",
+      "owner": "limits::SING_MUX_IDLE_CONNECTIONS",
+      "saturation": "retire excess idle connections; no active business quota",
+      "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
+      "boundary_cases": [
+        "N5-UNIT"
+      ]
+    },
+    {
+      "id": "sing-mux-command-queue",
+      "value": 16,
+      "unit": "commands",
+      "owner": "limits::SING_MUX_COMMAND_QUEUE",
+      "saturation": "backpressure smux frames and yamux opens",
+      "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
+      "boundary_cases": [
+        "N5-UNIT"
+      ]
+    },
+    {
+      "id": "sing-mux-chunk",
+      "value": 16384,
+      "unit": "bytes",
+      "owner": "limits::SING_MUX_CHUNK",
+      "saturation": "split frame writes at retained chunk boundary",
+      "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
+      "boundary_cases": [
+        "N5-UNIT"
+      ]
+    },
+    {
+      "id": "smux-receive-queue",
+      "value": 4,
+      "unit": "frames-per-stream",
+      "owner": "limits::SMUX_RECEIVE_QUEUE",
+      "saturation": "backpressure reader; each wire frame is bounded by its u16 length",
+      "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
+      "boundary_cases": [
+        "N5-UNIT"
+      ]
+    },
+    {
+      "id": "yamux-admissions",
+      "value": 64,
+      "unit": "lifetime-streams-per-physical-connection",
+      "owner": "limits::YAMUX_CONNECTION_ADMISSIONS",
+      "saturation": "retire before library stream saturation; new transport serves new streams while old streams remain live",
+      "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
+      "boundary_cases": [
+        "N5-UNIT"
+      ]
+    },
+    {
+      "id": "yamux-window",
+      "value": 16777216,
+      "unit": "bytes",
+      "owner": "limits::YAMUX_CONNECTION_WINDOW",
+      "saturation": "library receive credit window bounds physical connection retention",
+      "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
+      "boundary_cases": [
+        "N5-UNIT"
+      ]
+    },
     {
       "id": "trojan-udp-payload",
       "value": 8192,

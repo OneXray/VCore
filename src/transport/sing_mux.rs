@@ -1,0 +1,329 @@
+//! Node-owned sing-mux sessions over supplied authenticated VLESS byte streams.
+//! No sockets, resolver, global pool, or detached protocol tasks live here.
+use crate::{
+    config::{SingMuxConfig, SingMuxProtocol},
+    dispatch::BoxStream,
+    resources::observation::{self, ResourceKind},
+    session::Destination,
+};
+use bytes::Bytes;
+use std::{
+    future::Future,
+    io,
+    pin::Pin,
+    sync::{
+        Arc, Mutex, Weak,
+        atomic::{AtomicUsize, Ordering},
+    },
+    task::{Context, Poll, ready},
+};
+use tokio::{
+    io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf},
+    time::{Instant, timeout_at},
+};
+use tokio_util::{sync::CancellationToken, task::TaskTracker};
+
+const IDLE_RETAINED: usize = crate::limits::SING_MUX_IDLE_CONNECTIONS;
+pub(crate) mod datagram;
+mod h2_driver;
+mod padding;
+mod smux_driver;
+mod yamux_driver;
+pub(crate) struct Pool {
+    options: SingMuxConfig,
+    state: Arc<Mutex<State>>,
+    opening: tokio::sync::Mutex<()>,
+    cancel: CancellationToken,
+    tasks: TaskTracker,
+}
+#[derive(Default)]
+struct State {
+    closed: bool,
+    connections: Vec<Connection>,
+}
+struct Connection {
+    sender: Sender,
+    active: Arc<AtomicUsize>,
+    issued: AtomicUsize,
+    cancel: CancellationToken,
+    _observation: observation::Guard,
+}
+#[derive(Clone)]
+enum Sender {
+    H2(h2::client::SendRequest<Bytes>),
+    Yamux(yamux_driver::Client),
+    Smux(smux_driver::Client),
+}
+impl Drop for Connection {
+    fn drop(&mut self) {
+        self.cancel.cancel();
+    }
+}
+impl Pool {
+    pub(crate) fn new(options: SingMuxConfig) -> Self {
+        Self {
+            options,
+            state: Arc::default(),
+            opening: Default::default(),
+            cancel: CancellationToken::new(),
+            tasks: TaskTracker::new(),
+        }
+    }
+    pub(crate) fn only_tcp(&self) -> bool {
+        self.options.only_tcp
+    }
+    pub(crate) async fn open<F, Fut>(
+        &self,
+        target: &Destination,
+        udp: bool,
+        deadline: Instant,
+        connect: F,
+    ) -> io::Result<BoxStream>
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = io::Result<BoxStream>>,
+    {
+        let operation = async {
+            let (sender, lease) = {
+                let _opening = self.opening.lock().await;
+                let existing = {
+                    let mut state = self.state.lock().unwrap();
+                    if state.closed {
+                        return Err(io::ErrorKind::ConnectionAborted.into());
+                    }
+                    state.connections.retain(|c| !c.cancel.is_cancelled());
+                    state
+                        .connections
+                        .iter()
+                        .filter(|c| {
+                            !matches!(c.sender, Sender::Yamux(_))
+                                || c.issued.load(Ordering::Acquire) < yamux_driver::STREAMS
+                        })
+                        .min_by_key(|c| c.active.load(Ordering::Acquire))
+                        .filter(|c| {
+                            let active = c.active.load(Ordering::Acquire);
+                            active == 0
+                                || if self.options.max_connections > 0 {
+                                    state.connections.len() >= self.options.max_connections as usize
+                                        || active < self.options.min_streams as usize
+                                } else {
+                                    self.options.max_streams > 0
+                                        && active < self.options.max_streams as usize
+                                }
+                        })
+                        .map(|c| c.reserve(&self.state))
+                };
+                if let Some(pair) = existing {
+                    pair
+                } else {
+                    let mut raw = connect().await?;
+                    let protocol = match self.options.protocol {
+                        SingMuxProtocol::Smux => 0,
+                        SingMuxProtocol::Yamux => 1,
+                        SingMuxProtocol::H2Mux => 2,
+                    };
+                    if self.options.padding {
+                        let size = rand::random_range(256_usize..768);
+                        let mut wire = vec![1, protocol, 1];
+                        wire.extend_from_slice(&(size as u16).to_be_bytes());
+                        wire.resize(5 + size, 0);
+                        raw.write_all(&wire).await?;
+                    } else {
+                        raw.write_all(&[0, protocol]).await?;
+                    }
+                    raw.flush().await?;
+                    if self.options.padding {
+                        raw = Box::new(padding::Padding::new(raw));
+                    }
+                    let connection = self.establish(raw).await?;
+                    let mut state = self.state.lock().unwrap();
+                    if state.closed {
+                        return Err(io::ErrorKind::ConnectionAborted.into());
+                    }
+                    let pair = connection.reserve(&self.state);
+                    state.connections.push(connection);
+                    pair
+                }
+            };
+            let mut raw = match sender {
+                Sender::H2(sender) => super::grpc::mux_stream(sender, deadline).await?,
+                Sender::Yamux(sender) => sender.open().await?,
+                Sender::Smux(sender) => sender.open().await?,
+            };
+            let mut request = Vec::with_capacity(262);
+            request.extend_from_slice(&(if udp { 3_u16 } else { 0 }).to_be_bytes());
+            crate::socks5::encode_address(target, &mut request)?;
+            raw.write_all(&request).await?;
+            raw.flush().await?;
+            Ok(Box::new(ResponseStream {
+                raw: Some(raw),
+                lease: Some(lease),
+                response: false,
+                deadline: Box::pin(tokio::time::sleep_until(deadline)),
+            }) as BoxStream)
+        };
+        tokio::select! { biased;
+            () = self.cancel.cancelled() => Err(io::ErrorKind::ConnectionAborted.into()),
+            result = timeout_at(deadline, operation) => result.map_err(|_|io::Error::from(io::ErrorKind::TimedOut))?,
+        }
+    }
+    async fn establish(&self, raw: BoxStream) -> io::Result<Connection> {
+        if self.options.protocol == SingMuxProtocol::Smux {
+            let (sender, driver) = smux_driver::new(raw);
+            return self.own(Sender::Smux(sender), driver);
+        }
+        if self.options.protocol == SingMuxProtocol::Yamux {
+            let (sender, driver) = yamux_driver::new(raw);
+            return self.own(Sender::Yamux(sender), driver);
+        }
+        let (sender, driver) = h2_driver::new(raw).await?;
+        self.own(Sender::H2(sender), driver)
+    }
+    fn own(
+        &self,
+        sender: Sender,
+        driver: impl Future<Output = ()> + Send + 'static,
+    ) -> io::Result<Connection> {
+        let cancel = self.cancel.child_token();
+        let token = cancel.clone();
+        let state = self.state.lock().unwrap();
+        if state.closed {
+            return Err(io::ErrorKind::ConnectionAborted.into());
+        }
+        let guard = observation::track(ResourceKind::Task);
+        self.tasks.spawn(observation::bind(async move {
+            let _guard = guard;
+            tokio::select! { biased; ()=token.cancelled()=>{}, _=driver=>{} }
+            token.cancel();
+        }));
+        Ok(Connection {
+            sender,
+            active: Arc::default(),
+            issued: AtomicUsize::new(0),
+            cancel,
+            _observation: observation::track(ResourceKind::Pool),
+        })
+    }
+    pub(crate) fn begin_stop(&self) {
+        let mut state = self.state.lock().unwrap();
+        state.closed = true;
+        self.cancel.cancel();
+        state.connections.clear();
+        self.tasks.close();
+    }
+    pub(crate) async fn stop(&self) {
+        self.begin_stop();
+        self.tasks.wait().await;
+    }
+}
+impl Drop for Pool {
+    fn drop(&mut self) {
+        self.begin_stop();
+    }
+}
+impl Connection {
+    fn reserve(&self, pool: &Arc<Mutex<State>>) -> (Sender, Lease) {
+        self.active.fetch_add(1, Ordering::AcqRel);
+        // A dropped logical lease is not proof that yamux has processed its
+        // reset. Its public poll_new_outbound closes the entire connection on
+        // TooManyStreams, including siblings. Retire admission after a bounded
+        // number of issued streams; let existing ones drain on the old driver.
+        // This is a per-transport retirement budget, never a node-wide quota.
+        self.issued.fetch_add(1, Ordering::AcqRel);
+        (
+            self.sender.clone(),
+            Lease {
+                active: self.active.clone(),
+                pool: Arc::downgrade(pool),
+            },
+        )
+    }
+}
+struct Lease {
+    active: Arc<AtomicUsize>,
+    pool: Weak<Mutex<State>>,
+}
+impl Drop for Lease {
+    fn drop(&mut self) {
+        if self.active.fetch_sub(1, Ordering::AcqRel) == 1
+            && let Some(pool) = self.pool.upgrade()
+        {
+            let mut idle = 0;
+            pool.lock().unwrap().connections.retain(|c| {
+                if c.cancel.is_cancelled() {
+                    return false;
+                }
+                if c.active.load(Ordering::Acquire) > 0 {
+                    return true;
+                }
+                if matches!(c.sender, Sender::Yamux(_))
+                    && c.issued.load(Ordering::Acquire) >= yamux_driver::STREAMS
+                {
+                    return false;
+                }
+                idle += 1;
+                idle <= IDLE_RETAINED
+            });
+        }
+    }
+}
+struct ResponseStream {
+    raw: Option<BoxStream>,
+    lease: Option<Lease>,
+    response: bool,
+    deadline: Pin<Box<tokio::time::Sleep>>,
+}
+impl AsyncRead for ResponseStream {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        out: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        if out.remaining() == 0 || self.raw.is_none() {
+            return Poll::Ready(Ok(()));
+        }
+        if !self.response {
+            let mut status = [0];
+            let mut buf = ReadBuf::new(&mut status);
+            match Pin::new(self.raw.as_mut().unwrap()).poll_read(cx, &mut buf) {
+                Poll::Pending => {
+                    if self.deadline.as_mut().poll(cx).is_ready() {
+                        return Poll::Ready(Err(io::ErrorKind::TimedOut.into()));
+                    }
+                    return Poll::Pending;
+                }
+                Poll::Ready(result) => result?,
+            }
+            if buf.filled() != [0] {
+                self.raw.take();
+                self.lease.take();
+                return Poll::Ready(Err(io::Error::new(
+                    io::ErrorKind::ConnectionRefused,
+                    "sing-mux stream rejected",
+                )));
+            }
+            self.response = true;
+        }
+        Pin::new(self.raw.as_mut().unwrap()).poll_read(cx, out)
+    }
+}
+impl AsyncWrite for ResponseStream {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(self.raw.as_mut().ok_or(io::ErrorKind::BrokenPipe)?).poll_write(cx, buf)
+    }
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(self.raw.as_mut().ok_or(io::ErrorKind::BrokenPipe)?).poll_flush(cx)
+    }
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        if let Some(raw) = &mut self.raw {
+            ready!(Pin::new(raw).poll_shutdown(cx))?;
+        }
+        self.raw.take();
+        self.lease.take();
+        Poll::Ready(Ok(()))
+    }
+}

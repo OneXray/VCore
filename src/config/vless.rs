@@ -8,6 +8,34 @@ pub struct VlessStreamOptions {
     pub http_upgrade: bool,
     pub fast_open: bool,
     pub grpc: GrpcOptions,
+    pub sing_mux: Option<SingMuxConfig>,
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SingMuxProtocol {
+    #[default]
+    H2Mux,
+    Smux,
+    Yamux,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct SingMuxConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub protocol: SingMuxProtocol,
+    #[serde(default)]
+    pub max_connections: u32,
+    #[serde(default)]
+    pub min_streams: u32,
+    #[serde(default)]
+    pub max_streams: u32,
+    #[serde(default)]
+    pub padding: bool,
+    #[serde(default)]
+    pub only_tcp: bool,
 }
 #[derive(Clone, PartialEq, Eq)]
 pub struct GrpcOptions {
@@ -112,9 +140,12 @@ pub(super) struct RawVless {
     #[serde(
         rename = "xhttp-opts",
         default,
-        deserialize_with = "deserialize_present_option"
+        deserialize_with = "deserialize_present_map"
     )]
     xhttp_opts: Option<RawXHttpSettings>,
+
+    #[serde(default, deserialize_with = "deserialize_present_map")]
+    smux: Option<SingMuxConfig>,
 
     #[serde(
         rename = "ws-opts",
@@ -192,6 +223,20 @@ impl RawVless {
             return invalid("VLESS Vision requires TCP, TLS and XUDP");
         }
         let mut stream_options = VlessStreamOptions::default();
+        if let Some(mut mux) = self.smux {
+            if (mux.max_connections > 0 && mux.max_streams > 0)
+                || [mux.max_connections, mux.min_streams, mux.max_streams]
+                    .iter()
+                    .any(|value| *value > i32::MAX as u32)
+                || (mux.enabled && vision)
+            {
+                return invalid("invalid VLESS sing-mux options");
+            }
+            if mux.max_connections == 0 && mux.max_streams == 0 {
+                mux.min_streams = 8;
+            }
+            stream_options.sing_mux = mux.enabled.then_some(mux);
+        }
         let ws = self
             .ws
             .map(|ws| {
@@ -271,9 +316,8 @@ impl RawVless {
             || self.certificate.is_some()
             || self.private_key.is_some();
         if !self.tls
-            && (network == "xhttp"
-                || self.servername.is_some()
-                || self.alpn.is_some()
+            && (self.servername.is_some()
+                || (network != "xhttp" && self.alpn.is_some())
                 || self.reality_opts.is_some()
                 || standard_options)
         {
@@ -282,19 +326,26 @@ impl RawVless {
         if self.reality_opts.is_some() && standard_options {
             return invalid("standard certificate options cannot be used with REALITY");
         }
+        let xhttp_version = if network == "xhttp" {
+            super::XHttpVersion::from_alpn(self.alpn.as_deref().unwrap_or_default())?
+        } else {
+            super::XHttpVersion::default()
+        };
         let default_alpn = if network == "xhttp" {
-            Some(b"h2".as_slice())
+            Some(xhttp_version.alpn())
         } else {
             stream.required_alpn()
         };
-        let alpn: Vec<Vec<u8>> = self
-            .alpn
-            .map(|values| values.into_iter().map(String::into_bytes).collect())
-            .unwrap_or_else(|| default_alpn.into_iter().map(<[u8]>::to_vec).collect());
+        let alpn: Vec<Vec<u8>> = if network == "xhttp" {
+            vec![xhttp_version.alpn().to_vec()]
+        } else {
+            self.alpn
+                .map(|values| values.into_iter().map(String::into_bytes).collect())
+                .unwrap_or_else(|| default_alpn.into_iter().map(<[u8]>::to_vec).collect())
+        };
         if alpn.iter().any(|p| p.is_empty() || p.len() > 255)
             || alpn.iter().map(|p| 1 + p.len()).sum::<usize>() > 65533
             || default_alpn.is_some_and(|p| !alpn.iter().any(|v| v == p))
-            || (network == "xhttp" && alpn != [b"h2".to_vec()])
         {
             return invalid("invalid VLESS ALPN");
         }
@@ -339,13 +390,18 @@ impl RawVless {
             None => SecurityConfig::None,
         };
         let transport = if network == "xhttp" {
-            VlessTransport::Xhttp(self.xhttp_opts.unwrap_or_default().normalize(
+            VlessTransport::Xhttp(Box::new(self.xhttp_opts.unwrap_or_default().normalize(
                 &self.server,
                 self.port,
                 explicit_name.then_some(security.server_name()),
-                security.server_name(),
+                if matches!(security, SecurityConfig::None) {
+                    &self.server
+                } else {
+                    security.server_name()
+                },
                 &security,
-            )?)
+                xhttp_version,
+            )?))
         } else {
             VlessTransport::Stream(stream)
         };
@@ -368,18 +424,18 @@ impl RawVless {
     }
 }
 #[cfg(feature = "outbound-vless")]
-fn validate_client_identity(certificate: &str, private_key: &str) -> Result<()> {
+pub(super) fn validate_client_identity(certificate: &str, private_key: &str) -> Result<()> {
     crate::security::TlsClientIdentity::from_pem(certificate, private_key)
         .map(|_| ())
         .map_err(|_| VCoreError::InvalidConfig("invalid VLESS client identity".into()))
 }
 
 #[cfg(not(feature = "outbound-vless"))]
-fn validate_client_identity(_certificate: &str, _private_key: &str) -> Result<()> {
+pub(super) fn validate_client_identity(_certificate: &str, _private_key: &str) -> Result<()> {
     invalid("VLESS support is disabled in this build")
 }
 
-fn parse_pin(value: &str) -> Result<[u8; 32]> {
+pub(super) fn parse_pin(value: &str) -> Result<[u8; 32]> {
     let hex = value
         .trim()
         .bytes()

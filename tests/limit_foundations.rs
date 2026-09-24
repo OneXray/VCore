@@ -86,6 +86,48 @@ fn registry_matches_live_production_constants_and_has_owned_boundary_cases() {
         ("tun-dns-response", defaults.tun_dns_response_queue_capacity),
         ("xhttp-send", defaults.xhttp_send_buffer_size),
         ("xhttp-upload", defaults.xhttp_upload_chunk_size),
+        (
+            "xhttp-custom-header-bytes",
+            vcore::limits::XHTTP_CUSTOM_HEADER_BYTES,
+        ),
+        ("xhttp-custom-headers", vcore::limits::XHTTP_CUSTOM_HEADERS),
+        ("xhttp-padding", vcore::limits::XHTTP_PADDING_BYTES),
+        ("xhttp-post", vcore::limits::XHTTP_POST_BYTES),
+        (
+            "xhttp-packet-batch",
+            vcore::limits::XHTTP_PACKET_BATCH_BYTES,
+        ),
+        ("xhttp-request-bytes", vcore::limits::XHTTP_REQUEST_BYTES),
+        (
+            "xhttp-request-headers",
+            vcore::limits::XHTTP_REQUEST_HEADERS,
+        ),
+        ("xhttp-idle-entries", vcore::limits::XHTTP_IDLE_ENTRIES),
+        ("xhttp-idle-h1", vcore::limits::XHTTP_IDLE_H1_CONNECTIONS),
+        ("xhttp-body-queue", vcore::limits::XHTTP_BODY_QUEUE),
+        ("xhttp-body-chunk", vcore::limits::XHTTP_BODY_CHUNK),
+        ("xhttp-h3-uni-streams", vcore::limits::XHTTP_H3_UNI_STREAMS),
+        (
+            "xhttp-h3-stream-window",
+            vcore::limits::XHTTP_H3_STREAM_WINDOW,
+        ),
+        (
+            "xhttp-h3-connection-window",
+            vcore::limits::XHTTP_H3_CONNECTION_WINDOW,
+        ),
+        ("xhttp-h3-send-window", vcore::limits::XHTTP_H3_SEND_WINDOW),
+        ("sing-mux-idle", vcore::limits::SING_MUX_IDLE_CONNECTIONS),
+        (
+            "sing-mux-command-queue",
+            vcore::limits::SING_MUX_COMMAND_QUEUE,
+        ),
+        ("sing-mux-chunk", vcore::limits::SING_MUX_CHUNK),
+        ("smux-receive-queue", vcore::limits::SMUX_RECEIVE_QUEUE),
+        (
+            "yamux-admissions",
+            vcore::limits::YAMUX_CONNECTION_ADMISSIONS,
+        ),
+        ("yamux-window", vcore::limits::YAMUX_CONNECTION_WINDOW),
     ]);
     let registry: serde_json::Value =
         serde_json::from_str(include_str!("protocols/limits.json")).unwrap();

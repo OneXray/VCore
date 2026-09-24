@@ -444,7 +444,11 @@ def run_protocol_interop(
     try:
         run.update(run_identity(stage, selected, preflight_only))
         with exclusive_run(), deadline(run["suite_timeout_seconds"]):
-            if preflight_only and stage in {"N3", "N4"}:
+            if preflight_only and stage == "N5":
+                from .protocol_xhttp_acceptance import preflight as preflight_xhttp
+
+                preflight_xhttp(output)
+            elif preflight_only and stage in {"N3", "N4"}:
                 if stage == "N3":
                     from .protocol_vmess_container import run as preflight_vmess
                 else:
@@ -486,6 +490,10 @@ def run_protocol_interop(
                     execute(selected, run, output, records)
                 elif stage == "N4":
                     from .protocol_vless_acceptance import execute
+
+                    execute(selected, run, output, records)
+                elif stage == "N5":
+                    from .protocol_xhttp_acceptance import execute
 
                     execute(selected, run, output, records)
                 else:
@@ -548,6 +556,9 @@ def run_protocol_interop(
                 else "VLESS N4 consumer evidence with container-only peers; "
                 "N5/N7 remain separate gates.\n\n"
                 if stage == "N4"
+                else "VLESS N5 XHTTP/sing-mux consumer evidence; "
+                "container-only native peers, N7 remains a separate gate.\n\n"
+                if stage == "N5"
                 else "Foundation-only evidence; "
                 "production protocol field consumers remain NOT RUN.\n\n"
             )

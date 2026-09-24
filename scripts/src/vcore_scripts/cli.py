@@ -40,6 +40,26 @@ def _parser() -> argparse.ArgumentParser:
     checks = check.add_subparsers(dest="check", required=True)
     checks.add_parser("c-header", help="compile vcore.h as C and C++")
     checks.add_parser("tls-dependencies", help="validate the locked TLS graph")
+    xhttp = checks.add_parser(
+        "xhttp-peers",
+        help="probe isolated native N5 peer capabilities, not stage acceptance",
+    )
+    xhttp.add_argument("--run-dir", type=Path, required=True)
+    xhttp.add_argument(
+        "--identities-only",
+        action="store_true",
+        help="probe real download-leg client-identity enforcement only",
+    )
+    gateway = checks.add_parser(
+        "xhttp-gateway",
+        help="build xcaddy and test isolated H3/mTLS native topology",
+    )
+    gateway.add_argument("--run-dir", type=Path, required=True)
+    gateway.add_argument(
+        "--identities-only",
+        action="store_true",
+        help="small identity probes with native QUIC certificate-error observation",
+    )
     coverage = checks.add_parser(
         "protocol-coverage", help="validate planned protocol coverage declarations"
     )
@@ -126,6 +146,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.command == "check":
             if args.check == "c-header":
                 check_c_header()
+            elif args.check == "xhttp-peers":
+                from .protocol_xhttp_peers import main as xhttp_peers
+
+                return xhttp_peers(args.run_dir, identities_only=args.identities_only)
+            elif args.check == "xhttp-gateway":
+                from .protocol_xhttp_gateway import main as xhttp_gateway
+
+                return xhttp_gateway(args.run_dir, identities_only=args.identities_only)
             elif args.check == "protocol-coverage":
                 if args.catalog_only:
                     check_protocol_catalogs(args.catalog_dir)

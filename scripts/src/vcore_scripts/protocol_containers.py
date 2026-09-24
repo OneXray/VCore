@@ -29,7 +29,10 @@ def listing():
 
 
 class ContainerLab:
-    def __init__(self, record):
+    def __init__(self, record, *, mtu=1280):
+        if type(mtu) is not int or mtu not in (1280, 1500):
+            raise ValueError("unsupported isolated guest MTU")
+        self.mtu = mtu
         self.record = record
         self.run_id = uuid.uuid4().hex[:12]
         network = json.loads(command("network", "inspect", NETWORK))[0]
@@ -53,6 +56,7 @@ class ContainerLab:
             run_id=self.run_id,
             peers=[],
             host_servers=False,
+            guest_mtu=mtu,
         )
 
     def start(self, stack, root: Path, role, argv):
@@ -86,7 +90,7 @@ class ContainerPeer:
             "--label",
             f"vcore-run={self.lab.run_id}",
             "--network",
-            NETWORK,
+            f"{NETWORK},mtu={self.lab.mtu}",
             "--cpus",
             "1",
             "--memory",
@@ -118,6 +122,9 @@ class ContainerPeer:
             limit=1024 * 1024,
         ).__enter__()
         state = json.loads(command("inspect", self.name))[0]
+        self.record["guest_mtu"] = state["status"]["networks"][0]["mtu"]
+        if self.record["guest_mtu"] != self.lab.mtu:
+            raise RuntimeError("isolated guest MTU differs from requested value")
         self.ipv4 = state["status"]["networks"][0]["ipv4Address"].split("/")[0]
         if ipaddress.ip_address(self.ipv4) not in self.lab.v4:
             raise RuntimeError("container address outside owned network")

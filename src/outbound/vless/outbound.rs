@@ -93,6 +93,7 @@ pub struct VlessOutbound {
     cancellation: CancellationToken,
     tasks: TaskTracker,
     grpc_pool: crate::transport::GrpcPool,
+    sing_mux: Option<crate::transport::sing_mux::Pool>,
     vision: bool,
     vision_stats: Arc<crate::security::vision::SpliceStats>,
 }
@@ -244,10 +245,28 @@ impl VlessOutbound {
         dialer: Dialer,
         roots_der: impl IntoIterator<Item = Vec<u8>>,
     ) -> io::Result<Self> {
-        let (upload_path, download_path) = Self::direct_paths(config, endpoint, None, dialer)?;
+        Self::new_with_test_tls_roots_and_endpoints(config, endpoint, None, dialer, roots_der)
+    }
+
+    /// Test-only roots with independently prepared upload/download endpoints.
+    #[cfg(feature = "interop-test")]
+    #[doc(hidden)]
+    pub fn new_with_test_tls_roots_and_endpoints(
+        config: &VlessOutboundConfig,
+        endpoint: ResolvedEndpoint,
+        download_endpoint: Option<ResolvedEndpoint>,
+        dialer: Dialer,
+        roots_der: impl IntoIterator<Item = Vec<u8>>,
+    ) -> io::Result<Self> {
+        let (upload_path, download_path) =
+            Self::direct_paths(config, endpoint, download_endpoint, dialer)?;
         let roots = roots_der.into_iter().collect::<Vec<_>>();
-        let upload_security =
-            SecurityClient::from_proxy_with_test_tls_roots(config, roots.clone())?;
+        let upload_security = match &config.security {
+            crate::config::SecurityConfig::Tls(_) => {
+                SecurityClient::from_proxy_with_test_tls_roots(config, roots.clone())?
+            }
+            _ => SecurityClient::from_security(&config.security)?,
+        };
         let download_security = config
             .download()
             .map(|download| match &download.security {
@@ -413,11 +432,12 @@ impl VlessOutbound {
         let xhttp = config
             .xhttp()
             .map(|config| {
-                build_xhttp(XHttpConfig::new(
-                    config.host.clone(),
-                    config.path.clone(),
-                    mode,
-                )?)
+                let mut request = XHttpConfig::new(config.host.clone(), config.path.clone(), mode)?;
+                request.headers = config.headers.clone();
+                request.request = config.request.clone();
+                request.http_version = config.http_version;
+                request.reuse = config.reuse.clone();
+                build_xhttp(request)
             })
             .transpose()?;
         let download = match (config.download(), download_path, download_security) {
@@ -428,11 +448,15 @@ impl VlessOutbound {
                     upstream,
                     security,
                 },
-                xhttp: build_xhttp(XHttpConfig::new(
-                    config.host.clone(),
-                    config.path.clone(),
-                    mode,
-                )?)?,
+                xhttp: {
+                    let mut request =
+                        XHttpConfig::new(config.host.clone(), config.path.clone(), mode)?;
+                    request.headers = config.headers.clone();
+                    request.request = config.request.clone();
+                    request.http_version = config.http_version;
+                    request.reuse = config.reuse.clone();
+                    build_xhttp(request)?
+                },
             }),
             _ => {
                 return Err(io::Error::new(
@@ -459,39 +483,71 @@ impl VlessOutbound {
             stream_options: config.stream_options.clone(),
             tasks: TaskTracker::new(),
             grpc_pool: crate::transport::GrpcPool::new(config.stream_options.grpc.clone()),
+            sing_mux: config
+                .stream_options
+                .sing_mux
+                .clone()
+                .map(crate::transport::sing_mux::Pool::new),
             vision: config.flow == "xtls-rprx-vision",
             vision_stats: Arc::default(),
         })
     }
 
-    async fn connect_transport(
-        &self,
+    fn connect_transport<'a>(
+        &'a self,
         session: StreamSession,
-        context: &EstablishContext,
-    ) -> Result<BoxStream, DispatchError> {
-        let upload = Self::connect_transport_leg(&self.upload, session.clone(), context);
-        let Some(xhttp) = &self.xhttp else {
-            return upload.await;
-        };
-        let Some(download) = &self.download else {
-            let secured = upload.await?;
-            let connected = context
-                .run_io("VLESS XHTTP handshake", xhttp.connect(secured))
-                .await?;
-            tracing::debug!(stage = "xhttp", "VLESS transport stage completed");
-            return Ok(connected);
-        };
+        context: &'a EstablishContext,
+    ) -> futures_util::future::BoxFuture<'a, Result<BoxStream, DispatchError>> {
+        Box::pin(async move {
+            let Some(xhttp) = &self.xhttp else {
+                return Self::connect_transport_leg(&self.upload, session, context).await;
+            };
+            let upload = || {
+                let session = session.clone();
+                async move {
+                    Self::connect_xhttp_leg(&self.upload, xhttp.http_version(), session, context)
+                        .await
+                        .map_err(io::Error::other)
+                }
+            };
+            let Some(download) = &self.download else {
+                let connected = context
+                    .run_io(
+                        "VLESS XHTTP handshake",
+                        xhttp.open_transport(context.deadline(), upload),
+                    )
+                    .await?;
+                tracing::debug!(stage = "xhttp", "VLESS transport stage completed");
+                return Ok(connected);
+            };
 
-        let download_stream = Self::connect_transport_leg(&download.transport, session, context);
-        let (upload_stream, download_stream) = tokio::try_join!(upload, download_stream)?;
-        let connected = context
-            .run_io(
-                "VLESS XHTTP handshake",
-                xhttp.connect_with_download(upload_stream, &download.xhttp, download_stream),
-            )
-            .await?;
-        tracing::debug!(stage = "xhttp-split", "VLESS transport stage completed");
-        Ok(connected)
+            let download_stream = || {
+                let session = session.clone();
+                async move {
+                    Self::connect_xhttp_leg(
+                        &download.transport,
+                        download.xhttp.http_version(),
+                        session,
+                        context,
+                    )
+                    .await
+                    .map_err(io::Error::other)
+                }
+            };
+            let connected = context
+                .run_io(
+                    "VLESS XHTTP handshake",
+                    xhttp.open_with_download_transports(
+                        context.deadline(),
+                        &download.xhttp,
+                        upload,
+                        download_stream,
+                    ),
+                )
+                .await?;
+            tracing::debug!(stage = "xhttp-split", "VLESS transport stage completed");
+            Ok(connected)
+        })
     }
 
     async fn prepare(
@@ -530,6 +586,20 @@ impl VlessOutbound {
         self.vision_stats.bytes()
     }
 
+    /// Read-only native frame counters, absent from production builds.
+    #[cfg(feature = "interop-test")]
+    #[doc(hidden)]
+    pub fn xhttp_quic_ping_counts(&self) -> (Vec<u64>, Vec<u64>) {
+        (
+            self.xhttp
+                .as_ref()
+                .map_or_else(Vec::new, XHttpClient::quic_pings),
+            self.download
+                .as_ref()
+                .map_or_else(Vec::new, |leg| leg.xhttp.quic_pings()),
+        )
+    }
+
     async fn connect_transport_leg(
         leg: &VlessTransportLeg,
         session: StreamSession,
@@ -545,6 +615,46 @@ impl VlessOutbound {
             .await?;
         tracing::debug!(stage = "security", "VLESS transport stage completed");
         Ok(secured)
+    }
+
+    fn connect_xhttp_leg<'a>(
+        leg: &'a VlessTransportLeg,
+        version: crate::config::XHttpVersion,
+        session: StreamSession,
+        context: &'a EstablishContext,
+    ) -> futures_util::future::BoxFuture<
+        'a,
+        Result<crate::transport::xhttp::TransportIo, DispatchError>,
+    > {
+        // Separate the per-leg handshake state from both parent futures. A
+        // split XHTTP setup otherwise duplicates the largest TLS/QUIC branch
+        // throughout try_join/acquire on the runtime's bounded thread stack.
+        Box::pin(async move {
+            use crate::{
+                dispatch::DatagramBudget,
+                transport::xhttp::{QuicTransport, TransportIo},
+            };
+            if version != crate::config::XHttpVersion::Http3 {
+                return Self::connect_transport_leg(leg, session, context)
+                    .await
+                    .map(TransportIo::Stream);
+            }
+            let (tls, server_name) = leg.security.quic_config()?;
+            let server = leg.upstream.datagram_server(&leg.server, context)?;
+            let peer = context.resolve_ip(&server).await?;
+            let budget = DatagramBudget::new(1400, 1400);
+            let request =
+                DatagramRequest::new(DatagramSession::new(session.inbound, session.source))
+                    .with_budget(budget);
+            let transport = leg.upstream.open_datagram(request, context).await?;
+            Ok(TransportIo::Quic(Box::new(QuicTransport {
+                transport,
+                peer,
+                budget,
+                tls,
+                server_name,
+            })))
+        })
     }
 }
 pub(super) struct PreparedStream {
@@ -665,6 +775,22 @@ impl OutboundConnector for VlessOutbound {
         context: &EstablishContext,
     ) -> Result<ConnectedStream, DispatchError> {
         let effective_peer = session.destination.clone();
+        if let Some(mux) = &self.sing_mux {
+            let io = mux
+                .open(&effective_peer, false, context.deadline(), || async {
+                    let target = crate::session::Destination::domain("sp.mux.sing-box.arpa", 444)?;
+                    let prepared = self
+                        .prepare(session, context)
+                        .await
+                        .map_err(io::Error::other)?;
+                    prepared
+                        .finish(VlessCommand::Tcp, Some(&target))
+                        .await
+                        .map_err(io::Error::other)
+                })
+                .await?;
+            return Ok(ConnectedStream { io, effective_peer });
+        }
         let prepared = self.prepare(session, context).await?;
         let io = prepared
             .finish(VlessCommand::Tcp, Some(&effective_peer))
@@ -676,6 +802,39 @@ impl OutboundConnector for VlessOutbound {
         request: DatagramRequest,
         context: &EstablishContext,
     ) -> Result<Box<dyn DatagramTransport>, DispatchError> {
+        if let Some(mux) = &self.sing_mux
+            && !mux.only_tcp()
+        {
+            let target = crate::session::Destination::domain("sp.mux.sing-box.arpa", 444)?;
+            let session = StreamSession {
+                inbound: request.session.inbound,
+                source: request.session.source,
+                destination: target.clone(),
+                sniffed_domain: None,
+            };
+            let io = mux
+                .open(&target, true, context.deadline(), || async {
+                    let prepared = self
+                        .prepare(session, context)
+                        .await
+                        .map_err(io::Error::other)?;
+                    prepared
+                        .finish(VlessCommand::Tcp, Some(&target))
+                        .await
+                        .map_err(io::Error::other)
+                })
+                .await?;
+            return Ok(crate::dispatch::bound_datagram(
+                Box::new(crate::transport::sing_mux::datagram::DatagramIo::new(
+                    io,
+                    request.budget(),
+                    context.resolution(),
+                    context.deadline(),
+                    self.cancellation.clone(),
+                )),
+                request.budget(),
+            ));
+        }
         let prepared = self
             .prepare(
                 StreamSession {
@@ -704,12 +863,30 @@ impl OutboundConnector for VlessOutbound {
     fn begin_shutdown(&self) {
         self.cancellation.cancel();
         self.grpc_pool.begin_shutdown();
+        if let Some(mux) = &self.sing_mux {
+            mux.begin_stop();
+        }
+        if let Some(xhttp) = &self.xhttp {
+            xhttp.begin_stop();
+        }
+        if let Some(download) = &self.download {
+            download.xhttp.begin_stop();
+        }
     }
     async fn shutdown(&self) {
         self.begin_shutdown();
         self.tasks.close();
         self.tasks.wait().await;
         self.grpc_pool.shutdown().await;
+        if let Some(mux) = &self.sing_mux {
+            mux.stop().await;
+        }
+        if let Some(xhttp) = &self.xhttp {
+            xhttp.stop().await;
+        }
+        if let Some(download) = &self.download {
+            download.xhttp.stop().await;
+        }
     }
 }
 impl Drop for VlessOutbound {
@@ -780,12 +957,16 @@ mod connector_composition_tests {
             encryption: VlessEncryption::None,
             flow: String::new(),
             security: SecurityConfig::Tls(TlsConfig::xhttp(address.to_owned())),
-            transport: crate::config::VlessTransport::Xhttp(ConfigXHttpConfig {
+            transport: crate::config::VlessTransport::Xhttp(Box::new(ConfigXHttpConfig {
                 path: "/xhttp".to_owned(),
                 host: address.to_owned(),
                 mode: ConfigXHttpMode::PacketUp,
+                http_version: Default::default(),
+                reuse: None,
+                headers: Default::default(),
+                request: Default::default(),
                 download: None,
-            }),
+            })),
             packet_encoding: crate::config::VlessPacketEncoding::Xudp,
             stream_options: Default::default(),
         }
@@ -809,8 +990,12 @@ mod connector_composition_tests {
             address: download.to_owned(),
             port: download_port,
             security: SecurityConfig::Tls(TlsConfig::xhttp(download.to_owned())),
+            http_version: Default::default(),
+            reuse: None,
             path: "/download".to_owned(),
             host: download.to_owned(),
+            headers: Default::default(),
+            request: Default::default(),
         }));
         config
     }

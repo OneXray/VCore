@@ -24,7 +24,9 @@ pub use shadowsocks::{ShadowsocksCipher, ShadowsocksOutboundConfig};
 mod trojan;
 pub use trojan::{TrojanOutboundConfig, TrojanTransport};
 mod vless;
-pub use vless::{GrpcOptions, VlessStreamOptions};
+pub use vless::{GrpcOptions, SingMuxConfig, SingMuxProtocol, VlessStreamOptions};
+pub(crate) mod xhttp;
+pub use xhttp::{XHttpHeaders, XHttpRequestOptions, XHttpReuseConfig, XHttpVersion};
 mod vmess;
 pub use vmess::StreamTransport as VmessTransport;
 pub use vmess::{StreamTransport, VmessCipher, VmessOutboundConfig, VmessPacketEncoding};
@@ -362,7 +364,7 @@ impl VlessOutboundConfig {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum VlessTransport {
     Stream(StreamTransport),
-    Xhttp(XHttpConfig),
+    Xhttp(Box<XHttpConfig>),
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
@@ -501,6 +503,10 @@ pub struct XHttpConfig {
     pub path: String,
     pub host: String,
     pub mode: XHttpMode,
+    pub http_version: XHttpVersion,
+    pub headers: XHttpHeaders,
+    pub request: std::sync::Arc<XHttpRequestOptions>,
+    pub reuse: Option<std::sync::Arc<XHttpReuseConfig>>,
     pub download: Option<Box<XHttpDownloadConfig>>,
 }
 
@@ -509,8 +515,12 @@ pub struct XHttpDownloadConfig {
     pub address: String,
     pub port: u16,
     pub security: SecurityConfig,
+    pub http_version: XHttpVersion,
     pub path: String,
     pub host: String,
+    pub headers: XHttpHeaders,
+    pub request: std::sync::Arc<XHttpRequestOptions>,
+    pub reuse: Option<std::sync::Arc<XHttpReuseConfig>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -840,16 +850,130 @@ enum RawOutbound {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawXHttpSettings {
+    #[serde(
+        rename = "reuse-settings",
+        default,
+        deserialize_with = "deserialize_present_map"
+    )]
+    reuse_settings: Option<xhttp::RawReuseConfig>,
     #[serde(default, deserialize_with = "deserialize_present_option")]
     host: Option<String>,
     #[serde(default = "default_path")]
     path: String,
     #[serde(default = "default_xhttp_mode")]
     mode: String,
+    #[serde(default)]
+    headers: std::collections::BTreeMap<String, String>,
+    #[serde(rename = "no-grpc-header", default)]
+    no_grpc_header: bool,
+    #[serde(
+        rename = "x-padding-bytes",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    x_padding_bytes: Option<String>,
+    #[serde(rename = "x-padding-obfs-mode", default)]
+    x_padding_obfs_mode: bool,
+    #[serde(
+        rename = "x-padding-key",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    x_padding_key: Option<String>,
+    #[serde(
+        rename = "x-padding-header",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    x_padding_header: Option<String>,
+    #[serde(
+        rename = "x-padding-placement",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    x_padding_placement: Option<String>,
+    #[serde(
+        rename = "x-padding-method",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    x_padding_method: Option<String>,
+    #[serde(
+        rename = "uplink-http-method",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    uplink_http_method: Option<String>,
+    #[serde(
+        rename = "session-placement",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    session_placement: Option<String>,
+    #[serde(
+        rename = "session-key",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    session_key: Option<String>,
+    #[serde(
+        rename = "session-table",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    session_table: Option<String>,
+    #[serde(
+        rename = "session-length",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    session_length: Option<String>,
+    #[serde(
+        rename = "seq-placement",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    seq_placement: Option<String>,
+    #[serde(
+        rename = "seq-key",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    seq_key: Option<String>,
+    #[serde(
+        rename = "uplink-data-placement",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    uplink_data_placement: Option<String>,
+    #[serde(
+        rename = "uplink-data-key",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    uplink_data_key: Option<String>,
+    #[serde(
+        rename = "uplink-chunk-size",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    uplink_chunk_size: Option<String>,
+    #[serde(
+        rename = "sc-max-each-post-bytes",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    sc_max_each_post_bytes: Option<String>,
+    #[serde(
+        rename = "sc-min-posts-interval-ms",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    sc_min_posts_interval_ms: Option<String>,
     #[serde(
         rename = "download-settings",
         default,
-        deserialize_with = "deserialize_present_option"
+        deserialize_with = "deserialize_present_map"
     )]
     download_settings: Option<RawXHttpDownloadSettings>,
 }
@@ -857,9 +981,30 @@ struct RawXHttpSettings {
 impl Default for RawXHttpSettings {
     fn default() -> Self {
         Self {
+            reuse_settings: None,
             host: None,
             path: default_path(),
             mode: default_xhttp_mode(),
+            headers: Default::default(),
+            no_grpc_header: false,
+            x_padding_bytes: None,
+            x_padding_obfs_mode: false,
+            x_padding_key: None,
+            x_padding_header: None,
+            x_padding_placement: None,
+            x_padding_method: None,
+            uplink_http_method: None,
+            session_placement: None,
+            session_key: None,
+            session_table: None,
+            session_length: None,
+            seq_placement: None,
+            seq_key: None,
+            uplink_data_placement: None,
+            uplink_data_key: None,
+            uplink_chunk_size: None,
+            sc_max_each_post_bytes: None,
+            sc_min_posts_interval_ms: None,
             download_settings: None,
         }
     }
@@ -868,6 +1013,12 @@ impl Default for RawXHttpSettings {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawXHttpDownloadSettings {
+    #[serde(
+        rename = "reuse-settings",
+        default,
+        deserialize_with = "deserialize_present_map"
+    )]
+    reuse_settings: Option<xhttp::RawReuseConfig>,
     #[serde(default, deserialize_with = "deserialize_present_option")]
     server: Option<String>,
     #[serde(default, deserialize_with = "deserialize_present_option")]
@@ -879,15 +1030,56 @@ struct RawXHttpDownloadSettings {
     #[serde(default, deserialize_with = "deserialize_present_option")]
     alpn: Option<Vec<String>>,
     #[serde(
-        rename = "reality-opts",
+        rename = "skip-cert-verify",
         default,
         deserialize_with = "deserialize_present_option"
     )]
-    reality_opts: Option<RawRealitySettings>,
+    skip_cert_verify: Option<bool>,
+    #[serde(
+        rename = "name-cert-verify",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    name_cert_verify: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_present_option")]
+    fingerprint: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_present_option")]
+    certificate: Option<String>,
+    #[serde(
+        rename = "private-key",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    private_key: Option<String>,
+    #[serde(
+        rename = "reality-opts",
+        default,
+        deserialize_with = "deserialize_present_map"
+    )]
+    reality_opts: Option<RawXHttpDownloadReality>,
     #[serde(default, deserialize_with = "deserialize_present_option")]
     path: Option<String>,
     #[serde(default, deserialize_with = "deserialize_present_option")]
     host: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_present_option")]
+    headers: Option<std::collections::BTreeMap<String, String>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawXHttpDownloadReality {
+    #[serde(
+        rename = "public-key",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    public_key: Option<String>,
+    #[serde(
+        rename = "short-id",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    short_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -931,6 +1123,30 @@ where
     T: Deserialize<'de>,
 {
     T::deserialize(deserializer).map(Some)
+}
+
+// Derived structs also accept positional sequences. Configuration objects must
+// remain named maps: in particular, [] must not silently select all defaults.
+fn deserialize_present_map<'de, D, T>(deserializer: D) -> std::result::Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    struct NamedMap<T>(std::marker::PhantomData<T>);
+    impl<'de, T: Deserialize<'de>> Visitor<'de> for NamedMap<T> {
+        type Value = T;
+
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("a named configuration map")
+        }
+
+        fn visit_map<A: MapAccess<'de>>(self, map: A) -> std::result::Result<T, A::Error> {
+            T::deserialize(serde::de::value::MapAccessDeserializer::new(map))
+        }
+    }
+    deserializer
+        .deserialize_map(NamedMap(std::marker::PhantomData))
+        .map(Some)
 }
 
 fn deserialize_non_null_vec<'de, D, T>(deserializer: D) -> std::result::Result<Vec<T>, D::Error>
@@ -1816,13 +2032,39 @@ impl RawXHttpSettings {
         default_explicit_server_name: Option<&str>,
         default_host: &str,
         security: &SecurityConfig,
+        http_version: XHttpVersion,
     ) -> Result<XHttpConfig> {
+        if http_version == XHttpVersion::Http3 && !matches!(security, SecurityConfig::Tls(_)) {
+            return invalid("XHTTP HTTP/3 requires standard TLS");
+        }
+        let headers = XHttpHeaders::normalize(self.headers.clone())?;
+        let has_download = self.download_settings.is_some();
+        let mode = match self.mode.as_str() {
+            "auto" if matches!(security, SecurityConfig::Reality(_)) && has_download => {
+                XHttpMode::StreamUp
+            }
+            "auto" if matches!(security, SecurityConfig::Reality(_)) => XHttpMode::StreamOne,
+            "auto" | "packet-up" => XHttpMode::PacketUp,
+            "stream-one" if !has_download => XHttpMode::StreamOne,
+            "stream-one" => {
+                return invalid("xhttp mode `stream-one` cannot be used with download-settings");
+            }
+            "stream-up" => XHttpMode::StreamUp,
+            _ => return invalid("XHTTP mode must be auto, packet-up, stream-up, or stream-one"),
+        };
+        let request = std::sync::Arc::new(XHttpRequestOptions::normalize(&self, &headers, mode)?);
+        let reuse = self
+            .reuse_settings
+            .map(|raw| raw.normalize(http_version))
+            .transpose()?
+            .map(std::sync::Arc::new);
         let Self {
             host,
             path,
-            mode,
             download_settings,
+            ..
         } = self;
+        let host = host.filter(|value| !value.is_empty());
         if path.is_empty()
             || path.len() > 2_048
             || !path.starts_with('/')
@@ -1832,16 +2074,19 @@ impl RawXHttpSettings {
                 "xhttp-opts.path must be a valid path/query starting with `/` and at most 2048 bytes",
             );
         }
-        let download = download_settings
+        let mut download = download_settings
             .map(|settings| {
-                settings.normalize(
-                    default_address,
-                    default_port,
-                    default_explicit_server_name,
+                settings.normalize(XHttpDownloadDefaults {
+                    address: default_address,
+                    port: default_port,
+                    explicit_server_name: default_explicit_server_name,
                     security,
-                    &path,
-                    host.as_deref(),
-                )
+                    http_version,
+                    path: &path,
+                    explicit_host: host.as_deref(),
+                    headers: &headers,
+                    reuse: &reuse,
+                })
             })
             .transpose()?
             .map(Box::new);
@@ -1855,56 +2100,86 @@ impl RawXHttpSettings {
             return invalid("xhttp-opts.host must be a valid HTTP authority");
         }
 
-        let mode = match mode.as_str() {
-            "auto" if matches!(security, SecurityConfig::Reality(_)) && download.is_some() => {
-                XHttpMode::StreamUp
-            }
-            "auto" if matches!(security, SecurityConfig::Reality(_)) => XHttpMode::StreamOne,
-            "auto" | "packet-up" => XHttpMode::PacketUp,
-            "stream-one" if download.is_none() => XHttpMode::StreamOne,
-            "stream-one" => {
-                return invalid("xhttp mode `stream-one` cannot be used with download-settings");
-            }
-            "stream-up" => XHttpMode::StreamUp,
-            _ => return invalid("XHTTP mode must be auto, packet-up, stream-up, or stream-one"),
-        };
+        if let Some(download) = &mut download {
+            request.validate_headers(&download.headers, &download.path)?;
+            download.request = request.clone();
+        }
         Ok(XHttpConfig {
             path,
             host,
             mode,
+            http_version,
+            headers,
+            request,
             download,
+            reuse,
         })
     }
 }
 
+struct XHttpDownloadDefaults<'a> {
+    reuse: &'a Option<std::sync::Arc<XHttpReuseConfig>>,
+    address: &'a str,
+    port: u16,
+    explicit_server_name: Option<&'a str>,
+    security: &'a SecurityConfig,
+    http_version: XHttpVersion,
+    path: &'a str,
+    explicit_host: Option<&'a str>,
+    headers: &'a XHttpHeaders,
+}
+
 impl RawXHttpDownloadSettings {
-    fn normalize(
-        self,
-        default_address: &str,
-        default_port: u16,
-        default_explicit_server_name: Option<&str>,
-        default_security: &SecurityConfig,
-        default_path: &str,
-        default_explicit_host: Option<&str>,
-    ) -> Result<XHttpDownloadConfig> {
+    fn normalize(self, defaults: XHttpDownloadDefaults<'_>) -> Result<XHttpDownloadConfig> {
+        let XHttpDownloadDefaults {
+            reuse: default_reuse,
+            address: default_address,
+            port: default_port,
+            explicit_server_name: default_explicit_server_name,
+            security: default_security,
+            http_version: default_http_version,
+            path: default_path,
+            explicit_host: default_explicit_host,
+            headers: default_headers,
+        } = defaults;
         let Self {
             server,
             port,
             tls,
             servername,
             alpn,
+            skip_cert_verify,
+            name_cert_verify,
+            fingerprint,
+            certificate,
+            private_key,
             reality_opts,
             path,
             host,
+            headers,
+            reuse_settings,
         } = self;
+        let headers = headers
+            .map(XHttpHeaders::normalize)
+            .transpose()?
+            .unwrap_or_else(|| default_headers.clone());
 
-        if tls == Some(false) {
-            return invalid("xhttp-opts.download-settings.tls must be true when configured");
-        }
-        if let Some(alpn) = &alpn
-            && alpn.as_slice() != ["h2"]
+        let http_version = alpn
+            .as_deref()
+            .map(XHttpVersion::from_alpn)
+            .transpose()?
+            .unwrap_or(default_http_version);
+        let tls = tls.unwrap_or(!matches!(default_security, SecurityConfig::None));
+        let reuse = match reuse_settings {
+            Some(raw) => Some(std::sync::Arc::new(raw.normalize(http_version)?)),
+            None => default_reuse.clone(),
+        };
+        if http_version == XHttpVersion::Http1
+            && reuse
+                .as_ref()
+                .is_some_and(|value| value.keep_alive_seconds != 0)
         {
-            return invalid("xhttp-opts.download-settings.alpn must be [h2] when configured");
+            return invalid("XHTTP HTTP/1 download cannot inherit a keepalive period override");
         }
 
         let address = server.unwrap_or_else(|| default_address.to_owned());
@@ -1918,6 +2193,7 @@ impl RawXHttpDownloadSettings {
         validate_host(&server_name, "XHTTP download servername")?;
         let host = host
             .or_else(|| default_explicit_host.map(str::to_owned))
+            .filter(|value| !value.is_empty())
             .unwrap_or_else(|| {
                 server_name
                     .parse::<std::net::Ipv6Addr>()
@@ -1926,18 +2202,101 @@ impl RawXHttpDownloadSettings {
         if host.is_empty() || host.len() > 253 || host.parse::<http::uri::Authority>().is_err() {
             return invalid("xhttp-opts.download-settings.host must be a valid HTTP authority");
         }
-        let security = match reality_opts {
-            Some(reality) => SecurityConfig::Reality(reality.normalize(server_name)?),
-            None => {
-                let mut security = default_security.clone();
-                match &mut security {
-                    SecurityConfig::None => return invalid("XHTTP requires TLS"),
-                    SecurityConfig::Tls(config) => config.server_name = server_name,
-                    SecurityConfig::Reality(config) => config.server_name = server_name,
+        let reality = match reality_opts {
+            None => match default_security {
+                SecurityConfig::Reality(config) => {
+                    let mut config = config.clone();
+                    config.server_name = server_name.clone();
+                    Some(config)
                 }
-                security
-            }
+                _ => None,
+            },
+            Some(RawXHttpDownloadReality {
+                public_key: None,
+                short_id: None,
+            }) => None,
+            Some(RawXHttpDownloadReality {
+                public_key: Some(public_key),
+                short_id,
+            }) => Some(
+                RawRealitySettings {
+                    public_key,
+                    short_id: short_id.unwrap_or_default(),
+                }
+                .normalize(server_name.clone())?,
+            ),
+            Some(_) => return invalid("XHTTP download REALITY replacement requires public-key"),
         };
+        // Resolve inherited leaf policies before choosing the final security
+        // mode. A mode switch must not silently erase a pin or client identity.
+        let mut config = match default_security {
+            SecurityConfig::Tls(config) => config.clone(),
+            _ => TlsConfig::xhttp(server_name.clone()),
+        };
+        config.server_name = server_name;
+        config.alpn = vec![http_version.alpn().to_vec()];
+        config.required_alpn = Some(http_version.alpn().to_vec());
+        if let Some(skip) = skip_cert_verify {
+            config.certificate.skip_cert_verify = skip;
+        }
+        if let Some(name) = name_cert_verify {
+            config.certificate.verification_name = if name.is_empty() {
+                None
+            } else {
+                validate_host(&name, "XHTTP download certificate verification name")?;
+                Some(name)
+            };
+        }
+        if let Some(pin) = fingerprint {
+            config.certificate.fingerprint = if pin.is_empty() {
+                None
+            } else {
+                Some(vless::parse_pin(&pin)?)
+            };
+        }
+        match (certificate, private_key) {
+            (None, None) => {}
+            (Some(certificate), Some(private_key))
+                if certificate.is_empty() && private_key.is_empty() =>
+            {
+                config.identity = None
+            }
+            (Some(certificate), Some(private_key)) => {
+                vless::validate_client_identity(&certificate, &private_key)?;
+                config.identity = Some(TlsIdentityPem {
+                    certificate,
+                    private_key,
+                });
+            }
+            _ => {
+                return invalid(
+                    "XHTTP download certificate and private-key must be replaced or cleared together",
+                );
+            }
+        }
+        let certificate_policy = config.certificate.skip_cert_verify
+            || config.certificate.verification_name.is_some()
+            || config.certificate.fingerprint.is_some()
+            || config.identity.is_some();
+        if (reality.is_some() || !tls) && certificate_policy {
+            return invalid(
+                "XHTTP download must explicitly clear inherited certificate policy before changing security mode",
+            );
+        }
+        let security = if let Some(mut reality) = reality {
+            if !tls {
+                return invalid("XHTTP download REALITY requires TLS");
+            }
+            reality.alpn = vec![http_version.alpn().to_vec()];
+            SecurityConfig::Reality(reality)
+        } else if tls {
+            SecurityConfig::Tls(config)
+        } else {
+            SecurityConfig::None
+        };
+        if http_version == XHttpVersion::Http3 && !matches!(security, SecurityConfig::Tls(_)) {
+            return invalid("XHTTP HTTP/3 download requires standard TLS");
+        }
 
         let path = path.unwrap_or_else(|| default_path.to_owned());
         if path.is_empty()
@@ -1953,8 +2312,12 @@ impl RawXHttpDownloadSettings {
             address,
             port,
             security,
+            http_version,
             path,
             host,
+            headers,
+            request: Default::default(),
+            reuse,
         })
     }
 }
@@ -3407,9 +3770,9 @@ geo-update-interval: 24"#,
         }
 
         for fields in [
-            "tls: false",
-            "alpn: []",
-            "alpn: [h3]",
+            "tls: 'false'",
+            "alpn: [unknown]",
+            "alpn: [h3, h2]",
             "server: 'bad host'",
             "port: 0",
             "servername: 'bad host'",
@@ -3428,13 +3791,6 @@ geo-update-interval: 24"#,
             "restls-opts: {}",
             "jls-opts: {}",
             "ech-opts: {}",
-            "headers: {}",
-            "reuse-settings: {}",
-            "skip-cert-verify: false",
-            "name-cert-verify: example.com",
-            "fingerprint: pinned",
-            "certificate: cert.pem",
-            "private-key: key.pem",
             "client-fingerprint: chrome",
             "mode: stream-up",
             "typo: true",
@@ -4091,7 +4447,7 @@ authentication:
     #[test]
     fn validates_tls_and_xhttp_whitelists() {
         for yaml in [
-            CURRENT_TLS.replace("alpn: [h2]", "alpn: [http/1.1]"),
+            CURRENT_TLS.replace("alpn: [h2]", "alpn: [unknown]"),
             CURRENT_TLS.replace(
                 "    alpn: [h2]",
                 "    alpn: [h2]\n    skip-cert-verify: null",

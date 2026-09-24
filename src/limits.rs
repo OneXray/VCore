@@ -11,6 +11,31 @@ pub const VISION_HELLO_BYTES: usize = 65536;
 pub const GRPC_IDLE_CONNECTIONS: usize = 4;
 pub const GRPC_PING_TIMEOUT_SECONDS: usize = 15;
 
+/// XHTTP and sing-mux per-object parser, queue and retained-pool bounds.
+pub const XHTTP_CUSTOM_HEADER_BYTES: usize = 8 * 1024;
+pub const XHTTP_CUSTOM_HEADERS: usize = 100;
+pub const XHTTP_PADDING_BYTES: usize = 4096;
+pub const XHTTP_POST_BYTES: usize = 16 * 1024 * 1024;
+pub const XHTTP_PACKET_BATCH_BYTES: usize = 64 * 1024;
+pub const XHTTP_REQUEST_BYTES: usize = 16 * 1024;
+pub const XHTTP_REQUEST_HEADERS: usize = 128;
+pub const XHTTP_IDLE_ENTRIES: usize = 64;
+pub const XHTTP_IDLE_H1_CONNECTIONS: usize = 4;
+pub const XHTTP_BODY_QUEUE: usize = 2;
+pub const XHTTP_BODY_CHUNK: usize = 16 * 1024;
+pub const XHTTP_H3_UNI_STREAMS: usize = 8;
+pub const XHTTP_H3_STREAM_WINDOW: usize = 64 * 1024;
+pub const XHTTP_H3_CONNECTION_WINDOW: usize = 128 * 1024;
+pub const XHTTP_H3_SEND_WINDOW: usize = 64 * 1024;
+pub const SING_MUX_IDLE_CONNECTIONS: usize = 16;
+pub const SING_MUX_COMMAND_QUEUE: usize = 16;
+pub const SING_MUX_CHUNK: usize = 16 * 1024;
+pub const SMUX_RECEIVE_QUEUE: usize = 4;
+/// Retire the physical connection after this many admissions, without closing
+/// existing streams. Never pass a saturated connection to yamux's open method.
+pub const YAMUX_CONNECTION_ADMISSIONS: usize = 64;
+pub const YAMUX_CONNECTION_WINDOW: usize = YAMUX_CONNECTION_ADMISSIONS * 256 * 1024;
+
 /// Historical iOS TUN footprint target retained for best-effort telemetry.
 ///
 /// Crossing this value never changes a runtime lifecycle result.

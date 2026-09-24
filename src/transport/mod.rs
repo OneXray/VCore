@@ -1,6 +1,8 @@
 //! Outbound wire transports.
 
 #[cfg(feature = "outbound-vless")]
+pub(crate) mod sing_mux;
+#[cfg(feature = "outbound-vless")]
 pub mod xhttp;
 
 pub const STREAM_CHUNK_BYTES: usize = 16 * 1024;

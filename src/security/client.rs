@@ -62,6 +62,16 @@ impl std::fmt::Debug for SecurityClient {
 }
 
 impl SecurityClient {
+    pub(crate) fn quic_config(&self) -> io::Result<(Arc<ClientConfig>, String)> {
+        match &self.backend {
+            SecurityBackend::Standard(client) => client.quic_config(),
+            _ => Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "HTTP/3 requires standard TLS",
+            )),
+        }
+    }
+
     /// Builds one TLS or REALITY transport leg from its normalized security
     /// configuration. A VLESS XHTTP download leg may use security settings
     /// distinct from the enclosing proxy's primary leg.
@@ -305,12 +315,16 @@ mod tests {
             encryption: VlessEncryption::None,
             flow: String::new(),
             security: SecurityConfig::Tls(TlsConfig::xhttp("example.com".to_owned())),
-            transport: crate::config::VlessTransport::Xhttp(XHttpConfig {
+            transport: crate::config::VlessTransport::Xhttp(Box::new(XHttpConfig {
                 path: "/xhttp".to_owned(),
                 host: "example.com".to_owned(),
                 mode: XHttpMode::StreamOne,
+                http_version: Default::default(),
+                reuse: None,
+                headers: Default::default(),
+                request: Default::default(),
                 download: None,
-            }),
+            })),
             packet_encoding: crate::config::VlessPacketEncoding::Xudp,
             stream_options: Default::default(),
         }

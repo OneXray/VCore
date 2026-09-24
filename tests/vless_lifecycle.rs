@@ -120,6 +120,28 @@ impl SocketProtector for RejectProtect {
     }
 }
 
+#[test]
+fn split_xhttp_construction_fits_the_runtime_stack_and_protect_failure_has_no_fallback() {
+    // Same stack budget as the Invoke runtime. No server or outbound packet:
+    // the first socket is rejected by the host-owned protection boundary.
+    std::thread::Builder::new().stack_size(1024 * 1024).spawn(|| {
+        tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(async {
+            for alpn in ["h3", "h2", "http/1.1"] {
+                let raw=serde_json::json!({"socks-port":1080,"proxies":[{"name":"edge","type":"vless","server":"192.0.2.1","port":443,"uuid":"07070707-0707-0707-0707-070707070707","network":"xhttp","tls":true,"alpn":[alpn],"xhttp-opts":{"mode":"packet-up","reuse-settings":{},"download-settings":{"reuse-settings":{}}}}],"rules":["MATCH,edge"]});
+                let parsed=Config::parse_yaml(raw.to_string().as_bytes()).unwrap();
+                let ProxyProtocol::Vless(config)=&parsed.proxies[0].protocol else {unreachable!()};
+                let protect=Arc::new(RejectProtect(AtomicUsize::new(0)));
+                let endpoint=ResolvedEndpoint {logical_host:"192.0.2.1".into(),port:443,addresses:vec!["192.0.2.1:443".parse().unwrap()]};
+                let outbound=VlessOutbound::new(config, endpoint, Dialer::default().with_protector(protect.clone())).unwrap();
+                let session=StreamSession {inbound:InboundKind::InternalMeasure,source:"127.0.0.1:1".parse().unwrap(),destination:"192.0.2.2:80".parse::<std::net::SocketAddr>().unwrap().into(),sniffed_domain:None};
+                assert!(outbound.connect_stream(session, &EstablishContext::default()).await.is_err());
+                assert!((1..=2).contains(&protect.0.load(Ordering::SeqCst)));
+                outbound.shutdown().await;
+            }
+        });
+    }).unwrap().join().unwrap();
+}
+
 #[tokio::test]
 async fn vless_expired_deadline_and_protect_failure_never_fall_back() {
     #[cfg(feature = "interop-test")]

@@ -9,7 +9,26 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-use vcore::resources::case_events::Case;
+use vcore::resources::case_events::Case as RecordedCase;
+// The same public consumers are reused by N5. Keep their evidence separate
+// instead of letting a current XHTTP run masquerade as historical N4 evidence.
+struct Case;
+impl Case {
+    fn start(suite: &'static str, assertion: &'static str) -> RecordedCase {
+        let suite = if std::env::var("VCORE_PROTOCOL_STAGE").as_deref() == Ok("N5") {
+            match suite {
+                "N4-PUBLIC" => "N5-PUBLIC",
+                "N4-BASE" => "N5-BASE",
+                "N4-LIFE" => "N5-LIFE",
+                "N4-OWNED" => "N5-OWNED",
+                _ => panic!("unknown public consumer suite"),
+            }
+        } else {
+            suite
+        };
+        RecordedCase::new(suite, assertion)
+    }
+}
 const TIMEOUT: Duration = Duration::from_secs(10);
 const DOMAIN: &str = "vcore-fixture.test";
 
@@ -294,7 +313,7 @@ impl Association {
         );
         let literal = address(self.origin.target, false);
         let named = address(self.origin.target, self.domain);
-        assert!(&bytes[3..offset + 2] == literal || &bytes[3..offset + 2] == named);
+        assert!(bytes[3..offset + 2] == literal || bytes[3..offset + 2] == named);
         assert_eq!(&bytes[offset + 2..size], payload);
     }
 }
@@ -310,7 +329,7 @@ fn echo(port: u16, f: &Value) {
     origin.marker(b'D');
 }
 fn bulk(port: u16, f: &Value, ipv6: bool, domain: bool) {
-    let _case = Case::new("N4-BASE", "tcp_10mib_both_directions");
+    let _case = Case::start("N4-BASE", "tcp_10mib_both_directions");
     let mut origin = Origin::new(f, 10, ipv6);
     let mut client = connect(port, origin.target, domain);
     let mut hello = [0; 5];
@@ -346,11 +365,11 @@ fn dns(config: &mut Value, origin: &Origin, via: &str) {
 #[test]
 #[ignore = "isolated N4 runner"]
 fn public_base() {
-    let _case = Case::new("N4-PUBLIC", "public_base");
+    let _case = Case::start("N4-PUBLIC", "public_base");
     let f = fixture();
     initialize(&f);
     let port = free_port();
-    let mut dns_origin = Origin::new(&f, 17, false);
+    let dns_origin = Origin::new(&f, 17, false);
     let mut yaml = config(f["node"].clone(), port);
     dns(&mut yaml, &dns_origin, "DIRECT");
     let core = Core::start(&yaml);
@@ -359,12 +378,16 @@ fn public_base() {
     }
     echo(port, &f);
     core.stop();
+    drop(dns_origin);
     for codec in if f["node"]["flow"] == "xtls-rprx-vision" {
         vec!["xudp"]
     } else {
         vec!["none", "xudp", "packetaddr"]
     } {
-        let _codec = Case::new("N4-BASE", "udp_each_codec_and_family");
+        let _codec = Case::start("N4-BASE", "udp_each_codec_and_family");
+        // Each runtime owns a fresh DNS fixture. A previous TCP bulk transfer
+        // must not consume this container origin's bounded idle lifetime.
+        let mut dns_origin = Origin::new(&f, 17, false);
         let mut node = f["node"].clone();
         node["packet-encoding"] = json!(codec);
         let mut yaml = config(node, port);
@@ -403,16 +426,16 @@ fn public_base() {
         }
         core.stop();
         drop(associations);
-    }
-    // packetaddr's business-domain lookup was answered by this controlled DNS
-    // endpoint. Magic names cause the fixture to close, never a system lookup.
-    if f["node"]["flow"] != "xtls-rprx-vision" {
-        let mut header = [0; 4];
-        dns_origin.observer.read_exact(&mut header).unwrap();
-        let n = u16::from_be_bytes([header[0], header[1]]) as usize;
-        let mut query = vec![0; n];
-        dns_origin.observer.read_exact(&mut query).unwrap();
-        assert_eq!(&query[12..], b"\x0dvcore-fixture\x04test\0\0\x01\0\x01");
+        // packetaddr's domain lookup must use this controlled endpoint. Magic
+        // names close the fixture; there is no system resolver fallback.
+        if codec == "packetaddr" {
+            let mut header = [0; 4];
+            dns_origin.observer.read_exact(&mut header).unwrap();
+            let n = u16::from_be_bytes([header[0], header[1]]) as usize;
+            let mut query = vec![0; n];
+            dns_origin.observer.read_exact(&mut query).unwrap();
+            assert_eq!(&query[12..], b"\x0dvcore-fixture\x04test\0\0\x01\0\x01");
+        }
     }
     let mut origin = Origin::new(&f, 14, false);
     let result = invoke(
@@ -453,7 +476,7 @@ fn denied(node: Value, f: &Value) {
 #[test]
 #[ignore = "isolated N4 runner"]
 fn public_negative() {
-    let _case = Case::new("N4-PUBLIC", "public_negative");
+    let _case = Case::start("N4-PUBLIC", "public_negative");
     let f = fixture();
     initialize(&f);
     let original = f["node"].clone();
@@ -540,7 +563,7 @@ fn public_negative() {
 #[test]
 #[ignore = "isolated N4 runner"]
 fn public_tls_identity_and_verification_name() {
-    let _case = Case::new("N4-PUBLIC", "public_tls_identity_and_verification_name");
+    let _case = Case::start("N4-PUBLIC", "public_tls_identity_and_verification_name");
     let f = fixture();
     initialize(&f);
     let original = f["node"].clone();
@@ -582,7 +605,7 @@ fn public_tls_identity_and_verification_name() {
 #[test]
 #[ignore = "isolated N4 runner"]
 fn public_alpn_rejection() {
-    let _case = Case::new("N4-PUBLIC", "public_alpn_rejection");
+    let _case = Case::start("N4-PUBLIC", "public_alpn_rejection");
     let f = fixture();
     initialize(&f);
     // The official listener advertises h2 when its gRPC entrance is enabled.
@@ -602,7 +625,7 @@ fn public_alpn_rejection() {
 #[test]
 #[ignore = "isolated N4 runner"]
 fn public_udp_first_response() {
-    let _case = Case::new("N4-PUBLIC", "public_udp_first_response");
+    let _case = Case::start("N4-PUBLIC", "public_udp_first_response");
     let f = fixture();
     initialize(&f);
     let port = free_port();
@@ -615,7 +638,7 @@ fn public_udp_first_response() {
 #[test]
 #[ignore = "isolated N4 runner"]
 fn public_legacy_regression() {
-    let _case = Case::new("N4-PUBLIC", "public_legacy_regression");
+    let _case = Case::start("N4-PUBLIC", "public_legacy_regression");
     let f = fixture();
     initialize(&f);
     let port = free_port();
