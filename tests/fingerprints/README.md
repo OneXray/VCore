@@ -60,6 +60,9 @@ policies do not authorize dropping unrelated cipher suites, shares or extensions
 
 Current production supports only `chrome120`. CF1–CF3 are fork-library work; CF4
 adds public values only after authentic native templates and REALITY verification.
+CF1–CF3 and the CF4 fork-local slice now have [local library records](../../docs/acceptance/client-fingerprint-selected/library-progress.md);
+the fork revision is not published or integrated into VCore yet. CF2/CF3 library
+entrypoints exist, but this does not execute or pass any VCore business gate.
 CF5 adds all transport, security, lifecycle, build and packaging gates. Declaration
 files, library tests, public proxy data, cross-builds and physical devices are
 separate evidence classes. See the [CF0 record](../../docs/acceptance/client-fingerprint-selected/CF0.md)

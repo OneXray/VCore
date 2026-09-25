@@ -221,7 +221,7 @@
         "source-defined dynamic fields",
         "actual template, no Chrome120 fallback"
       ],
-      "planned_entrypoint": true
+      "planned_entrypoint": false
     },
     {
       "id": "CF2-chrome-TLS",
@@ -248,7 +248,7 @@
         "real resumption",
         "old/new ALPS"
       ],
-      "planned_entrypoint": true
+      "planned_entrypoint": false
     },
     {
       "id": "CF3-firefox-WIRE",
@@ -273,7 +273,7 @@
         "source-defined dynamic fields",
         "actual template, no Chrome120 fallback"
       ],
-      "planned_entrypoint": true
+      "planned_entrypoint": false
     },
     {
       "id": "CF3-firefox-TLS",
@@ -299,7 +299,7 @@
         "template-only response boundaries",
         "ordinary HRR"
       ],
-      "planned_entrypoint": true
+      "planned_entrypoint": false
     },
     {
       "id": "CF3-safari-WIRE",
@@ -324,7 +324,7 @@
         "source-defined dynamic fields",
         "actual template, no Chrome120 fallback"
       ],
-      "planned_entrypoint": true
+      "planned_entrypoint": false
     },
     {
       "id": "CF3-safari-TLS",
@@ -350,7 +350,7 @@
         "real bounded Zlib decompression",
         "all promised selectable algorithms"
       ],
-      "planned_entrypoint": true
+      "planned_entrypoint": false
     },
     {
       "id": "CF4-CONFIG",
