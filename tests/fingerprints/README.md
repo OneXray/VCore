@@ -62,8 +62,17 @@ The signed-off [local CF4 stage](../../docs/acceptance/client-fingerprint-select
 integrates the seven names after native four-template and REALITY library verification,
 then verifies 43 independent container cases. This does not pass CF5 transport or platform gates.
 CF1–CF3 and the CF4 fork-local slice now have [local library records](../../docs/acceptance/client-fingerprint-selected/library-progress.md);
-the authorized fork revision `e81c6837` is now published and pinned in VCore.
+the CF4 fork revision `e81c6837` was published and pinned at that stage. CF5 pins
+the authorized follow-up `67581195` with a read-only native ticket-lifetime getter.
 CF2/CF3 library entrypoints exist, but this does not execute or pass any VCore business gate.
+CF5 has executable memory-wire and download-leg isolation gates, plus the 46 + 11
+container cases per template. Its transport deadline is now 3600 seconds: the
+original 900-second declaration omitted the expanded full suite, including four
+20-round quiet-period gates. Per-case deadlines and assertions are unchanged;
+the old deadline is not retroactively passed. The H2/H3 split uses the approved
+Caddy gateway and one native Xray handler, since Xray cannot listen on TCP and
+QUIC simultaneously from an ALPN list. See the [CF5 record](../../docs/acceptance/client-fingerprint-selected/CF5.md)
+for actual results, failures and remaining gates, not merely available entrypoints.
 CF5 adds all transport, security, lifecycle, build and packaging gates. Declaration
 files, library tests, public proxy data, cross-builds and physical devices are
 separate evidence classes. See the [CF0 record](../../docs/acceptance/client-fingerprint-selected/CF0.md)

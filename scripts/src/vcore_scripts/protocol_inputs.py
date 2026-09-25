@@ -61,6 +61,14 @@ def source_identity() -> dict:
     }
 
 
+def same_source(before: dict, after: dict) -> bool:
+    """Compare actual inputs, not a patch changed merely by staging new files."""
+    return all(
+        before[key] == after[key]
+        for key in ("parent_commit", "source_tree_sha256", "lock_sha256")
+    )
+
+
 def run_identity(stage: str, selected: list[dict], preflight: bool) -> dict:
     record = source_identity()
     lock = tomllib.loads((CORE_DIR / "Cargo.lock").read_text())

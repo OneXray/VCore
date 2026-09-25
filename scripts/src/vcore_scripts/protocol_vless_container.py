@@ -74,7 +74,18 @@ def run(output: Path, selected=None, *, preflight_only=False, client_fingerprint
     if client_fingerprint is not None and client_fingerprint not in CLIENT_FINGERPRINTS:
         raise ValueError("unsupported named client profile")
     public_cases = PUBLIC_CASES | (
-        {"F5-ANYTLS": ("M", "anytls", True, "public_legacy_regression")}
+        {
+            "F5-ANYTLS": ("M", "anytls", True, "public_legacy_regression"),
+            **{
+                f"CF5-VMESS-{network.upper()}-TLS": (
+                    "V2",
+                    f"vmess-{network}",
+                    True,
+                    "public_legacy_tcp",
+                )
+                for network in ("http", "h2")
+            },
+        }
         if client_fingerprint
         else {}
     )
@@ -271,8 +282,12 @@ def run(output: Path, selected=None, *, preflight_only=False, client_fingerprint
                             Path("/data/fixture") / cert.name,
                             Path("/data/fixture") / key.name,
                         )
-                        config["hosts"] = {"vcore-fixture.test": origin.ipv4}
-                        config["listeners"][0]["listen"] = "::"
+                        if kind == "M":
+                            config["hosts"] = {"vcore-fixture.test": origin.ipv4}
+                            config["listeners"][0]["listen"] = "::"
+                        else:
+                            config["dns"]["hosts"] = {"vcore-fixture.test": origin.ipv4}
+                            config["inbounds"][0]["listen"] = "::"
                     else:
                         node, config = configuration(
                             mode,

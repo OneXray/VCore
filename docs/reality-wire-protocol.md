@@ -35,6 +35,10 @@ ClientHello 的 legacy session ID 固定为 32 字节。生成密文前先把该
 
 `signature_algorithms` 保留所选模板的列表；REALITY 不强行加入 Ed25519。原生实现仅在临时证书先通过 REALITY HMAC 认证后，允许它的 Ed25519 CertificateVerify，并仍验证签名。该局部例外不放宽普通 TLS 的签名算法检查。
 
+命名指纹保留 TLS1.2 的版本/cipher/扩展声明（Safari 的 TLS1.0/1.1 仍裁剪），
+而非先用 TLS1.3-only 的通用编码过滤模板。原生 REALITY 在 ServerHello 阶段独立拒绝
+TLS1.2，且仍禁止恢复、0-RTT 和普通证书兜底；声明并不代表允许降级协商。
+
 session ID 明文前 16 字节为：
 
 ```text

@@ -16,7 +16,9 @@
 
 2026-09-25 [精选指纹 CF0](acceptance/client-fingerprint-selected/CF0.md)完成七值/四模板的独立官方参考基线、116 组原始观测检查与冻结门禁。它只签收 `selected-v1` 的采样设施，不扩大生产名称、不抵扣新模板业务互通或平台验收；后续 CF1–CF5 独立记录。
 
-同轮 [fork 库阶段记录](acceptance/client-fingerprint-selected/library-progress.md)完成 CF1–CF3 及 CF4 的本地 REALITY 子包，组合测试 43 项通过。[本地 CF4](acceptance/client-fingerprint-selected/CF4.md)锁定获准发布的 `e81c6837`，完成四模板/七值及 schema20 接线，43 项独立容器互通、共享内存安全及 feature 门禁通过。CF5 完整传输与平台门禁尚未签收。
+同轮 [fork 库阶段记录](acceptance/client-fingerprint-selected/library-progress.md)完成 CF1–CF3 及 CF4 的本地 REALITY 子包，组合测试 43 项通过。[本地 CF4](acceptance/client-fingerprint-selected/CF4.md)锁定获准发布的 `e81c6837`，完成四模板/七值及 schema20 接线，43 项独立容器互通、共享内存安全及 feature 门禁通过。
+
+[CF5 本地签收](acceptance/client-fingerprint-selected/CF5.md)完成四模板各 57 项、合计 228 项完整容器互通，520 个所属容器全部回收；168 组公开配置 ClientHello 和 24 组真实恢复/期限观测通过，下载腿身份/票据隔离与受影响检查通过。锁定已授权发布的 `67581195`，修正命名 REALITY 的 TLS1.2 声明保留及票据 hint 期限；实际 REALITY 协商仍仅允许 TLS1.3。独立 checkout、Apple 五目标和 Android 两 ABI 的 Release/打包/最终链接通过，macOS arm64 C/Swift 各 1,000 次 ABI 调用通过。记录保留首次 H3 夹具失败与收尾 Windows 锁文件修正的证据边界；Windows 原生、设备/TUN、远端 CI、性能/体积及完整发布许可证审查不因此通过。
 
 2026-09-25 [TLS 指纹接线](acceptance/tls-client-fingerprint.md)接入 boring 的 `chrome120` 和经典 REALITY，schema19 / Invoke v5。随后[退役自有 rustls fork](acceptance/rustls-fork-retirement.md)：普通无指纹 TLS、QUIC、WebPKI 改用官方 crates.io rustls；最新替换回归为 132 项容器检查及 Apple/Android 构建通过。旧 fork 将永久删除，以下 N0–N5 记录保留当时的依赖摘要，不保证历史版本重建，也不计为当前后端的新增能力。现行依赖见 [TLS 依赖](tls-dependencies.md)。
 

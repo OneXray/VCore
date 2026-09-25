@@ -134,7 +134,14 @@ impl BoringTlsClient {
         ServerName::try_from(config.server_name.to_owned()).map_err(|_| invalid())?;
         let mut builder = SslConnector::builder(SslMethod::tls()).map_err(|_| invalid())?;
         builder
-            .set_min_proto_version(Some(SslVersion::TLS1_3))
+            // A named REALITY hello preserves the template's TLS1.2 fields,
+            // as Mihomo does. Native REALITY independently rejects every
+            // pre-TLS1.3 ServerHello before certificate/application processing.
+            .set_min_proto_version(Some(if config.client_fingerprint.is_some() {
+                SslVersion::TLS1_2
+            } else {
+                SslVersion::TLS1_3
+            }))
             .map_err(|_| invalid())?;
         builder
             .set_max_proto_version(Some(SslVersion::TLS1_3))

@@ -69,10 +69,23 @@ cargo test --locked --all-features --lib config::
 uv run --project scripts --locked python -m vcore_scripts.protocol_fingerprint target/interop/runs/<fresh-run>
 ```
 
-`protocol_fingerprint` 复用容器化 VLESS 公共配置/数据面消费者，默认设置 `chrome120`，可用 `--client-fingerprint` 选择七个公开值。覆盖 AnyTLS、Trojan、VMess、VLESS TLS/REALITY、Vision、XHTTP、mTLS 和负例。结果标记 F5，与历史 N4/N5 阶段签收分开；可在输出目录后给出 case ID 定向运行。它不引用仓库外源码，也不启动宿主原站；官方 latest 二进制、版本/hash、来源树身份和清理结果留在 `vless-results.json`。关闭对照使用同名 Mihomo profile；只有 REALITY 的 `none` 对照因 Mihomo 依赖 uTLS 而用 `chrome`，该项仅比较关闭行为、不声称模板相同。完整 H1/H2/H3 与平台发布仍有独立门禁。
+`protocol_fingerprint` 复用容器化 VLESS 公共配置/数据面消费者，默认设置 `chrome120`，可用 `--client-fingerprint` 选择七个公开值。覆盖 AnyTLS、Trojan、VMess、VLESS TLS/REALITY、Vision、XHTTP、mTLS 和负例。不给 case ID 时执行 CF5 默认矩阵：`transports/` 46 项，再执行 `xhttp/` 11 项，汇总到 `fingerprint-results.json`。可在输出目录后给出 case ID 定向运行，定向结果保留 `vless-results.json` 布局。各子报告保留官方 latest 二进制、版本/hash、实际流量、来源身份和容器清理结果；不使用仓库外源码或宿主原站。关闭对照使用同名 Mihomo profile；只有 REALITY 的 `none` 对照因 Mihomo 依赖 uTLS 而用 `chrome`，该项仅比较关闭行为、不声称模板相同。平台发布仍有独立门禁。
 
-默认 34 组包含 gRPC TLS 和 Vision REALITY 各 20 轮公共启停、20 轮资源归零检查，
+默认矩阵包含 gRPC TLS 和 Vision REALITY 各 20 轮公共启停、20 轮资源归零检查，
 每轮 Stop 当时检查，再静默 5 秒；阶段源码在一轮运行中不得修改。
+XHTTP 补充项覆盖 H1/H2 × 三模式、下载腿继承/异模板/关闭/错误 pin，以及 H2 命名指纹上传 +
+H3 关闭指纹下载。最后一项使用获准的官方 latest xcaddy/Caddy 构建，导入隔离容器，
+H2/H3 TLS/mTLS 经同一个原生 Xray h2c handler，再由 Mihomo 解码 VLESS；不自制协议服务端。
+原冻结清单 900 秒漏计上述扩大后的整套覆盖，CF5 单模板总预算修订为 3600 秒并记录实际耗时；
+各单项超时、数据断言、20 轮及静默时间不变，不将超出旧预算的运行追记为旧门禁通过。
+
+实际 VCore ClientHello 与独立参考比较、TLS1.2/1.3 的真实恢复/过期，以及真实节点工厂的
+下载腿票据/mTLS 隔离另有纯内存门禁（不打开宿主监听器）：
+
+```sh
+uv run --project scripts --locked python -m vcore_scripts.protocol_fingerprint_shape target/interop/runs/<fresh-run>
+cargo test --locked --all-features --lib fingerprint_leg_tests
+```
 
 精选指纹的 `selected-v1` 增量基线使用独立入口：
 

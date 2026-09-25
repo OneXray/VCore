@@ -60,6 +60,10 @@ client-fingerprint: chrome
 TLS 版本范围、SNI、ALPN、证书策略、身份和恢复预算仍由节点及传输决定。
 因此名称表示版本固定的 TLS 模板，不承诺完整浏览器行为或所有上下文的逐字节相同。
 最低 TLS1.2；Safari 的 TLS1.0/1.1 声明裁剪，Vision/XHTTP/REALITY 继续强制 TLS1.3。
+普通 Vision/XHTTP 的版本约束同时省略 TLS1.2 cipher 及仅用于旧握手的
+EC point formats、extended master secret、session ticket、renegotiation info 扩展。
+命名 REALITY 则保留模板的 TLS1.2 声明与字段，由原生 REALITY 在 ServerHello 阶段
+拒绝非 TLS1.3 协商；这与关闭命名指纹时的 TLS1.3-only 默认 offer 分开。
 ALPS 仅在实际提供 h2 时发送，不复制 Mihomo 某些 WS 调用中的额外 h2 ALPS。
 classic REALITY 移除 Chrome133 的 ML-KEM group/share，并绑定实际 X25519 私钥；
 Firefox 的额外经典 share 不产生第二份 REALITY 身份。REALITY 仍拒绝 HRR、恢复和 0-RTT。
@@ -77,6 +81,9 @@ cipher 声明不开放新的配置能力；不能真实完成的对端选择明�
 节点的 SNI、ALPN、验证策略、mTLS 身份、版本范围、profile 和 SSL 上下文不可变。
 每次独立构造建立独立缓存，clone 只共享同一节点。标准 TLS 的运行时票据总预算为 4；
 TLS 1.3 票据只消费一次，TLS 1.2 会话也计入预算，过期票据清除，零预算关闭恢复。
+非零 TLS1.2 ticket lifetime hint 与原生 session timeout 取较短者；零提示不扩大原生期限。
+Safari16 不声明 TLS1.2 session-ticket 扩展，该版本的恢复使用会话 ID，不能把不存在的
+票据提示当作它的过期时间。TLS1.3 的票据期限已由原生握手收敛。
 握手及应用层 ALPN 策略通过前，暂存票据不会进入节点缓存。REALITY 始终不恢复。
 别名只复用模板，不扩大节点/下载腿缓存归属。冷连接和恢复连接分开验收；VCore 的
 票据策略不同于 Mihomo，恢复 hello 不宣称逐字段相同，也不伪造 PSK/binder。

@@ -18,8 +18,8 @@ REALITY 扩展不创建线程、异步任务、连接池或全局认证映射。
 ## 锁定依赖来源
 
 ```toml
-boring = { git = "https://github.com/OneXray/boring", rev = "e81c6837a302241d81c0930610b4f34dd4328167", version = "=5.2.0", features = ["client-fingerprint"] }
-tokio-boring = { git = "https://github.com/OneXray/boring", rev = "e81c6837a302241d81c0930610b4f34dd4328167", version = "=5.2.0" }
+boring = { git = "https://github.com/OneXray/boring", rev = "67581195fd6388a8bfd42c4e39e945f73c99a2b2", version = "=5.2.0", features = ["client-fingerprint"] }
+tokio-boring = { git = "https://github.com/OneXray/boring", rev = "67581195fd6388a8bfd42c4e39e945f73c99a2b2", version = "=5.2.0" }
 rustls = { version = "=0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
 tokio-rustls = { version = "=0.26.5", default-features = false, features = ["ring", "tls12"] }
 ```
@@ -40,6 +40,9 @@ REALITY 构建补丁 SHA-256 为 `a28e55298c3aa2efcc4bc66f3fb64e05583333811284d8
 补丁由 feature 控制，原始子模块不修改。Safari Zlib 增加可选 `flate2 1.1.10`
 （关闭默认 feature，使用纯 Rust `rust_backend`）；Chrome 保留 `brotli 9.0.0`。
 两者及传递依赖必须纳入当前解析图的许可证审查；不新增系统 zlib 链接依赖。
+revision `67581195` 另提供既有原生 `SSL_SESSION_get_ticket_lifetime_hint` 的只读
+Rust 入口；不修改 BoringSSL。VCore 缓存采用原生超时与非零 ticket hint 的较短期限，
+以避免 TLS1.2 票据超过对端公布的有效期后仍被提供。
 纯内存 ALPS peer 测试直接引用同 revision 的 `boring-sys` 和已锁定的
 `foreign-types 0.5.0`（官方 registry 当前稳定版）；它们是 dev-dependencies，
 不新增生产 TLS 后端或网络服务端。

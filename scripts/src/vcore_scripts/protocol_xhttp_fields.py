@@ -12,6 +12,7 @@ import tempfile
 from pathlib import Path
 
 from .builds import CORE_DIR
+from .caddy_build import build_caddy
 from .mihomo_isolation import exclusive_run
 from .mihomo_release import download_mihomo
 from .native_release import download_native
@@ -21,6 +22,7 @@ from .protocol_inputs import redact, source_identity
 from .protocol_peers import run_command
 from .protocol_streams import certificates
 from .protocol_trojan import certificate_chain
+from .protocol_vless_container import CLIENT_FINGERPRINTS
 from .protocol_vless_peers import (
     configuration as vless_configuration,
 )
@@ -28,6 +30,8 @@ from .protocol_vless_peers import (
     peer_kind as vless_peer_kind,
 )
 from .protocol_vless_public import events_pass as vless_events_pass
+from .protocol_vless_security import client_identities
+from .protocol_xhttp_gateway import gateway_config, sanitized_gateway_log
 from .protocol_xhttp_peers import CLIENT_ID, peer_config
 
 PUBLIC_TESTS = (
@@ -422,6 +426,46 @@ def close_reference(lab, stack, root, name, node, origin, binary, output):
     return observed
 
 
+def selected_profile_variants(profile):
+    """Closed CF5 risk crossings; ordinary N5 variants stay unchanged."""
+    other = "firefox" if profile in {"chrome", "chrome120"} else "chrome"
+    result = {}
+    for label, override in (
+        ("inherit", {}),
+        ("different", {"client-fingerprint": other}),
+        ("clear", {"client-fingerprint": "none"}),
+        ("reject-pin", {"client-fingerprint": other, "fingerprint": "11" * 32}),
+    ):
+        options = {
+            "mode": "stream-up",
+            "reuse-settings": {},
+            "download-settings": {
+                "alpn": ["http/1.1"],
+                "reuse-settings": {},
+                **override,
+            },
+        }
+        if label == "reject-pin":
+            options["_reject"] = True
+        result[f"h2-selected-download-{label}"] = (options, "h2")
+    result["h3-selected-download-clear"] = (
+        {
+            "mode": "stream-up",
+            "_main_alpn": "h2",
+            "download-settings": {"alpn": ["h3"], "client-fingerprint": "none"},
+        },
+        "h3",
+    )
+    return result
+
+
+def selected_gateway_config(upstream):
+    """Both HTTP versions reach one native XHTTP session table, with real mTLS."""
+    config = gateway_config(upstream)
+    config["apps"]["http"]["servers"]["fixture"]["protocols"] = ["h2", "h3"]
+    return config
+
+
 def run(
     output: Path,
     selected: list[str],
@@ -431,10 +475,15 @@ def run(
     public: str | None = None,
     jobs: dict | None = None,
     supplied: dict | None = None,
+    client_fingerprint: str | None = None,
 ):
+    if client_fingerprint is not None and client_fingerprint not in CLIENT_FINGERPRINTS:
+        raise ValueError("unsupported named client profile")
     if public is not None and (public not in PUBLIC_TESTS or udp or owned):
         raise ValueError("invalid public consumer selection")
     cases = variants()
+    if client_fingerprint:
+        cases.update(selected_profile_variants(client_fingerprint))
     if jobs is not None:
         if set(jobs) != set(selected) or any(not entries for entries in jobs.values()):
             raise ValueError("invalid frozen native jobs")
@@ -457,6 +506,17 @@ def run(
         selected = list(cases)
     if len(selected) != len(set(selected)) or not set(selected) <= cases.keys():
         raise ValueError("invalid XHTTP field case selection")
+    if client_fingerprint is not None:
+        for name in selected:
+            options, version = cases[name]
+            if version.startswith("outer-") or version.endswith("c"):
+                raise ValueError("profile field requires a TLS XHTTP node")
+            if (
+                client_fingerprint != "none"
+                and version == "h3"
+                and "_main_alpn" not in options
+            ):
+                raise ValueError("named client profiles require stream TLS")
     if (
         not output.is_relative_to(CORE_DIR / "target/interop/runs")
         or output == CORE_DIR / "target/interop/runs"
@@ -465,6 +525,7 @@ def run(
     output.mkdir(exist_ok=False)
     report = dict(
         stage="N5",
+        client_fingerprint=client_fingerprint,
         scope="protocol-consumer"
         if jobs is not None
         else "request-fields-development-only",
@@ -478,6 +539,10 @@ def run(
     )
     try:
         artifacts = {}
+        if any("_main_alpn" in cases[name][0] for name in selected):
+            gateway_artifact = build_caddy(output / "Caddy")
+            artifacts["Caddy"] = gateway_artifact.binary
+            report["peers"]["Caddy"] = gateway_artifact.identity
         kinds = {native_kind(cases[name][1]) for name in selected}
         if jobs is not None or any(
             native_kind(cases[name][1]) != "M"
@@ -636,6 +701,7 @@ def run(
                 keepalive = options.pop("_keepalive", False)
                 reject = options.pop("_reject", False)
                 peer_overrides = options.pop("_server", {})
+                main_alpn = options.pop("_main_alpn", None)
                 mux = options.pop("_mux", None)
                 require_padding = options.pop("_require-padding", False)
                 decoder = None
@@ -717,6 +783,10 @@ def run(
                     node["smux"] = mux
                 if not plain:
                     node.update(servername="localhost", fingerprint=pin)
+                if client_fingerprint:
+                    node["client-fingerprint"] = client_fingerprint
+                if main_alpn:
+                    node["alpn"] = [main_alpn]
                 config = peer_config(
                     kind,
                     f"/data/fixture/{cert.name}",
@@ -724,6 +794,60 @@ def run(
                     plain=plain,
                     decoder=decoder.ipv4 if decoder else None,
                 )
+                gateway = None
+                edge = server
+                if main_alpn:
+                    # Xray's native listener is either TCP or QUIC, not both.
+                    # The approved gateway terminates both TLS legs and feeds
+                    # ONE unmodified Xray h2c handler/session table.
+                    stream = config["inbounds"][0]["streamSettings"]
+                    stream["security"] = "none"
+                    del stream["tlsSettings"]
+                    gateway_dir = root / "gateway"
+                    gateway_dir.mkdir()
+                    shutil.copy2(artifacts["Caddy"], gateway_dir / "peer")
+                    for filename in ("cert.pem", "key.pem", "root.pem", "root-key.pem"):
+                        shutil.copyfile(server_dir / filename, gateway_dir / filename)
+                    node.update(client_identities(gateway_dir)["valid"])
+                    options["host"] = "localhost"
+                    (gateway_dir / "config.json").write_text(
+                        json.dumps(selected_gateway_config(server.ipv4))
+                    )
+                    gateway = lab.start(
+                        stack,
+                        gateway_dir,
+                        name + "-gateway",
+                        [
+                            "env",
+                            "XDG_CONFIG_HOME=/data/config",
+                            "XDG_DATA_HOME=/data/share",
+                            "/data/fixture/peer",
+                            "run",
+                            "--config",
+                            "/data/fixture/config.json",
+                        ],
+                    )
+                    gateway_version = command(
+                        "exec", gateway.name, "/data/fixture/peer", "version"
+                    ).strip()
+                    gateway_digest = command(
+                        "exec", gateway.name, "sha256sum", "/data/fixture/peer"
+                    ).split()[0]
+                    if (
+                        not gateway_version
+                        or gateway_digest != report["peers"]["Caddy"]["binary_sha256"]
+                    ):
+                        raise RuntimeError("selected gateway identity mismatch")
+                    report["peers"]["Caddy"]["version"] = gateway_version
+
+                    def preserve_gateway(peer=gateway, variant=name):
+                        (output / f"{variant}-gateway.log").write_text(
+                            sanitized_gateway_log(command("logs", peer.name)[-65536:])
+                        )
+
+                    stack.callback(preserve_gateway)
+                    edge = gateway
+                    node["server"] = edge.ipv4
                 if outer_mode:
                     node, config = vless_configuration(
                         outer_mode,
@@ -858,8 +982,8 @@ def run(
                             reject=reject,
                             peer_kind=kind,
                             data_dir=str(root / "data"),
-                            server_ipv4=server.ipv4,
-                            server_ipv6=server.ipv6,
+                            server_ipv4=edge.ipv4,
+                            server_ipv6=edge.ipv6,
                             hop=hop,
                             origin_control=f"{origin.ipv4}:24000",
                             origin_ipv4=origin.ipv4,
@@ -874,9 +998,13 @@ def run(
                 )
                 origin.release()
                 server.release()
+                if gateway:
+                    gateway.release()
                 origin.wait_tcp(24000)
-                if kind == "M":
+                if kind == "M" or gateway:
                     server.wait_tcp(23000)
+                if gateway:
+                    gateway.wait_tcp(23000)
                 default_assertion = (
                     public
                     or (
@@ -966,7 +1094,8 @@ def run(
                             seconds=result.seconds,
                             command_cleanup=result.cleanup,
                             decoder_path=(
-                                f"{kind} {outer_mode or 'XHTTP'} -> Mihomo VLESS"
+                                ("Caddy H2/H3 -> " if gateway else "")
+                                + f"{kind} {outer_mode or 'XHTTP'} -> Mihomo VLESS"
                             )
                             if decoder
                             else kind,
@@ -982,6 +1111,8 @@ def run(
                     )
                 if decoder:
                     decoder.ensure_alive()
+                if gateway:
+                    gateway.ensure_alive()
                 if needs_hop:
                     upstream.ensure_alive()
                     (output / f"{name}-upstream.log").write_text(

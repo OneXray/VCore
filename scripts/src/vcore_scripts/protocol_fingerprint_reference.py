@@ -83,12 +83,15 @@ def reference_cases() -> list[dict]:
     return cases
 
 
-def _reference_shape(hello, case):
+def _reference_shape(hello, case, *, expected_alpn=None, allow_psk=False):
     """Apply only source-defined reference variations, checking before masking."""
     shape = copy.deepcopy(hello)
     shape.pop("raw_sha256")
     size = shape.pop("bytes")
     padding = next((e for e in shape["extensions"] if e["type"] == 21), None)
+    psk = next((e for e in shape["extensions"] if e["type"] == 41), None)
+    if psk and (not allow_psk or shape["extensions"][-1] != psk):
+        raise ValueError("unexpected PSK or invalid last-extension position")
     unpadded = size - (padding["bytes"] + 4 if padding else 0)
     needs_padding = (
         case["template"] in {"Chrome120", "Safari16.0"} and 255 < unpadded < 512
@@ -100,7 +103,7 @@ def _reference_shape(hello, case):
         if (
             padding["bytes"] != expected
             or padding["payload_hex"] != "00" * expected
-            or shape["extensions"][-1] != padding
+            or shape["extensions"][-2 if psk else -1] != padding
         ):
             raise ValueError("reference padding contents, position or size mismatch")
         shape["extensions"].remove(padding)
@@ -114,7 +117,9 @@ def _reference_shape(hello, case):
                 raise ValueError("reference SNI mismatch")
             row["names"], row["bytes"] = "synthetic-sni", "sni-dependent"
         elif row["type"] == 16:
-            expected = ["http/1.1"] if case["context"] == "ws" else ["h2", "http/1.1"]
+            expected = expected_alpn or (
+                ["http/1.1"] if case["context"] == "ws" else ["h2", "http/1.1"]
+            )
             if row["protocols"] != expected:
                 raise ValueError("reference transport ALPN mismatch")
             row["protocols"], row["bytes"] = "transport-alpn", "alpn-dependent"
@@ -147,14 +152,14 @@ def _reference_shape(hello, case):
     shape["ciphers"] = ["GREASE" if is_grease(v) else v for v in shape["ciphers"]]
     if case["template"].startswith("Chrome"):
         rows = shape["extensions"]
-        if rows[0] != dict(type="GREASE", bytes=0, payload_hex="") or rows[-1] != dict(
-            type="GREASE", bytes=1, payload_hex="00"
-        ):
+        if rows[0] != dict(type="GREASE", bytes=0, payload_hex="") or rows[
+            -2 if psk else -1
+        ] != dict(type="GREASE", bytes=1, payload_hex="00"):
             raise ValueError("reference Chrome GREASE positions changed")
         shape["extensions"] = [
             rows[0],
-            *sorted(rows[1:-1], key=lambda e: e["type"]),
-            rows[-1],
+            *sorted(rows[1 : -2 if psk else -1], key=lambda e: e["type"]),
+            *rows[-2 if psk else -1 :],
         ]
     return shape
 

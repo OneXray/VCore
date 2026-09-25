@@ -68,7 +68,13 @@ impl Sessions {
             let now = UnixTime::now().as_secs();
             let mut queue = self.queue.lock().map_err(|_| cache_error())?;
             queue.retain(|session| {
-                now < session.time().saturating_add(u64::from(session.timeout()))
+                let hint = session.ticket_lifetime_hint();
+                let lifetime = if hint == 0 {
+                    session.timeout()
+                } else {
+                    session.timeout().min(hint)
+                };
+                now < session.time().saturating_add(u64::from(lifetime))
             });
             if queue
                 .back()

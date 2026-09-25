@@ -13,7 +13,7 @@ CRATES_IO_SOURCES = {
     "registry+https://github.com/rust-lang/crates.io-index",
     "registry+https://index.crates.io/",
 }
-BORING_REVISION = "e81c6837a302241d81c0930610b4f34dd4328167"
+BORING_REVISION = "67581195fd6388a8bfd42c4e39e945f73c99a2b2"
 BORING_GIT_SOURCE = (
     f"git+https://github.com/OneXray/boring?rev={BORING_REVISION}#{BORING_REVISION}"
 )

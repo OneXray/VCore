@@ -656,3 +656,17 @@ fn public_legacy_regression() {
     }
     core.stop();
 }
+
+#[test]
+#[ignore = "owned isolated native peer required"]
+fn public_legacy_tcp() {
+    let _case = Case::start("N4-PUBLIC", "public_legacy_tcp");
+    let f = fixture();
+    initialize(&f);
+    let port = free_port();
+    let core = Core::start(&config(f["node"].clone(), port));
+    echo(port, &f);
+    // The gate is the legacy TLS transport, not a new UDP size contract for V2Ray.
+    bulk(port, &f, false, false);
+    core.stop();
+}

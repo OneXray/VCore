@@ -18,6 +18,10 @@ use tokio_rustls::LazyConfigAcceptor;
 #[path = "tls_named_tests.rs"]
 mod named;
 
+#[cfg(feature = "tls-fingerprint")]
+#[path = "tls_named_wire_tests.rs"]
+mod named_wire;
+
 struct Chain {
     certificates: Vec<CertificateDer<'static>>,
     key: PrivateKeyDer<'static>,
@@ -1021,14 +1025,16 @@ async fn cancelling_tls_handshake_releases_the_caller_supplied_stream() {
     );
     for &profile in crate::security::test_profiles() {
         let (client_io, mut peer) = tokio::io::duplex(4096);
+        let chain = chain(false);
         let client = client(
-            &SecurityContext::new(),
-            "example.com",
+            &trusted(&chain),
+            "fixture.invalid",
             AnyTlsCertificatePolicy {
                 client_fingerprint: profile,
                 ..Default::default()
             },
         );
+        let reconnect = client.clone();
         let connect = tokio::spawn(async move { client.connect(Box::new(client_io)).await });
         let mut hello = [0; 4096];
         assert!(peer.read(&mut hello).await.unwrap() > 0);
@@ -1039,5 +1045,10 @@ async fn cancelling_tls_handshake_releases_the_caller_supplied_stream() {
             .await
             .unwrap()
             .unwrap();
+        let (ok, seen) = handshake(&reconnect, server(&chain, &TLS13, false)).await;
+        assert!(
+            ok && !seen.resumed,
+            "cancelled handshake cannot poison or seed the next connection"
+        );
     }
 }

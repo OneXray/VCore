@@ -41,6 +41,9 @@ impl VlessResourceLimits {
 }
 
 use super::{VlessCommand, VlessStream};
+#[cfg(all(test, feature = "tls-fingerprint"))]
+#[path = "fingerprint_leg_tests.rs"]
+mod fingerprint_leg_tests;
 #[cfg(all(test, feature = "outbound-socks5"))]
 use crate::outbound::Socks5Outbound;
 use crate::outbound::{

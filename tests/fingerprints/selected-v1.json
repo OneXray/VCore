@@ -542,7 +542,7 @@
       "stage": "CF5",
       "repository": "VCore",
       "required": true,
-      "timeout_seconds": 900,
+      "timeout_seconds": 3600,
       "command": [
         "uv",
         "run",
@@ -564,7 +564,7 @@
         "gRPC and Vision lifecycle/resource gates"
       ],
       "profile": "chrome",
-      "planned_entrypoint": true
+      "planned_entrypoint": false
     },
     {
       "id": "CF4-chrome120-ANYTLS",
@@ -712,7 +712,7 @@
       "stage": "CF5",
       "repository": "VCore",
       "required": true,
-      "timeout_seconds": 900,
+      "timeout_seconds": 3600,
       "command": [
         "uv",
         "run",
@@ -734,7 +734,7 @@
         "gRPC and Vision lifecycle/resource gates"
       ],
       "profile": "chrome120",
-      "planned_entrypoint": true
+      "planned_entrypoint": false
     },
     {
       "id": "CF4-firefox-ANYTLS",
@@ -882,7 +882,7 @@
       "stage": "CF5",
       "repository": "VCore",
       "required": true,
-      "timeout_seconds": 900,
+      "timeout_seconds": 3600,
       "command": [
         "uv",
         "run",
@@ -904,7 +904,7 @@
         "gRPC and Vision lifecycle/resource gates"
       ],
       "profile": "firefox",
-      "planned_entrypoint": true
+      "planned_entrypoint": false
     },
     {
       "id": "CF4-safari-ANYTLS",
@@ -1052,7 +1052,7 @@
       "stage": "CF5",
       "repository": "VCore",
       "required": true,
-      "timeout_seconds": 900,
+      "timeout_seconds": 3600,
       "command": [
         "uv",
         "run",
@@ -1074,7 +1074,7 @@
         "gRPC and Vision lifecycle/resource gates"
       ],
       "profile": "safari",
-      "planned_entrypoint": true
+      "planned_entrypoint": false
     },
     {
       "id": "CF5-APPLE",
@@ -1141,6 +1141,45 @@
         "independent locked fetch/build",
         "no research/path dependencies"
       ]
+    },
+    {
+      "id": "CF5-DOWNLOAD-ISOLATION",
+      "stage": "CF5",
+      "repository": "VCore",
+      "required": true,
+      "timeout_seconds": 180,
+      "command": ["cargo", "test", "--locked", "--all-features", "--lib", "fingerprint_leg_tests"],
+      "assertions": [
+        "both production node constructors",
+        "four profiles with inherited replaced and cleared download policy",
+        "actual independent per-leg resumption and mTLS identity rejection"
+      ],
+      "planned_entrypoint": false
+    },
+    {
+      "id": "CF5-WIRE",
+      "stage": "CF5",
+      "repository": "VCore",
+      "required": true,
+      "timeout_seconds": 300,
+      "command": [
+        "uv",
+        "run",
+        "--project",
+        "scripts",
+        "--locked",
+        "python",
+        "-m",
+        "vcore_scripts.protocol_fingerprint_shape",
+        "{fresh-run}"
+      ],
+      "assertions": [
+        "168 public-config cold vectors against independent reference",
+        "24 real TLS1.2/TLS1.3 cold warm and expiry observations",
+        "exact ticket identity and binder shape",
+        "named REALITY rejects TLS1.2 ServerHello"
+      ],
+      "planned_entrypoint": false
     }
   ]
 }
