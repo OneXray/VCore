@@ -244,6 +244,12 @@ pub(super) struct RawVmess {
     skip_cert_verify: Option<bool>,
     #[serde(default, deserialize_with = "deserialize_present_option")]
     fingerprint: Option<String>,
+    #[serde(
+        rename = "client-fingerprint",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    client_fingerprint: Option<String>,
     #[serde(rename = "global-padding", default)]
     global_padding: bool,
     #[serde(rename = "authenticated-length", default)]
@@ -303,7 +309,8 @@ impl RawVmess {
             && (self.servername.is_some()
                 || self.alpn.is_some()
                 || self.skip_cert_verify.is_some()
-                || self.fingerprint.is_some())
+                || self.fingerprint.is_some()
+                || self.client_fingerprint.is_some())
         {
             return invalid("VMess TLS options require tls=true");
         }
@@ -356,6 +363,9 @@ impl RawVmess {
                 })
                 .transpose()?;
             Some(super::AnyTlsCertificatePolicy {
+                client_fingerprint: super::parse_client_fingerprint(
+                    self.client_fingerprint.as_deref(),
+                )?,
                 alpn,
                 fingerprint,
                 skip_cert_verify: self.skip_cert_verify.unwrap_or(false),

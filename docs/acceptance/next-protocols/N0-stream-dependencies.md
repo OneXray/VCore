@@ -1,5 +1,7 @@
 # N0-B：流传输候选依赖与公开接口
 
+> 历史研究：当时使用的 rustls fork 已退役，依赖表和运行成绩保留原始身份；下列标准 API 链接指官方上游，不代表旧 fork 的重新验收。当前来源及验证见 [TLS 依赖](../../tls-dependencies.md)和 [fork 退役验收](../rustls-fork-retirement.md)。
+
 调研日期：2026-09-23。本文是 **TLS / 普通 WebSocket / gRPC 流适配器的依赖研究**，不是生产支持声明，也不把源码可用性写成平台或互通 PASS。实际实验、命令与平台结果由对应验收记录单列，阶段总状态见 [N0](N0.md)。
 
 ## 候选结论与版本边界
@@ -9,7 +11,7 @@
 | 层 | 本轮候选 / 最小 feature | 许可证元数据 | 依据 |
 | --- | --- | --- | --- |
 | TLS | 既有 `tokio-rustls =0.26.4`，`default-features=false`，`ring,tls12` | MIT OR Apache-2.0 | [官方发布源码 Cargo.toml](https://github.com/rustls/tokio-rustls/blob/0c14e1496ef50adade4ac7c7d1f0270dfb3cdda5/Cargo.toml) |
-| TLS provider | 既有 `rustls =0.23.43`，自有 fork revision `df261c84cbac4f708e63ac8644ce70daa90d771c`，`default-features=false`，`ring,std,tls12` | Apache-2.0 OR ISC OR MIT | [锁定 fork 的 Cargo.toml](https://github.com/OneVCore/rustls/blob/df261c84cbac4f708e63ac8644ce70daa90d771c/rustls/Cargo.toml) |
+| TLS provider | 既有 `rustls =0.23.43`，自有 fork revision `df261c84cbac4f708e63ac8644ce70daa90d771c`，`default-features=false`，`ring,std,tls12` | Apache-2.0 OR ISC OR MIT | [同版本上游 Cargo.toml（不含 fork 扩展）](https://github.com/rustls/rustls/blob/v/0.23.43/rustls/Cargo.toml) |
 | TLS crypto | 既有 `ring 0.17.14`，经上述 feature 选用 | Apache-2.0 AND ISC；分文件通知见发行包 | [crate 元数据及许可文件](https://docs.rs/crate/ring/0.17.14/source/) |
 | WebSocket | `tokio-tungstenite =0.29.0`，`default-features=false`，仅 `handshake`；传递 `tungstenite 0.29.0/handshake` | tokio-tungstenite：MIT；tungstenite：MIT OR Apache-2.0 | [binding manifest](https://github.com/snapview/tokio-tungstenite/blob/v0.29.0/Cargo.toml)、[protocol manifest](https://github.com/snapview/tungstenite-rs/blob/v0.29.0/Cargo.toml) |
 | HTTP/2 / gRPC | 既有 `h2 =0.4.15`，不启用 `unstable`；复用 `http 1`、`bytes 1` | MIT | [h2 manifest](https://github.com/hyperium/h2/blob/v0.4.15/Cargo.toml) |
@@ -26,7 +28,7 @@ Clash-RS 参考 checkout 为 `470bc5a427bfaea3fafcedf32563010f9a47b691`：WS 使
 
 ### TLS
 
-- 官方 `TlsConnector::connect/connect_with` 接收调用方的 IO；握手 Future 持有该 IO，不需要 DNS 或 socket factory。`connect_with` 可调用公开的 `set_buffer_limit(Some(n))`。该限制约束待发送明文和 TLS record 缓冲，**不是整个握手、证书链或连接总内存的通用硬上限**。[connector](https://github.com/rustls/tokio-rustls/blob/0c14e1496ef50adade4ac7c7d1f0270dfb3cdda5/src/client.rs)、[rustls buffer contract](https://github.com/OneVCore/rustls/blob/df261c84cbac4f708e63ac8644ce70daa90d771c/rustls/src/conn.rs)。
+- 官方 `TlsConnector::connect/connect_with` 接收调用方的 IO；握手 Future 持有该 IO，不需要 DNS 或 socket factory。`connect_with` 可调用公开的 `set_buffer_limit(Some(n))`。该限制约束待发送明文和 TLS record 缓冲，**不是整个握手、证书链或连接总内存的通用硬上限**。[connector](https://github.com/rustls/tokio-rustls/blob/0c14e1496ef50adade4ac7c7d1f0270dfb3cdda5/src/client.rs)、[rustls buffer contract](https://github.com/rustls/rustls/blob/v/0.23.43/rustls/src/conn.rs)。
 - TLS 默认 feature 会引入 AWS-LC；tokio-rustls 默认还启用 logging。因此继续显式关闭 defaults，仅使用既有 ring provider；本工作不扩大 SS 的局部 AWS-LC 例外，也不引入 Watfaq TLS fork、native-tls、系统根证书扫描或第二套 rustls。[上述 manifests](https://github.com/rustls/tokio-rustls/blob/0c14e1496ef50adade4ac7c7d1f0270dfb3cdda5/Cargo.toml)。
 - 取消握手时必须销毁持有 IO 的 Future；成功后由会话持有流。`TlsStream::poll_shutdown` 会发 `close_notify`，随后调用底层 `poll_shutdown`；它不等同于 Mihomo 的仅 TLS 写关闭，见下节。读写失败和取消后的连接释放需实际实验确认。[TLS shutdown 源码](https://github.com/rustls/tokio-rustls/blob/0c14e1496ef50adade4ac7c7d1f0270dfb3cdda5/src/client.rs)。
 

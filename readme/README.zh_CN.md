@@ -4,7 +4,7 @@
   <a href="../README.md">English</a> · 简体中文 · <a href="./README.ru.md">Русский</a>
 </p>
 
-VCore 是独立且不绑定特定宿主应用的 Rust 客户端代理 core。它通过严格 YAML 配置和 Invoke API v5 提供代理图、静态 `select` 代理组、DNS、规则、GeoData、HTTP/SOCKS5 listener、TUN 数据面与回环 Controller。内部配置 schema revision 为 17；revision 只出现在 `version` 响应和 `buildIdentity` 中，不写入 YAML。
+VCore 是独立且不绑定特定宿主应用的 Rust 客户端代理 core。它通过严格 YAML 配置和 Invoke API v5 提供代理图、静态 `select` 代理组、DNS、规则、GeoData、HTTP/SOCKS5 listener、TUN 数据面与回环 Controller。内部配置 schema revision 为 19；revision 只出现在 `version` 响应和 `buildIdentity` 中，不写入 YAML。
 
 ## 能力
 
@@ -93,7 +93,7 @@ packet queue                     256
 ordinary event / UDP response    128
 DNS ingress / DNS response       128 / 128
 TCP buffer                       32 KiB per direction
-TLS / XHTTP buffer               64 KiB
+rustls / XHTTP buffer            64 KiB
 DNS typed cache                  256 entries
 DNS opaque cache                 64 entries / 256 KiB
 GeoData allocation capacity      8 MiB
@@ -115,7 +115,8 @@ TCP session、普通 UDP association、half-open、outbound handshake 和 active
 - [VMess AEAD 出站](../docs/vmess.md)
 - [VLESS 与 Vision 出站](../docs/vless.md)
 - [REALITY V1 客户端协议](../docs/reality-wire-protocol.md)
-- [rustls REALITY 依赖与发布要求](../docs/rustls-reality-release.md)
+- [TLS 指纹与证书策略](../docs/tls-client-fingerprint.md)
+- [TLS 依赖与发布要求](../docs/tls-dependencies.md)
 - [运行时 Controller](../docs/controller-api.md)
 - [TUN ICMP 与 DNS](../docs/tun-icmp-dns.md)
 - [GeoData 规则与资产](../docs/geodata.md)
@@ -161,7 +162,8 @@ VCore 的依赖、维护中的 fork、公开 API/协议参考、架构参考与�
 - [smoltcp](https://github.com/smoltcp-rs/smoltcp)、[clash-rs](https://github.com/Watfaq/clash-rs) 与 [netstack-smoltcp](https://github.com/automesh-network/netstack-smoltcp)：用户态 IP stack 与 TUN netstack。
 - [windows-rs](https://github.com/microsoft/windows-rs)、[UWP VPN Plugin Sample](https://github.com/microsoft/UwpVpnPluginSample)、[wireguard-uwp-rs](https://github.com/luqmana/wireguard-uwp-rs)、[Maple](https://github.com/YtFlow/Maple) 与 [YtFlowCore](https://github.com/YtFlow/YtFlowCore)：Windows VPN、WinRT activation 与 packet flow。
 - [Xray-core](https://github.com/XTLS/Xray-core)、[Mihomo](https://github.com/MetaCubeX/mihomo) 与 [Leaf](https://github.com/eycorsican/leaf)：代理协议、路由、TUN 架构与互操作参考。
-- [rustls](https://github.com/rustls/rustls)：TLS 依赖与 VCore 维护的 REALITY fork 上游。
+- [rustls](https://github.com/rustls/rustls)：未启用指纹的 TLS、QUIC 与共享 WebPKI 证书验证。
+- [boring](https://github.com/cloudflare/boring) / [BoringSSL](https://boringssl.googlesource.com/boringssl/)：命名 TLS ClientHello profile 与 VCore 自有 fork 中的 classic REALITY 扩展。
 
 ## License
 

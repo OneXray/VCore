@@ -1,5 +1,7 @@
 # N0-C / N0-E：TLS 与高级安全接口预验证
 
+> 历史验收：旧 rustls REALITY fork 已退役，远端将永久删除。本文保留原始实验结果、提交摘要和失败记录，不再作为重建或开发指令。普通 rustls API 的链接改指官方上游；fork 专有接口仅保留历史描述，不能归为上游能力。当前实现与替换验收见 [TLS 依赖](../../tls-dependencies.md)和 [fork 退役验收](../rustls-fork-retirement.md)。
+
 2026-09-24 追加：[Vision 原生边界验证](N0-vision-boundary.md)已补齐 N0-C 的 TLS / 经典 REALITY + 内层 TLS 1.3 direct-mode 前置门禁；本页 9 月 22 日的 NOT RUN 和失败是历史快照，不追改。N0-E、高级安全与完整阶段结论不继承此结果。
 
 后续更新：用户已授权独立分支最小扩展自有 rustls fork；公开混合组入口和 Mihomo 数据互通已通过局部验证，见 [混合 REALITY 跟进](N0-reality-hybrid.md)。下文保留对原锁定 revision 的历史实验与阻塞证据；VCore 生产锁定依赖仍未变更，N0-E 未整体签收。
@@ -81,7 +83,7 @@ found for reference `&TlsConnector` in the current scope
 
 锁定实现 `with_reality` 只寻找 `NamedGroup::X25519` 且要求 `supports_reality()`；`client/hs.rs` 再次 `find_kx_group(X25519, TLSv1_3)` 并调用其 `start_reality`。这与普通 TLS 的“provider 首选组”路径不同。ring 本身也没有 X25519MLKEM768 实现。
 
-在这一契约下，仅增加独立 ML-KEM crate 或把自定义 hybrid provider 排在第一位，不会改变实际 REALITY ClientHello。不得用错误的 group 名称伪装另一种算法、生成两份不相干 X25519 密钥，或在线改写 ClientHello 而不维护 TLS transcript。这些不属于已验证的公开扩展方案。[builder][R-BUILDER]、[握手选择][R-HS]、[公开 group 契约][R-CRYPTO]。
+在这一契约下，仅增加独立 ML-KEM crate 或把自定义 hybrid provider 排在第一位，不会改变实际 REALITY ClientHello。不得用错误的 group 名称伪装另一种算法、生成两份不相干 X25519 密钥，或在线改写 ClientHello 而不维护 TLS transcript。这些不属于已验证的公开扩展方案。历史依据是上述 fork revision 的 `client/builder.rs`、`client/hs.rs` 和 `crypto/mod.rs`；其 REALITY 专有接口已退役。
 
 本报告没有改动该 fork。是否允许为此扩展 fork 或调整范围，属于需要额外决定的安全/范围变更，不能由阶段自动提交授权推导。
 
@@ -105,14 +107,11 @@ ShadowTLS v3、Restls、JLS 的认证字段依赖已构造的 ClientHello 或密
 - N0-C 尚未满足进入 N4.3 的全部前置标准；S03/D16 阻塞 N7.2；其余高级安全按各自子门禁签收。不会因此宣称 Trojan/VMess/Hysteria2/WireGuard 的独立工作被同一 TLS 缺口阻塞。
 - N0-C/E 未完成，不应提交“阶段完成”的结论；如记录本次发现，应明确为预验证进度/阻塞证据。
 
-[R-CONN]: https://github.com/OneVCore/rustls/blob/df261c84cbac4f708e63ac8644ce70daa90d771c/rustls/src/conn.rs#L738-L779
-[R-BUILDER]: https://github.com/OneVCore/rustls/blob/df261c84cbac4f708e63ac8644ce70daa90d771c/rustls/src/client/builder.rs#L91-L149
-[R-HS]: https://github.com/OneVCore/rustls/blob/df261c84cbac4f708e63ac8644ce70daa90d771c/rustls/src/client/hs.rs#L179-L193
-[R-CRYPTO]: https://github.com/OneVCore/rustls/blob/df261c84cbac4f708e63ac8644ce70daa90d771c/rustls/src/crypto/mod.rs
-[R-HPKE]: https://github.com/OneVCore/rustls/blob/df261c84cbac4f708e63ac8644ce70daa90d771c/rustls/src/crypto/hpke.rs
-[R-ECH]: https://github.com/OneVCore/rustls/blob/df261c84cbac4f708e63ac8644ce70daa90d771c/rustls/src/client/ech.rs
-[R-INTERNAL]: https://github.com/OneVCore/rustls/blob/df261c84cbac4f708e63ac8644ce70daa90d771c/rustls/src/lib.rs#L466-L470
-[R-EXAMPLE]: https://github.com/OneVCore/rustls/blob/df261c84cbac4f708e63ac8644ce70daa90d771c/provider-example/src/hpke.rs
+[R-CONN]: https://github.com/rustls/rustls/blob/v/0.23.43/rustls/src/conn.rs
+[R-HPKE]: https://github.com/rustls/rustls/blob/v/0.23.43/rustls/src/crypto/hpke.rs
+[R-ECH]: https://github.com/rustls/rustls/blob/v/0.23.43/rustls/src/client/ech.rs
+[R-INTERNAL]: https://github.com/rustls/rustls/blob/v/0.23.43/rustls/src/lib.rs
+[R-EXAMPLE]: https://github.com/rustls/rustls/blob/v/0.23.43/provider-example/src/hpke.rs
 [T-STREAM]: https://github.com/rustls/tokio-rustls/blob/v/0.26.4/src/client.rs
 [CR-SPLICE]: https://github.com/Watfaq/clash-rs/blob/39d06a49ccb5c812ed7cd70b3028f3efcebeae6b/clash-lib/src/proxy/transport/splice_tls.rs
 [CR-SHADOW]: https://github.com/Watfaq/clash-rs/blob/39d06a49ccb5c812ed7cd70b3028f3efcebeae6b/clash-lib/src/proxy/transport/shadow_tls/mod.rs

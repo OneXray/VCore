@@ -1,5 +1,7 @@
 # N1：依赖基线进度
 
+> 历史验收：本页的正式 fork 来源、发布分支和依赖结论仅对应 N1 当时的输入。旧 rustls fork 已退役，远端将永久删除；当前只使用官方 rustls 与自有 boring，见 [TLS 依赖](../../tls-dependencies.md)和 [fork 退役验收](../rustls-fork-retirement.md)。
+
 日期：2026-09-23。**依赖升级已收口，[N1公共机制与本阶段门禁](N1.md)全部通过。** 最后一项fork密码依赖升级已获准独立发布，最终锁与复验见[N1-x25519](N1-x25519.md)。最新稳定版原则见开发约定；锁文件用于复现验证，不代表旧版本可永久保留。版本冲突或尚未发布的fork必须明确处理，不能静默回退、换provider或引入本机路径依赖。
 
 ## 已完成的独立子包
@@ -11,9 +13,9 @@
 - [基础库、网络栈与实验依赖更新](N1-foundation-dependencies.md)：完成下表 API 适配、兼容传递锁刷新、Windows 配套例外确认和独立回归。全目标 Clippy 的13项既有测试告警已清理并通过，不改写此前失败记录。
 - [REALITY x25519-dalek3.0.0](N1-x25519.md)：获准单独分支升级/验证/推送，VCore及四个spike同步公开revision，最终N1门禁重跑通过。
 
-## 正式仓库来源
+## 当时的仓库来源（已退役）
 
-自有fork的正式来源是[OneXray/rustls](https://github.com/OneXray/rustls)。独立升级分支经后续明确授权已快进合入并推送至`vcore/reality-0.23`发布分支，VCore已切回该发布引用。公开revision仍为`bb4092cc32a101869406d0b8242b173372a9d3ea` / rustls0.23.45 / x25519-dalek3.0.0；没有改变密码库源码、升级其他依赖或改写历史。[N1-x25519](N1-x25519.md)保留独立分支验收时的记录，后续操作与引用复验见[N1发布接线](N1-publish.md)。
+自有fork的正式来源是OneXray/rustls（已退役 fork，历史记录）。独立升级分支经后续明确授权已快进合入并推送至`vcore/reality-0.23`发布分支，VCore已切回该发布引用。公开revision仍为`bb4092cc32a101869406d0b8242b173372a9d3ea` / rustls0.23.45 / x25519-dalek3.0.0；没有改变密码库源码、升级其他依赖或改写历史。[N1-x25519](N1-x25519.md)保留独立分支验收时的记录，后续操作与引用复验见[N1发布接线](N1-publish.md)。
 
 以下保留较早来源修正提交 `1cc201c` 的历史证据：该提交同步修正主工程及四个实验 workspace 的 manifest/lock、TLS 来源审计、可执行字段/组合清单的源码链接和现行发布文档，**只改来源地址，版本和完整 revision 不变**，当时远端仍为 `df261c84cbac4f708e63ac8644ce70daa90d771c` / 0.23.43。它的 hash 和通过结果不转记为新版 TLS 的证据。
 

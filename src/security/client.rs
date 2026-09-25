@@ -1,14 +1,8 @@
 use std::{io, sync::Arc};
 
+use rustls::ClientConfig;
 #[cfg(feature = "interop-test")]
 use rustls::RootCertStore;
-use rustls::{
-    ClientConfig,
-    client::{RealityClientConfig, Resumption},
-    pki_types::ServerName,
-    version::TLS13,
-};
-use tokio_rustls::TlsConnector;
 
 use crate::{
     config::{SecurityConfig, VlessOutboundConfig},
@@ -34,8 +28,7 @@ enum SecurityBackend {
     Plain,
     Standard(StandardTlsClient),
     Reality {
-        connector: TlsConnector,
-        server_name: String,
+        client: super::boring::BoringTlsClient,
         buffer_limit: usize,
     },
 }
@@ -183,6 +176,7 @@ impl SecurityClient {
                 context,
                 &tls.server_name,
                 TlsClientOptions {
+                    client_fingerprint: tls.client_fingerprint,
                     versions: if tls.tls13_only {
                         TlsVersions::Tls13
                     } else {
@@ -205,31 +199,10 @@ impl SecurityClient {
                 resumption_sessions,
                 buffer_limit,
             )?),
-            SecurityConfig::Reality(reality) => {
-                let alpn = reality.alpn.clone();
-                let reality = RealityClientConfig::new(
-                    reality.public_key,
-                    &reality.short_id,
-                    REALITY_CLIENT_VERSION,
-                )
-                .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
-                let mut tls_config = ClientConfig::builder_with_provider(context.provider.clone())
-                    .with_protocol_versions(&[&TLS13])
-                    .map_err(io_other)?
-                    .with_reality(reality)
-                    .map_err(io_other)?
-                    .with_no_client_auth();
-                tls_config.resumption = Resumption::disabled();
-                tls_config.enable_early_data = false;
-                // Xray REALITY does not echo ALPN, so XHTTP deliberately starts
-                // h2 even when negotiated ALPN is nil.
-                tls_config.alpn_protocols = alpn;
-                SecurityBackend::Reality {
-                    connector: TlsConnector::from(Arc::new(tls_config)),
-                    server_name: config.server_name().to_owned(),
-                    buffer_limit,
-                }
-            }
+            SecurityConfig::Reality(reality) => SecurityBackend::Reality {
+                client: super::boring::BoringTlsClient::reality(reality)?,
+                buffer_limit,
+            },
         };
 
         Ok(Self { backend })
@@ -240,20 +213,9 @@ impl SecurityClient {
             SecurityBackend::Plain => Ok(stream),
             SecurityBackend::Standard(client) => client.connect(stream).await,
             SecurityBackend::Reality {
-                connector,
-                server_name,
+                client,
                 buffer_limit,
-            } => {
-                let server_name = ServerName::try_from(server_name.clone())
-                    .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
-                let tls = connector
-                    .connect_with(server_name, stream, |connection| {
-                        connection.set_buffer_limit(Some(*buffer_limit));
-                    })
-                    .await
-                    .map_err(io_other)?;
-                Ok(Box::new(tls))
-            }
+            } => client.connect(stream, *buffer_limit).await,
         }
     }
 
@@ -269,22 +231,9 @@ impl SecurityClient {
             )),
             SecurityBackend::Standard(client) => client.connect_vision(stream, stats).await,
             SecurityBackend::Reality {
-                connector,
-                server_name,
+                client,
                 buffer_limit,
-            } => {
-                let name = ServerName::try_from(server_name.clone())
-                    .map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?;
-                let tls = connector
-                    .connect_with(name, super::vision::RecordIo::new(stream), |connection| {
-                        connection.set_buffer_limit(Some(*buffer_limit))
-                    })
-                    .await
-                    .map_err(|error| {
-                        io::Error::new(error.kind(), "Vision REALITY handshake failed")
-                    })?;
-                super::vision::SpliceTls::wrap(tls, stats)
-            }
+            } => client.connect_vision(stream, stats, *buffer_limit).await,
         }
     }
 
@@ -296,10 +245,6 @@ impl SecurityClient {
             SecurityBackend::Reality { buffer_limit, .. } => *buffer_limit,
         }
     }
-}
-
-fn io_other(error: impl std::error::Error + Send + Sync + 'static) -> io::Error {
-    io::Error::other(error)
 }
 
 #[cfg(test)]
@@ -363,6 +308,7 @@ mod tests {
     #[test]
     fn security_level_constructor_keeps_an_independent_reality_identity() {
         let security = SecurityConfig::Reality(crate::config::RealityConfig {
+            client_fingerprint: None,
             server_name: "download.example.com".to_owned(),
             public_key: [7; 32],
             short_id: vec![1, 2, 3, 4],
@@ -375,15 +321,10 @@ mod tests {
             12 * 1024,
         )
         .unwrap();
-        let SecurityBackend::Reality {
-            server_name,
-            buffer_limit,
-            ..
-        } = &client.backend
-        else {
+        let SecurityBackend::Reality { buffer_limit, .. } = &client.backend else {
             panic!("REALITY security must build the REALITY backend")
         };
-        assert_eq!(server_name, "download.example.com");
         assert_eq!(*buffer_limit, 12 * 1024);
+        assert!(!format!("{client:?}").contains("download.example.com"));
     }
 }

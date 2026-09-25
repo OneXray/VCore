@@ -1887,6 +1887,7 @@ rules:
             };
             config.security =
                 crate::config::SecurityConfig::Reality(crate::config::RealityConfig {
+                    client_fingerprint: None,
                     server_name: "example.com".to_owned(),
                     public_key: [7; 32],
                     short_id: vec![1, 2, 3, 4],

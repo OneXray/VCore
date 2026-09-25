@@ -17,6 +17,7 @@ from unittest.mock import MagicMock, call, patch
 from vcore_scripts import builds, cli, mihomo
 from vcore_scripts.builds import EXPECTED_IDENTITY, _android_target, _require_identity
 from vcore_scripts.checks import (
+    BORING_GIT_SOURCE,
     CRATES_IO_SOURCES,
     SHADOWSOCKS_GIT_SOURCE,
     _shadowsocks_aws_lc_errors,
@@ -351,6 +352,57 @@ except RuntimeError as error:
         with self.assertRaisesRegex(RuntimeError, "unsupported Android Rust target"):
             _android_target("mips-linux-android", "24")
 
+    def test_android_build_packages_the_matching_ndk_cpp_runtime(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            toolchain = root / "ndk/toolchain"
+            (toolchain / "bin").mkdir(parents=True)
+            (toolchain / "bin/llvm-ar").touch()
+            targets = ("aarch64-linux-android", "x86_64-linux-android")
+            for target in targets:
+                abi, clang, _ = _android_target(target, "24")
+                (toolchain / "bin" / clang).touch()
+                (toolchain / "bin" / (clang + "++")).touch()
+                runtime = toolchain / "sysroot/usr/lib" / target / "libc++_shared.so"
+                runtime.parent.mkdir(parents=True)
+                runtime.write_bytes(abi.encode())
+                artifact = root / "target" / target / "release/libvcore.so"
+                artifact.parent.mkdir(parents=True)
+                artifact.write_bytes(EXPECTED_IDENTITY)
+            with (
+                patch.dict(
+                    builds.os.environ,
+                    {"ANDROID_NDK_HOME": str(root / "ndk")},
+                    clear=True,
+                ),
+                patch.object(builds, "CORE_DIR", root),
+                patch.object(builds, "_android_toolchain", return_value=toolchain),
+                patch.object(builds, "_require_targets"),
+                patch.object(builds, "_cargo_build") as cargo,
+            ):
+                builds.build_android()
+            self.assertEqual(cargo.call_count, 2)
+            for invocation, target in zip(cargo.call_args_list, targets, strict=True):
+                abi, clang, _ = _android_target(target, "24")
+                env = invocation.args[3]
+                self.assertEqual(env["VCORE_CMAKE_ANDROID_ABI"], abi)
+                self.assertEqual(env["VCORE_CMAKE_ANDROID_API"], "24")
+                self.assertEqual(
+                    env[f"CMAKE_TOOLCHAIN_FILE_{target.replace('-', '_')}"],
+                    str(root / "scripts/cmake/android.toolchain.cmake"),
+                )
+                self.assertEqual(
+                    env[f"CXX_{target.replace('-', '_')}"],
+                    str(toolchain / "bin" / (clang + "++")),
+                )
+                output = root / "dist/android" / abi
+                self.assertEqual(
+                    (output / "libvcore.so").read_bytes(), EXPECTED_IDENTITY
+                )
+                self.assertEqual(
+                    (output / "libc++_shared.so").read_bytes(), abi.encode()
+                )
+
     def test_artifact_identity_check_reads_binary_directly(self):
         with tempfile.TemporaryDirectory() as directory:
             artifact = Path(directory) / "libvcore.a"
@@ -443,8 +495,7 @@ except RuntimeError as error:
                     "id": "rustls-id",
                     "name": "rustls",
                     "version": "0.23.45",
-                    "source": "git+https://github.com/OneXray/rustls?branch=vcore/reality-0.23#"
-                    + "a" * 40,
+                    "source": registry,
                 },
                 {
                     "id": "tokio-rustls-id",
@@ -458,76 +509,104 @@ except RuntimeError as error:
                     "version": "0.17.14",
                     "source": registry,
                 },
-                {
-                    "id": "x25519-id",
-                    "name": "x25519-dalek",
-                    "version": "3.0.0",
-                    "source": registry,
-                },
+                *[
+                    dict(id=name, name=name, version="5.2.0", source=BORING_GIT_SOURCE)
+                    for name in ("boring", "boring-sys", "tokio-boring")
+                ],
             ],
             "resolve": {
                 "nodes": [
                     {
                         "id": "rustls-id",
-                        "features": ["reality", "ring", "std", "tls12"],
-                        "deps": [{"pkg": "x25519-id"}],
+                        "features": ["ring", "std", "tls12"],
+                        "deps": [],
                     },
                     {
-                        "id": "x25519-id",
-                        "features": ["static_secrets", "zeroize"],
+                        "id": "boring",
+                        "features": ["reality", "client-fingerprint"],
+                        "deps": [{"pkg": "boring-sys"}],
+                    },
+                    {"id": "boring-sys", "features": ["reality"]},
+                    {
+                        "id": "tokio-boring",
+                        "features": [],
+                        "deps": [{"pkg": "boring"}, {"pkg": "boring-sys"}],
                     },
                 ]
             },
         }
         self.assertEqual(_tls_dependency_errors(metadata), [])
 
-        for index, old_version in [(0, "0.23.43"), (1, "0.26.4"), (3, "2.0.1")]:
+        for index, old_version in [(0, "0.23.43"), (1, "0.26.4"), (3, "5.1.0")]:
             with self.subTest(outdated_version=old_version):
                 outdated = copy.deepcopy(metadata)
                 outdated["packages"][index]["version"] = old_version
                 self.assertTrue(_tls_dependency_errors(outdated))
 
-        for source in [None, "git+https://example.invalid/x25519#" + "a" * 40]:
-            with self.subTest(x25519_source=source):
+        for source in [None, registry, BORING_GIT_SOURCE.replace("b953", "ffff")]:
+            with self.subTest(boring_source=source):
                 invalid = copy.deepcopy(metadata)
                 invalid["packages"][3]["source"] = source
                 self.assertTrue(_tls_dependency_errors(invalid))
 
-        for required in ["static_secrets", "zeroize"]:
-            with self.subTest(x25519_feature=required):
+        for required in ["reality", "client-fingerprint"]:
+            with self.subTest(boring_feature=required):
                 invalid = copy.deepcopy(metadata)
                 invalid["resolve"]["nodes"][1]["features"].remove(required)
                 self.assertTrue(_tls_dependency_errors(invalid))
 
         for missing in ["edge", "node", "package"]:
-            with self.subTest(x25519_missing=missing):
+            with self.subTest(boring_missing=missing):
                 invalid = copy.deepcopy(metadata)
                 if missing == "edge":
-                    invalid["resolve"]["nodes"][0]["deps"] = []
+                    invalid["resolve"]["nodes"][1]["deps"] = []
                 elif missing == "node":
                     invalid["resolve"]["nodes"].pop()
                 else:
                     invalid["packages"].pop()
                 self.assertTrue(_tls_dependency_errors(invalid))
 
-        old_branch = copy.deepcopy(metadata)
-        old_branch["packages"][0]["source"] = (
-            "git+https://github.com/OneXray/rustls?branch=chore/x25519-dalek-3#"
-            + "a" * 40
-        )
-        self.assertTrue(_tls_dependency_errors(old_branch))
+        for forbidden in ["reality", "aws_lc_rs", "fips"]:
+            invalid = copy.deepcopy(metadata)
+            invalid["resolve"]["nodes"][0]["features"].append(forbidden)
+            self.assertTrue(_tls_dependency_errors(invalid))
 
-        old_origin = copy.deepcopy(metadata)
-        old_origin["packages"][0]["source"] = (
-            "git+https://github.com/OneVCore/rustls?branch=vcore/reality-0.23#"
-            + "a" * 40
-        )
-        self.assertTrue(
-            any(
-                "vcore/reality-0.23 GitHub branch" in error
-                for error in _tls_dependency_errors(old_origin)
+        invalid = copy.deepcopy(metadata)
+        invalid["resolve"]["nodes"][1]["features"].append("fips")
+        self.assertTrue(_tls_dependency_errors(invalid))
+
+        for source in CRATES_IO_SOURCES:
+            with self.subTest(rustls_registry=source):
+                official = copy.deepcopy(metadata)
+                official["packages"][0]["source"] = source
+                self.assertEqual(_tls_dependency_errors(official), [])
+
+        for source in (
+            None,
+            "git+https://example.invalid/rustls?branch=custom#" + "a" * 40,
+            "git+https://github.com/rustls/rustls#" + "a" * 40,
+            "registry+https://example.invalid/index",
+        ):
+            with self.subTest(rustls_source=source):
+                invalid = copy.deepcopy(metadata)
+                invalid["packages"][0]["source"] = source
+                self.assertTrue(
+                    any(
+                        "rustls must come from crates.io" in error
+                        for error in _tls_dependency_errors(invalid)
+                    )
+                )
+
+        duplicate = copy.deepcopy(metadata)
+        duplicate["packages"].append(
+            dict(
+                id="second-rustls",
+                name="rustls",
+                version="0.23.45",
+                source="git+https://github.com/rustls/rustls#" + "a" * 40,
             )
         )
+        self.assertTrue(_tls_dependency_errors(duplicate))
 
         metadata["packages"].append(
             {
@@ -547,7 +626,7 @@ except RuntimeError as error:
         metadata["packages"][0]["source"] = None
         self.assertTrue(
             any(
-                "vcore/reality-0.23 GitHub branch" in error
+                "rustls must come from crates.io" in error
                 for error in _tls_dependency_errors(metadata)
             )
         )

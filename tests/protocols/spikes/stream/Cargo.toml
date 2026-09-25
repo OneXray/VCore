@@ -26,6 +26,3 @@ vcore = { path = "../../../..", default-features = false, features = ["outbound-
 
 [dev-dependencies]
 rcgen = { version = "=0.14.10", default-features = false, features = ["crypto", "ring"] }
-
-[patch.crates-io]
-rustls = { git = "https://github.com/OneXray/rustls", rev = "bb4092cc32a101869406d0b8242b173372a9d3ea" }

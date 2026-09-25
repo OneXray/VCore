@@ -85,6 +85,7 @@ impl TrojanOutbound {
                 security,
                 &config.server_name,
                 TlsClientOptions {
+                    client_fingerprint: config.tls.client_fingerprint,
                     alpn: config.tls.alpn.clone(),
                     required_alpn: config.transport.required_alpn().map(<[u8]>::to_vec),
                     certificate: TlsCertificatePolicy {

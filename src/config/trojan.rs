@@ -188,6 +188,12 @@ pub(super) struct RawTrojan {
     #[serde(default, deserialize_with = "deserialize_present_option")]
     fingerprint: Option<String>,
     #[serde(
+        rename = "client-fingerprint",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    client_fingerprint: Option<String>,
+    #[serde(
         rename = "dialer-proxy",
         default,
         deserialize_with = "deserialize_present_option"
@@ -307,6 +313,9 @@ impl RawTrojan {
                 server_name,
                 transport,
                 tls: AnyTlsCertificatePolicy {
+                    client_fingerprint: super::parse_client_fingerprint(
+                        self.client_fingerprint.as_deref(),
+                    )?,
                     alpn,
                     skip_cert_verify: self.skip_cert_verify,
                     fingerprint,

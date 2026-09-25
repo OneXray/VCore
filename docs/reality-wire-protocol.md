@@ -1,10 +1,10 @@
 # REALITY V1 客户端协议
 
-本文定义 VCore 当前启用的 classic REALITY V1 客户端线上行为。它不是通用 REALITY 规范，也不承诺浏览器 ClientHello 模拟。自有 rustls fork 另有显式选择混合密钥交换的接口，但 VCore 尚未接入对应 provider 或公开配置；升级 fork 不改变本文的生产边界。
+本文定义 VCore 当前启用的 classic REALITY V1 客户端线上行为。它不是通用 REALITY 规范。可选的 `chrome120` ClientHello 模板见 [TLS 指纹](tls-client-fingerprint.md)；认证协议与模板独立，不支持混合密钥交换。
 
 ## 版本边界
 
-当前实现基于 rustls 0.23 系列。线上行为由本文和 fork 内的确定性测试向量共同约束。升级 rustls、加密提供方或任一握手字节时，必须重新验证普通 TLS、REALITY、并发、取消和目标平台构建。
+当前 REALITY 实现基于自有 boring 5.2.0 fork 的原生 BoringSSL 扩展。线上行为由本文和 fork 内的确定性测试向量共同约束。升级 TLS 后端、加密提供方或握手字节时，必须重新验证普通 TLS、REALITY、并发、取消和目标平台构建。
 
 V1 只支持：
 
@@ -13,13 +13,13 @@ V1 只支持：
 - X25519；
 - classic Ed25519 临时证书认证；
 - 0–8 字节 short ID，在线上右侧补零到 8 字节；
-- `ring` 加密提供方。
+- BoringSSL 原生握手和加密实现。
 
-不支持 REALITY 服务端、TLS 1.2、QUIC 传输、ECH、HelloRetryRequest、会话恢复、0-RTT、混合后量子密钥交换、浏览器指纹或 `fp`。收到 HRR 或 REALITY 认证失败时立即终止，不降级为普通 WebPKI。
+不支持 REALITY 服务端、TLS 1.2 协商、QUIC 传输、实际 ECH、HelloRetryRequest、会话恢复、0-RTT、混合后量子密钥交换或 `fp`。ECH GREASE 与实际 ECH 不同。收到 HRR 或 REALITY 认证失败时立即终止，不降级为普通 WebPKI。
 
 ## ClientHello 认证
 
-每个 `ClientConnection` 独占一份 X25519 临时私钥，同时用于：
+每个原生 SSL 握手独占一份 X25519 临时私钥，同时用于：
 
 1. TLS 1.3 ClientHello 的 X25519 key share；
 2. 与配置中的服务端静态 X25519 公钥执行 ECDH。
@@ -28,7 +28,7 @@ VCore 不能读取该私钥，也不能为两个用途生成不同密钥。
 
 ClientHello 的 legacy session ID 固定为 32 字节。生成密文前先把该字段清零，再编码完整 TLS Handshake `ClientHello`，将其作为 AES-GCM 的 AAD。
 
-`signature_algorithms` 必须公布当前加密提供方完整支持的 ECDSA、RSA 和 Ed25519 算法。REALITY 使用 Ed25519 临时证书不意味着 ClientHello 只能声明 Ed25519；完整列表用于让采用 ECDSA/RSA 证书的伪装站点正常进入握手，不会放宽后续 REALITY 身份校验。
+`signature_algorithms` 保留所选模板的 ECDSA/RSA 列表；REALITY 不把 Ed25519 强行加入 Chrome120 的线上列表。原生实现仅在临时证书先通过 REALITY HMAC 认证后，允许它的 Ed25519 CertificateVerify，并仍验证签名。该局部例外不放宽普通 TLS 的签名算法检查。
 
 session ID 明文前 16 字节为：
 
@@ -72,13 +72,13 @@ session_id  = AES-256-GCM-Seal(auth_key, nonce,
 
 ## 状态与资源
 
-共享 `Arc<ClientConfig>` 只保存不可变的服务端公钥、short ID 和客户端版本。临时私钥、ECDH 结果、`auth_key` 和已认证公钥只存在于单个连接中，不使用全局表、跨连接锁或共享认证槽位。
+共享连接器只保存不可变的服务端公钥、short ID、客户端版本和模板策略。临时私钥、ECDH 结果、`auth_key` 和已认证公钥只存在于单个连接中，不使用全局表、跨连接锁或共享认证槽位。
 
 连接取消、失败或释放时清零临时私钥、共享密钥和 `auth_key`。证书解析深度和输入大小固定，不依据对端长度创建无界容器。fork 不创建线程、异步任务、连接池或队列。
 
 ## 固定向量
 
-rustls fork 的测试固定：
+boring fork 的测试固定：
 
 - RFC 7748 X25519 私钥、公钥和共享密钥；
 - 清零 session ID 的 ClientHello AAD、HKDF 结果和 32 字节 REALITY session ID；
@@ -86,4 +86,4 @@ rustls fork 的测试固定：
 - 截断或非规范 DER、错误 HMAC、错误签名、缺失状态、低阶公钥和 HRR 负例；
 - 多配置并发和连接状态隔离。
 
-VCore 的互操作测试还覆盖 XHTTP 模式、取消重连、错误 key/short ID 和普通 TLS 回归。实际执行范围见 [验收矩阵](acceptance.md)，依赖发布要求见 [rustls REALITY 依赖](rustls-reality-release.md)。
+VCore 的互操作测试还覆盖 XHTTP 模式、取消重连、错误 key/short ID 和普通 TLS 回归。实际执行范围见 [验收矩阵](acceptance.md)，依赖发布要求见 [TLS 依赖](tls-dependencies.md)。

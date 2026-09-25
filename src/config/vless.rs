@@ -180,6 +180,12 @@ pub(super) struct RawVless {
     #[serde(default, deserialize_with = "deserialize_present_option")]
     fingerprint: Option<String>,
     #[serde(
+        rename = "client-fingerprint",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    client_fingerprint: Option<String>,
+    #[serde(
         rename = "name-cert-verify",
         default,
         deserialize_with = "deserialize_present_option"
@@ -319,6 +325,7 @@ impl RawVless {
             && (self.servername.is_some()
                 || (network != "xhttp" && self.alpn.is_some())
                 || self.reality_opts.is_some()
+                || self.client_fingerprint.is_some()
                 || standard_options)
         {
             return invalid("VLESS TLS options require tls=true");
@@ -336,6 +343,13 @@ impl RawVless {
         } else {
             stream.required_alpn()
         };
+        let client_fingerprint = parse_client_fingerprint(self.client_fingerprint.as_deref())?;
+        if network == "xhttp"
+            && xhttp_version == super::XHttpVersion::Http3
+            && client_fingerprint.is_some()
+        {
+            return invalid("client-fingerprint is not supported on HTTP/3");
+        }
         let alpn: Vec<Vec<u8>> = if network == "xhttp" {
             vec![xhttp_version.alpn().to_vec()]
         } else {
@@ -370,9 +384,11 @@ impl RawVless {
             Some(raw) => {
                 let mut config = raw.normalize(server_name)?;
                 config.alpn = alpn;
+                config.client_fingerprint = client_fingerprint;
                 SecurityConfig::Reality(config)
             }
             None if self.tls => SecurityConfig::Tls(TlsConfig {
+                client_fingerprint,
                 server_name,
                 alpn,
                 tls13_only: network == "xhttp" || vision,

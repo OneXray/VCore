@@ -61,24 +61,35 @@ def close_reference(mode, node, config, certificate, private_key, pin):
     return reference, scope
 
 
-def run(output: Path, selected=None, *, preflight_only=False):
-    selected = list(ALL_CASES) if selected is None else selected
+def run(output: Path, selected=None, *, preflight_only=False, client_fingerprint=None):
+    if client_fingerprint not in {None, "chrome120"}:
+        raise ValueError("unsupported named client profile")
+    public_cases = PUBLIC_CASES | (
+        {"F5-ANYTLS": ("M", "anytls", True, "public_legacy_regression")}
+        if client_fingerprint
+        else {}
+    )
+    all_cases = CASES | public_cases
+    selected = list(all_cases) if selected is None else selected
     if (
         not selected
         or len(set(selected)) != len(selected)
-        or not set(selected) <= ALL_CASES.keys()
+        or not set(selected) <= all_cases.keys()
     ):
         raise ValueError("invalid N4 native selection")
+    if client_fingerprint and any(not all_cases[case][2] for case in selected):
+        raise ValueError("named client profiles require TLS cases")
     output.mkdir(parents=True, exist_ok=False)
     if preflight_only:
         # One listener/origin group per official implementation, not a traffic run.
-        kinds = {ALL_CASES[case][0] for case in selected}
+        kinds = {all_cases[case][0] for case in selected}
         selected = [
-            next(case for case in selected if ALL_CASES[case][0] == kind)
+            next(case for case in selected if all_cases[case][0] == kind)
             for kind in sorted(kinds)
         ]
     report = dict(
-        stage="N4",
+        stage="F5" if client_fingerprint else "N4",
+        client_fingerprint=client_fingerprint,
         scope="container-wire-and-public-consumer",
         source=source_identity(),
         status="NOT RUN",
@@ -89,7 +100,7 @@ def run(output: Path, selected=None, *, preflight_only=False):
     )
     try:
         artifacts = {}
-        for kind in sorted({ALL_CASES[case][0] for case in selected} | {"M"}):
+        for kind in sorted({all_cases[case][0] for case in selected} | {"M"}):
             directory = output / "binaries" / kind
             if kind == "M":
                 identity = {}
@@ -125,7 +136,7 @@ def run(output: Path, selected=None, *, preflight_only=False):
         # controls/ports and sessions. One downloaded release snapshot per run.
         groups = {}
         for case in selected:
-            kind, mode, encrypted, test = ALL_CASES[case]
+            kind, mode, encrypted, test = all_cases[case]
             groups.setdefault((kind, mode, encrypted), []).append((case, test))
         for (kind, mode, encrypted), cases in groups.items():
             report["phase"] = "peer-start"
@@ -212,7 +223,35 @@ def run(output: Path, selected=None, *, preflight_only=False):
                         else certificates(server_dir)
                     )
                     identities = {}
-                    if mode.startswith(("vmess-", "trojan-")):
+                    if mode == "anytls":
+                        node = dict(
+                            name="peer",
+                            type="anytls",
+                            server=server.ipv4,
+                            port=23000,
+                            password="fixture",
+                            sni="localhost",
+                            udp=True,
+                            fingerprint=pin,
+                        )
+                        config = {
+                            "listeners": [
+                                {
+                                    "name": "anytls",
+                                    "type": "anytls",
+                                    "listen": "::",
+                                    "port": 23000,
+                                    "users": {"fixture": "fixture"},
+                                    "certificate": f"/data/fixture/{cert.name}",
+                                    "private-key": f"/data/fixture/{key.name}",
+                                }
+                            ],
+                            "ipv6": True,
+                            "log-level": "silent",
+                            "hosts": {"vcore-fixture.test": origin.ipv4},
+                            "rules": ["MATCH,DIRECT"],
+                        }
+                    elif mode.startswith(("vmess-", "trojan-")):
                         legacy_mode = mode.removeprefix("vmess-")
                         node = legacy_node(legacy_mode, True, server.ipv4, pin)
                         config = legacy_peer(
@@ -245,6 +284,8 @@ def run(output: Path, selected=None, *, preflight_only=False):
                                     "client-auth-cert": "/data/fixture/root.pem",
                                 }
                             )
+                    if client_fingerprint:
+                        node["client-fingerprint"] = client_fingerprint
                     reference_node = None
                     reference_scope = None
                     if any(test in CLOSE_TESTS for _, test in cases):
@@ -256,10 +297,13 @@ def run(output: Path, selected=None, *, preflight_only=False):
                             Path("/data/fixture") / key.name,
                             pin,
                         )
+                        if client_fingerprint:
+                            # Close behavior reference, not a wire-profile match.
+                            reference_node["client-fingerprint"] = "chrome"
                     (server_dir / "config.json").write_text(json.dumps(config))
                     upstream = None
                     hop = None
-                    if any(case in PUBLIC_CASES for case, _ in cases):
+                    if any(case in public_cases for case, _ in cases):
                         upstream_dir = root / "upstream"
                         upstream_dir.mkdir()
                         shutil.copy2(artifacts["M"].binary, upstream_dir / "peer")
@@ -408,7 +452,7 @@ def run(output: Path, selected=None, *, preflight_only=False):
                             "--locked",
                             "--all-features",
                             "--test",
-                            "vless_public" if case in PUBLIC_CASES else "vless_native",
+                            "vless_public" if case in public_cases else "vless_native",
                             test,
                             "--",
                             "--ignored",
@@ -451,7 +495,7 @@ def run(output: Path, selected=None, *, preflight_only=False):
                             and result.cleanup
                             and (
                                 events_pass(observed, test, mode)
-                                if case in PUBLIC_CASES
+                                if case in public_cases
                                 else observed
                                 == [
                                     dict(

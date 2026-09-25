@@ -397,10 +397,34 @@ pub struct AnyTlsOutboundConfig {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AnyTlsCertificatePolicy {
+    pub client_fingerprint: Option<ClientFingerprint>,
     pub alpn: Vec<Vec<u8>>,
     pub skip_cert_verify: bool,
     pub fingerprint: Option<[u8; 32]>,
 }
+
+/// A version-pinned ClientHello profile, independent of certificate pins.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClientFingerprint {
+    Chrome120,
+}
+
+fn parse_client_fingerprint(value: Option<&str>) -> Result<Option<ClientFingerprint>> {
+    match value {
+        None | Some("") => Ok(None),
+        Some("chrome120") => Ok(Some(ClientFingerprint::Chrome120)),
+        Some(_) => invalid("unsupported client-fingerprint; expected chrome120 or an empty string"),
+    }
+}
+
+#[cfg(all(
+    test,
+    feature = "outbound-anytls",
+    feature = "outbound-trojan",
+    feature = "outbound-vmess",
+    feature = "outbound-vless"
+))]
+mod fingerprint_tests;
 
 impl std::fmt::Debug for AnyTlsOutboundConfig {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -426,6 +450,13 @@ pub enum SecurityConfig {
 }
 
 impl SecurityConfig {
+    fn client_fingerprint(&self) -> Option<ClientFingerprint> {
+        match self {
+            Self::None => None,
+            Self::Tls(config) => config.client_fingerprint,
+            Self::Reality(config) => config.client_fingerprint,
+        }
+    }
     #[must_use]
     pub fn server_name(&self) -> &str {
         match self {
@@ -438,6 +469,7 @@ impl SecurityConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TlsConfig {
+    pub client_fingerprint: Option<ClientFingerprint>,
     pub server_name: String,
     pub alpn: Vec<Vec<u8>>,
     pub tls13_only: bool,
@@ -480,6 +512,7 @@ impl std::fmt::Debug for TlsIdentityPem {
 impl TlsConfig {
     pub fn xhttp(server_name: String) -> Self {
         Self {
+            client_fingerprint: None,
             server_name,
             alpn: vec![b"h2".to_vec()],
             tls13_only: true,
@@ -492,6 +525,7 @@ impl TlsConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RealityConfig {
+    pub client_fingerprint: Option<ClientFingerprint>,
     pub server_name: String,
     pub public_key: [u8; 32],
     pub short_id: Vec<u8>,
@@ -839,6 +873,12 @@ enum RawOutbound {
         #[serde(default, deserialize_with = "deserialize_present_option")]
         fingerprint: Option<String>,
         #[serde(
+            rename = "client-fingerprint",
+            default,
+            deserialize_with = "deserialize_present_option"
+        )]
+        client_fingerprint: Option<String>,
+        #[serde(
             rename = "dialer-proxy",
             default,
             deserialize_with = "deserialize_present_option"
@@ -1013,6 +1053,12 @@ impl Default for RawXHttpSettings {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawXHttpDownloadSettings {
+    #[serde(
+        rename = "client-fingerprint",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    client_fingerprint: Option<String>,
     #[serde(
         rename = "reuse-settings",
         default,
@@ -1868,12 +1914,10 @@ impl RawOutbound {
                 alpn,
                 skip_cert_verify,
                 fingerprint,
+                client_fingerprint,
                 dialer_proxy,
-            } => (
-                name,
-                dialer_proxy,
-                udp,
-                ProxyProtocol::AnyTls(normalize_anytls(
+            } => {
+                let mut config = normalize_anytls(
                     server,
                     port,
                     password,
@@ -1881,8 +1925,11 @@ impl RawOutbound {
                     alpn,
                     skip_cert_verify,
                     fingerprint,
-                )?),
-            ),
+                )?;
+                config.tls.client_fingerprint =
+                    parse_client_fingerprint(client_fingerprint.as_deref())?;
+                (name, dialer_proxy, udp, ProxyProtocol::AnyTls(config))
+            }
         };
         validate_route_target_definition_name(&tag, "proxy name")?;
         if let Some(dialer_proxy) = &dialer_proxy {
@@ -1921,6 +1968,7 @@ impl RawRealitySettings {
         }
 
         Ok(RealityConfig {
+            client_fingerprint: None,
             server_name,
             public_key,
             short_id,
@@ -2017,6 +2065,7 @@ fn normalize_anytls(
         password,
         server_name,
         tls: AnyTlsCertificatePolicy {
+            client_fingerprint: None,
             alpn,
             skip_cert_verify,
             fingerprint,
@@ -2151,6 +2200,7 @@ impl RawXHttpDownloadSettings {
             skip_cert_verify,
             name_cert_verify,
             fingerprint,
+            client_fingerprint,
             certificate,
             private_key,
             reality_opts,
@@ -2170,6 +2220,15 @@ impl RawXHttpDownloadSettings {
             .transpose()?
             .unwrap_or(default_http_version);
         let tls = tls.unwrap_or(!matches!(default_security, SecurityConfig::None));
+        let client_fingerprint = match client_fingerprint {
+            Some(value) => parse_client_fingerprint(Some(&value))?,
+            None => default_security.client_fingerprint(),
+        };
+        if client_fingerprint.is_some() && (!tls || http_version == XHttpVersion::Http3) {
+            return invalid(
+                "XHTTP download client-fingerprint requires TCP TLS; clear the inherited profile before selecting plaintext or HTTP/3",
+            );
+        }
         let reuse = match reuse_settings {
             Some(raw) => Some(std::sync::Arc::new(raw.normalize(http_version)?)),
             None => default_reuse.clone(),
@@ -2234,6 +2293,7 @@ impl RawXHttpDownloadSettings {
             _ => TlsConfig::xhttp(server_name.clone()),
         };
         config.server_name = server_name;
+        config.client_fingerprint = client_fingerprint;
         config.alpn = vec![http_version.alpn().to_vec()];
         config.required_alpn = Some(http_version.alpn().to_vec());
         if let Some(skip) = skip_cert_verify {
@@ -2288,6 +2348,7 @@ impl RawXHttpDownloadSettings {
                 return invalid("XHTTP download REALITY requires TLS");
             }
             reality.alpn = vec![http_version.alpn().to_vec()];
+            reality.client_fingerprint = client_fingerprint;
             SecurityConfig::Reality(reality)
         } else if tls {
             SecurityConfig::Tls(config)
@@ -3791,7 +3852,6 @@ geo-update-interval: 24"#,
             "restls-opts: {}",
             "jls-opts: {}",
             "ech-opts: {}",
-            "client-fingerprint: chrome",
             "mode: stream-up",
             "typo: true",
         ] {
@@ -3847,10 +3907,6 @@ geo-update-interval: 24"#,
             CURRENT_TLS.replace("    server: ", "    vnext: []\n    server: "),
             CURRENT_TLS.replace("    network: xhttp", "    typo: true\n    network: xhttp"),
             CURRENT_TLS.replace("      path: /x", "      typo: true\n      path: /x"),
-            CURRENT_TLS.replace(
-                "    servername: example.com",
-                "    client-fingerprint: chrome\n    servername: example.com",
-            ),
             reality_yaml().replace(
                 "      public-key:",
                 "      support-x25519mlkem768: true\n      public-key:",
@@ -4312,7 +4368,6 @@ authentication:
     fn rejects_anytls_fields_outside_the_locked_subset() {
         for field in [
             "tls: true",
-            "client-fingerprint: chrome",
             "ech-opts: {}",
             "certificate: client.crt",
             "private-key: client.key",

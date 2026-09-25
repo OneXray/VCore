@@ -27,7 +27,7 @@
 
 官方 Git revision 固定为 `ab388c7466d21f979430e33cc9ef10e22fb05955`，关闭默认 features，仅启用 `aead-cipher-2022`；registry `shadowsocks-crypto` 为 `0.8.0`。没有协议源码补丁或研究目录 path 依赖。
 
-仅允许 `shadowsocks → shadowsocks-crypto → aws-lc-rs → aws-lc-sys` 链使用 AWS-LC，来源、features 与反向依赖边由 `check tls-dependencies` 校验。TLS / REALITY 保持既有 rustls + ring；额外 AWS-LC 消费者、FIPS 和 2022-extra features 被拒绝。
+仅允许 `shadowsocks → shadowsocks-crypto → aws-lc-rs → aws-lc-sys` 链使用 AWS-LC，来源、features 与反向依赖边由 `check tls-dependencies` 校验。该例外不用于 TLS / REALITY；其 rustls + ring 与 BoringSSL 边界见 [TLS 依赖](tls-dependencies.md)。额外 AWS-LC 消费者、FIPS 和 2022-extra features 被拒绝。
 
 官方库的 `log` 调用可能包含密钥或流量。启用 SS feature 时，通过 `log/max_level_off` 和 `release_max_level_off` 编译关闭该 facade 的全部日志；Cargo feature 合并意味着这也关闭同一依赖图中其他 `log` 调用，并非仅按 SS target 过滤。VCore 自身使用的 `tracing` 不受影响。上游 Debug 类型不通过公开适配器暴露。
 

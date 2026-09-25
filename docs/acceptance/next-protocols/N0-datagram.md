@@ -1,5 +1,7 @@
 # N0：QUIC / WireGuard 公共接口与依赖预验证
 
+> 历史验收：下列版本、命令和结果对应当时的 rustls fork，现已退役且不保证可重建。当前独立实验已改用官方 rustls；实际重跑范围见 [fork 退役验收](../rustls-fork-retirement.md)，不能继承本页的全部通过计数。
+
 日期：2026-09-22。输入基线：`bbe5100abcf07b1158f86cff39cd835e1f32ccf9`，另加本报告列出的自有 test-only spike。宿主为 macOS arm64；`rustc 1.98.1 (48a229cea 2026-09-01)`、`cargo 1.98.1 (797e8a9bc 2026-08-05)`。
 
 **结论仅限 N0-B/D/G 的公共接口子项。** 已真实编译和执行 packet API / QUIC 注入测试；没有实现生产协议，也没有完成 N0-D 或 N0-G 的官方服务端互通。主 `Cargo.toml`、主 `Cargo.lock`、第三方源码、宿主路由/DNS/VPN 均未修改。
@@ -55,7 +57,7 @@ cargo tree --locked --manifest-path tests/protocols/spikes/datagram/Cargo.toml \
 | HTTP/3 | registry `h3 0.0.8`、`h3-quinn 0.0.10`，官方 [hyperium/h3](https://github.com/hyperium/h3) | 不启用额外 h3-datagram/tracing feature | MIT / 1.70 |
 | BoringTun | registry `boringtun 0.7.1`，官方 [cloudflare/boringtun](https://github.com/cloudflare/boringtun) | `default-features=false`，实际 feature 集为空 | BSD-3-Clause / 未声明 |
 | GotaTun | registry `gotatun 0.9.2`，官方 [mullvad/gotatun](https://github.com/mullvad/gotatun) | `default-features=false,features=["ring"]` | MPL-2.0 / 1.95 |
-| rustls | 0.23.43，[VCore 既有公开 fork](https://github.com/OneVCore/rustls/tree/df261c84cbac4f708e63ac8644ce70daa90d771c) | 仅 `ring,std,tls12`；spike pin 当前 revision，主仓库 branch/lock 不变 | Apache-2.0 OR ISC OR MIT / 1.71 |
+| rustls | 0.23.43，VCore 既有公开 fork（已退役 fork，历史记录） | 仅 `ring,std,tls12`；spike pin 当前 revision，主仓库 branch/lock 不变 | Apache-2.0 OR ISC OR MIT / 1.71 |
 | ring | registry 0.17.14 | TLS 和 WG 可共用；未新增 TLS provider | Apache-2.0 AND ISC / 1.66.0 |
 
 以上来自本次 `cargo info` / `cargo metadata` 实际产物，不将研究 HEAD 当成已发布 crate。两个 WG 候选都没有打开 `device`、`socket`、`tun`、FFI 或 JNI feature。BoringTun 的 ring 与 RustCrypto 密码实现不依赖 TLS；GotaTun 默认 AWS-LC 必须显式禁用。本 spike 同时容纳两个候选只为比较，**生产不得因此同时引入两套 WG 实现**。

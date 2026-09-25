@@ -1,6 +1,10 @@
-//! Record-bounded TLS IO for Vision, using only public rustls interfaces.
+//! Record-bounded TLS IO for Vision, using only public TLS interfaces.
 //! Never feed a second TLS record to the deframer in one read, and never
 //! concatenate plaintext chunks before the framing layer sees its direct marker.
+
+#[path = "vision_boring.rs"]
+mod boring;
+pub(super) use boring::BoringSplice;
 
 #[cfg(test)]
 mod tests {
@@ -13,7 +17,7 @@ mod tests {
     use std::time::Duration;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio_rustls::TlsAcceptor;
-    fn pair() -> (StandardTlsClient, TlsAcceptor) {
+    fn pair(profile: Option<crate::config::ClientFingerprint>) -> (StandardTlsClient, TlsAcceptor) {
         let identity = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
         let provider = Arc::new(rustls::crypto::ring::default_provider());
         let mut roots = RootCertStore::empty();
@@ -26,6 +30,7 @@ mod tests {
             &context,
             "localhost",
             TlsClientOptions {
+                client_fingerprint: profile,
                 versions: TlsVersions::Tls13,
                 ..Default::default()
             },
@@ -86,61 +91,63 @@ mod tests {
             "N4-UNIT",
             "record_boundary_preserves_buffered_plaintext_and_coalesced_raw_tail_and_flush_order",
         );
-        for limit in [1, 3, 65536] {
-            tokio::time::timeout(Duration::from_secs(3), async {
-                let (client, acceptor) = pair();
-                let (io, peer) = tokio::io::duplex(65536);
-                let server = tokio::spawn(async move {
-                    let mut tls = acceptor
-                        .accept(RecordIo::new(Box::new(peer)))
+        for &profile in crate::security::test_profiles() {
+            for limit in [1, 3, 65536] {
+                tokio::time::timeout(Duration::from_secs(3), async {
+                    let (client, acceptor) = pair(profile);
+                    let (io, peer) = tokio::io::duplex(65536);
+                    let server = tokio::spawn(async move {
+                        let mut tls = acceptor
+                            .accept(RecordIo::new(Box::new(peer)))
+                            .await
+                            .unwrap();
+                        tls.write_all(b"marker-buffered").await.unwrap();
+                        tls.flush().await.unwrap();
+                        // Raw tail is immediately coalesced after the encrypted
+                        // marker; a greedy TLS read loses or tries to decrypt it.
+                        tls.get_mut()
+                            .0
+                            .raw
+                            .write_all(b"raw-after-record")
+                            .await
+                            .unwrap();
+                        let mut marker = [0; 16];
+                        tls.read_exact(&mut marker).await.unwrap();
+                        assert_eq!(&marker, b"encrypted-marker");
+                        let mut raw = tls.into_inner().0.raw;
+                        let mut written = [0; 9];
+                        raw.read_exact(&mut written).await.unwrap();
+                        assert_eq!(&written, b"raw-write");
+                    });
+                    let stats = Arc::new(SpliceStats::default());
+                    let (mut tls, control) = client
+                        .connect_vision(
+                            Box::new(FragmentIo {
+                                raw: Box::new(io),
+                                limit,
+                            }),
+                            stats.clone(),
+                        )
                         .await
                         .unwrap();
-                    tls.write_all(b"marker-buffered").await.unwrap();
-                    tls.flush().await.unwrap();
-                    // Raw tail is immediately coalesced after the encrypted
-                    // marker; a greedy TLS read loses or tries to decrypt it.
-                    tls.get_mut()
-                        .0
-                        .raw
-                        .write_all(b"raw-after-record")
-                        .await
-                        .unwrap();
-                    let mut marker = [0; 16];
+                    let mut marker = [0; 7];
                     tls.read_exact(&mut marker).await.unwrap();
-                    assert_eq!(&marker, b"encrypted-marker");
-                    let mut raw = tls.into_inner().0.raw;
-                    let mut written = [0; 9];
-                    raw.read_exact(&mut written).await.unwrap();
-                    assert_eq!(&written, b"raw-write");
-                });
-                let stats = Arc::new(SpliceStats::default());
-                let (mut tls, control) = client
-                    .connect_vision(
-                        Box::new(FragmentIo {
-                            raw: Box::new(io),
-                            limit,
-                        }),
-                        stats.clone(),
-                    )
-                    .await
-                    .unwrap();
-                let mut marker = [0; 7];
-                tls.read_exact(&mut marker).await.unwrap();
-                assert_eq!(&marker, b"marker-");
-                control.read_direct();
-                let mut tail = [0; 24];
-                tls.read_exact(&mut tail).await.unwrap();
-                assert_eq!(&tail, b"bufferedraw-after-record");
-                tls.write_all(b"encrypted-marker").await.unwrap();
-                // No explicit flush; switching must flush the outer record.
-                control.write_direct();
-                tls.write_all(b"raw-write").await.unwrap();
-                tls.flush().await.unwrap();
-                server.await.unwrap();
-                assert_eq!(stats.bytes(), (16, 9));
-            })
-            .await
-            .unwrap();
+                    assert_eq!(&marker, b"marker-");
+                    control.read_direct();
+                    let mut tail = [0; 24];
+                    tls.read_exact(&mut tail).await.unwrap();
+                    assert_eq!(&tail, b"bufferedraw-after-record");
+                    tls.write_all(b"encrypted-marker").await.unwrap();
+                    // No explicit flush; switching must flush the outer record.
+                    control.write_direct();
+                    tls.write_all(b"raw-write").await.unwrap();
+                    tls.flush().await.unwrap();
+                    server.await.unwrap();
+                    assert_eq!(stats.bytes(), (16, 9));
+                })
+                .await
+                .unwrap();
+            }
         }
     }
 }

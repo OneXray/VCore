@@ -1,6 +1,6 @@
 # N0 security interface spike
 
-This independent test-only workspace probes the locked rustls/tokio-rustls
+This independent test-only workspace probes the locked official rustls/tokio-rustls
 interfaces without changing VCore's production dependency graph or third-party
 source. It does not implement Vision or any new production outbound.
 
@@ -11,15 +11,15 @@ cargo test --locked --manifest-path tests/protocols/spikes/security/Cargo.toml -
 cargo fmt --manifest-path tests/protocols/spikes/security/Cargo.toml -- --check
 ```
 
-The tests prove local API and record-buffer behavior, default REALITY's classic
-X25519 selection, and an external Rust HPKE adapter producing an ECH offer.
+The tests prove local API and record-buffer behavior and an external Rust HPKE
+adapter producing an ECH offer.
 They do not prove a native peer accepted ECH, Vision direct-mode interoperability,
-or production socket/lifecycle integration. The hybrid group is intentionally a
-sentinel, not a cryptographic implementation; its presence tests selection only.
-The fork also exposes explicit hybrid selection; these default-config tests do
-not exercise that opt-in API or claim hybrid is unavailable in the fork. The
-[N1 TLS update](../../../../docs/acceptance/next-protocols/N1-tls.md) records the
-new dependency validation without replacing the historical N0 result.
+or production socket/lifecycle integration. The two rustls-fork-only REALITY
+selection tests were retired when production REALITY moved to boring; their
+implementation remains in Git history and the historical N0/N1 reports are
+unchanged. Current REALITY coverage belongs to the boring fork and VCore's shared
+security/container tests, not this official-rustls experiment. See the current
+[TLS dependency contract](../../../../docs/tls-dependencies.md).
 
 The optional `missing-session-hook` feature is an intentional **compile-fail**
 probe. Do not include it in a successful-build feature set:

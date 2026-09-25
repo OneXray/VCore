@@ -25,7 +25,7 @@ from vcore_scripts.protocol_vless_acceptance import (
     native_results,
     required_command_names,
 )
-from vcore_scripts.protocol_vless_container import close_reference
+from vcore_scripts.protocol_vless_container import close_reference, run
 from vcore_scripts.protocol_vless_peers import configuration
 from vcore_scripts.protocol_vless_public import events_pass
 
@@ -38,6 +38,17 @@ def pair(suite, name):
 
 
 class VlessEvidenceTest(unittest.TestCase):
+    def test_fingerprint_runner_rejects_unknown_profile_or_plaintext_before_io(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "must-not-exist"
+            for profile, cases in [
+                ("chrome", ["N4-TCP-TLS-BASE"]),
+                ("chrome120", ["N4-TCP-BASE"]),
+            ]:
+                with self.assertRaises(ValueError):
+                    run(output, cases, client_fingerprint=profile)
+                self.assertFalse(output.exists())
+
     def test_every_planned_n4_transport_security_class_has_a_native_consumer(self):
         catalog = json.loads(
             (CORE_DIR / "tests/protocols/combinations.json").read_text()

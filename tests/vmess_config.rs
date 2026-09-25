@@ -257,6 +257,10 @@ async fn vmess_normalized_websocket_fields_preserve_headers_and_early_data_order
         let expected = prefix.clone();
         let reader = tokio::spawn(async move {
             let mut early = Vec::new();
+            #[allow(
+                clippy::result_large_err,
+                reason = "Tungstenite's header callback requires an unboxed HTTP error response"
+            )]
             let mut ws = tokio_tungstenite::accept_hdr_async(
                 peer,
                 |request: &http::Request<()>, response: http::Response<()>| {

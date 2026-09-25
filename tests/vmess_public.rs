@@ -294,7 +294,7 @@ impl Association {
         );
         let literal = address(self.origin.target, false);
         let named = address(self.origin.target, self.domain);
-        assert!(&bytes[3..offset + 2] == literal || &bytes[3..offset + 2] == named);
+        assert!(bytes[3..offset + 2] == literal || bytes[3..offset + 2] == named);
         assert_eq!(&bytes[offset + 2..size], payload);
     }
 }

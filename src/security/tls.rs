@@ -31,6 +31,7 @@ pub enum TlsVersions {
 /// always creates an independent resumption store, even for the same SNI.
 #[derive(Default)]
 pub struct TlsClientOptions {
+    pub client_fingerprint: Option<crate::config::ClientFingerprint>,
     pub versions: TlsVersions,
     pub alpn: Vec<Vec<u8>>,
     pub required_alpn: Option<Vec<u8>>,
@@ -41,6 +42,7 @@ pub struct TlsClientOptions {
 impl std::fmt::Debug for TlsClientOptions {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TlsClientOptions")
+            .field("client_fingerprint", &self.client_fingerprint)
             .field("versions", &self.versions)
             .field("alpn_count", &self.alpn.len())
             .field("requires_alpn", &self.required_alpn.is_some())
@@ -54,8 +56,8 @@ impl std::fmt::Debug for TlsClientOptions {
 /// key pair while constructing the client, before any supplied stream is used.
 /// No file loading, environment key logging or dynamic identity reload occurs.
 pub struct TlsClientIdentity {
-    certificates: Vec<CertificateDer<'static>>,
-    key: PrivateKeyDer<'static>,
+    pub(super) certificates: Vec<CertificateDer<'static>>,
+    pub(super) key: PrivateKeyDer<'static>,
 }
 
 impl TlsClientIdentity {
@@ -106,14 +108,21 @@ pub(crate) enum StandardTlsProfile {
 
 /// Reusable standard TLS client shared by protocol-specific outbound code.
 ///
-/// REALITY remains in [`super::SecurityClient`] because it uses the local
-/// rustls fork's distinct verifier and session policy.
+/// REALITY remains in [`super::SecurityClient`] with a distinct authentication
+/// and session policy. Ordinary unprofiled TLS and QUIC continue to use rustls.
 #[derive(Clone)]
 pub struct StandardTlsClient {
-    connector: TlsConnector,
+    connector: StandardConnector,
     server_name: String,
     required_alpn: Option<Vec<u8>>,
     buffer_limit: usize,
+}
+
+#[derive(Clone)]
+enum StandardConnector {
+    Rustls(TlsConnector),
+    #[cfg(feature = "tls-fingerprint")]
+    Boring(super::boring::BoringTlsClient),
 }
 
 impl std::fmt::Debug for StandardTlsClient {
@@ -135,7 +144,16 @@ impl StandardTlsClient {
                 "QUIC requires an HTTP/3 TLS policy",
             ));
         }
-        Ok((self.connector.config().clone(), self.server_name.clone()))
+        match &self.connector {
+            StandardConnector::Rustls(connector) => {
+                Ok((connector.config().clone(), self.server_name.clone()))
+            }
+            #[cfg(feature = "tls-fingerprint")]
+            StandardConnector::Boring(_) => Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "client-fingerprint is not supported on QUIC",
+            )),
+        }
     }
 
     #[cfg(test)]
@@ -176,6 +194,7 @@ impl StandardTlsClient {
             server_name,
             TlsClientOptions {
                 alpn: policy.alpn.clone(),
+                client_fingerprint: policy.client_fingerprint,
                 certificate: TlsCertificatePolicy {
                     verification_name: None,
                     skip_cert_verify: policy.skip_cert_verify,
@@ -232,6 +251,29 @@ impl StandardTlsClient {
             ));
         }
 
+        if options.client_fingerprint.is_some() {
+            #[cfg(not(feature = "tls-fingerprint"))]
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "client-fingerprint is not compiled in",
+            ));
+            #[cfg(feature = "tls-fingerprint")]
+            {
+                let client = super::boring::BoringTlsClient::standard(
+                    context,
+                    &server_name,
+                    &options,
+                    resumption_sessions,
+                )?;
+                return Ok(Self {
+                    connector: StandardConnector::Boring(client),
+                    server_name,
+                    required_alpn: options.required_alpn,
+                    buffer_limit,
+                });
+            }
+        }
+
         let protocol_versions: &[&'static rustls::SupportedProtocolVersion] = match options.versions
         {
             TlsVersions::Tls13 => &[&TLS13],
@@ -277,7 +319,7 @@ impl StandardTlsClient {
         ));
 
         Ok(Self {
-            connector: TlsConnector::from(Arc::new(config)),
+            connector: StandardConnector::Rustls(TlsConnector::from(Arc::new(config))),
             server_name,
             required_alpn: options.required_alpn,
             buffer_limit,
@@ -285,10 +327,16 @@ impl StandardTlsClient {
     }
 
     pub async fn connect(&self, stream: BoxStream) -> io::Result<BoxStream> {
+        let connector = match &self.connector {
+            StandardConnector::Rustls(connector) => connector,
+            #[cfg(feature = "tls-fingerprint")]
+            StandardConnector::Boring(client) => {
+                return client.connect(stream, self.buffer_limit).await;
+            }
+        };
         let server_name = ServerName::try_from(self.server_name.clone())
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
-        let tls = self
-            .connector
+        let tls = connector
             .connect_with(server_name, stream, |connection| {
                 connection.set_buffer_limit(Some(self.buffer_limit));
             })
@@ -313,10 +361,17 @@ impl StandardTlsClient {
         stream: BoxStream,
         stats: Arc<super::vision::SpliceStats>,
     ) -> io::Result<(BoxStream, super::vision::SpliceControl)> {
+        let connector = match &self.connector {
+            StandardConnector::Rustls(connector) => connector,
+            StandardConnector::Boring(client) => {
+                return client
+                    .connect_vision(stream, stats, self.buffer_limit)
+                    .await;
+            }
+        };
         let name = ServerName::try_from(self.server_name.clone())
             .map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?;
-        let tls = self
-            .connector
+        let tls = connector
             .connect_with(name, super::vision::RecordIo::new(stream), |connection| {
                 connection.set_buffer_limit(Some(self.buffer_limit))
             })

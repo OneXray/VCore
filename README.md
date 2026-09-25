@@ -4,7 +4,7 @@
   English · <a href="./readme/README.zh_CN.md">简体中文</a> · <a href="./readme/README.ru.md">Русский</a>
 </p>
 
-VCore is a standalone, host-agnostic Rust client proxy core. It provides proxy graphs, static `select` proxy groups, DNS, routing rules, GeoData, HTTP/SOCKS5 listeners, a TUN data plane, and a loopback Controller through strict YAML configuration and Invoke API v5. The internal configuration schema revision is 17; the revision appears only in the `version` response and `buildIdentity`, not in YAML.
+VCore is a standalone, host-agnostic Rust client proxy core. It provides proxy graphs, static `select` proxy groups, DNS, routing rules, GeoData, HTTP/SOCKS5 listeners, a TUN data plane, and a loopback Controller through strict YAML configuration and Invoke API v5. The internal configuration schema revision is 19; the revision appears only in the `version` response and `buildIdentity`, not in YAML.
 
 ## Features
 
@@ -17,6 +17,7 @@ VCore is a standalone, host-agnostic Rust client proxy core. It provides proxy g
 - Listeners: HTTP CONNECT/forward with per-request authentication/routing, streaming bodies, Keep-Alive and Upgrade; SOCKS5 CONNECT and TCP-authorized UDP ASSOCIATE. Local access is unauthenticated by default; opt-in LAN sharing requires one shared username/password.
 - GeoData: VCore manages `geosite.dat` and `geoip.dat` under `dataDir/geodata`, loads them on demand, and can update them through a proxy chain.
 - Delay measurement: `measureDelay` accepts 1–5 node-only configurations per call, uses up to five private workers, and preserves input order in its results.
+- TLS: independent certificate pins and an opt-in `chrome120` ClientHello profile over TCP TLS/REALITY; see [scope and limitations](docs/tls-client-fingerprint.md).
 
 ## Configuration
 
@@ -93,7 +94,7 @@ packet queue                     256
 ordinary event / UDP response    128
 DNS ingress / DNS response       128 / 128
 TCP buffer                       32 KiB per direction
-TLS / XHTTP buffer               64 KiB
+rustls / XHTTP buffer            64 KiB
 DNS typed cache                  256 entries
 DNS opaque cache                 64 entries / 256 KiB
 GeoData allocation capacity      8 MiB
@@ -116,7 +117,8 @@ TCP sessions, ordinary UDP associations, half-open connections, outbound handsha
 - [VLESS and Vision outbound](docs/vless.md)
 - [Shadowsocks 2022 outbound and limitations](docs/shadowsocks.md)
 - [REALITY V1 client protocol](docs/reality-wire-protocol.md)
-- [rustls REALITY dependency and release requirements](docs/rustls-reality-release.md)
+- [TLS profiles and certificate policy](docs/tls-client-fingerprint.md)
+- [TLS dependency and release requirements](docs/tls-dependencies.md)
 - [Runtime Controller](docs/controller-api.md)
 - [TUN ICMP and DNS](docs/tun-icmp-dns.md)
 - [GeoData rules and assets](docs/geodata.md)
@@ -162,7 +164,8 @@ VCore's dependencies, maintained forks, public API/protocol references, architec
 - [smoltcp](https://github.com/smoltcp-rs/smoltcp), [clash-rs](https://github.com/Watfaq/clash-rs), and [netstack-smoltcp](https://github.com/automesh-network/netstack-smoltcp): userspace IP stacks and TUN netstacks.
 - [windows-rs](https://github.com/microsoft/windows-rs), [UWP VPN Plugin Sample](https://github.com/microsoft/UwpVpnPluginSample), [wireguard-uwp-rs](https://github.com/luqmana/wireguard-uwp-rs), [Maple](https://github.com/YtFlow/Maple), and [YtFlowCore](https://github.com/YtFlow/YtFlowCore): Windows VPN, WinRT activation, and packet flow.
 - [Xray-core](https://github.com/XTLS/Xray-core), [Mihomo](https://github.com/MetaCubeX/mihomo), and [Leaf](https://github.com/eycorsican/leaf): proxy protocols, routing, TUN architecture, and interoperability references.
-- [rustls](https://github.com/rustls/rustls): the TLS dependency and upstream of the maintained VCore REALITY fork.
+- [rustls](https://github.com/rustls/rustls): unprofiled TLS/QUIC and shared WebPKI certificate policy.
+- [boring](https://github.com/cloudflare/boring) and [BoringSSL](https://boringssl.googlesource.com/boringssl/): upstreams of the maintained fork for named ClientHello profiles and classic REALITY.
 - [shadowsocks-rust](https://github.com/shadowsocks/shadowsocks-rust): the unmodified SS 2022 protocol dependency and source of the derived UDP replay window; see the [MIT notices in the source header](src/outbound/shadowsocks/packet_window.rs).
 
 ## License

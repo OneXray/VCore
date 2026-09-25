@@ -14,6 +14,8 @@
 
 ## 自动化覆盖
 
+2026-09-25 [TLS 指纹接线](acceptance/tls-client-fingerprint.md)接入 boring 的 `chrome120` 和经典 REALITY，schema19 / Invoke v5。随后[退役自有 rustls fork](acceptance/rustls-fork-retirement.md)：普通无指纹 TLS、QUIC、WebPKI 改用官方 crates.io rustls；最新替换回归为 132 项容器检查及 Apple/Android 构建通过。旧 fork 将永久删除，以下 N0–N5 记录保留当时的依赖摘要，不保证历史版本重建，也不计为当前后端的新增能力。现行依赖见 [TLS 依赖](tls-dependencies.md)。
+
 下一版协议从独立 N0 基线开始，进度见 [N0 基线与可行性门禁](acceptance/next-protocols/N0.md)。2026-09-22/23 的新基线与接口实验不继承本页历史通过状态，也不代表新五协议或平台交付已经完成。混合 REALITY 的自有 fork 局部实验已通过；fork 依赖已升级，但 VCore 生产仍未启用混合组；[N0-D QUIC 原生入口](acceptance/next-protocols/N0-quic-entries.md)已验证，原生半关闭失败和 N0 其余门禁仍保留。
 
 2026-09-23 追加的 [XHTTP 关闭对齐](acceptance/next-protocols/XHTTP-close.md)修正了既有生产 H2 的三种模式：应用上传 EOF 结束整条逻辑连接，不再保留下行半关闭。独立 H3 实验与官方 Mihomo 客户端完成同一 Xray 对端的行为对照；当时 H3 尚未接入生产，后续接入见 N5。历史 request-EOF/尾包失败不改记为成功，也不再作为 XHTTP 的客户端契约。
@@ -22,7 +24,7 @@
 
 [N1 h2 补丁升级](acceptance/next-protocols/N1-h2.md)将生产和流实验的 h2 更新至官方稳定版0.4.19，修复已复现的 END_STREAM 后 RST 丢失完整响应问题。关闭回归、旧协议扩展互通和流实验重跑通过；这是 N1 前置子包，不代表完整 N1 或全依赖升级完成。
 
-[N1 依赖基线进度](acceptance/next-protocols/N1-dependencies.md)记录最新稳定版审计及依赖来源OneXray/rustls。获准将0.23.45同步结果推送到正式依赖分支后，VCore与四个实验工程已接入新版fork及官方tokio-rustls0.26.5；新版验证见[N1 TLS接入](acceptance/next-protocols/N1-tls.md)，与较早仅修改地址的证据分开记录。ring、classic REALITY、API v5/schema14均不变。
+[N1 依赖基线进度](acceptance/next-protocols/N1-dependencies.md)记录当时的稳定版审计及旧 rustls fork 来源。获准将0.23.45同步结果推送到正式依赖分支后，VCore与四个实验工程曾接入新版fork及官方tokio-rustls0.26.5；当时验证见[N1 TLS接入](acceptance/next-protocols/N1-tls.md)，与较早仅修改地址的证据分开记录。该轮 ring、classic REALITY、API v5/schema14均不变，不描述当前依赖。
 
 [N1 基础与实验依赖更新](acceptance/next-protocols/N1-foundation-dependencies.md)继续升级基础库、smoltcp、WS/HPKE实验和兼容补丁锁，记录已批准的Windows SDK配套例外。全Debug/Release、全目标Clippy、真实对端回归和Apple/Android构建通过；不抵扣完整N1、新协议、真机或Windows原生门禁。
 
@@ -51,7 +53,7 @@
 当前 source/tests 覆盖：
 
 - Invoke API v5、单实例生命周期、Debug/Release 运行时线程重入拒绝、panic 与同步清理；
-- schema revision 18、IPv6、严格 YAML、节点 / `select` 组上游混合 DAG 和 node-only 测速；
+- schema revision 19、IPv6、严格 YAML、节点 / `select` 组上游混合 DAG 和 node-only 测速；
 - 组上游与路由的共享选择、SOCKS5 UDP 建链快照、潜在 DIRECT 首跳准备、独立下载端点和深图回收；
 - HTTP 本机 / 认证共享、双栈监听回滚、逐请求认证与分发、Keep-Alive / 正文定界、CONNECT / Upgrade、10 MiB 双向摘要与活动连接 Stop；
 - SOCKS5 入站认证、三类目标、半关闭、TCP 授权 UDP、源端口学习/隔离、IPv6 作用域固定端口/学习端口匹配与跨接口隔离、过期/满队列/慢上游取消及纯 SOCKS5 Controller（作用域匹配为合成地址测试，不代表物理 LAN 验证）；
@@ -85,6 +87,10 @@ bash tests/run_mihomo_interop.sh
 2026-09-22 在 macOS ARM64 / Apple Container 1.4.1 执行 `uv run --project scripts --locked --offline vcore-scripts check mihomo-interop --container` 通过基础互通，包括上述 HTTP/SOCKS5/AnyTLS、SS 三算法、代理链、受控 EIH 中继、负例与生命周期清理；这里的 `--offline` 仅限制 uv 依赖解析，mihomo 仍在线下载。通过固定 `latest/download/version.txt` 下载到的官方原生和 Linux ARM64 程序，`-v` 均输出 `v1.19.31` / Go 1.26.8 / `with_gvisor`。程序 SHA-256 分别为 `fae1f37e28ee53fcf5be7a8bb121099db1fe442e44205734ed49c62579364090` 和 `1b315bc038d05f84ee86d232f3c3d2b020b5044e9b971bb8fe215b6e6a2148f3`；下载日志另记录压缩包摘要。本次未执行 `--extended`、30 分钟长测或设备/安装包验收，不继承下文旧自编译对端的扩展结果。自建对端和临时配置已清理。
 
 ## 协议与数据面
+
+schema 19 的命名 TLS profile、classic REALITY 后端接线及新增原生链接依赖，
+单独记录在 [TLS 指纹接线验收](acceptance/tls-client-fingerprint.md)；旧 N4/N5 与设备成绩
+不自动继承为新 TLS 路径的验收。
 
 | 能力 | 自动化 | 外部进程互操作 | 物理 TUN / 安装包 |
 | --- | --- | --- | --- |
@@ -175,15 +181,15 @@ null IPv6 地址参数、物理 transport 绑定等实现约束见
 - 带公开可复现命令的 `sessionBackend` package-boundary argv、进程退出和 Job
   清理矩阵，以及 native x64/正式宿主 UI 路径回归。
 
-## rustls REALITY 发布
+## TLS / REALITY 发布
 
 REALITY 线上向量、普通 TLS、错误 key/short ID、HRR、并发和取消有自动化覆盖。
 正式发布仍需：
 
-- 无相邻 rustls 目录的干净检出执行 locked tests；
+- 无相邻 rustls/boring 目录的干净检出执行 locked tests；
 - 使用同一 lockfile 完成 Apple、Android、Windows 构建；
-- 保存 VCore/rustls revision、toolchain、目标架构、lockfile/产物 SHA-256、
+- 保存 VCore/boring revision、官方 rustls 版本与 registry 校验值、原生补丁和子模块、toolchain、目标架构、lockfile/产物 SHA-256、
   签名安装与当次物理设备/网络/失败关闭矩阵。
 
-详细要求见 [rustls 发布契约](rustls-reality-release.md)。
+详细要求见 [TLS 发布契约](tls-dependencies.md)。
 没有当次证据的项目不得写成发布保证。

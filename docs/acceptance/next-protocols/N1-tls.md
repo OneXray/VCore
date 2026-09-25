@@ -1,12 +1,14 @@
 # N1：已发布 rustls 0.23.45 接入
 
+> 历史验收：旧 rustls fork 已退役，远端将永久删除。本文只保留当时发布、测试和失败的事实，不再是当前依赖来源或可重建承诺。现行契约与验证见 [TLS 依赖](../../tls-dependencies.md)和 [fork 退役验收](../rustls-fork-retirement.md)。
+
 日期：2026-09-23。TLS 依赖子包已接入并完成下列本机回归；**不代表完整 N1、全依赖升级或正式发布签收**。生产仍使用 ring、classic REALITY 和 Invoke API v5 / schema revision 14，没有新增 YAML 字段或协议功能。
 
 本文是0.23.45接入时的历史子包。后续密码依赖已在另一个获准分支升级；当前fork revision与完整N1复验见[N1-x25519](N1-x25519.md)，历史Clippy失败、版本与产物不被新结果覆盖。
 
 ## 来源与版本
 
-在独立同步分支完成验证后，经授权将 `chore/sync-rustls-0.23.45` 快进合入并推送到 [OneXray/rustls 的 vcore/reality-0.23](https://github.com/OneXray/rustls/tree/vcore/reality-0.23)。推送前远端为 `df261c84cbac4f708e63ac8644ce70daa90d771c`；推送后通过 `git ls-remote` 确认完整 revision 为 `26f3efe5946dbe96410e85b8541ccf5fe7c244a5`。没有 force push 或改写提交历史；VCore 本轮只本地提交。
+在独立同步分支完成验证后，经授权将 `chore/sync-rustls-0.23.45` 快进合入并推送到 OneXray/rustls 的 vcore/reality-0.23（已退役 fork，历史记录）。推送前远端为 `df261c84cbac4f708e63ac8644ce70daa90d771c`；推送后通过 `git ls-remote` 确认完整 revision 为 `26f3efe5946dbe96410e85b8541ccf5fe7c244a5`。没有 force push 或改写提交历史；VCore 本轮只本地提交。
 
 当日查询官方 [rustls registry](https://crates.io/api/v1/crates/rustls)、[tokio-rustls registry](https://crates.io/api/v1/crates/tokio-rustls) 与 [ring registry](https://crates.io/api/v1/crates/ring)，排除预发行及 yanked 版本后分别为 0.23.45、0.26.5、0.17.14。
 
@@ -65,7 +67,7 @@ fork 的显式混合密钥交换接口已随该 revision 发布，但 VCore 没�
 
 - security 最初 6/7 PASS，失败仅为旧错误文本 `REALITY X25519 key reuse` 与 fork 新的所选组错误文案不符；拒绝行为本身保留。只更新自有测试文案与默认配置命名后 Debug/Release 7/7 PASS，原失败日志保留。
 - **全目标 Clippy 仍 FAIL**：10 个既有测试重复导入警告、3 个 `chunks_exact_to_as_chunks` 警告。用父提交 `1cc201c` 的独立源码导出重跑得到相同13项，错误列表逐项一致；没有屏蔽 lint、清理无关代码或把缩小范围的通过冒充 all-targets 通过。
-- 本轮没有重新执行 fork 内部线上向量/HRR/混合 provider 套件；它们属于发布前已验证的同一不可变 revision，详见 [fork 同步记录](https://github.com/OneXray/rustls/blob/26f3efe5946dbe96410e85b8541ccf5fe7c244a5/reality-tests/UPSTREAM-0.23.45.md)。本次 VCore 的公开进程数据面覆盖与 fork 单独测试分开计数。
+- 本轮没有重新执行 fork 内部线上向量/HRR/混合 provider 套件；它们属于发布前已验证的同一不可变 revision，详见 fork 同步记录（已退役 fork，历史记录）。本次 VCore 的公开进程数据面覆盖与 fork 单独测试分开计数。
 - 未执行 Windows 原生构建、远端 CI、签名包、物理设备、真实 TUN/IPv6、30分钟长测、原生 hopping 重跑或新的协议功能验收。历史原生半关闭诊断失败不改记为 PASS。
 - 其他依赖的最新稳定版升级和 Windows 配套版本决定仍见 [N1 依赖进度](N1-dependencies.md)；本次不是全图最新声明。
 

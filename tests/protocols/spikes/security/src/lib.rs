@@ -1,41 +1,10 @@
 #![allow(dead_code, unused_imports)]
-use rustls::crypto::{ActiveKeyExchange, SupportedKxGroup};
-use rustls::{
-    ClientConfig, ClientConnection, NamedGroup, RootCertStore, ServerConfig, ServerConnection,
-};
+use rustls::{ClientConfig, ClientConnection, RootCertStore, ServerConfig, ServerConnection};
 use std::{
     io::{Cursor, Read, Write},
     sync::Arc,
 };
 mod ech;
-
-#[derive(Debug)]
-struct UnimplementedHybrid;
-impl SupportedKxGroup for UnimplementedHybrid {
-    fn name(&self) -> NamedGroup {
-        NamedGroup::X25519MLKEM768
-    }
-    fn start(&self) -> Result<Box<dyn ActiveKeyExchange>, rustls::Error> {
-        Err(rustls::Error::General(
-            "sentinel, not a cryptographic implementation".into(),
-        ))
-    }
-    fn supports_reality(&self) -> bool {
-        true
-    }
-}
-static HYBRID_SENTINEL: UnimplementedHybrid = UnimplementedHybrid;
-
-fn reality_config(
-    groups: Vec<&'static dyn SupportedKxGroup>,
-) -> Result<ClientConfig, rustls::Error> {
-    let mut provider = rustls::crypto::ring::default_provider();
-    provider.kx_groups = groups;
-    ClientConfig::builder_with_provider(Arc::new(provider))
-        .with_protocol_versions(&[&rustls::version::TLS13])?
-        .with_reality(rustls::client::RealityClientConfig::new([7; 32], &[], [1, 2, 3]).unwrap())
-        .map(|builder| builder.with_no_client_auth())
-}
 
 fn tls_pair() -> (ClientConnection, ServerConnection) {
     let provider = Arc::new(rustls::crypto::ring::default_provider());
@@ -124,36 +93,6 @@ pub async fn compile_missing_session_hook(
             |_| {},
         )
         .await;
-}
-
-#[test]
-fn default_reality_rejects_provider_without_classic_x25519() {
-    let error = reality_config(vec![&HYBRID_SENTINEL]).unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("does not support REALITY key reuse for the selected group")
-    );
-    println!("hybrid-only builder rejected: {error}");
-}
-
-#[test]
-fn default_reality_ignores_preferred_hybrid_and_emits_classic_keyshare() {
-    let config = reality_config(vec![
-        &HYBRID_SENTINEL,
-        rustls::crypto::ring::kx_group::X25519,
-    ])
-    .unwrap();
-    let mut connection =
-        ClientConnection::new(Arc::new(config), "localhost".try_into().unwrap()).unwrap();
-    let mut hello = Vec::new();
-    connection.write_tls(&mut hello).unwrap();
-    let extensions = extensions(&hello);
-    let key_share = extensions.iter().find(|(kind, _)| *kind == 51).unwrap().1;
-    assert_eq!(u16::from_be_bytes([key_share[0], key_share[1]]), 36);
-    assert_eq!(u16::from_be_bytes([key_share[2], key_share[3]]), 29);
-    assert_eq!(u16::from_be_bytes([key_share[4], key_share[5]]), 32);
-    println!("REALITY key_share: one entry, group=0x001d, public_key_bytes=32; no 0x11ec share");
 }
 
 #[test]

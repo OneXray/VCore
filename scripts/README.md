@@ -22,9 +22,9 @@ uv run --project scripts --locked vcore-scripts build windows
 ```
 
 - Apple 命令只能在 macOS 运行，输出 `dist/apple/LibVCore.xcframework`。
-- Android 命令在 macOS/Linux 运行，默认输出 `dist/android/{arm64-v8a,x86_64}/libvcore.so`。
+- Android 命令在 macOS/Linux 运行，默认输出 `dist/android/{arm64-v8a,x86_64}/libvcore.so` 及同 ABI 的 `libc++_shared.so`；宿主必须一起打包，不能假定 Android 系统提供该 C++ runtime。
 - Windows 命令只能在已安装 Visual Studio C++ 工具的 Windows 运行；命令从系统注册表读取原生 ARM64/x64 处理器架构，通过 `vswhere` 加载对应的 MSVC 环境，验证三项 PE 的 machine type 后输出 `dist/windows/<architecture>` 下的 DLL、Provider Host、Session Host 和记录 package integration revision、架构及三项 SHA-256 的 `vcore-windows-artifacts.json`。
-- 所有构建都使用 `Cargo.lock`，并检查产物内的 Invoke API v5/config revision 17 身份。
+- 所有构建都使用 `Cargo.lock`，并检查产物内的 Invoke API v5/config revision 19 身份。
 - 标准 Apple、Android、Windows 构建显式包含两种客户端入站和六种代理出站（含 VMess），不依赖 `ffi` / `tun` 的传递 feature 来隐式补齐；不包含 `interop-test`。Apple/Android 的自定义 `VCORE_FEATURES` 不得将测试信任注入用于交付。
 
 Apple/Android 继续接受现有环境变量：
@@ -32,7 +32,7 @@ Apple/Android 继续接受现有环境变量：
 | 变量 | 默认值 |
 | --- | --- |
 | `VCORE_BUILD_PROFILE` | `release`，也可为 `debug` |
-| `VCORE_FEATURES` | `ffi,tun,inbound-http,inbound-socks5,outbound-anytls,outbound-socks5,outbound-shadowsocks,outbound-trojan,outbound-vless` |
+| `VCORE_FEATURES` | `ffi,tun,inbound-http,inbound-socks5,outbound-anytls,outbound-socks5,outbound-shadowsocks,outbound-trojan,outbound-vmess,outbound-vless` |
 | `VCORE_APPLE_DIST_DIR` | `dist/apple` |
 | `VCORE_IOS_DEPLOYMENT_TARGET` | `13.0` |
 | `VCORE_MACOS_DEPLOYMENT_TARGET` | `10.15` |
@@ -42,6 +42,9 @@ Apple/Android 继续接受现有环境变量：
 | `VCORE_ANDROID_OUTPUT_DIR` | `dist/android` |
 
 Android NDK 优先读取 `ANDROID_NDK_HOME`，否则使用 `$ANDROID_HOME/ndk/<version>`。
+本仓库的 `scripts/cmake/android.toolchain.cmake` 将 ABI/API 交给该 NDK 管理，避免
+boring-sys 两次 CMake configure 时显式 clang 包装器被 NDK 替换而触发缓存重置。
+Apple 的 module map 声明 `c++` 链接依赖；不使用模块的 C 宿主还需显式链接 `-lc++`。
 
 `.github/workflows/test.yml` 配置 macOS 的完整/精简协议 feature 检查，以及 Apple 五目标、Android 两 ABI、原生 Windows ARM64/x64 的 Release 构建和短期未签名产物归档。Android job 显式使用 NDK `28.2.13676358`，避免继承 runner 的另一默认版本；Linux runner 只作 Android 交叉构建，不意味着 VCore 支持 Linux 运行。runner 标签依据 [GitHub 官方清单](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)。工作流配置不等于已执行的 CI 或设备验收，通过记录仍见 [验收矩阵](../docs/acceptance.md)。
 
@@ -56,7 +59,20 @@ uv run --project scripts --locked ruff check scripts
 uv run --project scripts --locked ruff format --check scripts
 ```
 
-`c-header` 在 macOS 使用 `xcrun clang/clang++`，其他平台使用 `PATH` 中的 `clang/clang++`。`tls-dependencies` 直接读取 `cargo metadata`，验证唯一的 OneXray/rustls 0.23.45 来自 GitHub `vcore/reality-0.23` 发布分支、官方 tokio-rustls 0.26.5、registry ring，并禁止 Watfaq 来源和 TLS 的 AWS-LC/FIPS provider。额外核对 rustls 的实际依赖边指向 registry x25519-dalek 3.0.0，且启用 `static_secrets` / `zeroize`，不能用无关的新版本副本掩盖旧依赖。AWS-LC 仅允许出现在锁定官方 Shadowsocks 1.25.0 → registry shadowsocks-crypto 0.8.0 → aws-lc-rs → aws-lc-sys 链；额外使用方、非官方来源、重复版本和 FIPS 包均失败。该局部例外不更换 TLS/REALITY 的 ring provider。
+`c-header` 在 macOS 使用 `xcrun clang/clang++`，其他平台使用 `PATH` 中的 `clang/clang++`。`tls-dependencies` 直接读取 `cargo metadata`，验证唯一的官方 crates.io rustls 0.23.45、tokio-rustls 0.26.5 和 registry ring；拒绝 rustls Git/path 覆盖，REALITY/AWS-LC/FIPS 必须关闭。boring/boring-sys/tokio-boring 5.2.0 必须来自同一个已批准的 Git revision，检查实际依赖边、REALITY/profile feature，并禁止 FIPS/RPK/PQ 实验模式和 Watfaq 来源。AWS-LC 仅允许出现在锁定官方 Shadowsocks 1.25.0 → registry shadowsocks-crypto 0.8.0 → aws-lc-rs → aws-lc-sys 链；这个例外不作为 TLS provider 使用。完整边界见 [TLS 依赖](../docs/tls-dependencies.md)。
+
+### TLS 指纹接线验证
+
+```sh
+cargo test --locked --all-features --lib security::
+cargo test --locked --all-features --lib config::
+uv run --project scripts --locked python -m vcore_scripts.protocol_fingerprint target/interop/runs/<fresh-run>
+```
+
+`protocol_fingerprint` 复用容器化 VLESS 公共配置/数据面消费者，为测试节点显式设置 `chrome120`，覆盖 AnyTLS、Trojan、VMess、VLESS TLS/REALITY、Vision、XHTTP、mTLS 和负例。结果标记 F5，与历史 N4/N5 阶段签收分开；可在输出目录后给出该模块列出的 case ID 做定向运行。它不引用仓库外源码，也不启动宿主原站；官方 latest 二进制、版本/hash、来源树身份和清理结果留在 `vless-results.json`。关闭对照使用 Mihomo 当前 `chrome`，只比较关闭行为，不宣称两者 ClientHello 模板相同。完整 H1/H2/H3 与平台发布仍有独立门禁。
+
+默认 34 组包含 gRPC TLS 和 Vision REALITY 各 20 轮公共启停、20 轮资源归零检查，
+每轮 Stop 当时检查，再静默 5 秒；阶段源码在一轮运行中不得修改。
 
 ### 协议声明清单
 

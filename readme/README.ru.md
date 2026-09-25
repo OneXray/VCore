@@ -4,7 +4,7 @@
   <a href="../README.md">English</a> · <a href="./README.zh_CN.md">简体中文</a> · Русский
 </p>
 
-VCore — независимое клиентское прокси-ядро на Rust, не привязанное к конкретному хост-приложению. Через строгую YAML-конфигурацию и Invoke API v5 оно предоставляет граф прокси, статические группы `select`, DNS, правила маршрутизации, GeoData, HTTP/SOCKS5 listeners, плоскость данных TUN и loopback Controller. Внутренняя ревизия схемы конфигурации — 17; она присутствует только в ответе `version` и `buildIdentity`, но не записывается в YAML.
+VCore — независимое клиентское прокси-ядро на Rust, не привязанное к конкретному хост-приложению. Через строгую YAML-конфигурацию и Invoke API v5 оно предоставляет граф прокси, статические группы `select`, DNS, правила маршрутизации, GeoData, HTTP/SOCKS5 listeners, плоскость данных TUN и loopback Controller. Внутренняя ревизия схемы конфигурации — 19; она присутствует только в ответе `version` и `buildIdentity`, но не записывается в YAML.
 
 ## Возможности
 
@@ -93,7 +93,7 @@ packet queue                     256
 ordinary event / UDP response    128
 DNS ingress / DNS response       128 / 128
 TCP buffer                       32 KiB per direction
-TLS / XHTTP buffer               64 KiB
+rustls / XHTTP buffer            64 KiB
 DNS typed cache                  256 entries
 DNS opaque cache                 64 entries / 256 KiB
 GeoData allocation capacity      8 MiB
@@ -115,7 +115,8 @@ TCP sessions, обычные UDP associations, half-open connections, outbound h
 - [VMess AEAD outbound](../docs/vmess.md)
 - [VLESS и Vision outbound](../docs/vless.md)
 - [Клиентский протокол REALITY V1](../docs/reality-wire-protocol.md)
-- [Зависимость rustls REALITY и требования к выпуску](../docs/rustls-reality-release.md)
+- [TLS fingerprint и политика сертификатов](../docs/tls-client-fingerprint.md)
+- [Зависимости TLS и требования к выпуску](../docs/tls-dependencies.md)
 - [Runtime Controller](../docs/controller-api.md)
 - [ICMP и DNS в TUN](../docs/tun-icmp-dns.md)
 - [Правила и assets GeoData](../docs/geodata.md)
@@ -161,7 +162,8 @@ uv run --project scripts --locked vcore-scripts build windows
 - [smoltcp](https://github.com/smoltcp-rs/smoltcp), [clash-rs](https://github.com/Watfaq/clash-rs) и [netstack-smoltcp](https://github.com/automesh-network/netstack-smoltcp): userspace IP stacks и TUN netstacks.
 - [windows-rs](https://github.com/microsoft/windows-rs), [UWP VPN Plugin Sample](https://github.com/microsoft/UwpVpnPluginSample), [wireguard-uwp-rs](https://github.com/luqmana/wireguard-uwp-rs), [Maple](https://github.com/YtFlow/Maple) и [YtFlowCore](https://github.com/YtFlow/YtFlowCore): Windows VPN, активация WinRT и packet flow.
 - [Xray-core](https://github.com/XTLS/Xray-core), [Mihomo](https://github.com/MetaCubeX/mihomo) и [Leaf](https://github.com/eycorsican/leaf): прокси-протоколы, маршрутизация, архитектура TUN и interoperability references.
-- [rustls](https://github.com/rustls/rustls): TLS-зависимость и upstream сопровождаемого VCore REALITY fork.
+- [rustls](https://github.com/rustls/rustls): TLS без fingerprint, QUIC и общая проверка сертификатов WebPKI.
+- [boring](https://github.com/cloudflare/boring) / [BoringSSL](https://boringssl.googlesource.com/boringssl/): именованные профили TLS ClientHello и расширение classic REALITY в собственном fork VCore.
 
 ## Лицензия
 

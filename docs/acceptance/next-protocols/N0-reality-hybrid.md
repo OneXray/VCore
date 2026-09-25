@@ -1,5 +1,7 @@
 # N0-E 跟进：自有 rustls 混合 REALITY 入口
 
+> 已退役的历史实验：旧 rustls fork 远端将永久删除，本页命令不再是开发入口或重建承诺。当前 REALITY 使用 boring，只有 classic X25519；混合 REALITY 的旧实验不抵扣新后端门禁。当前依赖与验证见 [TLS 依赖](../../tls-dependencies.md)和 [fork 退役验收](../rustls-fork-retirement.md)。
+
 日期：2026-09-22。用户已授权在独立分支最小扩展自有 fork。本记录接续 [原始阻塞证据](N0-security.md)，不覆盖其锁定旧 revision 的可复现结果，也不宣称 VCore 已支持 S03/D16。
 
 ## 变更边界
@@ -68,4 +70,4 @@ python3 reality-tests/mihomo_loopback.py --mihomo "$MIHOMO_BIN" --openssl "$OPEN
 
 fork 的新入口选择初始 share，不自动要求服务端最终选择 hybrid；是否允许经典 component 由 provider 控制。严格验收使用仅包含混合组的 provider，并检查最终协商组。允许经典组协商的测试只验证公开 provider 机制，不抵扣矩阵要求的真实混合协商，也不改变当前 VCore 计划的严格策略。
 
-后续生产接入须先获发布授权、把 fork 提交发布到正式依赖分支，再按 [依赖发布要求](../../rustls-reality-release.md) 更新 Git revision 与锁文件、重跑 VCore 门禁。不能提交本机路径依赖或尚不可获取的远端 revision。
+此 fork 接口不再进入生产。后续若继续混合 REALITY，须在当前 boring 后端重新证明密钥共享、认证、Mihomo 互通及平台边界；需要扩大 fork 修改范围时另行取得授权，不能恢复已退役依赖或沿用本页 PASS。

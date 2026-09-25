@@ -4,7 +4,7 @@
 
 ## 公共契约
 
-1. [配置协议](config.yaml)：配置修订版 18 的完整 YAML 示例、静态 `select` 代理组及组上游和严格字段边界；XHTTP/sing-mux 详见 [专用契约](xhttp.md)。
+1. [配置协议](config.yaml)：配置修订版 19 的完整 YAML 示例、静态 `select` 代理组及组上游和严格字段边界；XHTTP/sing-mux 详见 [专用契约](xhttp.md)。
 2. [Invoke API](invoke-api.md)：API v5 的请求格式、生命周期和平台回调。
 3. [AnyTLS 出站](anytls.md)：TLS、会话复用、填充、TCP/UoT 和清理语义。
 4. [REALITY V1 协议](reality-wire-protocol.md)：握手、认证、连接状态和失败边界。
@@ -19,13 +19,14 @@
 13. [VMess AEAD 出站](vmess.md)：AEAD、五种流传输、UDP 编码、公开接线及同步回收。
 14. [VLESS 与 Vision 出站](vless.md)：六种流传输、TLS/mTLS/经典 REALITY、Vision、gRPC 池、UDP 编码及关闭语义。
 15. [XHTTP 与 VLESS sing-mux](xhttp.md)：H1/H2/H3、请求字段、独立下载安全与连接池，以及 h2mux/smux/yamux。
+16. [TLS 客户端指纹](tls-client-fingerprint.md)：证书 pin 与命名 ClientHello profile、后端选择、下载继承和限制。
 
 ## 平台与运行架构
 
 1. [Windows VPN 平台边界](windows-vpn.md)：官方 VPN API、包缓冲区、路由、物理网络绑定和安装包约束。
 2. [Windows 会话运行时](windows-session-runtime.md)：Provider、Session Host、包通道和生命周期。
 3. [运行时资源策略](runtime-resource-policy.md)：局部容量、取消、回收和遥测原则。
-4. [rustls REALITY 依赖](rustls-reality-release.md)：自有 fork 的边界和发布要求。
+4. [TLS 依赖与发布](tls-dependencies.md)：官方 rustls 与自有 boring 的边界和发布要求。
 5. [Windows UWP VPN 最小集成](../example/windows-uwp/README.md)：同包 manifest、完全信任宿主和可运行 demo。
 
 ## 证据与维护

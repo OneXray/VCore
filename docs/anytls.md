@@ -28,7 +28,8 @@ rules:
 - `skip-cert-verify` 默认为 `false`；`fingerprint` 为证书 DER 的 SHA-256，接受大小写十六进制及冒号分隔形式，去除冒号后必须为 64 个十六进制字符。
 - `udp` 默认为 `false`；设为 `true` 后启用 UoT v2。
 - `dialer-proxy` 使用与其他出站相同的无环代理图。
-- 未列出的字段一律拒绝。TLS 版本、客户端伪造指纹、ECH、mTLS、填充和会话参数不可配置。
+- `client-fingerprint` 可为 `chrome120` 或空串，省略时关闭；与证书 pin 独立，完整边界见 [TLS 指纹](tls-client-fingerprint.md)。
+- 未列出的字段一律拒绝。TLS 版本、ECH、mTLS、填充和会话参数不可配置。
 
 ## TLS 与认证
 
@@ -41,7 +42,7 @@ AnyTLS 使用 VCore 的标准 TLS 客户端：
 - 配置了 pin 却不匹配时必须失败，`skip-cert-verify` 不能覆盖 pin；
 - 所有策略始终验证 TLS 握手签名，跳过常规校验并不等于接受伪造签名；
 - ALPN 按配置发送，不强制服务端选中某一协议；
-- 不支持 REALITY、客户端伪造指纹、ECH 或客户端证书。
+- 不支持 REALITY、ECH 或客户端证书。
 
 校验策略、SNI、ALPN 和恢复缓存属于各节点不可变的 TLS 客户端，不跨节点共享。恢复票据按节点分配固定额度，运行时标准 TLS 总预算仍为 4；TLS 1.3 票据一次性消费，TLS 1.2 会话也占用同一额度。VLESS 的 TLS 1.3 / h2 / WebPKI 要求和 REALITY 的禁用恢复策略不受 AnyTLS 配置影响。
 

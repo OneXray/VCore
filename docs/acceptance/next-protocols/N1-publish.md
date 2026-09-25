@@ -1,5 +1,7 @@
 # N1：正式 rustls 分支引用与推送前复验
 
+> 历史发布记录：旧 rustls fork 已退役且远端将永久删除。本页保留当时的动作和输入，不再提供现行依赖或重建保证。当前来源与回归见 [TLS 依赖](../../tls-dependencies.md)和 [fork 退役验收](../rustls-fork-retirement.md)。
+
 日期：2026-09-23。经明确授权，rustls 的 `chore/x25519-dalek-3` 已快进合入并推送至正式发布分支 `vcore/reality-0.23`；远端完整 revision 为 `bb4092cc32a101869406d0b8242b173372a9d3ea`。没有 force push，也没有删除开发分支。
 
 VCore 的 manifest、锁文件和 TLS 审计恢复使用该发布分支。锁定的 rustls 源码 revision、0.23.45 版本及 x25519-dalek 3.0.0 均未变化；四个独立 N0 实验继续固定同一 revision。GitHub 路由已核实并修正为 `OneXray/VCore`。本记录仅补充发布引用切换，不改写 [N1 依赖验收](N1-x25519.md) 的历史动作和产物。
