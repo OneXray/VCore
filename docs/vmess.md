@@ -8,7 +8,7 @@ VMess 已完成 [N3 本地阶段验收](acceptance/next-protocols/N3.md)。默�
 
 `global-padding`、`authenticated-length` 默认 false，分别或同时开启；`none`/`zero` 不能将这两个开关设为 true。未知字段、显式 null、错误类型、非法枚举和不属于当前传输的选项均失败。
 
-`network` 默认 `tcp`，还接受 `ws`、`grpc`、`http`、`h2`，均支持明文或标准 TLS。`tls` 默认 false；关闭 TLS 时不能配置 `servername`、`alpn`、`fingerprint`、`client-fingerprint`、`skip-cert-verify`，即使其值为空串、空列表或 false。启用 TLS 后 `client-fingerprint` 可为 `chrome120` 或空串，省略时关闭；见 [TLS 指纹](tls-client-fingerprint.md)。
+`network` 默认 `tcp`，还接受 `ws`、`grpc`、`http`、`h2`，均支持明文或标准 TLS。`tls` 默认 false；关闭 TLS 时不能配置 `servername`、`alpn`、`fingerprint`、`client-fingerprint`、`skip-cert-verify`，即使其值为空串、空列表或 false。启用 TLS 后 `client-fingerprint` 使用 [TLS 指纹](tls-client-fingerprint.md)的七值/四模板；省略、`none` 或空串关闭。
 
 TLS 的认证名优先使用 `servername`，其次是 WebSocket Host（去端口），否则是 `server`。HTTP 伪装 Host 和 H2 authority 不替代认证名。证书策略沿用共享标准 TLS：默认 WebPKI 验证；SHA-256 pin 必须匹配，不能被 skip 绕过；匹配叶证书的 pin 与匹配链上 CA 的 pin 保留各自既有语义。WS 要求实际协商 `http/1.1`，gRPC/H2 要求 `h2`；明确 ALPN 列表保留顺序并包含所需协议。
 

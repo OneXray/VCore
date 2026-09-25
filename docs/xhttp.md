@@ -51,7 +51,7 @@ packet-up 在发送间隔内聚合小块写入，而不是把每个 write 变成
 
 - 缺省叶字段继承主腿。headers 是整体替换，`{}` 清空；显式空 host 恢复下载认证名/server 推导。
 - `skip-cert-verify: false` 必须覆盖主腿 true；空 name-cert-verify/fingerprint 清除对应 override/pin。
-- `client-fingerprint` 缺省继承，`chrome120` 覆盖，空串清除。下载腿切到明文或 H3 前必须清除继承的非空 profile；它不属于证书策略，不因切换 TLS/REALITY 自动清除。见 [TLS 指纹](tls-client-fingerprint.md)。
+- `client-fingerprint` 缺省继承，显式名称覆盖，`none` / 空串清除。下载腿切到明文或 H3 前必须清除继承的已启用 profile；它不属于证书策略，不因切换 TLS/REALITY 自动清除。七值/四模板见 [TLS 指纹](tls-client-fingerprint.md)。
 - certificate/private-key 必须配对替换或同时空串清除；PEM 与密钥匹配在 IO 前检查。
 - reality-opts 缺省继承整个对象，`{}` 清除；非空对象必须提供 public-key，short-id 缺省空，不按叶合并旧对象。null 拒绝。
 - 切换到明文或 REALITY 不会悄悄丢弃继承的证书策略；须显式清除冲突字段。每条腿独立重新校验最终安全配置。

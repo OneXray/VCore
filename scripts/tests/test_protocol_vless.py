@@ -42,7 +42,7 @@ class VlessEvidenceTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "must-not-exist"
             for profile, cases in [
-                ("chrome", ["N4-TCP-TLS-BASE"]),
+                ("chrome133", ["N4-TCP-TLS-BASE"]),
                 ("chrome120", ["N4-TCP-BASE"]),
             ]:
                 with self.assertRaises(ValueError):

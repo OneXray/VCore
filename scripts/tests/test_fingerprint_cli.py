@@ -14,11 +14,29 @@ class FingerprintCliTest(unittest.TestCase):
             main(["--help"])
         self.assertEqual(error.exception.code, 0)
         self.assertIn("--client-fingerprint", output.getvalue())
-        self.assertIn("chrome120", output.getvalue())
+        for name in (
+            "none",
+            "chrome",
+            "chrome120",
+            "firefox",
+            "firefox120",
+            "safari",
+            "safari16",
+        ):
+            self.assertIn(name, output.getvalue())
 
     def test_option_between_output_and_cases_reaches_pre_io_selection_check(self):
-        with self.assertRaisesRegex(ValueError, "invalid N4 native selection"):
-            main(["unused-output", "--client-fingerprint", "chrome120", "missing"])
+        for name in (
+            "none",
+            "chrome",
+            "chrome120",
+            "firefox",
+            "firefox120",
+            "safari",
+            "safari16",
+        ):
+            with self.assertRaisesRegex(ValueError, "invalid N4 native selection"):
+                main(["unused-output", "--client-fingerprint", name, "missing"])
 
 
 if __name__ == "__main__":

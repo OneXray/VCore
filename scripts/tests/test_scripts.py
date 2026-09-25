@@ -543,7 +543,11 @@ except RuntimeError as error:
                 outdated["packages"][index]["version"] = old_version
                 self.assertTrue(_tls_dependency_errors(outdated))
 
-        for source in [None, registry, BORING_GIT_SOURCE.replace("b953", "ffff")]:
+        for source in [
+            None,
+            registry,
+            BORING_GIT_SOURCE.rsplit("#", 1)[0] + "#" + "f" * 40,
+        ]:
             with self.subTest(boring_source=source):
                 invalid = copy.deepcopy(metadata)
                 invalid["packages"][3]["source"] = source

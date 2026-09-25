@@ -1,6 +1,6 @@
 # REALITY V1 客户端协议
 
-本文定义 VCore 当前启用的 classic REALITY V1 客户端线上行为。它不是通用 REALITY 规范。可选的 `chrome120` ClientHello 模板见 [TLS 指纹](tls-client-fingerprint.md)；认证协议与模板独立，不支持混合密钥交换。
+本文定义 VCore 当前启用的 classic REALITY V1 客户端线上行为。它不是通用 REALITY 规范。可选的四套 ClientHello 模板见 [TLS 指纹](tls-client-fingerprint.md)；认证协议与模板独立，不支持混合密钥交换。
 
 ## 版本边界
 
@@ -26,9 +26,14 @@ V1 只支持：
 
 VCore 不能读取该私钥，也不能为两个用途生成不同密钥。
 
+原生封装按实际 GroupID 找到唯一 X25519 share，不依赖 share 下标。Firefox 可保留
+额外 P-256 share，但认证始终绑定同一 X25519 临时私钥。Chrome133 的普通 TLS
+ML-KEM group/share 在 classic REALITY 中裁剪；重复 X25519、低阶点、非经典或
+缺失认证 share 失败。配置后再启用 PQ/0-RTT 也不能绕过此限制。
+
 ClientHello 的 legacy session ID 固定为 32 字节。生成密文前先把该字段清零，再编码完整 TLS Handshake `ClientHello`，将其作为 AES-GCM 的 AAD。
 
-`signature_algorithms` 保留所选模板的 ECDSA/RSA 列表；REALITY 不把 Ed25519 强行加入 Chrome120 的线上列表。原生实现仅在临时证书先通过 REALITY HMAC 认证后，允许它的 Ed25519 CertificateVerify，并仍验证签名。该局部例外不放宽普通 TLS 的签名算法检查。
+`signature_algorithms` 保留所选模板的列表；REALITY 不强行加入 Ed25519。原生实现仅在临时证书先通过 REALITY HMAC 认证后，允许它的 Ed25519 CertificateVerify，并仍验证签名。该局部例外不放宽普通 TLS 的签名算法检查。
 
 session ID 明文前 16 字节为：
 

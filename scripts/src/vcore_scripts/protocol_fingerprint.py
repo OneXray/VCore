@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 from .mihomo_isolation import exclusive_run
-from .protocol_vless_container import run
+from .protocol_vless_container import CLIENT_FINGERPRINTS, run
 
 CASES = [
     "F5-ANYTLS",
@@ -53,9 +53,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path)
     parser.add_argument("cases", nargs="*")
-    # Grow this only with verified VCore support, not reference-client names.
     parser.add_argument(
-        "--client-fingerprint", choices=("chrome120",), default="chrome120"
+        "--client-fingerprint", choices=CLIENT_FINGERPRINTS, default="chrome120"
     )
     args = parser.parse_args(argv)
     with exclusive_run():

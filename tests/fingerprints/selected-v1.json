@@ -422,7 +422,7 @@
         "expected template identity"
       ],
       "profile": "chrome",
-      "planned_entrypoint": true
+      "planned_entrypoint": false
     },
     {
       "id": "CF4-chrome-TROJAN",
@@ -450,7 +450,7 @@
         "expected template identity"
       ],
       "profile": "chrome",
-      "planned_entrypoint": true
+      "planned_entrypoint": false
     },
     {
       "id": "CF4-chrome-VMESS",
@@ -478,7 +478,7 @@
         "expected template identity"
       ],
       "profile": "chrome",
-      "planned_entrypoint": true
+      "planned_entrypoint": false
     },
     {
       "id": "CF4-chrome-VLESS",
@@ -506,7 +506,7 @@
         "expected template identity"
       ],
       "profile": "chrome",
-      "planned_entrypoint": true
+      "planned_entrypoint": false
     },
     {
       "id": "CF4-chrome-REALITY",
@@ -535,7 +535,7 @@
         "real request and response"
       ],
       "profile": "chrome",
-      "planned_entrypoint": true
+      "planned_entrypoint": false
     },
     {
       "id": "CF5-chrome-TRANSPORTS",
@@ -762,7 +762,7 @@
         "expected template identity"
       ],
       "profile": "firefox",
-      "planned_entrypoint": true
+      "planned_entrypoint": false
     },
     {
       "id": "CF4-firefox-TROJAN",
@@ -790,7 +790,7 @@
         "expected template identity"
       ],
       "profile": "firefox",
-      "planned_entrypoint": true
+      "planned_entrypoint": false
     },
     {
       "id": "CF4-firefox-VMESS",
@@ -818,7 +818,7 @@
         "expected template identity"
       ],
       "profile": "firefox",
-      "planned_entrypoint": true
+      "planned_entrypoint": false
     },
     {
       "id": "CF4-firefox-VLESS",
@@ -846,7 +846,7 @@
         "expected template identity"
       ],
       "profile": "firefox",
-      "planned_entrypoint": true
+      "planned_entrypoint": false
     },
     {
       "id": "CF4-firefox-REALITY",
@@ -875,7 +875,7 @@
         "real request and response"
       ],
       "profile": "firefox",
-      "planned_entrypoint": true
+      "planned_entrypoint": false
     },
     {
       "id": "CF5-firefox-TRANSPORTS",
@@ -932,7 +932,7 @@
         "expected template identity"
       ],
       "profile": "safari",
-      "planned_entrypoint": true
+      "planned_entrypoint": false
     },
     {
       "id": "CF4-safari-TROJAN",
@@ -960,7 +960,7 @@
         "expected template identity"
       ],
       "profile": "safari",
-      "planned_entrypoint": true
+      "planned_entrypoint": false
     },
     {
       "id": "CF4-safari-VMESS",
@@ -988,7 +988,7 @@
         "expected template identity"
       ],
       "profile": "safari",
-      "planned_entrypoint": true
+      "planned_entrypoint": false
     },
     {
       "id": "CF4-safari-VLESS",
@@ -1016,7 +1016,7 @@
         "expected template identity"
       ],
       "profile": "safari",
-      "planned_entrypoint": true
+      "planned_entrypoint": false
     },
     {
       "id": "CF4-safari-REALITY",
@@ -1045,7 +1045,7 @@
         "real request and response"
       ],
       "profile": "safari",
-      "planned_entrypoint": true
+      "planned_entrypoint": false
     },
     {
       "id": "CF5-safari-TRANSPORTS",

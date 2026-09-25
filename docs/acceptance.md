@@ -16,7 +16,7 @@
 
 2026-09-25 [精选指纹 CF0](acceptance/client-fingerprint-selected/CF0.md)完成七值/四模板的独立官方参考基线、116 组原始观测检查与冻结门禁。它只签收 `selected-v1` 的采样设施，不扩大生产名称、不抵扣新模板业务互通或平台验收；后续 CF1–CF5 独立记录。
 
-同轮 [fork 库阶段记录](acceptance/client-fingerprint-selected/library-progress.md)完成 CF1–CF3 及 CF4 的本地 REALITY 子包，最新组合测试 43 项通过。fork 尚未 push；VCore 依赖、公开名称和 schema19 未变。完整 CF4 / CF5 及新的 Mihomo 业务互通仍未签收。
+同轮 [fork 库阶段记录](acceptance/client-fingerprint-selected/library-progress.md)完成 CF1–CF3 及 CF4 的本地 REALITY 子包，组合测试 43 项通过。[本地 CF4](acceptance/client-fingerprint-selected/CF4.md)锁定获准发布的 `e81c6837`，完成四模板/七值及 schema20 接线，43 项独立容器互通、共享内存安全及 feature 门禁通过。CF5 完整传输与平台门禁尚未签收。
 
 2026-09-25 [TLS 指纹接线](acceptance/tls-client-fingerprint.md)接入 boring 的 `chrome120` 和经典 REALITY，schema19 / Invoke v5。随后[退役自有 rustls fork](acceptance/rustls-fork-retirement.md)：普通无指纹 TLS、QUIC、WebPKI 改用官方 crates.io rustls；最新替换回归为 132 项容器检查及 Apple/Android 构建通过。旧 fork 将永久删除，以下 N0–N5 记录保留当时的依赖摘要，不保证历史版本重建，也不计为当前后端的新增能力。现行依赖见 [TLS 依赖](tls-dependencies.md)。
 
@@ -57,7 +57,7 @@
 当前 source/tests 覆盖：
 
 - Invoke API v5、单实例生命周期、Debug/Release 运行时线程重入拒绝、panic 与同步清理；
-- schema revision 19、IPv6、严格 YAML、节点 / `select` 组上游混合 DAG 和 node-only 测速；
+- schema revision 20、IPv6、严格 YAML、节点 / `select` 组上游混合 DAG 和 node-only 测速；
 - 组上游与路由的共享选择、SOCKS5 UDP 建链快照、潜在 DIRECT 首跳准备、独立下载端点和深图回收；
 - HTTP 本机 / 认证共享、双栈监听回滚、逐请求认证与分发、Keep-Alive / 正文定界、CONNECT / Upgrade、10 MiB 双向摘要与活动连接 Stop；
 - SOCKS5 入站认证、三类目标、半关闭、TCP 授权 UDP、源端口学习/隔离、IPv6 作用域固定端口/学习端口匹配与跨接口隔离、过期/满队列/慢上游取消及纯 SOCKS5 Controller（作用域匹配为合成地址测试，不代表物理 LAN 验证）；

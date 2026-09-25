@@ -42,7 +42,7 @@ gRPC 使用 `network: grpc`，必须配置非空 `grpc-opts.grpc-service-name`�
 - SNI 默认 server，可显式给域名或 IP 认证名。
 - ALPN 保持配置顺序；TCP 默认空，WS 默认 `[http/1.1]`，gRPC 默认 `[h2]`。显式列表必须包含所需协议，实际协商也必须匹配，不能静默降级。
 - `skip-cert-verify` 默认 false；`fingerprint` 为叶或非叶证书 DER SHA-256（64 hex，可带冒号）。叶 pin 本身作为信任依据；非叶 pin 作为信任锚，仍验证叶链、名称和有效期。pin 不匹配时 skip 不得绕过；TLS 握手签名始终验证。与 [AnyTLS](anytls.md) 共用已有策略及总计 4 个恢复会话预算，不跨节点复用。
-- `client-fingerprint` 可为 `chrome120` 或空串，省略时关闭；TCP/WS/gRPC 仍各自拥有 ALPN 策略，见 [TLS 指纹](tls-client-fingerprint.md)。
+- `client-fingerprint` 使用 [TLS 指纹](tls-client-fingerprint.md)的七值/四模板；省略、`none` 或空串关闭，TCP/WS/gRPC 仍各自拥有 ALPN 策略。
 - `dialer-proxy` 可引用具体节点或静态 select 组。与业务路由共享选择，建链使用一次组快照和同一绝对期限；切组不迁移已有 TCP/UDP，不自动 failover 或回退 DIRECT。
 - 所有物理 socket 由 Dialer 创建，沿用 protect/物理绑定；Trojan 不直接解析经上游发送的业务域名或代理服务器名。
 - HTTP、SOCKS5、TUN、DNS nameserver 选路和独立 node-only `measureDelay` 使用同一连接器。

@@ -512,6 +512,9 @@ fn public_negative() {
         let mut bad = original.clone();
         bad["reality-opts"]["short-id"] = json!("ffffffffffffffff");
         denied(bad, &f);
+        let mut bad = original.clone();
+        bad["servername"] = json!("rejected.fixture.test");
+        denied(bad, &f);
     }
     if original["tls"] == true && original.get("reality-opts").is_none() {
         let mut untrusted = original.clone();

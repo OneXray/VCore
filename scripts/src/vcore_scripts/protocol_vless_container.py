@@ -28,6 +28,15 @@ from .protocol_vmess_public import node_config as legacy_node
 
 ALL_CASES = CASES | PUBLIC_CASES
 CLOSE_TESTS = {"native_mihomo_close_alignment", "native_ws_reality_close_boundary"}
+CLIENT_FINGERPRINTS = (
+    "none",
+    "chrome",
+    "chrome120",
+    "firefox",
+    "firefox120",
+    "safari",
+    "safari16",
+)
 
 
 def close_reference(mode, node, config, certificate, private_key, pin):
@@ -62,7 +71,7 @@ def close_reference(mode, node, config, certificate, private_key, pin):
 
 
 def run(output: Path, selected=None, *, preflight_only=False, client_fingerprint=None):
-    if client_fingerprint not in {None, "chrome120"}:
+    if client_fingerprint is not None and client_fingerprint not in CLIENT_FINGERPRINTS:
         raise ValueError("unsupported named client profile")
     public_cases = PUBLIC_CASES | (
         {"F5-ANYTLS": ("M", "anytls", True, "public_legacy_regression")}
@@ -298,8 +307,14 @@ def run(output: Path, selected=None, *, preflight_only=False, client_fingerprint
                             pin,
                         )
                         if client_fingerprint:
-                            # Close behavior reference, not a wire-profile match.
-                            reference_node["client-fingerprint"] = "chrome"
+                            # Mihomo REALITY requires uTLS even for our no-profile
+                            # control. That case compares close behavior only.
+                            reference_node["client-fingerprint"] = (
+                                "chrome"
+                                if client_fingerprint == "none"
+                                and mode.endswith("-reality")
+                                else client_fingerprint
+                            )
                     (server_dir / "config.json").write_text(json.dumps(config))
                     upstream = None
                     hop = None

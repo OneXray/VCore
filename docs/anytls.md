@@ -28,7 +28,7 @@ rules:
 - `skip-cert-verify` 默认为 `false`；`fingerprint` 为证书 DER 的 SHA-256，接受大小写十六进制及冒号分隔形式，去除冒号后必须为 64 个十六进制字符。
 - `udp` 默认为 `false`；设为 `true` 后启用 UoT v2。
 - `dialer-proxy` 使用与其他出站相同的无环代理图。
-- `client-fingerprint` 可为 `chrome120` 或空串，省略时关闭；与证书 pin 独立，完整边界见 [TLS 指纹](tls-client-fingerprint.md)。
+- `client-fingerprint` 使用 [TLS 指纹](tls-client-fingerprint.md)的七值/四模板；省略、`none` 或空串关闭，与证书 pin 独立。
 - 未列出的字段一律拒绝。TLS 版本、ECH、mTLS、填充和会话参数不可配置。
 
 ## TLS 与认证

@@ -407,13 +407,22 @@ pub struct AnyTlsCertificatePolicy {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClientFingerprint {
     Chrome120,
+    Chrome133,
+    Firefox120,
+    Safari16,
 }
 
 fn parse_client_fingerprint(value: Option<&str>) -> Result<Option<ClientFingerprint>> {
     match value {
-        None | Some("") => Ok(None),
+        None | Some("" | "none") => Ok(None),
+        Some(_) if !cfg!(feature = "tls-fingerprint") => {
+            invalid("client-fingerprint is not compiled in")
+        }
+        Some("chrome") => Ok(Some(ClientFingerprint::Chrome133)),
         Some("chrome120") => Ok(Some(ClientFingerprint::Chrome120)),
-        Some(_) => invalid("unsupported client-fingerprint; expected chrome120 or an empty string"),
+        Some("firefox" | "firefox120") => Ok(Some(ClientFingerprint::Firefox120)),
+        Some("safari" | "safari16") => Ok(Some(ClientFingerprint::Safari16)),
+        Some(_) => invalid("unsupported client-fingerprint"),
     }
 }
 

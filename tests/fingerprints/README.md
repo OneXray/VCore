@@ -58,11 +58,12 @@ when ALPN is only HTTP/1.1, which VCore deliberately does not do. Warm/resumed
 hellos have separate expectations; PSK is not ignored by the comparator. These
 policies do not authorize dropping unrelated cipher suites, shares or extensions.
 
-Current production supports only `chrome120`. CF1–CF3 are fork-library work; CF4
-adds public values only after authentic native templates and REALITY verification.
+The signed-off [local CF4 stage](../../docs/acceptance/client-fingerprint-selected/CF4.md)
+integrates the seven names after native four-template and REALITY library verification,
+then verifies 43 independent container cases. This does not pass CF5 transport or platform gates.
 CF1–CF3 and the CF4 fork-local slice now have [local library records](../../docs/acceptance/client-fingerprint-selected/library-progress.md);
-the fork revision is not published or integrated into VCore yet. CF2/CF3 library
-entrypoints exist, but this does not execute or pass any VCore business gate.
+the authorized fork revision `e81c6837` is now published and pinned in VCore.
+CF2/CF3 library entrypoints exist, but this does not execute or pass any VCore business gate.
 CF5 adds all transport, security, lifecycle, build and packaging gates. Declaration
 files, library tests, public proxy data, cross-builds and physical devices are
 separate evidence classes. See the [CF0 record](../../docs/acceptance/client-fingerprint-selected/CF0.md)

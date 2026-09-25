@@ -14,6 +14,10 @@ use std::{sync::Mutex, time::Duration};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_rustls::LazyConfigAcceptor;
 
+#[cfg(feature = "tls-fingerprint")]
+#[path = "tls_named_tests.rs"]
+mod named;
+
 struct Chain {
     certificates: Vec<CertificateDer<'static>>,
     key: PrivateKeyDer<'static>,
@@ -194,62 +198,66 @@ async fn handshake(client: &StandardTlsClient, server: Arc<ServerConfig>) -> (bo
 #[cfg(feature = "tls-fingerprint")]
 #[tokio::test]
 async fn named_fingerprint_uses_the_shared_webpki_policy_and_transport_alpn() {
-    let chain = chain(false);
-    let mut server = server(&chain, &TLS13, false);
-    Arc::get_mut(&mut server).unwrap().alpn_protocols = vec![b"h2".to_vec()];
-    for (context, expected) in [(trusted(&chain), true), (SecurityContext::new(), false)] {
-        let client = StandardTlsClient::with_options(
-            &context,
-            "fixture.invalid",
-            TlsClientOptions {
-                client_fingerprint: Some(crate::config::ClientFingerprint::Chrome120),
-                alpn: vec![b"h2".to_vec()],
-                required_alpn: Some(b"h2".to_vec()),
-                ..Default::default()
-            },
-            0,
-            DEFAULT_TLS_BUFFER_LIMIT,
-        )
-        .unwrap();
-        let (accepted, seen) = handshake(&client, server.clone()).await;
-        assert_eq!(accepted, expected);
-        assert_eq!(seen.alpn, [b"h2".to_vec()]);
-        assert_eq!(seen.name.as_deref(), Some("fixture.invalid"));
+    for profile in crate::security::test_profiles().iter().copied().flatten() {
+        let chain = chain(false);
+        let mut server = server(&chain, &TLS13, false);
+        Arc::get_mut(&mut server).unwrap().alpn_protocols = vec![b"h2".to_vec()];
+        for (context, expected) in [(trusted(&chain), true), (SecurityContext::new(), false)] {
+            let client = StandardTlsClient::with_options(
+                &context,
+                "fixture.invalid",
+                TlsClientOptions {
+                    client_fingerprint: Some(profile),
+                    alpn: vec![b"h2".to_vec()],
+                    required_alpn: Some(b"h2".to_vec()),
+                    ..Default::default()
+                },
+                0,
+                DEFAULT_TLS_BUFFER_LIMIT,
+            )
+            .unwrap();
+            let (accepted, seen) = handshake(&client, server.clone()).await;
+            assert_eq!(accepted, expected);
+            assert_eq!(seen.alpn, [b"h2".to_vec()]);
+            assert_eq!(seen.name.as_deref(), Some("fixture.invalid"));
+        }
     }
 }
 
 #[cfg(feature = "tls-fingerprint")]
 #[tokio::test]
 async fn named_fingerprint_resumption_is_node_owned_and_disabled_at_zero_budget() {
-    let chain = chain(false);
-    for version in [&TLS12, &TLS13] {
-        let peer = server(&chain, version, false);
-        for capacity in [0, 1] {
-            let make_client = || {
-                StandardTlsClient::with_options(
-                    &trusted(&chain),
-                    "fixture.invalid",
-                    TlsClientOptions {
-                        client_fingerprint: Some(crate::config::ClientFingerprint::Chrome120),
-                        ..Default::default()
-                    },
-                    capacity,
-                    DEFAULT_TLS_BUFFER_LIMIT,
-                )
-                .unwrap()
-            };
-            let client = make_client();
-            let first = handshake(&client, peer.clone()).await;
-            assert!(first.0);
-            assert!(!first.1.resumed);
-            for _ in 0..2 {
-                let next = handshake(&client.clone(), peer.clone()).await;
-                assert!(next.0);
-                assert_eq!(next.1.resumed, capacity != 0);
+    for profile in crate::security::test_profiles().iter().copied().flatten() {
+        let chain = chain(false);
+        for version in [&TLS12, &TLS13] {
+            let peer = server(&chain, version, false);
+            for capacity in [0, 1] {
+                let make_client = || {
+                    StandardTlsClient::with_options(
+                        &trusted(&chain),
+                        "fixture.invalid",
+                        TlsClientOptions {
+                            client_fingerprint: Some(profile),
+                            ..Default::default()
+                        },
+                        capacity,
+                        DEFAULT_TLS_BUFFER_LIMIT,
+                    )
+                    .unwrap()
+                };
+                let client = make_client();
+                let first = handshake(&client, peer.clone()).await;
+                assert!(first.0);
+                assert!(!first.1.resumed);
+                for _ in 0..2 {
+                    let next = handshake(&client.clone(), peer.clone()).await;
+                    assert!(next.0);
+                    assert_eq!(next.1.resumed, capacity != 0);
+                }
+                let different_node = handshake(&make_client(), peer.clone()).await;
+                assert!(different_node.0);
+                assert!(!different_node.1.resumed);
             }
-            let different_node = handshake(&make_client(), peer.clone()).await;
-            assert!(different_node.0);
-            assert!(!different_node.1.resumed);
         }
     }
 }
@@ -257,59 +265,61 @@ async fn named_fingerprint_resumption_is_node_owned_and_disabled_at_zero_budget(
 #[cfg(feature = "tls-fingerprint")]
 #[tokio::test]
 async fn named_fingerprint_tickets_are_bounded_single_use_and_not_published_on_alpn_rejection() {
-    let chain = chain(false);
-    let context = trusted(&chain);
-    for capacity in [0, 1, 4] {
-        let mut endpoint = server(&chain, &TLS13, false);
-        Arc::get_mut(&mut endpoint).unwrap().send_tls13_tickets = 8;
-        let client = StandardTlsClient::with_options(
-            &context,
-            "fixture.invalid",
-            TlsClientOptions {
-                client_fingerprint: Some(crate::config::ClientFingerprint::Chrome120),
-                ..Default::default()
-            },
-            capacity,
-            4096,
-        )
-        .unwrap();
-        assert!(handshake(&client, endpoint.clone()).await.0);
-        // Keep the same peer session storage, but issue no replacement tickets.
-        let mut no_tickets = endpoint.as_ref().clone();
-        no_tickets.send_tls13_tickets = 0;
-        let no_tickets = Arc::new(no_tickets);
-        let mut resumed = 0;
-        for _ in 0..6 {
-            let (ok, seen) = handshake(&client, no_tickets.clone()).await;
-            assert!(ok);
-            resumed += usize::from(seen.resumed);
+    for profile in crate::security::test_profiles().iter().copied().flatten() {
+        let chain = chain(false);
+        let context = trusted(&chain);
+        for capacity in [0, 1, 4] {
+            let mut endpoint = server(&chain, &TLS13, false);
+            Arc::get_mut(&mut endpoint).unwrap().send_tls13_tickets = 8;
+            let client = StandardTlsClient::with_options(
+                &context,
+                "fixture.invalid",
+                TlsClientOptions {
+                    client_fingerprint: Some(profile),
+                    ..Default::default()
+                },
+                capacity,
+                4096,
+            )
+            .unwrap();
+            assert!(handshake(&client, endpoint.clone()).await.0);
+            // Keep the same peer session storage, but issue no replacement tickets.
+            let mut no_tickets = endpoint.as_ref().clone();
+            no_tickets.send_tls13_tickets = 0;
+            let no_tickets = Arc::new(no_tickets);
+            let mut resumed = 0;
+            for _ in 0..6 {
+                let (ok, seen) = handshake(&client, no_tickets.clone()).await;
+                assert!(ok);
+                resumed += usize::from(seen.resumed);
+            }
+            assert_eq!(resumed, capacity);
         }
-        assert_eq!(resumed, capacity);
-    }
-    for version in [&TLS12, &TLS13] {
-        let endpoint = server(&chain, version, false);
-        let client = StandardTlsClient::with_options(
-            &context,
-            "fixture.invalid",
-            TlsClientOptions {
-                client_fingerprint: Some(crate::config::ClientFingerprint::Chrome120),
-                alpn: vec![b"h2".to_vec()],
-                required_alpn: Some(b"h2".to_vec()),
-                ..Default::default()
-            },
-            4,
-            4096,
-        )
-        .unwrap();
-        assert!(!handshake(&client, endpoint.clone()).await.0);
-        let mut accepted = endpoint.as_ref().clone();
-        accepted.alpn_protocols = vec![b"h2".to_vec()];
-        let (ok, seen) = handshake(&client, Arc::new(accepted)).await;
-        assert!(ok);
-        assert!(
-            !seen.resumed,
-            "failed application policy cannot publish tickets"
-        );
+        for version in [&TLS12, &TLS13] {
+            let endpoint = server(&chain, version, false);
+            let client = StandardTlsClient::with_options(
+                &context,
+                "fixture.invalid",
+                TlsClientOptions {
+                    client_fingerprint: Some(profile),
+                    alpn: vec![b"h2".to_vec()],
+                    required_alpn: Some(b"h2".to_vec()),
+                    ..Default::default()
+                },
+                4,
+                4096,
+            )
+            .unwrap();
+            assert!(!handshake(&client, endpoint.clone()).await.0);
+            let mut accepted = endpoint.as_ref().clone();
+            accepted.alpn_protocols = vec![b"h2".to_vec()];
+            let (ok, seen) = handshake(&client, Arc::new(accepted)).await;
+            assert!(ok);
+            assert!(
+                !seen.resumed,
+                "failed application policy cannot publish tickets"
+            );
+        }
     }
 }
 
@@ -351,30 +361,32 @@ async fn named_fingerprint_close_notify_has_a_five_second_bound() {
             panic!("TLS cannot close caller IO")
         }
     }
-    let chain = chain(false);
-    let client = client(
-        &trusted(&chain),
-        "fixture.invalid",
-        AnyTlsCertificatePolicy {
-            client_fingerprint: Some(crate::config::ClientFingerprint::Chrome120),
-            ..Default::default()
-        },
-    );
-    let (io, peer) = tokio::io::duplex(65536);
-    let gate = Arc::new(AtomicBool::new(false));
-    let (connected, accepted) = tokio::join!(
-        client.connect(Box::new(Gate(io, gate.clone()))),
-        tokio_rustls::TlsAcceptor::from(server(&chain, &TLS13, false)).accept(peer)
-    );
-    let mut tls = connected.unwrap();
-    let _peer = accepted.unwrap();
-    gate.store(true, Ordering::Relaxed);
-    let started = tokio::time::Instant::now();
-    assert_eq!(
-        tls.shutdown().await.unwrap_err().kind(),
-        io::ErrorKind::TimedOut
-    );
-    assert_eq!(started.elapsed(), Duration::from_secs(5));
+    for profile in crate::security::test_profiles().iter().copied().flatten() {
+        let chain = chain(false);
+        let client = client(
+            &trusted(&chain),
+            "fixture.invalid",
+            AnyTlsCertificatePolicy {
+                client_fingerprint: Some(profile),
+                ..Default::default()
+            },
+        );
+        let (io, peer) = tokio::io::duplex(65536);
+        let gate = Arc::new(AtomicBool::new(false));
+        let (connected, accepted) = tokio::join!(
+            client.connect(Box::new(Gate(io, gate.clone()))),
+            tokio_rustls::TlsAcceptor::from(server(&chain, &TLS13, false)).accept(peer)
+        );
+        let mut tls = connected.unwrap();
+        let _peer = accepted.unwrap();
+        gate.store(true, Ordering::Relaxed);
+        let started = tokio::time::Instant::now();
+        assert_eq!(
+            tls.shutdown().await.unwrap_err().kind(),
+            io::ErrorKind::TimedOut
+        );
+        assert_eq!(started.elapsed(), Duration::from_secs(5));
+    }
 }
 
 #[tokio::test]

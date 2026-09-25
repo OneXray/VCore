@@ -24,7 +24,7 @@ uv run --project scripts --locked vcore-scripts build windows
 - Apple 命令只能在 macOS 运行，输出 `dist/apple/LibVCore.xcframework`。
 - Android 命令在 macOS/Linux 运行，默认输出 `dist/android/{arm64-v8a,x86_64}/libvcore.so` 及同 ABI 的 `libc++_shared.so`；宿主必须一起打包，不能假定 Android 系统提供该 C++ runtime。
 - Windows 命令只能在已安装 Visual Studio C++ 工具的 Windows 运行；命令从系统注册表读取原生 ARM64/x64 处理器架构，通过 `vswhere` 加载对应的 MSVC 环境，验证三项 PE 的 machine type 后输出 `dist/windows/<architecture>` 下的 DLL、Provider Host、Session Host 和记录 package integration revision、架构及三项 SHA-256 的 `vcore-windows-artifacts.json`。
-- 所有构建都使用 `Cargo.lock`，并检查产物内的 Invoke API v5/config revision 19 身份。
+- 所有构建都使用 `Cargo.lock`，并检查产物内的 Invoke API v5/config revision 20 身份。
 - 标准 Apple、Android、Windows 构建显式包含两种客户端入站和六种代理出站（含 VMess），不依赖 `ffi` / `tun` 的传递 feature 来隐式补齐；不包含 `interop-test`。Apple/Android 的自定义 `VCORE_FEATURES` 不得将测试信任注入用于交付。
 
 Apple/Android 继续接受现有环境变量：
@@ -69,7 +69,7 @@ cargo test --locked --all-features --lib config::
 uv run --project scripts --locked python -m vcore_scripts.protocol_fingerprint target/interop/runs/<fresh-run>
 ```
 
-`protocol_fingerprint` 复用容器化 VLESS 公共配置/数据面消费者，为测试节点显式设置 `chrome120`，覆盖 AnyTLS、Trojan、VMess、VLESS TLS/REALITY、Vision、XHTTP、mTLS 和负例。结果标记 F5，与历史 N4/N5 阶段签收分开；可在输出目录后给出该模块列出的 case ID 做定向运行。它不引用仓库外源码，也不启动宿主原站；官方 latest 二进制、版本/hash、来源树身份和清理结果留在 `vless-results.json`。关闭对照使用 Mihomo 当前 `chrome`，只比较关闭行为，不宣称两者 ClientHello 模板相同。完整 H1/H2/H3 与平台发布仍有独立门禁。
+`protocol_fingerprint` 复用容器化 VLESS 公共配置/数据面消费者，默认设置 `chrome120`，可用 `--client-fingerprint` 选择七个公开值。覆盖 AnyTLS、Trojan、VMess、VLESS TLS/REALITY、Vision、XHTTP、mTLS 和负例。结果标记 F5，与历史 N4/N5 阶段签收分开；可在输出目录后给出 case ID 定向运行。它不引用仓库外源码，也不启动宿主原站；官方 latest 二进制、版本/hash、来源树身份和清理结果留在 `vless-results.json`。关闭对照使用同名 Mihomo profile；只有 REALITY 的 `none` 对照因 Mihomo 依赖 uTLS 而用 `chrome`，该项仅比较关闭行为、不声称模板相同。完整 H1/H2/H3 与平台发布仍有独立门禁。
 
 默认 34 组包含 gRPC TLS 和 Vision REALITY 各 20 轮公共启停、20 轮资源归零检查，
 每轮 Stop 当时检查，再静默 5 秒；阶段源码在一轮运行中不得修改。
@@ -87,8 +87,9 @@ uv run --project scripts --locked python -m vcore_scripts.protocol_fingerprint -
 16 组 OpenSSL TLS-only 握手）。原始记录、来源、清理和结构检查均通过才返回
 `BASELINE VERIFIED`；这不是 VCore 业务互通结果。`--case` 可重复用于定向采样，
 部分选择不能签收 CF0。比较规则与后续冻结门禁见 [selected-v1](../tests/fingerprints/README.md)。
-既有业务驱动新增显式 `--client-fingerprint` 参数，目前仅允许已实现的 `chrome120`，
-未实现名称不会借用旧模板或提前开放生产配置。
+业务驱动的 `--client-fingerprint` 接受 `none/chrome/chrome120/firefox/firefox120/safari/safari16`。
+七值映射四模板；未支持名称不会借用旧模板。单次运行仅签收选中的 profile 和 case，
+不从别名或其他模板的 PASS 推导当前模板通过。
 
 ### 协议声明清单
 

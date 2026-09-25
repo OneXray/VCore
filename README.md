@@ -4,7 +4,7 @@
   English · <a href="./readme/README.zh_CN.md">简体中文</a> · <a href="./readme/README.ru.md">Русский</a>
 </p>
 
-VCore is a standalone, host-agnostic Rust client proxy core. It provides proxy graphs, static `select` proxy groups, DNS, routing rules, GeoData, HTTP/SOCKS5 listeners, a TUN data plane, and a loopback Controller through strict YAML configuration and Invoke API v5. The internal configuration schema revision is 19; the revision appears only in the `version` response and `buildIdentity`, not in YAML.
+VCore is a standalone, host-agnostic Rust client proxy core. It provides proxy graphs, static `select` proxy groups, DNS, routing rules, GeoData, HTTP/SOCKS5 listeners, a TUN data plane, and a loopback Controller through strict YAML configuration and Invoke API v5. The internal configuration schema revision is 20; the revision appears only in the `version` response and `buildIdentity`, not in YAML.
 
 ## Features
 
@@ -17,7 +17,7 @@ VCore is a standalone, host-agnostic Rust client proxy core. It provides proxy g
 - Listeners: HTTP CONNECT/forward with per-request authentication/routing, streaming bodies, Keep-Alive and Upgrade; SOCKS5 CONNECT and TCP-authorized UDP ASSOCIATE. Local access is unauthenticated by default; opt-in LAN sharing requires one shared username/password.
 - GeoData: VCore manages `geosite.dat` and `geoip.dat` under `dataDir/geodata`, loads them on demand, and can update them through a proxy chain.
 - Delay measurement: `measureDelay` accepts 1–5 node-only configurations per call, uses up to five private workers, and preserves input order in its results.
-- TLS: independent certificate pins and an opt-in `chrome120` ClientHello profile over TCP TLS/REALITY; see [scope and limitations](docs/tls-client-fingerprint.md).
+- TLS: independent certificate pins and four opt-in ClientHello templates (Chrome120/133, Firefox120, Safari16.0) over TCP TLS/REALITY; see [public names, scope and limitations](docs/tls-client-fingerprint.md).
 
 ## Configuration
 

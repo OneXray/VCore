@@ -14,8 +14,59 @@ fn feature_skeletons_do_not_open_unimplemented_yaml_or_measurement_protocols() {
         assert!(Config::parse_yaml(yaml.as_bytes()).is_err());
     }
     assert_eq!(vcore::INVOKE_API_VERSION, 5);
-    assert_eq!(vcore::CONFIG_VERSION, 19);
-    assert!(vcore::BUILD_IDENTITY.ends_with("invokeApiVersion=5;configVersion=19"));
+    assert_eq!(vcore::CONFIG_VERSION, 20);
+    assert!(vcore::BUILD_IDENTITY.ends_with("invokeApiVersion=5;configVersion=20"));
+}
+
+#[test]
+fn selected_fingerprints_follow_protocol_feature_admission() {
+    for (protocol, authentication, enabled) in [
+        (
+            "anytls",
+            "password: fixture",
+            cfg!(feature = "outbound-anytls"),
+        ),
+        (
+            "trojan",
+            "password: fixture",
+            cfg!(feature = "outbound-trojan"),
+        ),
+        (
+            "vmess",
+            "uuid: 00000000-0000-4000-8000-000000000001, tls: true",
+            cfg!(feature = "outbound-vmess"),
+        ),
+        (
+            "vless",
+            "uuid: 00000000-0000-4000-8000-000000000001, tls: true",
+            cfg!(feature = "outbound-vless"),
+        ),
+    ] {
+        for name in [
+            "none",
+            "chrome",
+            "chrome120",
+            "firefox",
+            "firefox120",
+            "safari",
+            "safari16",
+        ] {
+            let yaml = format!(
+                "socks-port: 1080\nproxies: [{{name: node, type: {protocol}, server: localhost, port: 443, {authentication}, client-fingerprint: {name}}}]\nrules: ['MATCH,node']\n"
+            );
+            assert_eq!(
+                Config::parse_yaml(yaml.as_bytes()).is_ok(),
+                // Legacy AnyTLS without a profile defers protocol admission to
+                // graph preparation. Named profiles require their backend here.
+                if protocol == "anytls" {
+                    name == "none" || cfg!(feature = "tls-fingerprint")
+                } else {
+                    enabled
+                },
+                "{protocol}/{name}"
+            );
+        }
+    }
 }
 
 #[test]

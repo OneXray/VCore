@@ -4,7 +4,7 @@ VCore 通过 GitHub 的不可变提交引用自有 boring 5.2.0 fork，承载命
 
 ## 实现边界
 
-boring fork 提供版本固定的 `chrome120` 模板及连接级 REALITY 能力：
+boring fork 提供 Chrome120、Chrome133、Firefox120、Safari16.0 模板及连接级 REALITY 能力：
 
 - 配置构建器接收不可变的服务端公钥、short ID 和客户端版本；
 - ClientHello 使用同一 X25519 临时密钥完成 key share、ECDH 和 session ID 封装；
@@ -18,8 +18,8 @@ REALITY 扩展不创建线程、异步任务、连接池或全局认证映射。
 ## 锁定依赖来源
 
 ```toml
-boring = { git = "https://github.com/OneXray/boring", rev = "b953b21e689bd2b6c9acb5af2f9cdaa053ce0284", version = "=5.2.0", features = ["client-fingerprint"] }
-tokio-boring = { git = "https://github.com/OneXray/boring", rev = "b953b21e689bd2b6c9acb5af2f9cdaa053ce0284", version = "=5.2.0" }
+boring = { git = "https://github.com/OneXray/boring", rev = "e81c6837a302241d81c0930610b4f34dd4328167", version = "=5.2.0", features = ["client-fingerprint"] }
+tokio-boring = { git = "https://github.com/OneXray/boring", rev = "e81c6837a302241d81c0930610b4f34dd4328167", version = "=5.2.0" }
 rustls = { version = "=0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
 tokio-rustls = { version = "=0.26.5", default-features = false, features = ["ring", "tls12"] }
 ```
@@ -35,7 +35,14 @@ tokio-rustls = { version = "=0.26.5", default-features = false, features = ["rin
 旧 rustls fork 已退役，远端计划永久删除，不再作为依赖、回退或重建来源。旧 REALITY 选择实验已从 security spike 移除；纯内存 TLS/record、HPKE/ECH 与官方 binding 接口实验仍保留。历史 N0/N1 验收保留当时的结果与摘要，不追改为官方 rustls 或 boring 的新结果；旧 Git 提交可能无法再重建。当前替换验证见 [fork 退役验收](acceptance/rustls-fork-retirement.md)。
 
 本次 boring revision 内的 BoringSSL 子模块为 `e2a57cfb4d915b4ba820585aef9fdee7bca13fe5`，
-REALITY 构建补丁 SHA-256 为 `0b55587d5950d3c35991aa5e37fe294ffea023cc9c9fb8a8478683aa113a55ab`。
+指纹构建补丁 SHA-256 为 `5d91f9d8a5200df1d8581b5fbbf53ad2435a293d75d21fd6820fa6a3772864ff`；
+REALITY 构建补丁 SHA-256 为 `a28e55298c3aa2efcc4bc66f3fb64e05583333811284d8c9abafe744d1370e30`。
+补丁由 feature 控制，原始子模块不修改。Safari Zlib 增加可选 `flate2 1.1.10`
+（关闭默认 feature，使用纯 Rust `rust_backend`）；Chrome 保留 `brotli 9.0.0`。
+两者及传递依赖必须纳入当前解析图的许可证审查；不新增系统 zlib 链接依赖。
+纯内存 ALPS peer 测试直接引用同 revision 的 `boring-sys` 和已锁定的
+`foreign-types 0.5.0`（官方 registry 当前稳定版）；它们是 dev-dependencies，
+不新增生产 TLS 后端或网络服务端。
 原生依赖的构建需要 C/C++、CMake、Perl 和 libclang；目标工具链须独立验证。
 Apple 静态库的宿主最终链接需要 libc++（module map 已声明；直接 C 链接需 `-lc++`）。
 Android 输出须连同同 ABI、同 NDK 的 `libc++_shared.so` 打包；标准脚本已复制，
