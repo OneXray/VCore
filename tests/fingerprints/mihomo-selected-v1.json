@@ -1,0 +1,1447 @@
+{
+  "scope": "selected-v1",
+  "kind": "synthetic-official-clienthello-fixtures",
+  "proves": "Reference shapes only, not VCore support, proxy data or REALITY authentication",
+  "source": {
+    "release": "Mihomo Meta v1.19.31 linux arm64 with go1.26.8 Mon Sep 14 13:20:46 UTC 2026\nUse tags: with_gvisor",
+    "binary_sha256": "1b315bc038d05f84ee86d232f3c3d2b020b5044e9b971bb8fe215b6e6a2148f3",
+    "utls": [
+      "dep\tgithub.com/metacubex/utls\tv1.8.7\th1:Cp+yWkNTFkSihETgGWq34hlVFds5HpYWVOR1xovUVTs=",
+      "build\tvcs.revision=ab405bad5beeeac8b003bb01f60f134f6df54471"
+    ],
+    "report_sha256": "c22b544d09407447f6beb32aa8718c8ae16055512bf49690ed4e93e49564edc8",
+    "source_tree_sha256": "1e52f8fcdd1f58d55869f70c6d259a04d18b753df4902becd32911249245762d"
+  },
+  "samples": [
+    {
+      "case_id": "CF0-chrome-tcp-16-0",
+      "profile": "chrome",
+      "context": "tcp",
+      "template": "Chrome133",
+      "port": 24430,
+      "sequence": 2,
+      "client_hello_b64": "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",
+      "records_b64": "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",
+      "records": [
+        {
+          "type": 22,
+          "version": 769,
+          "bytes": 1753
+        }
+      ],
+      "status": "captured-only",
+      "parsed": {
+        "bytes": 1753,
+        "legacy_version": 771,
+        "session_id_bytes": 32,
+        "ciphers": [
+          10794,
+          4865,
+          4866,
+          4867,
+          49195,
+          49199,
+          49196,
+          49200,
+          52393,
+          52392,
+          49171,
+          49172,
+          156,
+          157,
+          47,
+          53
+        ],
+        "compression_methods": [
+          0
+        ],
+        "extensions": [
+          {
+            "type": 27242,
+            "bytes": 0,
+            "payload_hex": ""
+          },
+          {
+            "type": 18,
+            "bytes": 0,
+            "payload_hex": ""
+          },
+          {
+            "type": 5,
+            "bytes": 5,
+            "payload_hex": "0100000000"
+          },
+          {
+            "type": 65281,
+            "bytes": 1,
+            "payload_hex": "00"
+          },
+          {
+            "type": 17613,
+            "bytes": 5,
+            "protocols": [
+              "h2"
+            ]
+          },
+          {
+            "type": 23,
+            "bytes": 0,
+            "payload_hex": ""
+          },
+          {
+            "type": 27,
+            "bytes": 3,
+            "values": [
+              2
+            ]
+          },
+          {
+            "type": 13,
+            "bytes": 18,
+            "values": [
+              1027,
+              2052,
+              1025,
+              1283,
+              2053,
+              1281,
+              2054,
+              1537
+            ]
+          },
+          {
+            "type": 51,
+            "bytes": 1263,
+            "shares": [
+              {
+                "group": 6682,
+                "bytes": 1,
+                "grease_data": "00"
+              },
+              {
+                "group": 4588,
+                "bytes": 1216
+              },
+              {
+                "group": 29,
+                "bytes": 32
+              }
+            ]
+          },
+          {
+            "type": 35,
+            "bytes": 0,
+            "ticket_bytes": 0
+          },
+          {
+            "type": 16,
+            "bytes": 14,
+            "protocols": [
+              "h2",
+              "http/1.1"
+            ]
+          },
+          {
+            "type": 11,
+            "bytes": 2,
+            "payload_hex": "0100"
+          },
+          {
+            "type": 45,
+            "bytes": 2,
+            "payload_hex": "0101"
+          },
+          {
+            "type": 43,
+            "bytes": 7,
+            "values": [
+              64250,
+              772,
+              771
+            ]
+          },
+          {
+            "type": 0,
+            "bytes": 21,
+            "names": [
+              {
+                "type": 0,
+                "name": "fingerprint.test"
+              }
+            ]
+          },
+          {
+            "type": 65037,
+            "bytes": 218,
+            "hello_type": 0,
+            "kdf": 1,
+            "aead": 1,
+            "enc_bytes": 32,
+            "payload_bytes": 176
+          },
+          {
+            "type": 10,
+            "bytes": 12,
+            "values": [
+              6682,
+              4588,
+              29,
+              23,
+              24
+            ]
+          },
+          {
+            "type": 51914,
+            "bytes": 1,
+            "payload_hex": "00"
+          }
+        ],
+        "raw_sha256": "e16b70905070c0d3cb15b23ba90f2cfd3e76c4439e49ab3b0ec0f0a07fd1fd1e"
+      }
+    },
+    {
+      "case_id": "CF0-chrome-reality-16-0",
+      "profile": "chrome",
+      "context": "reality",
+      "template": "Chrome133",
+      "port": 24430,
+      "sequence": 14,
+      "client_hello_b64": "AQACDwMDZF9lYYSiyHG+2zkOuT7VzaJRzAC5o60meo+MwOXllskga9OJK/zRWgmLFyUKmD2Oib/Qw2Cok8fC4Dt0LbKjWm0AIJqaEwETAhMDwCvAL8AswDDMqcyowBPAFACcAJ0ALwA1AQABpnp6AAAAKwAHBkpKAwQDAwAtAAIBAQANABIAEAQDCAQEAQUDCAUFAQgGBgEABQAFAQAAAAAAAAAVABMAABBmaW5nZXJwcmludC50ZXN0AAsAAgEAABAADgAMAmgyCGh0dHAvMS4xABsAAwIAAgAzACsAKdraAAEAAB0AIJilMBOaPZnMHa69RhzSpaCVLoJWVHRt5lOpawnKTj8t/g0A2gAAAQAB1AAgHrtrg7GFa1Pb9IK2r2BsjZFYTOZpQYOrveiQb6tS2kEAsNcoOrb5XVxgKcE+f0BevYNAA3RO6C/fq89LOlMxMXAm0KBHNI+TRvVvhoBsjNDCWxOtdx/Grl5gKGjfCxJiOA2Fcuf28TOWozMKYj+horGSKMTne5EMqWJT+9VToYUtKkCWg166d31ez9BHFvTD/MTAdVSjIauurU0ys+Hw8RrGKEcqPowR6ZaSL+3DwN93e+mIjQh1BC262wSIQ0HeF19n2X89OuAUQIMwBFW3gwJ8ABIAAAAKAAoACNraAB0AFwAYABcAAETNAAUAAwJoMv8BAAEAACMAALq6AAEA",
+      "records_b64": "FgMBAhMBAAIPAwNkX2VhhKLIcb7bOQ65PtXNolHMALmjrSZ6j4zA5eWWySBr04kr/NFaCYsXJQqYPY6Jv9DDYKiTx8LgO3QtsqNabQAgmpoTARMCEwPAK8AvwCzAMMypzKjAE8AUAJwAnQAvADUBAAGmenoAAAArAAcGSkoDBAMDAC0AAgEBAA0AEgAQBAMIBAQBBQMIBQUBCAYGAQAFAAUBAAAAAAAAABUAEwAAEGZpbmdlcnByaW50LnRlc3QACwACAQAAEAAOAAwCaDIIaHR0cC8xLjEAGwADAgACADMAKwAp2toAAQAAHQAgmKUwE5o9mcwdrr1GHNKloJUuglZUdG3mU6lrCcpOPy3+DQDaAAABAAHUACAeu2uDsYVrU9v0gravYGyNkVhM5mlBg6u96JBvq1LaQQCw1yg6tvldXGApwT5/QF69g0ADdE7oL9+rz0s6UzExcCbQoEc0j5NG9W+GgGyM0MJbE613H8auXmAoaN8LEmI4DYVy5/bxM5ajMwpiP6GisZIoxOd7kQypYlP71VOhhS0qQJaDXrp3fV7P0EcW9MP8xMB1VKMhq66tTTKz4fDxGsYoRyo+jBHplpIv7cPA33d76YiNCHUELbrbBIhDQd4XX2fZfz064BRAgzAEVbeDAnwAEgAAAAoACgAI2toAHQAXABgAFwAARM0ABQADAmgy/wEAAQAAIwAAuroAAQA=",
+      "records": [
+        {
+          "type": 22,
+          "version": 769,
+          "bytes": 531
+        }
+      ],
+      "status": "captured-only",
+      "parsed": {
+        "bytes": 531,
+        "legacy_version": 771,
+        "session_id_bytes": 32,
+        "ciphers": [
+          39578,
+          4865,
+          4866,
+          4867,
+          49195,
+          49199,
+          49196,
+          49200,
+          52393,
+          52392,
+          49171,
+          49172,
+          156,
+          157,
+          47,
+          53
+        ],
+        "compression_methods": [
+          0
+        ],
+        "extensions": [
+          {
+            "type": 31354,
+            "bytes": 0,
+            "payload_hex": ""
+          },
+          {
+            "type": 43,
+            "bytes": 7,
+            "values": [
+              19018,
+              772,
+              771
+            ]
+          },
+          {
+            "type": 45,
+            "bytes": 2,
+            "payload_hex": "0101"
+          },
+          {
+            "type": 13,
+            "bytes": 18,
+            "values": [
+              1027,
+              2052,
+              1025,
+              1283,
+              2053,
+              1281,
+              2054,
+              1537
+            ]
+          },
+          {
+            "type": 5,
+            "bytes": 5,
+            "payload_hex": "0100000000"
+          },
+          {
+            "type": 0,
+            "bytes": 21,
+            "names": [
+              {
+                "type": 0,
+                "name": "fingerprint.test"
+              }
+            ]
+          },
+          {
+            "type": 11,
+            "bytes": 2,
+            "payload_hex": "0100"
+          },
+          {
+            "type": 16,
+            "bytes": 14,
+            "protocols": [
+              "h2",
+              "http/1.1"
+            ]
+          },
+          {
+            "type": 27,
+            "bytes": 3,
+            "values": [
+              2
+            ]
+          },
+          {
+            "type": 51,
+            "bytes": 43,
+            "shares": [
+              {
+                "group": 56026,
+                "bytes": 1,
+                "grease_data": "00"
+              },
+              {
+                "group": 29,
+                "bytes": 32
+              }
+            ]
+          },
+          {
+            "type": 65037,
+            "bytes": 218,
+            "hello_type": 0,
+            "kdf": 1,
+            "aead": 1,
+            "enc_bytes": 32,
+            "payload_bytes": 176
+          },
+          {
+            "type": 18,
+            "bytes": 0,
+            "payload_hex": ""
+          },
+          {
+            "type": 10,
+            "bytes": 10,
+            "values": [
+              56026,
+              29,
+              23,
+              24
+            ]
+          },
+          {
+            "type": 23,
+            "bytes": 0,
+            "payload_hex": ""
+          },
+          {
+            "type": 17613,
+            "bytes": 5,
+            "protocols": [
+              "h2"
+            ]
+          },
+          {
+            "type": 65281,
+            "bytes": 1,
+            "payload_hex": "00"
+          },
+          {
+            "type": 35,
+            "bytes": 0,
+            "ticket_bytes": 0
+          },
+          {
+            "type": 47802,
+            "bytes": 1,
+            "payload_hex": "00"
+          }
+        ],
+        "raw_sha256": "fb36c6c6054a1fb6f783dae79747b2b754c811ac693f29e3b23cc791c35347c1"
+      }
+    },
+    {
+      "case_id": "CF0-chrome120-tcp-16-0",
+      "profile": "chrome120",
+      "context": "tcp",
+      "template": "Chrome120",
+      "port": 24430,
+      "sequence": 18,
+      "client_hello_b64": "AQACTwMDUlU8Bf1nyA2jrL4h3WofYeXIdt/TF4rosjsmUwGqfiwgzkR4V4T8M0jZiGdQJtz4mXNqH+sR6LDJZb4O+9Va/x0AICoqEwETAhMDwCvAL8AswDDMqcyowBPAFACcAJ0ALwA1AQAB5qqqAAAAIwAA/wEAAQAAEAAOAAwCaDIIaHR0cC8xLjEACgAKAAg6OgAdABcAGERpAAUAAwJoMgAAABUAEwAAEGZpbmdlcnByaW50LnRlc3QAFwAA/g0BGgAAAQABrwAglote65tn11bs2WmSWmgpXTu/G9Fra10HDCiGGQRtLHsA8LXncFujJFZhWVGlYt/n9UabBg5Skr8auhSuqyZPIfx/10D17qANClhoSDrZxJ/j1DVv11bPJdJtit3S8w9D8kAYDJrHnHUyVnxyaoKSeHEXEd8ZyMjxIgJVyIzdByKBWlyoYJIlV0g+VimGPU0ToZaxwSDTVSYTWKyFwdTTU5kPfAubncapVkyKQTqCWiiUHwJT+Hks+lRs3ciR2hkyD0cqTWBgKUqq+InT7IzaB9utGGh7hSXVMQIUbmQyjefX8me4OSO5caKKmhMPO746Dweg2DX8vY/9VIXj6RY1AEAURwafXdasPqy1JSR57vC02wArAAcG6uoDBAMDAAUABQEAAAAAADMAKwApOjoAAQAAHQAgJLMEAunnFt6VK2SwiSR9m2bupreV9ihJUihdooh3xnYALQACAQEAEgAAAA0AEgAQBAMIBAQBBQMIBQUBCAYGAQAbAAMCAAIACwACAQDa2gABAA==",
+      "records_b64": "FgMBAlMBAAJPAwNSVTwF/WfIDaOsviHdah9h5ch239MXiuiyOyZTAap+LCDORHhXhPwzSNmIZ1Am3PiZc2of6xHosMllvg771Vr/HQAgKioTARMCEwPAK8AvwCzAMMypzKjAE8AUAJwAnQAvADUBAAHmqqoAAAAjAAD/AQABAAAQAA4ADAJoMghodHRwLzEuMQAKAAoACDo6AB0AFwAYRGkABQADAmgyAAAAFQATAAAQZmluZ2VycHJpbnQudGVzdAAXAAD+DQEaAAABAAGvACCWi17rm2fXVuzZaZJaaCldO78b0WtrXQcMKIYZBG0sewDwtedwW6MkVmFZUaVi3+f1RpsGDlKSvxq6FK6rJk8h/H/XQPXuoA0KWGhIOtnEn+PUNW/XVs8l0m2K3dLzD0PyQBgMmsecdTJWfHJqgpJ4cRcR3xnIyPEiAlXIjN0HIoFaXKhgkiVXSD5WKYY9TROhlrHBINNVJhNYrIXB1NNTmQ98C5udxqlWTIpBOoJaKJQfAlP4eSz6VGzdyJHaGTIPRypNYGApSqr4idPsjNoH260YaHuFJdUxAhRuZDKN59fyZ7g5I7lxooqaEw87vjoPB6DYNfy9j/1UhePpFjUAQBRHBp9d1qw+rLUlJHnu8LTbACsABwbq6gMEAwMABQAFAQAAAAAAMwArACk6OgABAAAdACAkswQC6ecW3pUrZLCJJH2bZu6mt5X2KElSKF2iiHfGdgAtAAIBAQASAAAADQASABAEAwgEBAEFAwgFBQEIBgYBABsAAwIAAgALAAIBANraAAEA",
+      "records": [
+        {
+          "type": 22,
+          "version": 769,
+          "bytes": 595
+        }
+      ],
+      "status": "captured-only",
+      "parsed": {
+        "bytes": 595,
+        "legacy_version": 771,
+        "session_id_bytes": 32,
+        "ciphers": [
+          10794,
+          4865,
+          4866,
+          4867,
+          49195,
+          49199,
+          49196,
+          49200,
+          52393,
+          52392,
+          49171,
+          49172,
+          156,
+          157,
+          47,
+          53
+        ],
+        "compression_methods": [
+          0
+        ],
+        "extensions": [
+          {
+            "type": 43690,
+            "bytes": 0,
+            "payload_hex": ""
+          },
+          {
+            "type": 35,
+            "bytes": 0,
+            "ticket_bytes": 0
+          },
+          {
+            "type": 65281,
+            "bytes": 1,
+            "payload_hex": "00"
+          },
+          {
+            "type": 16,
+            "bytes": 14,
+            "protocols": [
+              "h2",
+              "http/1.1"
+            ]
+          },
+          {
+            "type": 10,
+            "bytes": 10,
+            "values": [
+              14906,
+              29,
+              23,
+              24
+            ]
+          },
+          {
+            "type": 17513,
+            "bytes": 5,
+            "protocols": [
+              "h2"
+            ]
+          },
+          {
+            "type": 0,
+            "bytes": 21,
+            "names": [
+              {
+                "type": 0,
+                "name": "fingerprint.test"
+              }
+            ]
+          },
+          {
+            "type": 23,
+            "bytes": 0,
+            "payload_hex": ""
+          },
+          {
+            "type": 65037,
+            "bytes": 282,
+            "hello_type": 0,
+            "kdf": 1,
+            "aead": 1,
+            "enc_bytes": 32,
+            "payload_bytes": 240
+          },
+          {
+            "type": 43,
+            "bytes": 7,
+            "values": [
+              60138,
+              772,
+              771
+            ]
+          },
+          {
+            "type": 5,
+            "bytes": 5,
+            "payload_hex": "0100000000"
+          },
+          {
+            "type": 51,
+            "bytes": 43,
+            "shares": [
+              {
+                "group": 14906,
+                "bytes": 1,
+                "grease_data": "00"
+              },
+              {
+                "group": 29,
+                "bytes": 32
+              }
+            ]
+          },
+          {
+            "type": 45,
+            "bytes": 2,
+            "payload_hex": "0101"
+          },
+          {
+            "type": 18,
+            "bytes": 0,
+            "payload_hex": ""
+          },
+          {
+            "type": 13,
+            "bytes": 18,
+            "values": [
+              1027,
+              2052,
+              1025,
+              1283,
+              2053,
+              1281,
+              2054,
+              1537
+            ]
+          },
+          {
+            "type": 27,
+            "bytes": 3,
+            "values": [
+              2
+            ]
+          },
+          {
+            "type": 11,
+            "bytes": 2,
+            "payload_hex": "0100"
+          },
+          {
+            "type": 56026,
+            "bytes": 1,
+            "payload_hex": "00"
+          }
+        ],
+        "raw_sha256": "7b9565078a74ee0255fab5a23669410073e451130cd1e9cb197614ab7dd656ce"
+      }
+    },
+    {
+      "case_id": "CF0-chrome120-reality-16-0",
+      "profile": "chrome120",
+      "context": "reality",
+      "template": "Chrome120",
+      "port": 24430,
+      "sequence": 30,
+      "client_hello_b64": "AQAB/AMD0SRbHCGo52XVQ8Ae4v1BJwYFXb8m9K5qIi8SniuTVfUgvsuIIb3xroMdVcwexw4XWSQHN5J8N+1gNXTAd9jJWVgAINraEwETAhMDwCvAL8AswDDMqcyowBPAFACcAJ0ALwA1AQABkzo6AAD+DQC6AAABAAEWACArvsoe2K12Qx/gNS6L2t05K/VeCeRNDrHCb9fQLvpwZACQu1DP7dGdccbHmbtW63DsRu+LzgqKIZJtw6bISNWcfkUOGknvfbVcNLOLkqkD53Ko/5/cuYtjcOQYTIJXBjurZ2lMtrlp/tF1s5+gTJh9VHL/r5a4/YdYoRg39P/mls8E6IKj/Ku6tk7Joyndt58mPZ4RMKXdzhxDqcrNxZjYCHt2edtmh4rhhAKcEGhDCUUnABIAAAAFAAUBAAAAAAAjAAAAAAAVABMAABBmaW5nZXJwcmludC50ZXN0RGkABQADAmgyAAsAAgEAADMAKwApenoAAQAAHQAg4+MR0GAjRKqOxbE4HMhUHbiQHKnraRaXX8aMc3gPFCMALQACAQEAFwAA/wEAAQAAKwAHBrq6AwQDAwANABIAEAQDCAQEAQUDCAUFAQgGBgEACgAKAAh6egAdABcAGAAbAAMCAAIAEAAOAAwCaDIIaHR0cC8xLjFKSgABAAAVAAkAAAAAAAAAAAA=",
+      "records_b64": "FgMBAgABAAH8AwPRJFscIajnZdVDwB7i/UEnBgVdvyb0rmoiLxKeK5NV9SC+y4ghvfGugx1VzB7HDhdZJAc3knw37WA1dMB32MlZWAAg2toTARMCEwPAK8AvwCzAMMypzKjAE8AUAJwAnQAvADUBAAGTOjoAAP4NALoAAAEAARYAICu+yh7YrXZDH+A1Lova3Tkr9V4J5E0OscJv19Au+nBkAJC7UM/t0Z1xxseZu1brcOxG74vOCoohkm3DpshI1Zx+RQ4aSe99tVw0s4uSqQPncqj/n9y5i2Nw5BhMglcGO6tnaUy2uWn+0XWzn6BMmH1Ucv+vlrj9h1ihGDf0/+aWzwTogqP8q7q2TsmjKd23nyY9nhEwpd3OHEOpys3FmNgIe3Z522aHiuGEApwQaEMJRScAEgAAAAUABQEAAAAAACMAAAAAABUAEwAAEGZpbmdlcnByaW50LnRlc3REaQAFAAMCaDIACwACAQAAMwArACl6egABAAAdACDj4xHQYCNEqo7FsTgcyFQduJAcqetpFpdfxoxzeA8UIwAtAAIBAQAXAAD/AQABAAArAAcGuroDBAMDAA0AEgAQBAMIBAQBBQMIBQUBCAYGAQAKAAoACHp6AB0AFwAYABsAAwIAAgAQAA4ADAJoMghodHRwLzEuMUpKAAEAABUACQAAAAAAAAAAAA==",
+      "records": [
+        {
+          "type": 22,
+          "version": 769,
+          "bytes": 512
+        }
+      ],
+      "status": "captured-only",
+      "parsed": {
+        "bytes": 512,
+        "legacy_version": 771,
+        "session_id_bytes": 32,
+        "ciphers": [
+          56026,
+          4865,
+          4866,
+          4867,
+          49195,
+          49199,
+          49196,
+          49200,
+          52393,
+          52392,
+          49171,
+          49172,
+          156,
+          157,
+          47,
+          53
+        ],
+        "compression_methods": [
+          0
+        ],
+        "extensions": [
+          {
+            "type": 14906,
+            "bytes": 0,
+            "payload_hex": ""
+          },
+          {
+            "type": 65037,
+            "bytes": 186,
+            "hello_type": 0,
+            "kdf": 1,
+            "aead": 1,
+            "enc_bytes": 32,
+            "payload_bytes": 144
+          },
+          {
+            "type": 18,
+            "bytes": 0,
+            "payload_hex": ""
+          },
+          {
+            "type": 5,
+            "bytes": 5,
+            "payload_hex": "0100000000"
+          },
+          {
+            "type": 35,
+            "bytes": 0,
+            "ticket_bytes": 0
+          },
+          {
+            "type": 0,
+            "bytes": 21,
+            "names": [
+              {
+                "type": 0,
+                "name": "fingerprint.test"
+              }
+            ]
+          },
+          {
+            "type": 17513,
+            "bytes": 5,
+            "protocols": [
+              "h2"
+            ]
+          },
+          {
+            "type": 11,
+            "bytes": 2,
+            "payload_hex": "0100"
+          },
+          {
+            "type": 51,
+            "bytes": 43,
+            "shares": [
+              {
+                "group": 31354,
+                "bytes": 1,
+                "grease_data": "00"
+              },
+              {
+                "group": 29,
+                "bytes": 32
+              }
+            ]
+          },
+          {
+            "type": 45,
+            "bytes": 2,
+            "payload_hex": "0101"
+          },
+          {
+            "type": 23,
+            "bytes": 0,
+            "payload_hex": ""
+          },
+          {
+            "type": 65281,
+            "bytes": 1,
+            "payload_hex": "00"
+          },
+          {
+            "type": 43,
+            "bytes": 7,
+            "values": [
+              47802,
+              772,
+              771
+            ]
+          },
+          {
+            "type": 13,
+            "bytes": 18,
+            "values": [
+              1027,
+              2052,
+              1025,
+              1283,
+              2053,
+              1281,
+              2054,
+              1537
+            ]
+          },
+          {
+            "type": 10,
+            "bytes": 10,
+            "values": [
+              31354,
+              29,
+              23,
+              24
+            ]
+          },
+          {
+            "type": 27,
+            "bytes": 3,
+            "values": [
+              2
+            ]
+          },
+          {
+            "type": 16,
+            "bytes": 14,
+            "protocols": [
+              "h2",
+              "http/1.1"
+            ]
+          },
+          {
+            "type": 19018,
+            "bytes": 1,
+            "payload_hex": "00"
+          },
+          {
+            "type": 21,
+            "bytes": 9,
+            "payload_hex": "000000000000000000"
+          }
+        ],
+        "raw_sha256": "6526b59ea7744aaaacaa9e6801ad58832d5959a5e0456ef7e82b79b35bbd014f"
+      }
+    },
+    {
+      "case_id": "CF0-firefox-tcp-16-0",
+      "profile": "firefox",
+      "context": "tcp",
+      "template": "Firefox120",
+      "port": 24430,
+      "sequence": 34,
+      "client_hello_b64": "AQACjwMDqiFr9aeAnExTS/gilD64WFfgaCHQWhA6GKQxARkf9bggerEcuasmap/BA4RVj46mxmiZstMNhkcEH5bHv8cfznEAIhMBEwMTAsArwC/MqcyowCzAMMAKwAnAE8AUAJwAnQAvADUBAAIkAAAAFQATAAAQZmluZ2VycHJpbnQudGVzdAAXAAD/AQABAAAKAA4ADAAdABcAGAAZAQABAQALAAIBAAAjAAAAEAAOAAwCaDIIaHR0cC8xLjEABQAFAQAAAAAAIgAKAAgEAwUDBgMCAwAzAGsAaQAdACB2FTvB7f3bX4lKH6d6pEs7yMEa/TZDVIPthXNY4+HHfgAXAEEEalzCp+89drb5mDCkWiHDBqBKmW0gxmf6KSadVR33vRWaXwIX8G/MBmp+vHFBePH0DB0xxZxnJeUgZcazrG74hwArAAUEAwQDAwANABgAFgQDBQMGAwgECAUIBgQBBQEGAQIDAgEALQACAQEAHAACQAH+DQEZAAABAAMMACAEF1PdDkpDyn5QNL7Lj/i11jgPRitWJCCR10MwdmFKUADvyCe/GLgbdtlXDGcvbuNW9zrYUxT0zMRxx+F2glxSwOaq/BG46kxDTLqe26GVDhsnsQiv5uE4UIds2HnabD3RHnyAB7zmg2fOt/1x5POf+gpgadrqnxra5/gYyo29dy9ONzEhheFhtGu5HnzbmzNas3XUB/PiAIG1YWLIECA7WaugneZ92jZrHdoa8Wjtz8vU34Mt05fGR8p7goro3HHidj3CxdGoOInWdT9NaUTH7+BYN0ruJbi/gs/ifLDkQ6OXJbnqJCVCvrKnb+ZNL7dwpr1fpR1tJ9u14kz5eMQ1A711a724/Mj4xFvKLsnpX2M=",
+      "records_b64": "FgMBApMBAAKPAwOqIWv1p4CcTFNL+CKUPrhYV+BoIdBaEDoYpDEBGR/1uCB6sRy5qyZqn8EDhFWPjqbGaJmy0w2GRwQflse/xx/OcQAiEwETAxMCwCvAL8ypzKjALMAwwArACcATwBQAnACdAC8ANQEAAiQAAAAVABMAABBmaW5nZXJwcmludC50ZXN0ABcAAP8BAAEAAAoADgAMAB0AFwAYABkBAAEBAAsAAgEAACMAAAAQAA4ADAJoMghodHRwLzEuMQAFAAUBAAAAAAAiAAoACAQDBQMGAwIDADMAawBpAB0AIHYVO8Ht/dtfiUofp3qkSzvIwRr9NkNUg+2Fc1jj4cd+ABcAQQRqXMKn7z12tvmYMKRaIcMGoEqZbSDGZ/opJp1VHfe9FZpfAhfwb8wGan68cUF48fQMHTHFnGcl5SBlxrOsbviHACsABQQDBAMDAA0AGAAWBAMFAwYDCAQIBQgGBAEFAQYBAgMCAQAtAAIBAQAcAAJAAf4NARkAAAEAAwwAIAQXU90OSkPKflA0vsuP+LXWOA9GK1YkIJHXQzB2YUpQAO/IJ78YuBt22VcMZy9u41b3OthTFPTMxHHH4XaCXFLA5qr8EbjqTENMup7boZUOGyexCK/m4ThQh2zYedpsPdEefIAHvOaDZ863/XHk85/6CmBp2uqfGtrn+BjKjb13L043MSGF4WG0a7kefNubM1qzddQH8+IAgbVhYsgQIDtZq6Cd5n3aNmsd2hrxaO3Py9Tfgy3Tl8ZHynuCiujcceJ2PcLF0ag4idZ1P01pRMfv4Fg3Su4luL+Cz+J8sORDo5clueokJUK+sqdv5k0vt3CmvV+lHW0n27XiTPl4xDUDvXVrvbj8yPjEW8ouyelfYw==",
+      "records": [
+        {
+          "type": 22,
+          "version": 769,
+          "bytes": 659
+        }
+      ],
+      "status": "captured-only",
+      "parsed": {
+        "bytes": 659,
+        "legacy_version": 771,
+        "session_id_bytes": 32,
+        "ciphers": [
+          4865,
+          4867,
+          4866,
+          49195,
+          49199,
+          52393,
+          52392,
+          49196,
+          49200,
+          49162,
+          49161,
+          49171,
+          49172,
+          156,
+          157,
+          47,
+          53
+        ],
+        "compression_methods": [
+          0
+        ],
+        "extensions": [
+          {
+            "type": 0,
+            "bytes": 21,
+            "names": [
+              {
+                "type": 0,
+                "name": "fingerprint.test"
+              }
+            ]
+          },
+          {
+            "type": 23,
+            "bytes": 0,
+            "payload_hex": ""
+          },
+          {
+            "type": 65281,
+            "bytes": 1,
+            "payload_hex": "00"
+          },
+          {
+            "type": 10,
+            "bytes": 14,
+            "values": [
+              29,
+              23,
+              24,
+              25,
+              256,
+              257
+            ]
+          },
+          {
+            "type": 11,
+            "bytes": 2,
+            "payload_hex": "0100"
+          },
+          {
+            "type": 35,
+            "bytes": 0,
+            "ticket_bytes": 0
+          },
+          {
+            "type": 16,
+            "bytes": 14,
+            "protocols": [
+              "h2",
+              "http/1.1"
+            ]
+          },
+          {
+            "type": 5,
+            "bytes": 5,
+            "payload_hex": "0100000000"
+          },
+          {
+            "type": 34,
+            "bytes": 10,
+            "values": [
+              1027,
+              1283,
+              1539,
+              515
+            ]
+          },
+          {
+            "type": 51,
+            "bytes": 107,
+            "shares": [
+              {
+                "group": 29,
+                "bytes": 32
+              },
+              {
+                "group": 23,
+                "bytes": 65,
+                "point_format": 4
+              }
+            ]
+          },
+          {
+            "type": 43,
+            "bytes": 5,
+            "values": [
+              772,
+              771
+            ]
+          },
+          {
+            "type": 13,
+            "bytes": 24,
+            "values": [
+              1027,
+              1283,
+              1539,
+              2052,
+              2053,
+              2054,
+              1025,
+              1281,
+              1537,
+              515,
+              513
+            ]
+          },
+          {
+            "type": 45,
+            "bytes": 2,
+            "payload_hex": "0101"
+          },
+          {
+            "type": 28,
+            "bytes": 2,
+            "payload_hex": "4001"
+          },
+          {
+            "type": 65037,
+            "bytes": 281,
+            "hello_type": 0,
+            "kdf": 1,
+            "aead": 3,
+            "enc_bytes": 32,
+            "payload_bytes": 239
+          }
+        ],
+        "raw_sha256": "6780a02d14dadda983299c6cfdb13b451dcd3af2f80f22f396aded6cd53e6220"
+      }
+    },
+    {
+      "case_id": "CF0-firefox-reality-16-0",
+      "profile": "firefox",
+      "context": "reality",
+      "template": "Firefox120",
+      "port": 24430,
+      "sequence": 46,
+      "client_hello_b64": "AQACjwMD8nDP+fDwCjbjT15dbwGqrLItMf7FMzYnARyX3CCFuUwgIL9PGveZNjcUNE/c9Rbs6EFf8e3nAqeasvj3mMHWQQsAIhMBEwMTAsArwC/MqcyowCzAMMAKwAnAE8AUAJwAnQAvADUBAAIkAAAAFQATAAAQZmluZ2VycHJpbnQudGVzdAAXAAD/AQABAAAKAA4ADAAdABcAGAAZAQABAQALAAIBAAAjAAAAEAAOAAwCaDIIaHR0cC8xLjEABQAFAQAAAAAAIgAKAAgEAwUDBgMCAwAzAGsAaQAdACCwAQy4OYINaLECLRrHNCw0ShI3268BCI3tCuFuqlN/KwAXAEEEegE2eHH/D1588UY8aTsUI/V3U0147baH3rCQgS8E6ANjbhFjs8QjTW/ISjd8V0JfAnpLyfU1mnSwVVDSdUDFtQArAAUEAwQDAwANABgAFgQDBQMGAwgECAUIBgQBBQEGAQIDAgEALQACAQEAHAACQAH+DQEZAAABAAMNACB2lbAhwsalR1fjWyvzc5hRkzQFRcsj0wIl9wUp/a0yKADvf73hX9wKXRBZTjJ0hHTOfTisZqopgIYCAUr3r41qM3AhYRA/kX3vAFCB5Z5EChnt3//iNS1C5UeDCRcFTlAfyrpcML9uRQK/+920Yzsg395dBy6ze+lrl6+06s2CWbwJJh2tGamh3LmjVLZ+616OVB8KaydDmsEvOih+nqtyhz6+HFrFB7u+yt3KQ1zDb/5bv55n2FWb7cDPHqxE6iHQYSzshaa1fM08NzbgDeYNGaSmGeiTxByv8LPeDhvpls4o097E7V0Iuqg5cjX+EyzL4PuTPJbmqeQHVDeGrHRZ6+k4eR5w0E1dqaaJQICklz4=",
+      "records_b64": "FgMBApMBAAKPAwPycM/58PAKNuNPXl1vAaqssi0x/sUzNicBHJfcIIW5TCAgv08a95k2NxQ0T9z1FuzoQV/x7ecCp5qy+PeYwdZBCwAiEwETAxMCwCvAL8ypzKjALMAwwArACcATwBQAnACdAC8ANQEAAiQAAAAVABMAABBmaW5nZXJwcmludC50ZXN0ABcAAP8BAAEAAAoADgAMAB0AFwAYABkBAAEBAAsAAgEAACMAAAAQAA4ADAJoMghodHRwLzEuMQAFAAUBAAAAAAAiAAoACAQDBQMGAwIDADMAawBpAB0AILABDLg5gg1osQItGsc0LDRKEjfbrwEIje0K4W6qU38rABcAQQR6ATZ4cf8PXnzxRjxpOxQj9XdTTXjttofesJCBLwToA2NuEWOzxCNNb8hKN3xXQl8CekvJ9TWadLBVUNJ1QMW1ACsABQQDBAMDAA0AGAAWBAMFAwYDCAQIBQgGBAEFAQYBAgMCAQAtAAIBAQAcAAJAAf4NARkAAAEAAw0AIHaVsCHCxqVHV+NbK/NzmFGTNAVFyyPTAiX3BSn9rTIoAO9/veFf3ApdEFlOMnSEdM59OKxmqimAhgIBSvevjWozcCFhED+Rfe8AUIHlnkQKGe3f/+I1LULlR4MJFwVOUB/Kulwwv25FAr/73bRjOyDf3l0HLrN76WuXr7TqzYJZvAkmHa0ZqaHcuaNUtn7rXo5UHwprJ0OawS86KH6eq3KHPr4cWsUHu77K3cpDXMNv/lu/nmfYVZvtwM8erETqIdBhLOyFprV8zTw3NuAN5g0ZpKYZ6JPEHK/ws94OG+mWzijT3sTtXQi6qDlyNf4TLMvg+5M8luap5AdUN4asdFnr6Th5HnDQTV2ppolAgKSXPg==",
+      "records": [
+        {
+          "type": 22,
+          "version": 769,
+          "bytes": 659
+        }
+      ],
+      "status": "captured-only",
+      "parsed": {
+        "bytes": 659,
+        "legacy_version": 771,
+        "session_id_bytes": 32,
+        "ciphers": [
+          4865,
+          4867,
+          4866,
+          49195,
+          49199,
+          52393,
+          52392,
+          49196,
+          49200,
+          49162,
+          49161,
+          49171,
+          49172,
+          156,
+          157,
+          47,
+          53
+        ],
+        "compression_methods": [
+          0
+        ],
+        "extensions": [
+          {
+            "type": 0,
+            "bytes": 21,
+            "names": [
+              {
+                "type": 0,
+                "name": "fingerprint.test"
+              }
+            ]
+          },
+          {
+            "type": 23,
+            "bytes": 0,
+            "payload_hex": ""
+          },
+          {
+            "type": 65281,
+            "bytes": 1,
+            "payload_hex": "00"
+          },
+          {
+            "type": 10,
+            "bytes": 14,
+            "values": [
+              29,
+              23,
+              24,
+              25,
+              256,
+              257
+            ]
+          },
+          {
+            "type": 11,
+            "bytes": 2,
+            "payload_hex": "0100"
+          },
+          {
+            "type": 35,
+            "bytes": 0,
+            "ticket_bytes": 0
+          },
+          {
+            "type": 16,
+            "bytes": 14,
+            "protocols": [
+              "h2",
+              "http/1.1"
+            ]
+          },
+          {
+            "type": 5,
+            "bytes": 5,
+            "payload_hex": "0100000000"
+          },
+          {
+            "type": 34,
+            "bytes": 10,
+            "values": [
+              1027,
+              1283,
+              1539,
+              515
+            ]
+          },
+          {
+            "type": 51,
+            "bytes": 107,
+            "shares": [
+              {
+                "group": 29,
+                "bytes": 32
+              },
+              {
+                "group": 23,
+                "bytes": 65,
+                "point_format": 4
+              }
+            ]
+          },
+          {
+            "type": 43,
+            "bytes": 5,
+            "values": [
+              772,
+              771
+            ]
+          },
+          {
+            "type": 13,
+            "bytes": 24,
+            "values": [
+              1027,
+              1283,
+              1539,
+              2052,
+              2053,
+              2054,
+              1025,
+              1281,
+              1537,
+              515,
+              513
+            ]
+          },
+          {
+            "type": 45,
+            "bytes": 2,
+            "payload_hex": "0101"
+          },
+          {
+            "type": 28,
+            "bytes": 2,
+            "payload_hex": "4001"
+          },
+          {
+            "type": 65037,
+            "bytes": 281,
+            "hello_type": 0,
+            "kdf": 1,
+            "aead": 3,
+            "enc_bytes": 32,
+            "payload_bytes": 239
+          }
+        ],
+        "raw_sha256": "3f7582e1e36b41682cf9954f32240a678dd8dcd216defa9120e4cda8a77e5d61"
+      }
+    },
+    {
+      "case_id": "CF0-safari-tcp-16-0",
+      "profile": "safari",
+      "context": "tcp",
+      "template": "Safari16.0",
+      "port": 24430,
+      "sequence": 66,
+      "client_hello_b64": "AQAB/AMDtDp3Ct99nf+jPE1w1eAvrrxYaJwxc4R2g8KwDFp5I+sglE6F3C9Pb90EsEcO8n2dFfSAl1tHVzGHxxx8RjU78n0AKkpKEwETAhMDwCzAK8ypwDDAL8yowArACcAUwBMAnQCcADUAL8AIwBIACgEAAYm6ugAAAAAAFQATAAAQZmluZ2VycHJpbnQudGVzdAAXAAD/AQABAAAKAAwACqqqAB0AFwAYABkACwACAQAAEAAOAAwCaDIIaHR0cC8xLjEABQAFAQAAAAAADQAYABYEAwgEBAEFAwIDCAUIBQUBCAYGAQIBABIAAAAzACsAKaqqAAEAAB0AIEQYHgAPHKuKdVs5Cw0DfypzXmNpyUqyH256her3TbsIAC0AAgEBACsACwqKigMEAwMDAgMBABsAAwIAATo6AAEAABUAvgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      "records_b64": "FgMBAgABAAH8AwO0OncK332d/6M8TXDV4C+uvFhonDFzhHaDwrAMWnkj6yCUToXcL09v3QSwRw7yfZ0V9ICXW0dXMYfHHHxGNTvyfQAqSkoTARMCEwPALMArzKnAMMAvzKjACsAJwBTAEwCdAJwANQAvwAjAEgAKAQABibq6AAAAAAAVABMAABBmaW5nZXJwcmludC50ZXN0ABcAAP8BAAEAAAoADAAKqqoAHQAXABgAGQALAAIBAAAQAA4ADAJoMghodHRwLzEuMQAFAAUBAAAAAAANABgAFgQDCAQEAQUDAgMIBQgFBQEIBgYBAgEAEgAAADMAKwApqqoAAQAAHQAgRBgeAA8cq4p1WzkLDQN/KnNeY2nJSrIfbnqF6vdNuwgALQACAQEAKwALCoqKAwQDAwMCAwEAGwADAgABOjoAAQAAFQC+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "records": [
+        {
+          "type": 22,
+          "version": 769,
+          "bytes": 512
+        }
+      ],
+      "status": "captured-only",
+      "parsed": {
+        "bytes": 512,
+        "legacy_version": 771,
+        "session_id_bytes": 32,
+        "ciphers": [
+          19018,
+          4865,
+          4866,
+          4867,
+          49196,
+          49195,
+          52393,
+          49200,
+          49199,
+          52392,
+          49162,
+          49161,
+          49172,
+          49171,
+          157,
+          156,
+          53,
+          47,
+          49160,
+          49170,
+          10
+        ],
+        "compression_methods": [
+          0
+        ],
+        "extensions": [
+          {
+            "type": 47802,
+            "bytes": 0,
+            "payload_hex": ""
+          },
+          {
+            "type": 0,
+            "bytes": 21,
+            "names": [
+              {
+                "type": 0,
+                "name": "fingerprint.test"
+              }
+            ]
+          },
+          {
+            "type": 23,
+            "bytes": 0,
+            "payload_hex": ""
+          },
+          {
+            "type": 65281,
+            "bytes": 1,
+            "payload_hex": "00"
+          },
+          {
+            "type": 10,
+            "bytes": 12,
+            "values": [
+              43690,
+              29,
+              23,
+              24,
+              25
+            ]
+          },
+          {
+            "type": 11,
+            "bytes": 2,
+            "payload_hex": "0100"
+          },
+          {
+            "type": 16,
+            "bytes": 14,
+            "protocols": [
+              "h2",
+              "http/1.1"
+            ]
+          },
+          {
+            "type": 5,
+            "bytes": 5,
+            "payload_hex": "0100000000"
+          },
+          {
+            "type": 13,
+            "bytes": 24,
+            "values": [
+              1027,
+              2052,
+              1025,
+              1283,
+              515,
+              2053,
+              2053,
+              1281,
+              2054,
+              1537,
+              513
+            ]
+          },
+          {
+            "type": 18,
+            "bytes": 0,
+            "payload_hex": ""
+          },
+          {
+            "type": 51,
+            "bytes": 43,
+            "shares": [
+              {
+                "group": 43690,
+                "bytes": 1,
+                "grease_data": "00"
+              },
+              {
+                "group": 29,
+                "bytes": 32
+              }
+            ]
+          },
+          {
+            "type": 45,
+            "bytes": 2,
+            "payload_hex": "0101"
+          },
+          {
+            "type": 43,
+            "bytes": 11,
+            "values": [
+              35466,
+              772,
+              771,
+              770,
+              769
+            ]
+          },
+          {
+            "type": 27,
+            "bytes": 3,
+            "values": [
+              1
+            ]
+          },
+          {
+            "type": 14906,
+            "bytes": 1,
+            "payload_hex": "00"
+          },
+          {
+            "type": 21,
+            "bytes": 190,
+            "payload_hex": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ],
+        "raw_sha256": "f4a6a7f8fad25f919e4d2a8eb96befcde3d0df23bc4ff941e6250fbd7f8b539f"
+      }
+    },
+    {
+      "case_id": "CF0-safari-reality-16-0",
+      "profile": "safari",
+      "context": "reality",
+      "template": "Safari16.0",
+      "port": 24430,
+      "sequence": 78,
+      "client_hello_b64": "AQAB/AMD/2PySojaNsOovsiizPyXIkays1xNhJVhWa7OzryT2lMg76NSvKOG/1kpntp7k+oGmyvzpJDN/gSaj/GNL0kjwrYAKsrKEwETAhMDwCzAK8ypwDDAL8yowArACcAUwBMAnQCcADUAL8AIwBIACgEAAYkqKgAAAAAAFQATAAAQZmluZ2VycHJpbnQudGVzdAAXAAD/AQABAAAKAAwACjo6AB0AFwAYABkACwACAQAAEAAOAAwCaDIIaHR0cC8xLjEABQAFAQAAAAAADQAYABYEAwgEBAEFAwIDCAUIBQUBCAYGAQIBABIAAAAzACsAKTo6AAEAAB0AIA0+wC1iWKdriCkbnhofrlNzxZG0bVCd5deuogXIboYBAC0AAgEBACsACwoqKgMEAwMDAgMBABsAAwIAAYqKAAEAABUAvgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      "records_b64": "FgMBAgABAAH8AwP/Y/JKiNo2w6i+yKLM/JciRrKzXE2ElWFZrs7OvJPaUyDvo1K8o4b/WSme2nuT6gabK/OkkM3+BJqP8Y0vSSPCtgAqysoTARMCEwPALMArzKnAMMAvzKjACsAJwBTAEwCdAJwANQAvwAjAEgAKAQABiSoqAAAAAAAVABMAABBmaW5nZXJwcmludC50ZXN0ABcAAP8BAAEAAAoADAAKOjoAHQAXABgAGQALAAIBAAAQAA4ADAJoMghodHRwLzEuMQAFAAUBAAAAAAANABgAFgQDCAQEAQUDAgMIBQgFBQEIBgYBAgEAEgAAADMAKwApOjoAAQAAHQAgDT7ALWJYp2uIKRueGh+uU3PFkbRtUJ3l166iBchuhgEALQACAQEAKwALCioqAwQDAwMCAwEAGwADAgABiooAAQAAFQC+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "records": [
+        {
+          "type": 22,
+          "version": 769,
+          "bytes": 512
+        }
+      ],
+      "status": "captured-only",
+      "parsed": {
+        "bytes": 512,
+        "legacy_version": 771,
+        "session_id_bytes": 32,
+        "ciphers": [
+          51914,
+          4865,
+          4866,
+          4867,
+          49196,
+          49195,
+          52393,
+          49200,
+          49199,
+          52392,
+          49162,
+          49161,
+          49172,
+          49171,
+          157,
+          156,
+          53,
+          47,
+          49160,
+          49170,
+          10
+        ],
+        "compression_methods": [
+          0
+        ],
+        "extensions": [
+          {
+            "type": 10794,
+            "bytes": 0,
+            "payload_hex": ""
+          },
+          {
+            "type": 0,
+            "bytes": 21,
+            "names": [
+              {
+                "type": 0,
+                "name": "fingerprint.test"
+              }
+            ]
+          },
+          {
+            "type": 23,
+            "bytes": 0,
+            "payload_hex": ""
+          },
+          {
+            "type": 65281,
+            "bytes": 1,
+            "payload_hex": "00"
+          },
+          {
+            "type": 10,
+            "bytes": 12,
+            "values": [
+              14906,
+              29,
+              23,
+              24,
+              25
+            ]
+          },
+          {
+            "type": 11,
+            "bytes": 2,
+            "payload_hex": "0100"
+          },
+          {
+            "type": 16,
+            "bytes": 14,
+            "protocols": [
+              "h2",
+              "http/1.1"
+            ]
+          },
+          {
+            "type": 5,
+            "bytes": 5,
+            "payload_hex": "0100000000"
+          },
+          {
+            "type": 13,
+            "bytes": 24,
+            "values": [
+              1027,
+              2052,
+              1025,
+              1283,
+              515,
+              2053,
+              2053,
+              1281,
+              2054,
+              1537,
+              513
+            ]
+          },
+          {
+            "type": 18,
+            "bytes": 0,
+            "payload_hex": ""
+          },
+          {
+            "type": 51,
+            "bytes": 43,
+            "shares": [
+              {
+                "group": 14906,
+                "bytes": 1,
+                "grease_data": "00"
+              },
+              {
+                "group": 29,
+                "bytes": 32
+              }
+            ]
+          },
+          {
+            "type": 45,
+            "bytes": 2,
+            "payload_hex": "0101"
+          },
+          {
+            "type": 43,
+            "bytes": 11,
+            "values": [
+              10794,
+              772,
+              771,
+              770,
+              769
+            ]
+          },
+          {
+            "type": 27,
+            "bytes": 3,
+            "values": [
+              1
+            ]
+          },
+          {
+            "type": 35466,
+            "bytes": 1,
+            "payload_hex": "00"
+          },
+          {
+            "type": 21,
+            "bytes": 190,
+            "payload_hex": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ],
+        "raw_sha256": "ca80ca85d45a87187c0afba988e5dd5336772409338f7140e52bb0955290d98c"
+      }
+    }
+  ]
+}

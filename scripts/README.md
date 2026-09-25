@@ -74,6 +74,22 @@ uv run --project scripts --locked python -m vcore_scripts.protocol_fingerprint t
 默认 34 组包含 gRPC TLS 和 Vision REALITY 各 20 轮公共启停、20 轮资源归零检查，
 每轮 Stop 当时检查，再静默 5 秒；阶段源码在一轮运行中不得修改。
 
+精选指纹的 `selected-v1` 增量基线使用独立入口：
+
+```sh
+uv run --project scripts --locked python -m vcore_scripts.protocol_fingerprint_reference --list
+uv run --project scripts --locked python -m vcore_scripts.protocol_fingerprint_reference --run-dir target/interop/runs/<fresh-run>
+uv run --project scripts --locked python -m vcore_scripts.protocol_fingerprint_reference --check-run target/interop/runs/<reference-run>
+uv run --project scripts --locked python -m vcore_scripts.protocol_fingerprint --help
+```
+
+基线入口每轮下载官方 latest Mihomo，在隔离容器中记录 116 组参考 ClientHello（包含
+16 组 OpenSSL TLS-only 握手）。原始记录、来源、清理和结构检查均通过才返回
+`BASELINE VERIFIED`；这不是 VCore 业务互通结果。`--case` 可重复用于定向采样，
+部分选择不能签收 CF0。比较规则与后续冻结门禁见 [selected-v1](../tests/fingerprints/README.md)。
+既有业务驱动新增显式 `--client-fingerprint` 参数，目前仅允许已实现的 `chrome120`，
+未实现名称不会借用旧模板或提前开放生产配置。
+
 ### 协议声明清单
 
 N5 前置原生能力诊断（不是阶段签收）另有以下入口，输出目录必须是本仓库 `target/interop/runs/` 下尚不存在的直接子目录：

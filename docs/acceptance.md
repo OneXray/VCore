@@ -14,6 +14,8 @@
 
 ## 自动化覆盖
 
+2026-09-25 [精选指纹 CF0](acceptance/client-fingerprint-selected/CF0.md)完成七值/四模板的独立官方参考基线、116 组原始观测检查与冻结门禁。它只签收 `selected-v1` 的采样设施，不扩大生产名称、不抵扣新模板业务互通或平台验收；后续 CF1–CF5 独立记录。
+
 2026-09-25 [TLS 指纹接线](acceptance/tls-client-fingerprint.md)接入 boring 的 `chrome120` 和经典 REALITY，schema19 / Invoke v5。随后[退役自有 rustls fork](acceptance/rustls-fork-retirement.md)：普通无指纹 TLS、QUIC、WebPKI 改用官方 crates.io rustls；最新替换回归为 132 项容器检查及 Apple/Android 构建通过。旧 fork 将永久删除，以下 N0–N5 记录保留当时的依赖摘要，不保证历史版本重建，也不计为当前后端的新增能力。现行依赖见 [TLS 依赖](tls-dependencies.md)。
 
 下一版协议从独立 N0 基线开始，进度见 [N0 基线与可行性门禁](acceptance/next-protocols/N0.md)。2026-09-22/23 的新基线与接口实验不继承本页历史通过状态，也不代表新五协议或平台交付已经完成。混合 REALITY 的自有 fork 局部实验已通过；fork 依赖已升级，但 VCore 生产仍未启用混合组；[N0-D QUIC 原生入口](acceptance/next-protocols/N0-quic-entries.md)已验证，原生半关闭失败和 N0 其余门禁仍保留。

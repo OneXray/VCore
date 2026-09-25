@@ -1,5 +1,6 @@
 """Named-profile VCore integration, reusing the owned container wire harness."""
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -47,12 +48,23 @@ CASES = [
     "N4-VISION-REALITY-OWNED",
 ]
 
-if __name__ == "__main__":
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("output", type=Path)
+    parser.add_argument("cases", nargs="*")
+    # Grow this only with verified VCore support, not reference-client names.
+    parser.add_argument(
+        "--client-fingerprint", choices=("chrome120",), default="chrome120"
+    )
+    args = parser.parse_args(argv)
     with exclusive_run():
-        sys.exit(
-            run(
-                Path(sys.argv[1]).resolve(),
-                sys.argv[2:] or CASES,
-                client_fingerprint="chrome120",
-            )
+        return run(
+            args.output.resolve(),
+            args.cases or CASES,
+            client_fingerprint=args.client_fingerprint,
         )
+
+
+if __name__ == "__main__":
+    sys.exit(main())
