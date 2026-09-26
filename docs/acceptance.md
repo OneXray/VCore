@@ -60,10 +60,19 @@
 
 2026-09-26 [N7.2 混合 REALITY 子包](acceptance/next-protocols/N7-reality-hybrid.md)完成 S03/D16 本地验收。获准发布的 boring revision `b7639ab7` 已接入，经典默认不变；显式混合仅接受无命名模板或 Chrome133，实际协商 group 4588，否则失败关闭。完整容器门禁 54/54、四模板定向回归 32/32、160 轮生命周期/资源检查及 Apple 五目标/Android 两 ABI Release 构建通过，88 个所属容器回收。主/下载腿、图/入口/测速、实际 share 和认证负例分别取证；schema22 / Invoke v5。[开发记录](acceptance/next-protocols/N7-progress.md)保留原始接口/夹具失败与 fork 13/13 前置证据；Encryption、ECH、附加封装和 N7.5 尚未完成，不是完整 N7 或完整 VLESS 签收。
 
+同日 [N7.1 Encryption 子包](acceptance/next-protocols/N7-encryption.md)完成 VL06 本地签收。
+同一冻结输入通过公开主矩阵 59/59、其他五类组合 35/35、分层传输/复用 36/36，
+常规与 ChaCha wire 各 18/18、真实票据过期 9/9、最大 padding 选定项 2/2，
+以及 120 轮公开/自有生命周期与资源检查。Apple 五目标/Android 两 ABI Release
+构建与本地共享回归通过。schema23 / Invoke v5；认证失败不自动重放业务，Vision
+direct 关闭逐外观与真实 Mihomo 对照。N7.3–N7.5、设备、Windows 原生、远端 CI
+和完整 N7 仍未签收。[ShadowTLS v3 fork 门禁](acceptance/next-protocols/N7-shadow-tls.md)
+25/25 及其单独发布授权不等于 VCore 已支持该封装。
+
 当前 source/tests 覆盖：
 
 - Invoke API v5、单实例生命周期、Debug/Release 运行时线程重入拒绝、panic 与同步清理；
-- schema revision 22、IPv6、严格 YAML、节点 / `select` 组上游混合 DAG 和 node-only 测速；
+- schema revision 23、IPv6、严格 YAML、节点 / `select` 组上游混合 DAG 和 node-only 测速；
 - 组上游与路由的共享选择、SOCKS5 UDP 建链快照、潜在 DIRECT 首跳准备、独立下载端点和深图回收；
 - HTTP 本机 / 认证共享、双栈监听回滚、逐请求认证与分发、Keep-Alive / 正文定界、CONNECT / Upgrade、10 MiB 双向摘要与活动连接 Stop；
 - SOCKS5 入站认证、三类目标、半关闭、TCP 授权 UDP、源端口学习/隔离、IPv6 作用域固定端口/学习端口匹配与跨接口隔离、过期/满队列/慢上游取消及纯 SOCKS5 Controller（作用域匹配为合成地址测试，不代表物理 LAN 验证）；

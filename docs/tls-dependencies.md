@@ -37,8 +37,9 @@ N7.1 Encryption 复用同一 boring 的公共 X25519、ML-KEM-768、AEAD 和 AES
 使用获准的私有 `vcore-blake3-raw`，只包装未修改的官方 BLAKE3 1.8.7 C portable
 源。来源/逐文件 hash/许可证与符号隔离见 [crate 说明](../crates/vcore-blake3-raw/README.md)。
 临时自有密钥材料采用 `zeroize 1.9.0`；不宣称能擦除第三方内部临时副本。
-这不新增 TLS 后端，不使用外部研究路径或 build-time 下载。当前 Encryption 模块
-仍只由 test / interop-test 编译；其原语和 wire 证据不能替代公开功能与生产构建。
+这不新增 TLS 后端，不使用外部研究路径或 build-time 下载。Encryption 随
+`outbound-vless` 编译，默认算法根据 CPU 选择；测试用强制 ChaCha 入口只存在于
+`interop-test`。原语和 wire 证据不替代公开功能、完整 N7.1 与生产平台构建。
 
 旧 rustls fork 已退役，远端计划永久删除，不再作为依赖、回退或重建来源。旧 REALITY 选择实验已从 security spike 移除；纯内存 TLS/record、HPKE/ECH 与官方 binding 接口实验仍保留。历史 N0/N1 验收保留当时的结果与摘要，不追改为官方 rustls 或 boring 的新结果；旧 Git 提交可能无法再重建。当前替换验证见 [fork 退役验收](acceptance/rustls-fork-retirement.md)。
 

@@ -1,8 +1,6 @@
 //! VLESS framing and connector assembly over shared stream transports.
 mod codec;
 mod datagram;
-// The native wire seam is exercised before admitting public YAML or runtime wiring.
-#[cfg(any(test, feature = "interop-test"))]
 #[doc(hidden)]
 pub mod encryption;
 mod outbound;

@@ -30,6 +30,21 @@ func check(err error) {
 	}
 }
 
+func aeadFor(name string, ctx, material []byte) cipher.AEAD {
+	key := make([]byte, 32)
+	blake3.DeriveKey(key, string(ctx), material)
+	if name == "aes256gcm" {
+		block, err := aes.NewCipher(key)
+		check(err)
+		aead, err := cipher.NewGCM(block)
+		check(err)
+		return aead
+	}
+	aead, err := chacha20poly1305.New(key)
+	check(err)
+	return aead
+}
+
 func main() {
 	seed := pattern(64, 7, 1)
 	kem, err := mlkem.NewDecapsulationKey768(seed)
@@ -93,6 +108,41 @@ func main() {
 	check(err)
 	ctrOut := make([]byte, len(plain))
 	cipher.NewCTR(ctrBlock, context).XORKeyStream(ctrOut, plain)
+	var wrapped []map[string]string
+	for _, name := range []string{"aes256gcm", "chacha20poly1305"} {
+		aead := aeadFor(name, context, material)
+		var wire []byte
+		for index := range 3 {
+			nonce := make([]byte, 12)
+			if index == 0 {
+				for i := range nonce {
+					nonce[i] = 255
+				}
+			} else if index == 2 {
+				nonce[11] = 1
+			}
+			frame := append(append([]byte{}, aad...), aead.Seal(nil, nonce, plain, aad)...)
+			wire = append(wire, frame...)
+			if index == 1 {
+				aead = aeadFor(name, frame, material)
+			}
+		}
+		wrapped = append(wrapped, map[string]string{
+			"cipher": name, "context": hex.EncodeToString(context), "key": hex.EncodeToString(material),
+			"plaintext": hex.EncodeToString(append(append(append([]byte{}, plain...), plain...), plain...)),
+			"wire":      hex.EncodeToString(wire),
+		})
+	}
+	var headersPlain, headersCipher []byte
+	headerCTR := cipher.NewCTR(ctrBlock, context)
+	for range 3 {
+		// An application-data record with an independently generated AEAD body.
+		body := gcm.Seal(nil, make([]byte, 12), plain, aad)
+		header := append([]byte{}, aad...)
+		headersPlain = append(append(headersPlain, header...), body...)
+		headerCTR.XORKeyStream(header, header)
+		headersCipher = append(append(headersCipher, header...), body...)
+	}
 	encoder := json.NewEncoder(os.Stdout)
 	encoder.SetIndent("", "  ")
 	check(encoder.Encode(map[string]any{
@@ -102,6 +152,7 @@ func main() {
 		"x25519_private": hex.EncodeToString(secret), "x25519_public": hex.EncodeToString(x.PublicKey().Bytes()),
 		"x25519_peer": hex.EncodeToString(peer.PublicKey().Bytes()), "x25519_shared": hex.EncodeToString(xShared),
 		"ctr_context": hex.EncodeToString(context), "ctr_key": hex.EncodeToString(material), "ctr_plaintext": hex.EncodeToString(plain), "ctr_ciphertext": hex.EncodeToString(ctrOut),
-		"records": records,
+		"records": records, "wrap_records": wrapped,
+		"headers_plaintext": hex.EncodeToString(headersPlain), "headers_ciphertext": hex.EncodeToString(headersCipher),
 	}))
 }

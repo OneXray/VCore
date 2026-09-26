@@ -3,8 +3,10 @@
 import json
 import os
 import socket
+import ssl
 import struct
 import sys
+from pathlib import Path
 
 
 def exact(io, length):
@@ -17,11 +19,14 @@ def exact(io, length):
     return bytes(data)
 
 
-def main(proxy, origin):
+def main(proxy, origin, variant="plain"):
     if sys.platform != "linux" or os.environ.get("VCORE_ISOLATED_ORIGIN") != "1":
         raise RuntimeError("isolated close consumer required")
     with socket.create_connection((origin, 24000), timeout=10) as control:
-        control.sendall(b"\x0b")
+        vision = variant == "vision-direct"
+        if variant not in ("plain", "vision-direct"):
+            raise ValueError("unknown close variant")
+        control.sendall(b"\x15" if vision else b"\x0b")
         port = struct.unpack("!H", exact(control, 2))[0]
         with socket.create_connection((proxy, 23002), timeout=10) as client:
             client.sendall(b"\x05\x01\x00")
@@ -32,20 +37,37 @@ def main(proxy, origin):
             header = exact(client, 4)
             assert header[:3] == b"\x05\x00\x00"
             exact(client, 6 if header[3] == 1 else 18)
-            assert exact(client, 5) == b"hello"
-            client.sendall(b"ping")
-            assert exact(client, 4) == b"ping"
+            io = client
+            if vision:
+                from tls_bio import TlsBio
+
+                context = ssl.create_default_context(
+                    cafile=str(Path(__file__).with_name("cert.pem"))
+                )
+                context.minimum_version = ssl.TLSVersion.TLSv1_3
+                context.maximum_version = ssl.TLSVersion.TLSv1_3
+                io = TlsBio(client, context, server=False)
+                assert io.tls.version() == "TLSv1.3"
+                assert exact(control, 2) == b"A\x13"
+            assert exact(io, 5) == b"hello"
+            payload = b"Z" * 65536 if vision else b"ping"
+            io.sendall(payload)
+            assert exact(io, len(payload)) == payload
             client.shutdown(socket.SHUT_WR)
             tail = bytearray()
             try:
-                while chunk := client.recv(1024):
+                while chunk := io.recv(1024):
                     tail.extend(chunk)
                     if len(tail) > 1024:
                         raise ValueError("close tail limit")
             except ConnectionResetError:
                 pass
-            assert exact(control, 2) == b"AD"
-            print(json.dumps({"tail_hex": tail.hex(), "terminated": True}))
+            assert exact(control, 1 if vision else 2) == (b"D" if vision else b"AD")
+            print(
+                json.dumps(
+                    {"tail_hex": tail.hex(), "terminated": True, "variant": variant}
+                )
+            )
 
 
 if __name__ == "__main__":

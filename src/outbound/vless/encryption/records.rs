@@ -1,6 +1,8 @@
 use super::cache::{Cache, Ticket};
 use super::crypto::{Aead, Ctr, Suite, failure};
+use super::header_xor::HeaderXor;
 use crate::dispatch::BoxStream;
+use crate::security::vision::{SpliceControl, SpliceStats};
 use std::sync::Arc;
 use std::{
     io,
@@ -29,6 +31,11 @@ pub(super) struct Records {
     cache: Arc<Cache>,
     ticket: Option<Arc<Ticket>>,
     random_headers: bool,
+    vision: Option<(SpliceControl, Arc<SpliceStats>)>,
+    direct_write: bool,
+    pending_direct: bool,
+    direct_tx: HeaderXor,
+    direct_rx: HeaderXor,
 }
 
 enum Reading {
@@ -72,6 +79,11 @@ impl Records {
             cache,
             ticket,
             random_headers: false,
+            vision: None,
+            direct_write: false,
+            pending_direct: false,
+            direct_tx: HeaderXor::default(),
+            direct_rx: HeaderXor::default(),
         }
     }
 
@@ -106,7 +118,17 @@ impl Records {
             cache,
             ticket: Some(ticket),
             random_headers,
+            vision: None,
+            direct_write: false,
+            pending_direct: false,
+            direct_tx: HeaderXor::default(),
+            direct_rx: HeaderXor::default(),
         }
+    }
+
+    pub(super) fn with_vision(mut self, vision: Option<(SpliceControl, Arc<SpliceStats>)>) -> Self {
+        self.vision = vision;
+        self
     }
 
     fn open(&self) -> io::Result<()> {
@@ -154,6 +176,9 @@ impl Records {
                 Err(error) => return Poll::Ready(Err(self.fail(error))),
             };
             self.sent += count;
+            if self.pending_direct {
+                self.vision.as_ref().unwrap().1.record_written(count);
+            }
         }
         self.pending.clear();
         self.sent = 0;
@@ -176,6 +201,21 @@ impl Records {
             self.plain.zeroize();
             self.plain.clear();
             self.consumed = 0;
+            if let Some((control, stats)) = &self.vision
+                && control.reading_direct()
+            {
+                if !matches!(self.reading, Reading::Header) || self.filled != 0 {
+                    return Poll::Ready(Err(failure()));
+                }
+                let before = output.filled().len();
+                ready!(Pin::new(self.raw.as_mut().unwrap()).poll_read(cx, output))?;
+                if let Some(ctr) = &mut self.rx_ctr {
+                    self.direct_rx
+                        .apply(ctr, &mut output.filled_mut()[before..], true)?;
+                }
+                stats.record_read(output.filled().len() - before);
+                return Poll::Ready(Ok(()));
+            }
             if matches!(self.reading, Reading::Eof) {
                 return Poll::Ready(Ok(()));
             }
@@ -276,6 +316,28 @@ impl AsyncWrite for Records {
             return Poll::Ready(Ok(0));
         }
         let count = input.len().min(8192);
+        if self
+            .vision
+            .as_ref()
+            .is_some_and(|(control, _)| control.writing_direct())
+        {
+            if !self.direct_write {
+                let result = ready!(Pin::new(self.raw.as_mut().unwrap()).poll_flush(cx));
+                if let Err(error) = result {
+                    return Poll::Ready(Err(self.fail(error)));
+                }
+                self.direct_write = true;
+            }
+            self.pending.extend_from_slice(&input[..count]);
+            let this = &mut *self;
+            if let Some(ctr) = &mut this.tx_ctr
+                && let Err(error) = this.direct_tx.apply(ctr, &mut this.pending, false)
+            {
+                return Poll::Ready(Err(this.fail(error)));
+            }
+            self.pending_direct = true;
+            return Poll::Ready(Ok(count));
+        }
         let length = (count + 16) as u16;
         let mut header = [23, 3, 3, (length >> 8) as u8, length as u8];
         let rekey = self.tx.exhausted();
@@ -305,10 +367,38 @@ impl AsyncWrite for Records {
     }
 
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        if self.write_closed {
+            return Poll::Ready(Ok(()));
+        }
         ready!(self.drain(cx))?;
-        match Pin::new(self.raw.as_mut().unwrap()).poll_shutdown(cx) {
+        if self.tx_ctr.is_none()
+            && self
+                .vision
+                .as_ref()
+                .is_some_and(|(control, _)| control.writing_direct() || control.reading_direct())
+        {
+            // Vision exposes the underlying transport after direct switching.
+            // Native/xorpub therefore inherit its CloseWrite (TCP FIN or TLS
+            // close_notify). Random's XorConn is not replaceable in Mihomo and
+            // still has whole-connection close semantics.
+            return match Pin::new(self.raw.as_mut().unwrap()).poll_shutdown(cx) {
+                Poll::Ready(Ok(())) => {
+                    self.write_closed = true;
+                    Poll::Ready(Ok(()))
+                }
+                Poll::Ready(Err(error)) => Poll::Ready(Err(self.fail(error))),
+                result => result,
+            };
+        }
+        // Mihomo CommonConn does not expose CloseWrite/replaceable upstream.
+        // Flush pending records then release this whole logical transport.
+        // A normal close must not invalidate a reusable node-local ticket.
+        match Pin::new(self.raw.as_mut().unwrap()).poll_flush(cx) {
             Poll::Ready(Ok(())) => {
                 self.write_closed = true;
+                self.raw.take();
+                self.key.zeroize();
+                self.plain.zeroize();
                 Poll::Ready(Ok(()))
             }
             Poll::Ready(Err(error)) => Poll::Ready(Err(self.fail(error))),
@@ -387,7 +477,9 @@ mod tests {
         v.as_str()
             .unwrap()
             .as_bytes()
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|b| u8::from_str_radix(std::str::from_utf8(b).unwrap(), 16).unwrap())
             .collect()
     }
@@ -436,8 +528,134 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn nonce_wrap_rekeys_both_directions_using_independent_go_records() {
+        for v in vectors()["wrap_records"].as_array().unwrap() {
+            let output = Arc::new(Mutex::new(Vec::new()));
+            let mut stream = fixture(v, bytes(&v["wire"]), output.clone(), Arc::default());
+            let suite = if v["cipher"] == "aes256gcm" {
+                Suite::Aes
+            } else {
+                Suite::ChaCha
+            };
+            let mut rx = Aead::new(&bytes(&v["context"]), &bytes(&v["key"]), suite).unwrap();
+            let mut nonce = [255; 12];
+            nonce[11] = 254;
+            rx.set_test_nonce(nonce);
+            stream.tx.set_test_nonce(nonce);
+            stream.rx = Some(rx);
+            stream.reading = Reading::Header;
+            stream.input = vec![0; 5];
+            let plain = bytes(&v["plaintext"]);
+            for record in plain.chunks(37) {
+                stream.write_all(record).await.unwrap();
+            }
+            stream.flush().await.unwrap();
+            assert_eq!(*output.lock().unwrap(), bytes(&v["wire"]));
+            let mut received = Vec::new();
+            stream.read_to_end(&mut received).await.unwrap();
+            assert_eq!(received, plain);
+        }
+    }
+
+    #[tokio::test]
+    async fn vision_preserves_authenticated_buffer_then_switches_without_prefetching() {
+        for v in vectors()["records"].as_array().unwrap().iter().step_by(3) {
+            let payload = bytes(&v["plaintext"]);
+            let tail = b"independent-direct-tail";
+            let input = [bytes(&v["context"]), wire(v), tail.to_vec()].concat();
+            let output = Arc::new(Mutex::new(Vec::new()));
+            let stats = Arc::new(SpliceStats::default());
+            let control = SpliceControl::default();
+            let mut stream = fixture(v, input, output.clone(), Arc::default())
+                .with_vision(Some((control.clone(), stats.clone())));
+            let mut first = [0; 7];
+            stream.read_exact(&mut first).await.unwrap();
+            assert_eq!(first, payload[..7]);
+            control.read_direct();
+            let mut received = Vec::new();
+            stream.read_to_end(&mut received).await.unwrap();
+            assert_eq!(received, [payload[7..].to_vec(), tail.to_vec()].concat());
+            stream.write_all(&payload).await.unwrap();
+            control.write_direct();
+            stream.write_all(tail).await.unwrap();
+            stream.flush().await.unwrap();
+            assert_eq!(*output.lock().unwrap(), [wire(v), tail.to_vec()].concat());
+            assert_eq!(stats.bytes(), (tail.len() as u64, tail.len() as u64));
+        }
+    }
+
+    #[test]
+    fn random_direct_headers_match_go_with_every_fragment_boundary() {
+        let v = vectors();
+        let key = bytes(&v["ctr_key"]);
+        let iv: [u8; 16] = bytes(&v["ctr_context"]).try_into().unwrap();
+        for decrypt in [false, true] {
+            let (input, expected) = if decrypt {
+                (
+                    bytes(&v["headers_ciphertext"]),
+                    bytes(&v["headers_plaintext"]),
+                )
+            } else {
+                (
+                    bytes(&v["headers_plaintext"]),
+                    bytes(&v["headers_ciphertext"]),
+                )
+            };
+            for cut in 0..=input.len() {
+                let mut actual = input.clone();
+                let mut state = HeaderXor::default();
+                let mut ctr = Ctr::new(&key, &iv).unwrap();
+                state.apply(&mut ctr, &mut actual[..cut], decrypt).unwrap();
+                for byte in &mut actual[cut..] {
+                    state
+                        .apply(&mut ctr, std::slice::from_mut(byte), decrypt)
+                        .unwrap();
+                }
+                assert_eq!(actual, expected);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn close_preserves_read_direction_only_for_replaceable_vision_transport() {
+        let vectors = vectors();
+        let v = &vectors["records"][0];
+        for direct in [0, 1, 2] {
+            for random in [false, true] {
+                let dropped = Arc::new(AtomicBool::new(false));
+                let control = SpliceControl::default();
+                let mut stream = fixture(v, b"tail".to_vec(), Arc::default(), dropped.clone())
+                    .with_vision(Some((control.clone(), Arc::default())));
+                stream.reading = Reading::Header;
+                stream.input = vec![0; 5];
+                if random {
+                    stream.tx_ctr = Some(Ctr::new(&[1; 96], &[2; 16]).unwrap());
+                }
+                if direct == 1 {
+                    control.write_direct();
+                } else if direct == 2 {
+                    control.read_direct();
+                }
+                stream.shutdown().await.unwrap();
+                stream.shutdown().await.unwrap();
+                let retain = direct != 0 && !random;
+                assert_eq!(!dropped.load(Ordering::SeqCst), retain);
+                if retain {
+                    control.read_direct();
+                    let mut tail = Vec::new();
+                    stream.read_to_end(&mut tail).await.unwrap();
+                    assert_eq!(tail, b"tail");
+                }
+                assert!(stream.write_all(b"forbidden").await.is_err());
+                drop(stream);
+                assert!(dropped.load(Ordering::SeqCst));
+            }
+        }
+    }
+
+    #[tokio::test]
     async fn fragmented_io_and_cancelled_reads_preserve_independent_go_records() {
-        for records in vectors()["records"].as_array().unwrap().chunks_exact(3) {
+        for records in vectors()["records"].as_array().unwrap().as_chunks::<3>().0 {
             let v = &records[0];
             let expected = [wire(v), wire(&records[1])].concat();
             let input = [bytes(&v["context"]), expected.clone()].concat();
@@ -475,7 +693,7 @@ mod tests {
 
     #[tokio::test]
     async fn corrupt_truncated_or_replayed_records_fail_closed_without_plaintext() {
-        for records in vectors()["records"].as_array().unwrap().chunks_exact(3) {
+        for records in vectors()["records"].as_array().unwrap().as_chunks::<3>().0 {
             let v = &records[0];
             let good = wire(v);
             let variants = [

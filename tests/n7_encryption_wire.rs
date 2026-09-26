@@ -23,6 +23,14 @@ use vcore::{
 };
 
 struct CountWrites(BoxStream, Arc<AtomicUsize>, Arc<Mutex<Vec<u8>>>);
+fn encryption_client(fixture: &serde_json::Value, settings: &str) -> Client {
+    let client = Client::parse(settings).unwrap();
+    if fixture["force_chacha"] == true {
+        client.with_chacha20_poly1305_for_interop()
+    } else {
+        client
+    }
+}
 impl AsyncRead for CountWrites {
     fn poll_read(
         mut self: Pin<&mut Self>,
@@ -31,6 +39,89 @@ impl AsyncRead for CountWrites {
     ) -> Poll<io::Result<()>> {
         Pin::new(&mut self.0).poll_read(cx, b)
     }
+}
+
+#[tokio::test]
+#[ignore = "requires the owned N7 Encryption container harness"]
+async fn public_tcp_roundtrip() {
+    use vcore::{
+        config::{Config, ProxyProtocol},
+        dialer::ResolvedEndpoint,
+        outbound::{EstablishContext, OutboundConnector, VlessOutbound},
+        session::{InboundKind, StreamSession},
+    };
+    let fixture: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(std::env::var("VCORE_ENCRYPTION_FIXTURE").unwrap()).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(fixture["isolation"], "containers");
+    let config=Config::parse_yaml(&serde_json::to_vec(&serde_json::json!({"socks-port":1080,"proxies":[fixture["node"]],"rules":["MATCH,edge"]})).unwrap()).unwrap();
+    let ProxyProtocol::Vless(node) = &config.proxies[0].protocol else {
+        panic!()
+    };
+    let outbound = VlessOutbound::new(
+        node,
+        ResolvedEndpoint {
+            logical_host: node.address.clone(),
+            port: node.port,
+            addresses: vec![SocketAddr::new(node.address.parse().unwrap(), node.port)],
+        },
+        Dialer::default(),
+    )
+    .unwrap();
+    for round in 0..4 {
+        timeout(Duration::from_secs(25), async {
+            let family = if round % 2 == 0 { "ipv4" } else { "ipv6" };
+            let mut control =
+                tokio::net::TcpStream::connect(fixture["origin_control"].as_str().unwrap())
+                    .await
+                    .unwrap();
+            control
+                .write_u8(if round % 2 == 0 { 10 } else { 138 })
+                .await
+                .unwrap();
+            let port = control.read_u16().await.unwrap();
+            let destination = Destination::Ip(SocketAddr::new(
+                fixture[format!("origin_{family}")]
+                    .as_str()
+                    .unwrap()
+                    .parse()
+                    .unwrap(),
+                port,
+            ));
+            let mut stream = outbound
+                .connect_stream(
+                    StreamSession {
+                        inbound: InboundKind::InternalMeasure,
+                        source: "127.0.0.1:1".parse().unwrap(),
+                        destination,
+                        sniffed_domain: None,
+                    },
+                    &EstablishContext::default(),
+                )
+                .await
+                .unwrap()
+                .io;
+            let mut hello = [0; 5];
+            stream.read_exact(&mut hello).await.unwrap();
+            assert_eq!(hello, *b"hello");
+            assert_eq!(control.read_u8().await.unwrap(), b'A');
+            let payload = vec![0x5a; 10 * 1024 * 1024];
+            stream.write_all(&payload).await.unwrap();
+            stream.flush().await.unwrap();
+            let mut received = vec![0; payload.len() + 7];
+            stream.read_exact(&mut received).await.unwrap();
+            assert_eq!(&received[..payload.len()], &payload);
+            assert_eq!(&received[payload.len()..], b"trailer");
+            stream.shutdown().await.unwrap();
+            drop(stream);
+            assert_eq!(control.read_u8().await.unwrap(), b'D');
+        })
+        .await
+        .unwrap();
+    }
+    outbound.shutdown().await;
+    println!("N7-ENCRYPTION-CONSUMER-PASS rounds=4 bytes_per_direction=10485760");
 }
 impl AsyncWrite for CountWrites {
     fn poll_write(
@@ -99,7 +190,7 @@ async fn native_encryption_roundtrip() {
     )
     .unwrap();
     assert_eq!(fixture["isolation"], "containers");
-    let client = Client::parse(fixture["encryption"].as_str().unwrap()).unwrap();
+    let client = encryption_client(&fixture, fixture["encryption"].as_str().unwrap());
     let mut full_flight = 0;
     for round in 0..4 {
         let family = if round % 2 == 0 { "ipv4" } else { "ipv6" };
@@ -222,7 +313,7 @@ async fn native_encryption_roundtrip() {
     let encryption = fixture["encryption"].as_str().unwrap();
     // A separately constructed node must never inherit this node's ticket.
     identity_probe(
-        &Client::parse(encryption).unwrap(),
+        &encryption_client(&fixture, encryption),
         &fixture,
         false,
         true,
@@ -248,7 +339,7 @@ async fn native_encryption_roundtrip() {
         base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(public.as_bytes())
     };
     identity_probe(
-        &Client::parse(&parts.join(".")).unwrap(),
+        &encryption_client(&fixture, &parts.join(".")),
         &fixture,
         false,
         false,
@@ -258,7 +349,7 @@ async fn native_encryption_roundtrip() {
     .await;
     for offset in [0, 1136, 1168] {
         identity_probe(
-            &Client::parse(encryption).unwrap(),
+            &encryption_client(&fixture, encryption),
             &fixture,
             false,
             false,
@@ -269,6 +360,29 @@ async fn native_encryption_roundtrip() {
     }
     client.close();
     println!("N7-ENCRYPTION-WIRE-PASS rounds=4 bytes_per_direction=10485760");
+}
+
+#[tokio::test]
+#[ignore = "requires the owned N7 Encryption container harness with short-lived tickets"]
+async fn native_ticket_expiry() {
+    let fixture: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(std::env::var("VCORE_ENCRYPTION_FIXTURE").unwrap()).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(fixture["isolation"], "containers");
+    assert_eq!(fixture["ticket_expiry"], true);
+    let encryption = fixture["encryption"].as_str().unwrap();
+    assert!(encryption.contains(".0rtt."));
+    let client = encryption_client(&fixture, encryption);
+    identity_probe(&client, &fixture, false, true, false, None).await;
+    identity_probe(&client, &fixture, false, true, true, None).await;
+    // The independent peer advertises two seconds. Real monotonic time, no
+    // mutation of the cache or server clock, and no automatic business retry.
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    identity_probe(&client, &fixture, false, true, false, None).await;
+    identity_probe(&client, &fixture, false, true, true, None).await;
+    client.close();
+    println!("N7-ENCRYPTION-EXPIRY-PASS full-resumed-expired-full-resumed");
 }
 
 async fn identity_probe(

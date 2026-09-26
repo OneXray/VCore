@@ -3,12 +3,15 @@ mod cache;
 mod config;
 mod crypto;
 mod handshake;
+mod header_xor;
 mod records;
+pub(crate) use handshake::Handshake;
 use std::{io, sync::Arc};
 
 pub struct Client {
     settings: config::Settings,
     cache: Arc<cache::Cache>,
+    suite: crypto::Suite,
 }
 
 impl std::fmt::Debug for Client {
@@ -24,16 +27,31 @@ impl Client {
         Ok(Self {
             settings: config::Settings::parse(value)?,
             cache: Arc::new(cache::Cache::default()),
+            suite: crypto::Suite::for_cpu(),
         })
     }
 
+    #[cfg(any(test, feature = "interop-test"))]
     pub async fn connect(
         &self,
         raw: crate::dispatch::BoxStream,
         deadline: tokio::time::Instant,
     ) -> io::Result<crate::dispatch::BoxStream> {
-        let flight = handshake::Handshake::start(&self.settings, self.cache.clone())?;
+        let flight = self.start()?;
         flight.finish(raw, false, deadline).await
+    }
+
+    pub(crate) fn start(&self) -> io::Result<Handshake> {
+        Handshake::start(&self.settings, self.cache.clone(), self.suite)
+    }
+
+    /// Exercise the non-AES hardware branch against an independent peer.
+    /// Never compiled into production, and never a public YAML cipher option.
+    #[cfg(feature = "interop-test")]
+    #[doc(hidden)]
+    pub fn with_chacha20_poly1305_for_interop(mut self) -> Self {
+        self.suite = crypto::Suite::ChaCha;
+        self
     }
 
     /// Clears node-local tickets and cancels owned connections. Never reopens.
@@ -47,6 +65,10 @@ fn invalid_config() -> io::Error {
         io::ErrorKind::InvalidInput,
         "invalid VLESS Encryption configuration",
     )
+}
+
+pub(crate) fn validate_config(value: &str) -> io::Result<()> {
+    config::Settings::parse(value).map(|_| ())
 }
 
 #[cfg(test)]

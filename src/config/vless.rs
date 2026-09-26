@@ -215,18 +215,24 @@ impl RawVless {
         validate_host(&self.server, "VLESS server")?;
         validate_port(self.port, "VLESS")?;
         let id = parse_standard_uuid(&self.uuid)?;
-        if !matches!(self.encryption.as_str(), "" | "none") {
-            return invalid("VLESS encryption must be empty or none");
-        }
+        let encryption = if matches!(self.encryption.as_str(), "" | "none") {
+            VlessEncryption::None
+        } else {
+            #[cfg(feature = "outbound-vless")]
+            crate::outbound::validate_vless_encryption(&self.encryption).map_err(|_| {
+                VCoreError::InvalidConfig("invalid VLESS Encryption configuration".into())
+            })?;
+            VlessEncryption::MlKem768X25519Plus(self.encryption)
+        };
         let network = self.network.as_deref().unwrap_or("tcp");
         let vision = self.flow == "xtls-rprx-vision";
         if (!self.flow.is_empty() && !vision)
             || (vision
                 && (network != "tcp"
-                    || !self.tls
+                    || (!self.tls && matches!(&encryption, VlessEncryption::None))
                     || self.packet_encoding != VlessPacketEncoding::Xudp))
         {
-            return invalid("VLESS Vision requires TCP, TLS and XUDP");
+            return invalid("VLESS Vision requires TCP, TLS or Encryption, and XUDP");
         }
         let mut stream_options = VlessStreamOptions::default();
         if let Some(mut mux) = self.smux {
@@ -392,7 +398,8 @@ impl RawVless {
                 client_fingerprint,
                 server_name,
                 alpn,
-                tls13_only: network == "xhttp" || vision,
+                tls13_only: network == "xhttp"
+                    || (vision && matches!(&encryption, VlessEncryption::None)),
                 required_alpn: default_alpn.map(<[u8]>::to_vec),
                 certificate: TlsCertificatePolicy {
                     verification_name: self.name_cert_verify,
@@ -430,7 +437,7 @@ impl RawVless {
                 address: self.server,
                 port: self.port,
                 id,
-                encryption: VlessEncryption::None,
+                encryption,
                 flow: self.flow,
                 security,
                 transport,

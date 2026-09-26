@@ -52,6 +52,32 @@ def serve_tcp(control, mode, ipv6=False):
                 return
             stream, _ = listener.accept()
             control.sendall(b"A")
+            if mode == 21:
+                # Generate the withheld tail with the real TLS engine before
+                # transport EOF. This tests FIN semantics without depending on
+                # OpenSSL accepting an application write after a ragged EOF.
+                from tls_bio import TlsBio
+
+                with stream:
+                    stream.settimeout(15)
+                    tls = TlsBio(
+                        stream, tls_context(ssl.TLSVersion.TLSv1_3), server=True
+                    )
+                    assert tls.tls.version() == "TLSv1.3"
+                    control.sendall(b"\x13")
+                    tls.sendall(b"hello")
+                    data = receive_exact(tls, 65536)
+                    if data != b"Z" * 65536:
+                        raise ValueError("TLS direct close data")
+                    tls.sendall(data)
+                    tail = b"native-after-upload-eof"
+                    assert tls.tls.write(tail) == len(tail)
+                    if stream.recv(1):
+                        raise ValueError("unexpected data after TLS direct request")
+                    with contextlib.suppress(OSError):
+                        tls.flush()
+                control.sendall(b"D")
+                continue
             if mode in (16, 18):
                 context = tls_context(
                     ssl.TLSVersion.TLSv1_3 if mode == 16 else ssl.TLSVersion.TLSv1_2
@@ -108,7 +134,7 @@ def serve(control):
             control.settimeout(15)
             control.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             family = control.recv(1)
-            if family and (family[0] & 0x7F) in (*range(10, 17), 18):
+            if family and (family[0] & 0x7F) in (*range(10, 17), 18, 21):
                 serve_tcp(control, family[0] & 0x7F, bool(family[0] & 0x80))
                 return
             if family not in (b"\x04", b"\x06", b"\x11", b"\x13", b"\x14"):

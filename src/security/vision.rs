@@ -170,6 +170,12 @@ pub(crate) struct SpliceStats {
     written: AtomicU64,
 }
 impl SpliceStats {
+    pub(crate) fn record_read(&self, count: usize) {
+        self.read.fetch_add(count as u64, Ordering::Relaxed);
+    }
+    pub(crate) fn record_written(&self, count: usize) {
+        self.written.fetch_add(count as u64, Ordering::Relaxed);
+    }
     #[cfg(any(test, feature = "interop-test"))]
     pub(crate) fn bytes(&self) -> (u64, u64) {
         (
@@ -184,6 +190,12 @@ pub(crate) struct SpliceControl {
     write: Arc<AtomicBool>,
 }
 impl SpliceControl {
+    pub(crate) fn reading_direct(&self) -> bool {
+        self.read.load(Ordering::Acquire)
+    }
+    pub(crate) fn writing_direct(&self) -> bool {
+        self.write.load(Ordering::Acquire)
+    }
     pub(crate) fn read_direct(&self) {
         self.read.store(true, Ordering::Release);
     }

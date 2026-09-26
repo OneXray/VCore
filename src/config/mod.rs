@@ -451,9 +451,18 @@ impl std::fmt::Debug for AnyTlsOutboundConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum VlessEncryption {
     None,
+    MlKem768X25519Plus(String),
+}
+impl std::fmt::Debug for VlessEncryption {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::None => "None",
+            Self::MlKem768X25519Plus(_) => "MlKem768X25519Plus { .. }",
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -476,12 +476,24 @@ def run(
     jobs: dict | None = None,
     supplied: dict | None = None,
     client_fingerprint: str | None = None,
+    encryption: str | None = None,
 ):
     if client_fingerprint is not None and client_fingerprint not in CLIENT_FINGERPRINTS:
         raise ValueError("unsupported named client profile")
     if public is not None and (public not in PUBLIC_TESTS or udp or owned):
         raise ValueError("invalid public consumer selection")
     cases = variants()
+    if encryption is not None:
+        from .protocol_encryption import cases as encryption_profiles
+
+        if encryption not in encryption_profiles():
+            raise ValueError("unsupported Encryption fixture")
+        # Official V2Ray terminates only the legacy transport. A separate
+        # official Mihomo handler authenticates Encryption and decodes VLESS.
+        for mode in ("http", "h2", "ws-header", "ws-path"):
+            for suffix in ("", "-tls"):
+                name = f"outer-{mode}{suffix}"
+                cases[name] = ({}, name)
     if client_fingerprint:
         cases.update(selected_profile_variants(client_fingerprint))
     if jobs is not None:
@@ -524,7 +536,8 @@ def run(
         raise ValueError("new run directory must be directly under target/interop/runs")
     output.mkdir(exist_ok=False)
     report = dict(
-        stage="N5",
+        stage="N7.1" if encryption else "N5",
+        encryption_profile=encryption,
         client_fingerprint=client_fingerprint,
         scope="protocol-consumer"
         if jobs is not None
@@ -544,10 +557,14 @@ def run(
             artifacts["Caddy"] = gateway_artifact.binary
             report["peers"]["Caddy"] = gateway_artifact.identity
         kinds = {native_kind(cases[name][1]) for name in selected}
-        if jobs is not None or any(
-            native_kind(cases[name][1]) != "M"
-            and (udp or owned or public or "_mux" in cases[name][0])
-            for name in selected
+        if (
+            encryption
+            or jobs is not None
+            or any(
+                native_kind(cases[name][1]) != "M"
+                and (udp or owned or public or "_mux" in cases[name][0])
+                for name in selected
+            )
         ):
             kinds.add("M")
         for kind in sorted(kinds):
@@ -598,7 +615,8 @@ def run(
                 entries and any(e["test"] in hop_tests for e in entries)
             )
             needs_decoder = (
-                udp
+                bool(encryption)
+                or udp
                 or owned
                 or needs_public
                 or bool(
@@ -705,6 +723,7 @@ def run(
                 mux = options.pop("_mux", None)
                 require_padding = options.pop("_require-padding", False)
                 decoder = None
+                encryption_node = {}
                 if kind != "M" and (needs_decoder or mux is not None):
                     decoder_dir = root / "decoder"
                     decoder_dir.mkdir()
@@ -721,6 +740,14 @@ def run(
                         listener["mux-option"] = {
                             "padding": require_padding or mux["padding"]
                         }
+                    if encryption:
+                        from .protocol_encryption_public import (
+                            configuration as encryption_config,
+                        )
+
+                        encryption_config(
+                            encryption, encryption_node, {"listeners": [listener]}
+                        )
                     (decoder_dir / "config.json").write_text(
                         json.dumps(
                             dict(
@@ -857,7 +884,8 @@ def run(
                         Path("/data/fixture") / key.name,
                     )
                     node["name"] = "peer"
-                    node["smux"] = mux
+                    if mux is not None:
+                        node["smux"] = mux
                     if not plain and not reality:
                         node["fingerprint"] = pin
                     if decoder:
@@ -896,6 +924,15 @@ def run(
                 else:
                     config["dns"] = {"hosts": {"vcore-fixture.test": origin.ipv4}}
                     config["outbounds"][0]["settings"] = {"domainStrategy": "UseIP"}
+                if encryption:
+                    if decoder:
+                        node.update(encryption_node)
+                    else:
+                        from .protocol_encryption_public import (
+                            configuration as encryption_config,
+                        )
+
+                        encryption_config(encryption, node, config)
                 # Client-only session generator and pacing have no server counterpart.
                 peer_options = {
                     k: v
@@ -980,7 +1017,9 @@ def run(
                             node=node,
                             tiny=tiny,
                             reject=reject,
-                            peer_kind=kind,
+                            peer_kind=f"{kind}-to-M"
+                            if encryption and decoder
+                            else kind,
                             data_dir=str(root / "data"),
                             server_ipv4=edge.ipv4,
                             server_ipv6=edge.ipv6,
@@ -1162,6 +1201,7 @@ if __name__ == "__main__":
     parser.add_argument("--udp", action="store_true")
     parser.add_argument("--owned", action="store_true")
     parser.add_argument("--public", choices=PUBLIC_TESTS)
+    parser.add_argument("--encryption")
     args = parser.parse_args()
     if sum((args.udp, args.owned, args.public is not None)) > 1:
         parser.error("select UDP or owned-resource checks")
@@ -1173,5 +1213,6 @@ if __name__ == "__main__":
                 udp=args.udp,
                 owned=args.owned,
                 public=args.public,
+                encryption=args.encryption,
             )
         )

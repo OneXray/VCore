@@ -24,7 +24,7 @@ uv run --project scripts --locked vcore-scripts build windows
 - Apple 命令只能在 macOS 运行，输出 `dist/apple/LibVCore.xcframework`。
 - Android 命令在 macOS/Linux 运行，默认输出 `dist/android/{arm64-v8a,x86_64}/libvcore.so` 及同 ABI 的 `libc++_shared.so`；宿主必须一起打包，不能假定 Android 系统提供该 C++ runtime。
 - Windows 命令只能在已安装 Visual Studio C++ 工具的 Windows 运行；命令从系统注册表读取原生 ARM64/x64 处理器架构，通过 `vswhere` 加载对应的 MSVC 环境，验证三项 PE 的 machine type 后输出 `dist/windows/<architecture>` 下的 DLL、Provider Host、Session Host 和记录 package integration revision、架构及三项 SHA-256 的 `vcore-windows-artifacts.json`。
-- 所有构建都使用 `Cargo.lock`，并检查产物内的 Invoke API v5/config revision 22 身份。
+- 所有构建都使用 `Cargo.lock`，并检查产物内的 Invoke API v5/config revision 23 身份。
 - 标准 Apple、Android、Windows 构建显式包含两种客户端入站和七种代理出站（含 Hysteria2），不依赖 `ffi` / `tun` 的传递 feature 来隐式补齐；不包含 `interop-test`。Apple/Android 的自定义 `VCORE_FEATURES` 不得将测试信任注入用于交付。
 
 Apple/Android 继续接受现有环境变量：
@@ -106,10 +106,13 @@ uv run --project scripts --locked python -m vcore_scripts.protocol_fingerprint -
 
 ### 协议声明清单
 
-N7.1 的 Encryption wire 增量入口（尚非公开 YAML 或完整阶段门禁）：
+N7.1 的 Encryption 增量入口（不等于完整阶段门禁）：
 
 ```sh
 uv run --project scripts --locked python -m vcore_scripts.protocol_encryption target/interop/runs/<fresh-run>
+uv run --project scripts --locked python -m vcore_scripts.protocol_encryption target/interop/runs/<fresh-run> --chacha
+uv run --project scripts --locked python -m vcore_scripts.protocol_encryption target/interop/runs/<fresh-run> --expiry
+uv run --project scripts --locked python -m vcore_scripts.protocol_encryption_public target/interop/runs/<fresh-run> random-0rtt-mixed
 ```
 
 三外观 × 两 RTT × X25519 / ML-KEM / 混合 key 链，共 18 项；可追加 case ID
@@ -118,7 +121,9 @@ uv run --project scripts --locked python -m vcore_scripts.protocol_encryption ta
 独立 handler 拒绝旧票据，以及下一次显式连接的完整握手和新票据恢复；不重试业务。
 协议对端与原站位于两个独占容器；源码变化或清理失败均不能 PASS。
 只记录计数、版本/hash 和状态；重放样本只在进程内有界暂存、不保存到报告。
-该入口不抵扣公共运行时、UDP、Vision、外层传输、平台或完整 N7.1 签收。
+wire 入口不抵扣公共运行时、UDP、Vision 或外层传输；`protocol_encryption_public`
+另测这些实际消费者（包括真正 TLS 1.3 direct 后的 Mihomo 关闭差分）。
+各增量入口不独立代表平台或完整 N7.1 签收。
 
 N7.2 的独立混合 REALITY 子包入口（不替代完整 N7 门禁）：
 

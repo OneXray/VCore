@@ -39,6 +39,8 @@ pub(crate) use vless::VlessResourceLimits;
 #[doc(hidden)]
 pub use vless::encryption::Client as VlessEncryptionClient;
 #[cfg(feature = "outbound-vless")]
+pub(crate) use vless::encryption::validate_config as validate_vless_encryption;
+#[cfg(feature = "outbound-vless")]
 pub use vless::{
     VlessCommand, VlessOutbound, VlessStream, encode_request_header, read_response_header,
 };

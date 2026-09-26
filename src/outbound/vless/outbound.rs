@@ -87,6 +87,7 @@ impl std::fmt::Debug for VlessDownloadLeg {
 
 pub struct VlessOutbound {
     uuid: uuid::Uuid,
+    encryption: Option<super::encryption::Client>,
     upload: VlessTransportLeg,
     xhttp: Option<XHttpClient>,
     download: Option<VlessDownloadLeg>,
@@ -417,6 +418,12 @@ impl VlessOutbound {
         download_security: Option<SecurityClient>,
         mut build_xhttp: impl FnMut(XHttpConfig) -> io::Result<XHttpClient>,
     ) -> io::Result<Self> {
+        let encryption = match &config.encryption {
+            crate::config::VlessEncryption::None => None,
+            crate::config::VlessEncryption::MlKem768X25519Plus(value) => {
+                Some(super::encryption::Client::parse(value)?)
+            }
+        };
         let mode = match config
             .xhttp()
             .map(|config| config.mode)
@@ -470,6 +477,7 @@ impl VlessOutbound {
         };
         Ok(Self {
             uuid: config.id,
+            encryption,
             upload: VlessTransportLeg {
                 server: server_destination(&config.address, config.port)?,
                 upstream: upload_path,
@@ -565,7 +573,7 @@ impl VlessOutbound {
             ()=self.cancellation.cancelled()=>Err(DispatchError::NotAllowed),
             result=async {
                 let mut vision_control=None;
-                let (raw,transport)=if self.vision {
+                let (raw,transport)=if self.vision && self.encryption.is_none() {
                     let raw=self.upload.upstream.connect_server(session,&self.upload.server,context).await?.io;
                     let (raw,control)=context.run_io("Vision TLS handshake",self.upload.security.connect_vision(raw,self.vision_stats.clone())).await?;
                     vision_control=Some(control);
@@ -576,9 +584,17 @@ impl VlessOutbound {
                     }).await?;
                     (io,StreamTransport::Tcp)
                 } else {(self.connect_transport(session,context).await?,self.transport.clone())};
+                if self.vision && self.encryption.is_some() {
+                    vision_control=Some(crate::security::vision::SpliceControl::default());
+                }
+                let encryption=self.encryption.as_ref().map(|client| {
+                    client.start().map(|flight| flight.with_vision(
+                        vision_control.as_ref().map(|control| (control.clone(),self.vision_stats.clone()))
+                    ))
+                }).transpose()?;
                 let token=self.cancellation.child_token();
                 Ok(PreparedStream { raw:Box::new(crate::outbound::owned_stream::OwnedStream::new(raw,token.clone())),
-                    id:self.uuid, transport, options:self.stream_options.clone(), vision_control, deadline:context.deadline(), tasks:self.tasks.clone(), token })
+                    id:self.uuid, encryption, transport, options:self.stream_options.clone(), vision_control, deadline:context.deadline(), tasks:self.tasks.clone(), token })
             }=>result,
         }
     }
@@ -662,6 +678,7 @@ impl VlessOutbound {
 }
 pub(super) struct PreparedStream {
     raw: BoxStream,
+    encryption: Option<super::encryption::Handshake>,
     id: uuid::Uuid,
     transport: StreamTransport,
     options: crate::config::VlessStreamOptions,
@@ -682,11 +699,16 @@ impl PreparedStream {
         }
         let mut header =
             super::codec::encode_header(self.id, command, target, self.vision_control.is_some())?;
+        let initial = self.encryption.as_ref().map_or_else(
+            || header.clone(),
+            |flight| bytes::Bytes::copy_from_slice(flight.prefix()),
+        );
         let token = self.token.clone();
         let guard = token.clone().drop_guard();
         let stream = tokio::time::timeout_at(deadline, async {
             let mut raw = self.raw;
             let mut driver = None;
+            let mut prefix_sent = false;
             match &self.transport {
                 StreamTransport::Tcp => {}
                 StreamTransport::WebSocket { .. } => {
@@ -694,7 +716,7 @@ impl PreparedStream {
                         raw = crate::transport::http_upgrade(
                             raw,
                             &self.transport.websocket_options()?.expect("validated WS"),
-                            &header,
+                            &initial,
                             self.options.fast_open,
                             deadline,
                         )
@@ -703,22 +725,28 @@ impl PreparedStream {
                         raw = crate::transport::connect_websocket(
                             raw,
                             &self.transport.websocket_options()?.expect("validated WS"),
-                            &header,
+                            &initial,
                             deadline,
                         )
                         .await?;
                     }
-                    header = bytes::Bytes::new();
+                    prefix_sent = true;
+                    if self.encryption.is_none() {
+                        header = bytes::Bytes::new();
+                    }
                 }
                 StreamTransport::Http { .. } => {
                     raw = crate::transport::http_obfs(
                         raw,
                         &self.transport.http_options()?.expect("validated HTTP"),
-                        &header,
+                        &initial,
                         deadline,
                     )
                     .await?;
-                    header = bytes::Bytes::new();
+                    prefix_sent = true;
+                    if self.encryption.is_none() {
+                        header = bytes::Bytes::new();
+                    }
                 }
                 StreamTransport::Grpc { uri } => {
                     let connected = crate::transport::grpc(raw, uri, deadline).await?;
@@ -747,6 +775,9 @@ impl PreparedStream {
                         token.cancelled().await;
                         let _ = driver.stop().await;
                     }));
+            }
+            if let Some(flight) = self.encryption {
+                raw = flight.finish(raw, prefix_sent, deadline).await?;
             }
             let stream = VlessStream::with_deadline(raw, header, deadline);
             let stream: BoxStream =
@@ -865,6 +896,9 @@ impl OutboundConnector for VlessOutbound {
     }
     fn begin_shutdown(&self) {
         self.cancellation.cancel();
+        if let Some(encryption) = &self.encryption {
+            encryption.close();
+        }
         self.grpc_pool.begin_shutdown();
         if let Some(mux) = &self.sing_mux {
             mux.begin_stop();
@@ -895,6 +929,9 @@ impl OutboundConnector for VlessOutbound {
 impl Drop for VlessOutbound {
     fn drop(&mut self) {
         self.cancellation.cancel();
+        if let Some(encryption) = &self.encryption {
+            encryption.close();
+        }
     }
 }
 

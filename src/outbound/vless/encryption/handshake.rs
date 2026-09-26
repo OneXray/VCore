@@ -5,6 +5,7 @@ use super::{
     records::Records,
 };
 use crate::dispatch::BoxStream;
+use crate::security::vision::{SpliceControl, SpliceStats};
 use boring::{
     mlkem::{Algorithm, MlKemPrivateKey, MlKemPublicKey},
     pkey::{PKey, Private},
@@ -18,7 +19,7 @@ use zeroize::Zeroizing;
 
 /// One owned flight. The initial bytes can be consumed exactly once by an
 /// outer transport's early-data interface; finish sends only the remainder.
-pub(super) struct Handshake {
+pub(crate) struct Handshake {
     hello: Vec<u8>,
     fragments: Vec<usize>,
     gaps: Vec<Duration>,
@@ -29,6 +30,7 @@ pub(super) struct Handshake {
     random_headers: bool,
     cache: Arc<Cache>,
     cache_enabled: bool,
+    vision: Option<(SpliceControl, Arc<SpliceStats>)>,
 }
 
 enum Exchange {
@@ -45,10 +47,9 @@ enum Exchange {
 }
 
 impl Handshake {
-    pub(super) fn start(settings: &Settings, cache: Arc<Cache>) -> io::Result<Self> {
+    pub(super) fn start(settings: &Settings, cache: Arc<Cache>, suite: Suite) -> io::Result<Self> {
         let ticket = cache.lookup()?.filter(|_| settings.resume);
         let iv = rand::random::<[u8; 16]>();
-        let suite = Suite::for_cpu();
         let mut hello = iv.to_vec();
         let mut last_ctr: Option<Ctr> = None;
         let mut nfs_key = Zeroizing::new([0; 32]);
@@ -95,6 +96,7 @@ impl Handshake {
                 random_headers: settings.appearance == Appearance::Random,
                 cache,
                 cache_enabled: true,
+                vision: None,
             });
         }
         let (kem_public, kem) =
@@ -129,14 +131,20 @@ impl Handshake {
             random_headers: settings.appearance == Appearance::Random,
             cache,
             cache_enabled: settings.resume,
+            vision: None,
         })
     }
 
-    pub(super) fn prefix(&self) -> &[u8] {
+    pub(crate) fn with_vision(mut self, vision: Option<(SpliceControl, Arc<SpliceStats>)>) -> Self {
+        self.vision = vision;
+        self
+    }
+
+    pub(crate) fn prefix(&self) -> &[u8] {
         &self.hello[..self.fragments[0]]
     }
 
-    pub(super) async fn finish(
+    pub(crate) async fn finish(
         self,
         raw: BoxStream,
         prefix_sent: bool,
@@ -168,17 +176,20 @@ impl Handshake {
                 } else {
                     self.prefix().to_vec()
                 };
-                return Ok(Box::new(Records::resumed(
-                    raw,
-                    united,
-                    self.suite,
-                    tx,
-                    tx_ctr,
-                    self.random_headers,
-                    prefix,
-                    self.cache.clone(),
-                    ticket.clone(),
-                )) as BoxStream);
+                return Ok(Box::new(
+                    Records::resumed(
+                        raw,
+                        united,
+                        self.suite,
+                        tx,
+                        tx_ctr,
+                        self.random_headers,
+                        prefix,
+                        self.cache.clone(),
+                        ticket.clone(),
+                    )
+                    .with_vision(self.vision),
+                ) as BoxStream);
             }
             let mut offset = 0;
             for (index, length) in self.fragments.iter().copied().enumerate() {
@@ -248,18 +259,21 @@ impl Handshake {
             } else {
                 (None, None)
             };
-            Ok(Box::new(Records::new(
-                raw,
-                united,
-                self.suite,
-                tx,
-                rx,
-                tx_ctr,
-                rx_ctr,
-                padding_size,
-                self.cache,
-                cached,
-            )) as BoxStream)
+            Ok(Box::new(
+                Records::new(
+                    raw,
+                    united,
+                    self.suite,
+                    tx,
+                    rx,
+                    tx_ctr,
+                    rx_ctr,
+                    padding_size,
+                    self.cache,
+                    cached,
+                )
+                .with_vision(self.vision),
+            ) as BoxStream)
         };
         timeout_at(deadline, async {
             tokio::select! { biased;

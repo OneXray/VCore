@@ -297,6 +297,12 @@ class VlessEvidenceTest(unittest.TestCase):
         self.assertTrue(events_pass(events, test, "tcp"))
         self.assertFalse(events_pass(events[:-2], test, "tcp"))
         self.assertFalse(events_pass(events + events[-2:], test, "tcp"))
+        n7 = [
+            dict(event, suite=event["suite"].replace("N4-", "N7-")) for event in events
+        ]
+        self.assertTrue(events_pass(n7, test, "tcp", stage="N7"))
+        self.assertFalse(events_pass(n7[:-2], test, "tcp", stage="N7"))
+        self.assertFalse(events_pass(n7, test, "tcp"))
         vision = (
             pair("N4-PUBLIC", test)
             + [

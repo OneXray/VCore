@@ -1,10 +1,19 @@
 # N7 高级安全：当前后端前置验证
 
-2026-09-26。状态：**N7 未完成，N7.2 已完成本地子包签收。获准的 boring 混合扩展已发布为 `b7639ab7`；VCore 的 S03/D16 完整 54 项容器门禁、32 项共享回归和 Apple/Android Release 构建通过。** 当前证据见 [N7.2 报告](N7-reality-hybrid.md)。下文原始接口失败保留，不是已交付经典 REALITY 的回归。N7.1 / N7.3 / N7.4 / N7.5 未签收；不能将一个后端限制推广成所有高级安全实现都不可行。
+2026-09-26。状态：**N7 未完成，N7.1 / N7.2 已完成本地子包签收。** Encryption
+的公开/分层/算法/票据门禁与 Apple/Android Release 通过，详见 [N7.1 报告](N7-encryption.md)。
+获准的 boring 混合扩展已发布为 `b7639ab7`；S03/D16 的 54 项容器门禁、32 项共享
+回归和生产构建证据见 [N7.2 报告](N7-reality-hybrid.md)。schema23 / Invoke v5。
+下文保留开发时的原始失败与阶段性状态；N7.3 / N7.4 / N7.5 仍未签收。
 
 同日 N7.1 已完成[官方原语和 Encryption wire 纵切](N7-encryption.md)：Debug / Release
 各 14 项、18 项独立容器矩阵（含票据/重放/密文篡改）通过并保留初始失败。
-模块尚未开放公开 YAML / runtime，UDP、Vision、外层传输与阶段签收仍待完成。
+该 wire 提交尚未开放公开 YAML / runtime；后续工作区已接入公开 Encryption、UDP、
+Vision 和外层传输，schema23 / Invoke v5。新增 ChaCha 18 项、真实票据过期 9 项、
+增量公共传输/内层 TLS 互通及 Apple/Android Release 构建通过。随后冻结公开矩阵
+59/59 通过，包含真实 Vision direct 关闭差分。最终其余五类 35/35、分层 36/36、
+常规/ChaCha 各 18/18、过期 9/9 和最大 padding 2/2 在同一输入下通过，完成 VL06
+子包签收；这些结果不抵扣尚未实现的高级安全组合。
 
 ## 最初能力探针的输入和范围
 
@@ -132,10 +141,16 @@ WireGuard 拒绝和 Hysteria2 feature admission；不改变运行时行为。
 
 ## 其他子包与下一步
 
-- VL06 Encryption 与 ECH 是独立路线，本次未完成其原生互通；不受同一 share 裁剪直接阻塞，也不因此宣称已实现。
+- VL06 Encryption 已完成独立子包；ECH 仍是未签收的独立路线，不受原 share 裁剪直接阻塞，也不因此宣称已实现。
 - 三种附加封装的当前公开接口与参考实现核查见[安全封装可行性研究](N7-security-feasibility.md)。有源码实现不等于满足当前认证/生命周期边界；未做原生验证的路径仍未证明。
 - 当前最小混合 REALITY 扩展已经获准，库门禁见上文；N7.4 原生扩展依靠新授权，不能从混合模式授权自行推定；TLS 引擎和 AWS-LC 边界不变。
-- boring 混合分支发布授权已执行；S03/D16 子包已本地验收。下一步继续 N7.1 的官方 BLAKE3 C 原语、Encryption 协议与独立互通；N7.4 使用新建的 `feat/n7-security-handshakes` 独立分支。不自动 VCore 或新 boring 分支 push，不进入 N8。
+- boring 混合分支发布授权已执行；S03/D16 子包已本地验收。N7.1 冻结验收现已完成，继续 N7.3 / N7.4；N7.4 使用 `feat/n7-security-handshakes` 独立分支。除明确获准的提交外不自动 push，不进入 N8。
+
+N7.4 追加进度：ShadowTLS v3 最小原生 hook 已通过独立 fork 的 25/25 隔离门禁。
+用户另行批准后，`de7bf4943ff9cd4b40e6f1d3ee98939284aa63b1` 已推送到正式 boring
+分支并核对远端；VCore 固定 revision 接入获准，将在 N7.1 本地提交后独立执行。
+这不是 VCore ShadowTLS 或 N7.4 签收，也不授权后续 fork 提交自动发布，详见
+[ShadowTLS 接线记录](N7-shadow-tls.md)。
 
 生产子包完成时按既有约定本地提交；全部 N7 门禁未通过前，不创建 N7 完成提交。
 进度/研究记录不冒称生产完成。安全封装仍须各自取得前置证据，不能用另一个

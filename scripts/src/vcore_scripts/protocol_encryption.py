@@ -31,21 +31,53 @@ def encode(value):
     return base64.urlsafe_b64encode(bytes.fromhex(value)).decode().rstrip("=")
 
 
-def run(output: Path, selected=None):
+def run(
+    output: Path,
+    selected=None,
+    *,
+    consumer=False,
+    chacha=False,
+    expiry=False,
+    padding="minimal",
+):
     output = output.resolve()
     required = cases()
+    if expiry:
+        required = {
+            name: value for name, value in required.items() if value[1] == "0rtt"
+        }
+    paddings = {
+        "minimal": ".100-35-35",
+        "default": "",
+        "fragmented": ".100-35-35.100-1-1.100-47-47",
+        "maximum": ".100-65553-65553",
+    }
     selected = list(required) if selected is None else selected
     if (
         output.parent != CORE_DIR / "target/interop/runs"
         or not selected
         or len(set(selected)) != len(selected)
         or not set(selected) <= required.keys()
+        or padding not in paddings
+        or (consumer and (chacha or expiry))
     ):
         raise ValueError("fresh run directory and known unique cases required")
     output.mkdir(parents=True, exist_ok=False)
+    if expiry:
+        test = "native_ticket_expiry"
+        marker = "N7-ENCRYPTION-EXPIRY-PASS full-resumed-expired-full-resumed"
+    elif consumer:
+        test = "public_tcp_roundtrip"
+        marker = "N7-ENCRYPTION-CONSUMER-PASS rounds=4 bytes_per_direction=10485760"
+    else:
+        test = "native_encryption_roundtrip"
+        marker = "N7-ENCRYPTION-WIRE-PASS rounds=4 bytes_per_direction=10485760"
     report = dict(
         stage="N7.1-wire",
-        scope="native-wire-only",
+        scope="public-config-and-outbound" if consumer else "native-wire-only",
+        cipher="chacha20-poly1305" if chacha else "cpu-selected",
+        ticket_expiry=expiry,
+        padding=padding,
         complete_selection=set(selected) == set(required),
         source=source_identity(),
         required=list(required),
@@ -129,6 +161,7 @@ def run(output: Path, selected=None):
             listeners = []
             for index, name in enumerate(selected):
                 style, _, key = required[name]
+                lifetime = "2-3s" if expiry else "600s"
                 listeners.append(
                     dict(
                         name=f"encryption-{index}",
@@ -141,7 +174,10 @@ def run(output: Path, selected=None):
                                 uuid="07070707-0707-0707-0707-070707070707",
                             )
                         ],
-                        decryption=f"mlkem768x25519plus.{style}.600s.{pairs[key][1]}.100-35-35",
+                        decryption=(
+                            f"mlkem768x25519plus.{style}.{lifetime}."
+                            f"{pairs[key][1]}{paddings[padding]}"
+                        ),
                     )
                 )
                 # A distinct native handler has no tickets from the primary.
@@ -161,6 +197,7 @@ def run(output: Path, selected=None):
                         **{"log-level": "silent"},
                         listeners=listeners,
                         rules=["MATCH,DIRECT"],
+                        hosts={"vcore-fixture.test": origin.ipv4},
                     )
                 )
             )
@@ -182,12 +219,27 @@ def run(output: Path, selected=None):
                 raise RuntimeError("Mihomo binary identity mismatch")
             for index, name in enumerate(selected):
                 style, rtt, key = required[name]
+                encryption = (
+                    f"mlkem768x25519plus.{style}.{rtt}."
+                    f"{pairs[key][0]}{paddings[padding]}"
+                )
                 fixture = root / "input.json"
                 fixture.write_text(
                     json.dumps(
                         dict(
                             isolation="containers",
-                            encryption=f"mlkem768x25519plus.{style}.{rtt}.{pairs[key][0]}.100-35-35",
+                            encryption=encryption,
+                            force_chacha=chacha,
+                            ticket_expiry=expiry,
+                            node=dict(
+                                name="edge",
+                                type="vless",
+                                server=server.ipv4,
+                                port=23000 + index,
+                                uuid="07070707-0707-0707-0707-070707070707",
+                                udp=True,
+                                encryption=encryption,
+                            ),
                             origin_control=f"{origin.ipv4}:24000",
                             origin_ipv4=origin.ipv4,
                             origin_ipv6=origin.ipv6,
@@ -205,7 +257,7 @@ def run(output: Path, selected=None):
                     "--all-features",
                     "--test",
                     "n7_encryption_wire",
-                    "native_encryption_roundtrip",
+                    test,
                     "--",
                     "--ignored",
                     "--exact",
@@ -221,8 +273,7 @@ def run(output: Path, selected=None):
                 passed = (
                     result.returncode == 0
                     and result.cleanup
-                    and "N7-ENCRYPTION-WIRE-PASS rounds=4 bytes_per_direction=10485760"
-                    in text
+                    and marker in text
                     and "1 passed; 0 failed; 0 ignored" in text
                 )
                 report["cases"].append(
@@ -262,7 +313,29 @@ def run(output: Path, selected=None):
 
 
 if __name__ == "__main__":
+    import argparse
     import sys
 
+    parser = argparse.ArgumentParser()
+    parser.add_argument("output", type=Path)
+    parser.add_argument("cases", nargs="*")
+    parser.add_argument("--consumer", action="store_true")
+    parser.add_argument("--chacha", action="store_true")
+    parser.add_argument("--expiry", action="store_true")
+    parser.add_argument(
+        "--padding",
+        choices=("minimal", "default", "fragmented", "maximum"),
+        default="minimal",
+    )
+    args = parser.parse_args()
     with exclusive_run():
-        sys.exit(run(Path(sys.argv[1]), sys.argv[2:] or None))
+        sys.exit(
+            run(
+                args.output,
+                args.cases or None,
+                consumer=args.consumer,
+                chacha=args.chacha,
+                expiry=args.expiry,
+                padding=args.padding,
+            )
+        )

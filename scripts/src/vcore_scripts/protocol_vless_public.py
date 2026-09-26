@@ -110,9 +110,9 @@ add("grpc-tls", "POOL-COUNTS", "native_grpc_pool_thresholds", wire=True)
 CASES = WIRE | PUBLIC
 
 
-def events_pass(events, test, mode):
-    main = [event for event in events if event.get("suite") == "N4-PUBLIC"]
-    if len(main) != 2 or not pairs(main, "N4-PUBLIC", test, 1):
+def events_pass(events, test, mode, *, stage="N4"):
+    main = [event for event in events if event.get("suite") == f"{stage}-PUBLIC"]
+    if len(main) != 2 or not pairs(main, f"{stage}-PUBLIC", test, 1):
         return False
     if any(
         event.get("schema_version") != 1 or event.get("status") not in {"BEGIN", "PASS"}
@@ -120,17 +120,19 @@ def events_pass(events, test, mode):
     ):
         return False
     if test == "public_base" and not (
-        pairs(events, "N4-BASE", "tcp_10mib_both_directions", 3)
+        pairs(events, f"{stage}-BASE", "tcp_10mib_both_directions", 3)
         and pairs(
             events,
-            "N4-BASE",
+            f"{stage}-BASE",
             "udp_each_codec_and_family",
             1 if mode.startswith("vision-") else 3,
         )
     ):
         return False
     if test in {"runtime::public_lifecycle", "runtime::owned_resources"}:
-        suite = "N4-LIFE" if test.endswith("public_lifecycle") else "N4-OWNED"
+        suite = (
+            f"{stage}-LIFE" if test.endswith("public_lifecycle") else f"{stage}-OWNED"
+        )
         if not pairs(events, suite, "stop_and_remain_quiet", 20):
             return False
         for event in [
@@ -138,7 +140,7 @@ def events_pass(events, test, mode):
         ]:
             if event.get("seconds", 0) < 5:
                 return False
-            if suite == "N4-OWNED":
+            if suite == f"{stage}-OWNED":
                 points = event.get("checkpoints", [])
                 phases = {p["phase"]: p["resources"] for p in points}
                 if (

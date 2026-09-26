@@ -27,7 +27,11 @@ from .protocol_vmess import peer_config as legacy_peer
 from .protocol_vmess_public import node_config as legacy_node
 
 ALL_CASES = CASES | PUBLIC_CASES
-CLOSE_TESTS = {"native_mihomo_close_alignment", "native_ws_reality_close_boundary"}
+CLOSE_TESTS = {
+    "native_mihomo_close_alignment",
+    "native_ws_reality_close_boundary",
+    "native_vision_direct_close_alignment",
+}
 CLIENT_FINGERPRINTS = (
     "none",
     "chrome",
@@ -70,7 +74,14 @@ def close_reference(mode, node, config, certificate, private_key, pin):
     return reference, scope
 
 
-def run(output: Path, selected=None, *, preflight_only=False, client_fingerprint=None):
+def run(
+    output: Path,
+    selected=None,
+    *,
+    preflight_only=False,
+    client_fingerprint=None,
+    encryption=None,
+):
     if client_fingerprint is not None and client_fingerprint not in CLIENT_FINGERPRINTS:
         raise ValueError("unsupported named client profile")
     public_cases = PUBLIC_CASES | (
@@ -90,6 +101,18 @@ def run(output: Path, selected=None, *, preflight_only=False, client_fingerprint
         else {}
     )
     all_cases = CASES | public_cases
+    if encryption is not None:
+        from .protocol_encryption import cases as encryption_profiles
+        from .protocol_encryption_public import catalog
+
+        if encryption not in encryption_profiles() or client_fingerprint is not None:
+            raise ValueError("unsupported Encryption fixture")
+        all_cases = catalog()
+        public_cases = {
+            key: value
+            for key, value in all_cases.items()
+            if not value[3].startswith("native_")
+        }
     selected = list(all_cases) if selected is None else selected
     if (
         not selected
@@ -108,7 +131,8 @@ def run(output: Path, selected=None, *, preflight_only=False, client_fingerprint
             for kind in sorted(kinds)
         ]
     report = dict(
-        stage="F5" if client_fingerprint else "N4",
+        stage="N7.1" if encryption else "F5" if client_fingerprint else "N4",
+        encryption_profile=encryption,
         client_fingerprint=client_fingerprint,
         scope="container-wire-and-public-consumer",
         source=source_identity(),
@@ -133,7 +157,7 @@ def run(output: Path, selected=None, *, preflight_only=False, client_fingerprint
                     kind, directory, "linux-arm64", defer_version=True
                 )
             report["peers"][kind] = artifacts[kind].identity
-        lab = ContainerLab(report["isolation"])
+        lab = ContainerLab(report["isolation"], mtu=1500 if encryption else 1280)
         report["phase"] = "build"
         built = run_command(
             [
@@ -175,6 +199,10 @@ def run(output: Path, selected=None, *, preflight_only=False, client_fingerprint
                     shutil.copyfile(
                         Path(__file__).with_name("container_close_client.py"),
                         origin_dir / "close.py",
+                    )
+                    shutil.copyfile(
+                        Path(__file__).with_name("container_tls_bio.py"),
+                        origin_dir / "tls_bio.py",
                     )
                     artifact = artifacts[kind]
                     shutil.copy2(artifact.binary, server_dir / "peer")
@@ -310,6 +338,19 @@ def run(output: Path, selected=None, *, preflight_only=False, client_fingerprint
                             )
                     if client_fingerprint:
                         node["client-fingerprint"] = client_fingerprint
+                    if encryption:
+                        from .protocol_encryption_public import (
+                            configuration as encrypted_config,
+                        )
+
+                        encrypted_config(encryption, node, config)
+                        if mode == "vision-encryption":
+                            node.pop("tls", None)
+                            node.pop("servername", None)
+                            for listener in config["listeners"]:
+                                listener.pop("certificate", None)
+                                listener.pop("private-key", None)
+                                listener["allow-insecure"] = True
                     reference_node = None
                     reference_scope = None
                     if any(test in CLOSE_TESTS for _, test in cases):
@@ -387,6 +428,9 @@ def run(output: Path, selected=None, *, preflight_only=False, client_fingerprint
                                 if mode.startswith("vision-")
                                 else None,
                                 origin_pin=origin_pin,
+                                origin_root_der=list(
+                                    ssl.PEM_cert_to_DER_cert(origin_cert.read_text())
+                                ),
                                 identities=identities,
                                 root_der=list(
                                     ssl.PEM_cert_to_DER_cert(
@@ -467,6 +511,39 @@ def run(output: Path, selected=None, *, preflight_only=False, client_fingerprint
                         )
                         data = json.loads(fixture.read_text())
                         data["close_reference"] = reference
+                        if any(
+                            test == "native_vision_direct_close_alignment"
+                            for _, test in cases
+                        ):
+                            direct = run_command(
+                                [
+                                    "container",
+                                    "exec",
+                                    origin.name,
+                                    "env",
+                                    "VCORE_ISOLATED_ORIGIN=1",
+                                    "python",
+                                    "-B",
+                                    "/data/fixture/close.py",
+                                    comparison.ipv4,
+                                    origin.ipv4,
+                                    "vision-direct",
+                                ],
+                                timeout=30,
+                            )
+                            (output / f"{tag}-direct-close-command.log").write_text(
+                                redact(direct.stdout.decode(errors="replace"))
+                            )
+                            if direct.returncode or not direct.cleanup:
+                                raise RuntimeError(
+                                    "official direct close comparison failed"
+                                )
+                            direct_reference = json.loads(direct.stdout)
+                            direct_reference["scope"] = reference_scope
+                            (output / f"{tag}-direct-close-reference.json").write_text(
+                                json.dumps(direct_reference) + "\n"
+                            )
+                            data["direct_close_reference"] = direct_reference
                         fixture.write_text(json.dumps(data))
                     report["phase"] = "execute"
                     for case, test in cases:
@@ -509,6 +586,7 @@ def run(output: Path, selected=None, *, preflight_only=False, client_fingerprint
                                 VCORE_VLESS_ORIGIN_V4=origin.ipv4,
                                 VCORE_VLESS_INPUT=str(fixture),
                                 VCORE_CASE_EVENTS=str(events),
+                                VCORE_PROTOCOL_STAGE="N7" if encryption else "N4",
                             ),
                         )
                         (output / f"{case}.log").write_text(
@@ -524,13 +602,18 @@ def run(output: Path, selected=None, *, preflight_only=False, client_fingerprint
                             if result.returncode == 0
                             and result.cleanup
                             and (
-                                events_pass(observed, test, mode)
+                                events_pass(
+                                    observed,
+                                    test,
+                                    mode,
+                                    stage="N7" if encryption else "N4",
+                                )
                                 if case in public_cases
                                 else observed
                                 == [
                                     dict(
                                         schema_version=1,
-                                        suite="N4-WIRE",
+                                        suite="N7-WIRE" if encryption else "N4-WIRE",
                                         assertion=test,
                                         status=status,
                                     )

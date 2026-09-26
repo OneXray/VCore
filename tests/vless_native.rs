@@ -18,9 +18,12 @@ async fn native_vision_inner_tls() {
     }
     tokio::time::timeout(Duration::from_secs(120), async {
         for (mode, version) in [(16, 0x13), (18, 0x12)] {
+            // Keep one real node across destination families, so Encryption's
+            // 0-RTT mode also exercises Vision on reused native tickets.
+            let outbound = node(&fixture, None);
             for family in ["ipv4", "ipv6", "domain"] {
                 let (mut control, target) = origin(&fixture, mode, family).await;
-                let outbound = node(&fixture, None);
+                let before = outbound.vision_raw_bytes();
                 let stream = outbound
                     .connect_stream(session(target), &EstablishContext::default())
                     .await
@@ -58,6 +61,7 @@ async fn native_vision_inner_tls() {
                 assert_eq!(&response[..payload.len()], payload.as_slice());
                 assert_eq!(&response[payload.len()..], b"trailer");
                 let (read, written) = outbound.vision_raw_bytes();
+                let (read, written) = (read - before.0, written - before.1);
                 if version == 0x13 {
                     assert!(
                         read > 9 * 1024 * 1024 && written > 9 * 1024 * 1024,
@@ -73,12 +77,79 @@ async fn native_vision_inner_tls() {
                 stream.shutdown().await.unwrap();
                 assert_eq!(control.read_u8().await.unwrap(), b'D');
                 drop(stream);
-                outbound.shutdown().await;
             }
+            outbound.shutdown().await;
         }
     })
     .await
     .unwrap();
+    event(name, "PASS");
+}
+
+#[tokio::test]
+#[ignore = "official isolated container peer required"]
+async fn native_vision_direct_close_alignment() {
+    use rustls::pki_types::{CertificateDer, ServerName};
+    let name = "native_vision_direct_close_alignment";
+    event(name, "BEGIN");
+    let fixture = fixture();
+    assert_eq!(fixture["vision_probe"], true);
+    let reference = &fixture["direct_close_reference"];
+    assert_eq!(reference["scope"], "same-mode");
+    assert_eq!(reference["variant"], "vision-direct");
+    assert_eq!(reference["terminated"], true);
+    let cert: Vec<u8> = serde_json::from_value(fixture["origin_root_der"].clone()).unwrap();
+    let mut roots = rustls::RootCertStore::empty();
+    roots.add(CertificateDer::from(cert)).unwrap();
+    let config = rustls::ClientConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_protocol_versions(&[&rustls::version::TLS13])
+    .unwrap()
+    .with_root_certificates(roots)
+    .with_no_client_auth();
+    let connector = tokio_rustls::TlsConnector::from(Arc::new(config));
+    tokio::time::timeout(Duration::from_secs(40), async {
+        let outbound = node(&fixture, None);
+        for family in ["ipv4", "ipv6"] {
+            let (mut control, target) = origin(&fixture, 21, family).await;
+            let before = outbound.vision_raw_bytes();
+            let io = outbound
+                .connect_stream(session(target), &EstablishContext::default())
+                .await
+                .unwrap()
+                .io;
+            let mut tls = connector
+                .connect(ServerName::try_from("localhost").unwrap(), io)
+                .await
+                .unwrap();
+            assert_eq!(control.read_u8().await.unwrap(), b'A');
+            assert_eq!(control.read_u8().await.unwrap(), 0x13);
+            let mut greeting = [0; 5];
+            tls.read_exact(&mut greeting).await.unwrap();
+            assert_eq!(&greeting, b"hello");
+            let payload = vec![b'Z'; 65536];
+            tls.write_all(&payload).await.unwrap();
+            tls.flush().await.unwrap();
+            let mut echo = vec![0; payload.len()];
+            tls.read_exact(&mut echo).await.unwrap();
+            assert_eq!(echo, payload);
+            let after = outbound.vision_raw_bytes();
+            assert!(after.0 - before.0 > 32768 && after.1 - before.1 > 32768);
+            // Upload EOF below the real inner TLS session, without adding a
+            // TLS close_notify. The independent client does exactly the same.
+            tls.get_mut().0.shutdown().await.unwrap();
+            let mut tail = Vec::new();
+            let _terminal = tls.read_to_end(&mut tail).await;
+            let hex: String = tail.iter().map(|byte| format!("{byte:02x}")).collect();
+            assert_eq!(hex, reference["tail_hex"].as_str().unwrap());
+            assert_eq!(control.read_u8().await.unwrap(), b'D');
+            drop(tls);
+        }
+        outbound.shutdown().await;
+    })
+    .await
+    .expect("direct close did not terminate");
     event(name, "PASS");
 }
 

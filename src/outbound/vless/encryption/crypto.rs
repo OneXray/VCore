@@ -57,6 +57,10 @@ impl Aead {
     pub(super) fn exhausted(&self) -> bool {
         self.nonce == [255; 12]
     }
+    #[cfg(test)]
+    pub(super) fn set_test_nonce(&mut self, nonce: [u8; 12]) {
+        self.nonce = nonce;
+    }
     fn next_nonce(&mut self, explicit: Option<[u8; 12]>) -> [u8; 12] {
         if let Some(nonce) = explicit {
             return nonce;
@@ -163,7 +167,9 @@ mod tests {
     use super::*;
     fn bytes(value: &serde_json::Value) -> Vec<u8> {
         let s = value.as_str().unwrap().as_bytes();
-        s.chunks_exact(2)
+        s.as_chunks::<2>()
+            .0
+            .iter()
             .map(|b| u8::from_str_radix(std::str::from_utf8(b).unwrap(), 16).unwrap())
             .collect()
     }
@@ -239,7 +245,7 @@ mod tests {
     #[test]
     fn automatic_nonce_increments_before_encryption() {
         let fixtures = vectors();
-        for records in fixtures["records"].as_array().unwrap().chunks_exact(3) {
+        for records in fixtures["records"].as_array().unwrap().as_chunks::<3>().0 {
             let first = &records[0];
             let suite = if first["cipher"] == "aes256gcm" {
                 Suite::Aes
