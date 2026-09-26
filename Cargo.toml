@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/vcore-netstack"]
+members = ["crates/vcore-blake3-raw", "crates/vcore-netstack"]
 resolver = "3"
 
 [package]
