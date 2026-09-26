@@ -3,8 +3,9 @@
 2026-09-26。状态：**N7 未完成，N7.1 / N7.2 已完成本地子包签收。** Encryption
 的公开/分层/算法/票据门禁与 Apple/Android Release 通过，详见 [N7.1 报告](N7-encryption.md)。
 获准的 boring 混合扩展已发布为 `b7639ab7`；S03/D16 的 54 项容器门禁、32 项共享
-回归和生产构建证据见 [N7.2 报告](N7-reality-hybrid.md)。schema23 / Invoke v5。
-下文保留开发时的原始失败与阶段性状态；N7.3 / N7.4 / N7.5 仍未签收。
+回归和生产构建证据见 [N7.2 报告](N7-reality-hybrid.md)。当前 schema24 / Invoke v5。
+JLS 的 S12–S13 / D25–D26 已完成本地子包签收，见 [JLS 报告](N7-jls.md)。
+下文保留开发时的原始失败与阶段性状态；N7.3 / N7.4 整体 / N7.5 仍未签收。
 
 同日 N7.1 已完成[官方原语和 Encryption wire 纵切](N7-encryption.md)：Debug / Release
 各 14 项、18 项独立容器矩阵（含票据/重放/密文篡改）通过并保留初始失败。
@@ -152,6 +153,12 @@ N7.4 追加进度：ShadowTLS v3 最小原生 hook 已通过独立 fork 的 25/2
 生命周期/资源检查、Apple 五目标和 Android 两 ABI Release 通过，schema23 不变。
 这不是 VCore ShadowTLS 或 N7.4 签收，也不授权后续 fork 提交自动发布，详见
 [ShadowTLS 接线记录](N7-shadow-tls.md)。
+
+JLS 追加进度：用户单独批准的 `a859a66311c82a2f2bf2d0bc392e1475c8615b66`
+已发布并固定接入。VCore 生产接线本地提交 `94c05f18`：122/122 容器用例、
+80 轮生命周期/资源检查、197/197 所属容器清理及 Apple/Android Release 构建通过。
+这只签收 JLS 对应主腿/下载腿字段，不抵扣 ShadowTLS、Restls、ECH 或 N7.5；
+未 push VCore，也未进入 N8。完整源码身份和失败记录见 [JLS 报告](N7-jls.md)。
 
 生产子包完成时按既有约定本地提交；全部 N7 门禁未通过前，不创建 N7 完成提交。
 进度/研究记录不冒称生产完成。安全封装仍须各自取得前置证据，不能用另一个
