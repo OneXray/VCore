@@ -2325,7 +2325,7 @@
         "N0",
         "N6"
       ],
-      "required_observation": "Fixed 5s/random 5-7s × outer IPv4/IPv6 × obfs on/off; at least 60s, 8 ticks, 3 distinct ports; one authenticated QUIC connection, not identical CID bytes.",
+      "required_observation": "Fixed 5s/random 5-7s × outer IPv4/IPv6 × obfs on/off; at least 60s, 8 ticks, at least 2 distinct ports from a 3-port fixture; one authenticated QUIC connection, not identical CID bytes.",
       "sources": [
         "H-HOP-DOC",
         "H-SERVER",

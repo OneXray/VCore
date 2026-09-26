@@ -23,6 +23,14 @@ impl Case {
                 "N4-OWNED" => "N5-OWNED",
                 _ => panic!("unknown public consumer suite"),
             }
+        } else if std::env::var("VCORE_PROTOCOL_STAGE").as_deref() == Ok("N6") {
+            match suite {
+                "N4-PUBLIC" => "N6-PUBLIC",
+                "N4-BASE" => "N6-BASE",
+                "N4-LIFE" => "N6-LIFE",
+                "N4-OWNED" => "N6-OWNED",
+                _ => panic!("unknown public consumer suite"),
+            }
         } else {
             suite
         };
@@ -32,6 +40,9 @@ impl Case {
 const TIMEOUT: Duration = Duration::from_secs(10);
 const DOMAIN: &str = "vcore-fixture.test";
 
+#[cfg(feature = "outbound-hysteria2")]
+#[path = "vless_public/hysteria2.rs"]
+mod hysteria2;
 #[path = "vless_public/runtime.rs"]
 mod runtime;
 #[cfg(target_os = "macos")]
@@ -46,6 +57,71 @@ fn fixture() -> Value {
     .unwrap();
     assert_eq!(value["isolation"], "containers");
     value
+}
+
+#[cfg(feature = "outbound-hysteria2")]
+#[test]
+#[ignore = "isolated N6 runner"]
+fn hysteria2_client_first() {
+    let _case = RecordedCase::new("N6-BASE", "client_first");
+    let f = fixture();
+    initialize(&f);
+    let port = free_port();
+    let core = Core::start(&config(f["node"].clone(), port));
+    echo(port, &f);
+    core.stop();
+}
+
+#[cfg(feature = "outbound-hysteria2")]
+#[test]
+#[ignore = "isolated N6 runner"]
+fn hysteria2_udp_base() {
+    let _case = RecordedCase::new("N6-BASE", "udp_ipv4_ipv6_domain_fragmentation");
+    let f = fixture();
+    initialize(&f);
+    let port = free_port();
+    let core = Core::start(&config(f["node"].clone(), port));
+    for (ipv6, domain) in [(false, false), (true, false), (false, true)] {
+        let mut association = Association::new(&f, port, ipv6, domain);
+        for size in [1, 64, 512, 1200, 4096] {
+            for sequence in 0..100_u8 {
+                let mut bytes = vec![sequence; size];
+                if size > 1 {
+                    bytes[1] = size as u8;
+                }
+                association.exchange(&bytes);
+            }
+        }
+        drop(association);
+    }
+    core.stop();
+}
+
+#[cfg(feature = "outbound-hysteria2")]
+#[test]
+#[ignore = "isolated N6 runner"]
+fn hysteria2_tcp_base() {
+    let _case = RecordedCase::new("N6-BASE", "tcp_ipv4_ipv6_domain_and_measure");
+    let f = fixture();
+    assert_eq!(f["node"]["type"], "hysteria2");
+    initialize(&f);
+    let port = free_port();
+    let core = Core::start(&config(f["node"].clone(), port));
+    for (ipv6, domain) in [(false, false), (true, false), (false, true)] {
+        bulk(port, &f, ipv6, domain);
+    }
+    echo(port, &f);
+    core.stop();
+    let mut origin = Origin::new(&f, 14, false);
+    let result = invoke(
+        "measureDelay",
+        None,
+        json!({"configYamls":[json!({"proxies":[f["node"]]}).to_string()], "timeout":5,
+        "url":format!("http://{}/",origin.target)}),
+    );
+    assert_eq!(result["results"][0]["success"], true);
+    origin.marker(b'A');
+    origin.marker(b'D');
 }
 fn initialize(f: &Value) {
     invoke("initialize", None, json!({"dataDir": f["data_dir"]}));

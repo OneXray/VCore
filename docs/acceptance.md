@@ -56,10 +56,12 @@
 
 2026-09-25 [N5 XHTTP/sing-mux 阶段签收](acceptance/next-protocols/N5.md)完成 H1/H2/H3、请求字段、独立下载安全/复用及 h2mux/smux/yamux。单次完整运行 416/416 组 required、57/57 字段、240 轮生命周期/资源检查与独立 coverage 通过；三个安全组内部 112/112 检查，769/769 个所属容器回收，Apple/Android Release 构建通过。Xray 的直接 packetaddr/sing-mux 和 H3 客户端证书认证缺口分别使用明示的 Mihomo decoder 分层、获准 xcaddy/Caddy H3/mTLS → 单个 Xray handler；不冒称 Xray 直接支持。schema 18 / Invoke v5，N7 高级安全及设备/发布仍未签收。[开发记录](acceptance/next-protocols/N5-progress.md)保留原失败，官方 Mihomo 双腿上传错误的 6 项诊断超时不改记 PASS。
 
+2026-09-26 [N6 Hysteria2 阶段签收](acceptance/next-protocols/N6.md)完成 HTTP/3 认证、TCP/UDP、TLS/mTLS、真实带宽控制、Salamander 和端口跳跃。在同一冻结源码下通过 36/36 组 required、20/20 个字段、10 个带宽样本、八组 60 秒跳跃及 40 轮公共/自有生命周期；两种路径入口的独立 coverage、共享 H3 回归和 Apple/Android Release 构建通过，69/69 个所属容器回收。经 Rust 库复用调研后采用内部薄协议层与官方 Quinn/h3/rustls，不修改第三方。原生 Hysteria 的 UDP 回包缓冲包含头部、实际载荷小于 4096 的限制单列；Mihomo 的 4096 字节业务载荷另验通过。schema21 / Invoke v5；[开发记录](acceptance/next-protocols/N6-progress.md)保留真实失败，不继承为 N7–N10、真机、Windows 原生、远端 CI 或发布通过。
+
 当前 source/tests 覆盖：
 
 - Invoke API v5、单实例生命周期、Debug/Release 运行时线程重入拒绝、panic 与同步清理；
-- schema revision 20、IPv6、严格 YAML、节点 / `select` 组上游混合 DAG 和 node-only 测速；
+- schema revision 21、IPv6、严格 YAML、节点 / `select` 组上游混合 DAG 和 node-only 测速；
 - 组上游与路由的共享选择、SOCKS5 UDP 建链快照、潜在 DIRECT 首跳准备、独立下载端点和深图回收；
 - HTTP 本机 / 认证共享、双栈监听回滚、逐请求认证与分发、Keep-Alive / 正文定界、CONNECT / Upgrade、10 MiB 双向摘要与活动连接 Stop；
 - SOCKS5 入站认证、三类目标、半关闭、TCP 授权 UDP、源端口学习/隔离、IPv6 作用域固定端口/学习端口匹配与跨接口隔离、过期/满队列/慢上游取消及纯 SOCKS5 Controller（作用域匹配为合成地址测试，不代表物理 LAN 验证）；
@@ -69,6 +71,7 @@
 - AnyTLS 有序 ALPN、WebPKI / 跳过 / 叶与非叶 pin、TLS 1.2/1.3 伪造签名拒绝、节点间策略隔离和精确恢复票据预算；
 - Trojan TLS/WS/gRPC、TCP 半关闭、原生 UDP 的有界帧与来源隔离、strict 配置、具体/组上游、独立测速及同步资源回收；
 - VMess AEAD、TCP/WS/gRPC/HTTP/H2 明文/TLS、三种 UDP 编码、受控 DNS、认证/篡改/预算/取消负例、组快照、公开入口和同步资源回收；
+- Hysteria2 QUIC TCP/UDP、TLS/mTLS/证书 pin、带宽与 pacing、Salamander、固定/随机端口跳跃、认证会话快照和同步资源回收；
 - SS 2022 三算法白名单、同库 TCP/UDP 回环、有界 TCP 首写、首次传输前半关闭及 Pending 空握手续写、响应时间/认证/请求盐、UDP Pending/取消、重放/乱序/会话轮换、封装上限与来源检查，socket protect 失败关闭；
 - ICMPv4/v6、校验和、分片、MTU、队列与 Apple/Android 帧/fd/protect 所有权；
 - Windows 单 Application、token 绑定、Snapshot/profile、控制/数据协议、会合记录、
@@ -106,6 +109,7 @@ schema 19 的命名 TLS profile、classic REALITY 后端接线及新增原生链
 | SOCKS5 CONNECT / TCP 授权 UDP 入站 | 已覆盖 | mihomo 双向 TCP/UDP、IPv4/IPv6 | 真实 LAN / 物理 IPv6 未验证 |
 | AnyTLS TCP / UoT v2、ALPN / 证书策略 | 已覆盖 | mihomo 公开 YAML，TCP/UoT IPv4/IPv6、测速及证书拒绝 | 旧能力有 Windows ARM64 历史开发包记录；新 TLS 字段未做设备验证 |
 | Trojan TCP/UDP + TLS/WS/gRPC | 严格配置、codec/取消、独立 feature 和公共运行时；[N2 证据](acceptance/next-protocols/N2.md) | Mihomo 基础/组/证书/入口/资源；Xray 域名 UDP；V2Ray 扩展 WS ED | 未验证；仅 Apple/Android 构建通过 |
+| Hysteria2 TCP/UDP、带宽、Salamander、端口跳跃 | 严格配置、wire/重组/窗口、feature、公共入口和资源；[N6 证据](acceptance/next-protocols/N6.md) | Mihomo 基础/安全/带宽/关闭；官方 Hysteria 补跳跃和 UDP-disabled，原生回包大小限制明确保留 | 未验证；仅 Apple/Android 构建通过 |
 | SS 2022 | 三算法配置与 I/O/安全边界；活动 Stop、绑定失败回滚、独立测速和进程 FD 回收 | mihomo TCP/UDP × IPv4/IPv6/域名及服务器先发；具体/嵌套组/DIRECT 链；AES 1/2 层受控 EIH 中继 → mihomo；错误密钥/算法/身份拒绝 | 未验证 |
 | HTTP 本机 / 认证共享、消息定界与隧道 | 已覆盖 | mihomo 双向 harness（8 个场景） | 真实 LAN / 物理 IPv6 未验证 |
 | DIRECT 与代理链 | 已覆盖 | 本地 fixture | Windows ARM64 开发包已覆盖 |

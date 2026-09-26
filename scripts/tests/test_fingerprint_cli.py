@@ -2,8 +2,12 @@
 
 import contextlib
 import io
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
+from vcore_scripts.mihomo_isolation import exclusive_run
 from vcore_scripts.protocol_fingerprint import main
 
 
@@ -35,7 +39,16 @@ class FingerprintCliTest(unittest.TestCase):
             "safari",
             "safari16",
         ):
-            with self.assertRaisesRegex(ValueError, "invalid N4 native selection"):
+            # This argument-only test can run inside a locked native suite.
+            # Exercise the real lock on its own temporary filesystem boundary.
+            with (
+                tempfile.TemporaryDirectory() as temporary,
+                patch(
+                    "vcore_scripts.protocol_fingerprint.exclusive_run",
+                    lambda: exclusive_run(Path(temporary) / "cli.lock"),
+                ),
+                self.assertRaisesRegex(ValueError, "invalid N4 native selection"),
+            ):
                 main(["unused-output", "--client-fingerprint", name, "missing"])
 
 

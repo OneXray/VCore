@@ -164,7 +164,7 @@ fn public_entrypoints() {
 fn fd_count() -> usize {
     std::fs::read_dir("/dev/fd").unwrap().count()
 }
-fn assert_closed(client: &mut TcpStream) {
+pub(super) fn assert_closed(client: &mut TcpStream) {
     match client.read(&mut [0; 32]) {
         Ok(0) => {}
         Err(error)
@@ -175,14 +175,14 @@ fn assert_closed(client: &mut TcpStream) {
         other => panic!("stream not closed: {other:?}"),
     }
 }
-fn live(port: u16, f: &Value) -> (TcpStream, Origin) {
+pub(super) fn live(port: u16, f: &Value) -> (TcpStream, Origin) {
     let mut origin = Origin::new(f, 13, false);
     let mut client = connect(port, origin.target, false);
     exchange(&mut client, b"live");
     origin.marker(b'A');
     (client, origin)
 }
-fn exchange(client: &mut TcpStream, bytes: &[u8]) {
+pub(super) fn exchange(client: &mut TcpStream, bytes: &[u8]) {
     client.write_all(bytes).unwrap();
     let mut result = vec![0; bytes.len()];
     client.read_exact(&mut result).unwrap();
@@ -324,7 +324,7 @@ fn public_lifecycle() {
     }
 }
 
-fn select(controller: u16, name: &str) {
+pub(super) fn select(controller: u16, name: &str) {
     let body = json!({"name":name}).to_string();
     let mut client = socket((Ipv4Addr::LOCALHOST, controller).into());
     write!(client,"PUT /proxies/inner HTTP/1.1\r\nHost: fixture\r\nAuthorization: Bearer fixture-only\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).unwrap();

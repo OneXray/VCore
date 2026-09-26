@@ -71,7 +71,8 @@ use crate::security::StandardTlsClient;
     feature = "outbound-anytls",
     feature = "outbound-vless",
     feature = "outbound-trojan",
-    feature = "outbound-vmess"
+    feature = "outbound-vmess",
+    feature = "outbound-hysteria2"
 ))]
 use crate::security::{SecurityContext, TLS_RESUMPTION_SESSION_BUDGET};
 
@@ -598,21 +599,24 @@ fn build_proxy_graph(
         feature = "outbound-anytls",
         feature = "outbound-vless",
         feature = "outbound-trojan",
-        feature = "outbound-vmess"
+        feature = "outbound-vmess",
+        feature = "outbound-hysteria2"
     ))]
     let (security_client_count, standard_tls_count) = security_counts(proxies);
     #[cfg(any(
         feature = "outbound-anytls",
         feature = "outbound-vless",
         feature = "outbound-trojan",
-        feature = "outbound-vmess"
+        feature = "outbound-vmess",
+        feature = "outbound-hysteria2"
     ))]
     let security_context = (security_client_count != 0).then(SecurityContext::new);
     #[cfg(any(
         feature = "outbound-anytls",
         feature = "outbound-vless",
         feature = "outbound-trojan",
-        feature = "outbound-vmess"
+        feature = "outbound-vmess",
+        feature = "outbound-hysteria2"
     ))]
     let resumption_sessions = standard_tls_resumption_sessions(standard_tls_count);
 
@@ -677,6 +681,28 @@ fn build_proxy_graph(
             &dialer,
         )?;
         let connector: Arc<dyn OutboundConnector> = match &proxy.protocol {
+            ProxyProtocol::Hysteria2(config) => {
+                #[cfg(feature = "outbound-hysteria2")]
+                {
+                    Arc::new(
+                        crate::outbound::hysteria2::Hysteria2Outbound::with_shared_security(
+                            config,
+                            upstream,
+                            security_context.as_ref().expect("TLS context"),
+                            resumption_sessions,
+                            limits.tls_buffer_limit,
+                        )?,
+                    )
+                }
+                #[cfg(not(feature = "outbound-hysteria2"))]
+                {
+                    let _ = config;
+                    return Err(io::Error::new(
+                        io::ErrorKind::Unsupported,
+                        "Hysteria2 support is disabled in this build",
+                    ));
+                }
+            }
             ProxyProtocol::Vmess(config) => {
                 #[cfg(feature = "outbound-vmess")]
                 {
@@ -903,7 +929,8 @@ async fn prepare_proxy_endpoints(
                 | ProxyProtocol::Trojan(_)
                 | ProxyProtocol::Vmess(_)
                 | ProxyProtocol::AnyTls(_)
-                | ProxyProtocol::Shadowsocks(_) => None,
+                | ProxyProtocol::Shadowsocks(_)
+                | ProxyProtocol::Hysteria2(_) => None,
             };
 
             let (upload, download) = match download {
@@ -966,7 +993,8 @@ fn restrict_endpoint_addresses(
     feature = "outbound-anytls",
     feature = "outbound-vless",
     feature = "outbound-trojan",
-    feature = "outbound-vmess"
+    feature = "outbound-vmess",
+    feature = "outbound-hysteria2"
 ))]
 fn security_counts(proxies: &[ProxyConfig]) -> (usize, usize) {
     proxies.iter().fold(
@@ -989,7 +1017,7 @@ fn security_counts(proxies: &[ProxyConfig]) -> (usize, usize) {
                         }),
                 )
             }
-            ProxyProtocol::AnyTls(_) | ProxyProtocol::Trojan(_) => {
+            ProxyProtocol::AnyTls(_) | ProxyProtocol::Trojan(_) | ProxyProtocol::Hysteria2(_) => {
                 (client_count + 1, standard_count + 1)
             }
             ProxyProtocol::Vmess(config) => (
@@ -1007,7 +1035,8 @@ fn security_counts(proxies: &[ProxyConfig]) -> (usize, usize) {
     feature = "outbound-anytls",
     feature = "outbound-vless",
     feature = "outbound-trojan",
-    feature = "outbound-vmess"
+    feature = "outbound-vmess",
+    feature = "outbound-hysteria2"
 ))]
 fn standard_tls_resumption_sessions(standard_tls_count: usize) -> usize {
     if standard_tls_count == 0 || standard_tls_count > TLS_RESUMPTION_SESSION_BUDGET {

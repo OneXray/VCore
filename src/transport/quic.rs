@@ -1,5 +1,8 @@
 //! Single-connection, bounded public DatagramTransport to AsyncUdpSocket adapter.
 
+mod runtime;
+pub(crate) use runtime::OwnedRuntime;
+
 use std::{
     collections::VecDeque,
     io::{self, IoSliceMut},
@@ -97,16 +100,19 @@ pub struct DatagramDriver {
 
 impl DatagramDriver {
     pub async fn stop(mut self) -> io::Result<()> {
+        self.join().await
+    }
+
+    /// Cancellation-safe join for an owner which retains this driver during
+    /// a retiring-path grace period. A cancelled join can be awaited again.
+    pub(crate) async fn join(&mut self) -> io::Result<()> {
         self.cancel.cancel();
-        // Keep the handle in self while awaiting: dropping stop() still aborts it.
-        let result = self
-            .task
-            .as_mut()
-            .unwrap()
-            .await
-            .map_err(|_| io::ErrorKind::Other)?;
+        let Some(task) = self.task.as_mut() else {
+            return Ok(());
+        };
+        let result = task.await;
         self.task.take();
-        result
+        result.map_err(|_| io::Error::from(io::ErrorKind::Other))?
     }
 }
 

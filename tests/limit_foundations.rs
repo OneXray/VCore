@@ -17,6 +17,23 @@ fn registry_matches_live_production_constants_and_has_owned_boundary_cases() {
     use vcore::{ResourceLimits, dispatch, transport};
     let defaults = ResourceLimits::default();
     let expected = BTreeMap::from([
+        ("hy2-udp-payload", vcore::limits::HY2_UDP_PAYLOAD),
+        ("hy2-udp-queue", vcore::limits::HY2_UDP_QUEUE),
+        ("hy2-pending-packets", vcore::limits::HY2_PENDING_PACKETS),
+        ("hy2-pending-bytes", vcore::limits::HY2_PENDING_BYTES),
+        ("hy2-fragment-ttl", vcore::limits::HY2_FRAGMENT_TTL_SECONDS),
+        ("hy2-path-retire", vcore::limits::HY2_PATH_RETIRE_SECONDS),
+        ("hy2-quic-payload", vcore::limits::HY2_QUIC_PAYLOAD),
+        ("hy2-uni-streams", vcore::limits::HY2_UNI_STREAMS),
+        ("hy2-stream-window", vcore::limits::HY2_STREAM_WINDOW),
+        (
+            "hy2-connection-window",
+            vcore::limits::HY2_CONNECTION_WINDOW,
+        ),
+        ("hy2-datagram-buffer", vcore::limits::HY2_DATAGRAM_BUFFER),
+        ("hy2-auth-headers", vcore::limits::HY2_AUTH_HEADERS),
+        ("hy2-response-message", vcore::limits::HY2_RESPONSE_MESSAGE),
+        ("hy2-response-padding", vcore::limits::HY2_RESPONSE_PADDING),
         ("vless-udp-frame", vcore::limits::VLESS_UDP_FRAME_BYTES),
         ("vision-content", vcore::limits::VISION_CONTENT_BYTES),
         ("vision-tls-record", vcore::limits::VISION_TLS_RECORD_BYTES),

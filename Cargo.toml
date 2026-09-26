@@ -38,6 +38,7 @@ default = [
     "outbound-trojan",
     "outbound-vmess",
     "outbound-vless",
+    "outbound-hysteria2",
 ]
 inbound-http = []
 inbound-socks5 = []
@@ -48,8 +49,8 @@ outbound-vless = ["tls-fingerprint", "boring/reality", "stream-transport", "quic
 outbound-trojan = ["stream-transport", "tls-fingerprint"]
 outbound-vmess = ["stream-transport", "tls-fingerprint", "dep:aes", "dep:crc32fast", "dep:md-5", "dep:ring", "dep:shake"]
 tls-fingerprint = ["dep:boring", "dep:tokio-boring"]
-# Foundation-only features; YAML registration waits for their protocol stage.
-outbound-hysteria2 = ["quic-transport"]
+outbound-hysteria2 = ["quic-transport", "dep:quinn-proto", "dep:h3", "dep:h3-quinn", "dep:blake2"]
+# Foundation-only feature; YAML registration waits for its protocol stage.
 outbound-wireguard = []
 stream-transport = ["dep:tokio-tungstenite", "dep:httparse", "dep:log"]
 quic-transport = ["dep:quinn"]
@@ -68,6 +69,7 @@ tun = [
     "outbound-trojan",
     "outbound-vmess",
     "outbound-vless",
+    "outbound-hysteria2",
 ]
 
 [dependencies]
@@ -75,6 +77,7 @@ aes = { version = "0.9.3", optional = true, features = ["zeroize"] }
 arc-swap = "1"
 async-trait = "0.1"
 base64 = "0.23"
+blake2 = { version = "=0.11.0", optional = true }
 boring = { git = "https://github.com/OneXray/boring", rev = "67581195fd6388a8bfd42c4e39e945f73c99a2b2", version = "=5.2.0", features = ["client-fingerprint"], optional = true }
 bytes = "1"
 crc32fast = { version = "1.5.2", optional = true }
@@ -93,6 +96,7 @@ libc = "0.2"
 log = { version = "0.4", optional = true, features = ["max_level_off", "release_max_level_off"] }
 md-5 = { version = "0.11", optional = true }
 quinn = { version = "=0.11.12", default-features = false, features = ["runtime-tokio", "rustls-ring"], optional = true }
+quinn-proto = { version = "=0.11.18", default-features = false, features = ["rustls-ring"], optional = true }
 rand = "0.10"
 ring = { version = "0.17.14", optional = true }
 regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "dfa-search", "syntax", "unicode"] }

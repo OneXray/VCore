@@ -59,12 +59,12 @@ class ContainerLab:
             guest_mtu=mtu,
         )
 
-    def start(self, stack, root: Path, role, argv):
+    def start(self, stack, root: Path, role, argv, *, net_admin=False):
         peer = ContainerPeer(self, root, role)
         self.record["peers"].append(peer.record)
         # Register before launching: CLI interruption/timeout can leave a live VM.
         stack.callback(peer.stop)
-        peer.start(argv)
+        peer.start(argv, net_admin=net_admin)
         return peer
 
 
@@ -79,7 +79,10 @@ class ContainerPeer:
         self.capture = None
         self.log = root / "peer.log"
 
-    def start(self, argv):
+    def start(self, argv, *, net_admin=False):
+        if type(net_admin) is not bool:
+            raise ValueError("isolated capability choice must be boolean")
+        self.record["net_admin"] = net_admin
         command(
             "run",
             "--detach",
@@ -97,7 +100,7 @@ class ContainerPeer:
             "256M",
             "--arch",
             "arm64",
-            "--read-only",
+            *(["--cap-add", "CAP_NET_ADMIN"] if net_admin else ["--read-only"]),
             "--no-dns",
             "--tmpfs",
             "/data",

@@ -444,7 +444,11 @@ def run_protocol_interop(
     try:
         run.update(run_identity(stage, selected, preflight_only))
         with exclusive_run(), deadline(run["suite_timeout_seconds"]):
-            if preflight_only and stage == "N5":
+            if preflight_only and stage == "N6":
+                from .protocol_hysteria2_acceptance import preflight as preflight_hy2
+
+                preflight_hy2(output)
+            elif preflight_only and stage == "N5":
                 from .protocol_xhttp_acceptance import preflight as preflight_xhttp
 
                 preflight_xhttp(output)
@@ -494,6 +498,10 @@ def run_protocol_interop(
                     execute(selected, run, output, records)
                 elif stage == "N5":
                     from .protocol_xhttp_acceptance import execute
+
+                    execute(selected, run, output, records)
+                elif stage == "N6":
+                    from .protocol_hysteria2_acceptance import execute
 
                     execute(selected, run, output, records)
                 else:
@@ -559,6 +567,9 @@ def run_protocol_interop(
                 else "VLESS N5 XHTTP/sing-mux consumer evidence; "
                 "container-only native peers, N7 remains a separate gate.\n\n"
                 if stage == "N5"
+                else "Hysteria2 N6 consumer evidence with container-only peers; "
+                "native H server limits and platform/device gates remain explicit.\n\n"
+                if stage == "N6"
                 else "Foundation-only evidence; "
                 "production protocol field consumers remain NOT RUN.\n\n"
             )

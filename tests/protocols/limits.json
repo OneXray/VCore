@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "kind": "runtime-limit-registry",
-  "scope": "N1 shared foundations through N5 protocol consumers; per-object bounds, not global admission caps",
+  "scope": "N1 shared foundations through N6 protocol consumers; per-object bounds, not global admission caps",
   "limits": [
     {
       "id": "xhttp-custom-header-bytes",
@@ -670,6 +670,174 @@
       "cancellation": "drop owned buffers and join cancelled node drivers",
       "boundary_cases": [
         "N4-TRANSPORT"
+      ]
+    },
+    {
+      "id": "hy2-udp-payload",
+      "value": 4096,
+      "unit": "bytes",
+      "owner": "limits::HY2_UDP_PAYLOAD",
+      "saturation": "reject max+1 before sending a business fragment",
+      "cancellation": "owned logical close or physical session Stop releases retained state and joins drivers",
+      "boundary_cases": [
+        "N6-UNIT",
+        "N6-OWNED"
+      ]
+    },
+    {
+      "id": "hy2-udp-queue",
+      "value": 32,
+      "unit": "packets-per-association",
+      "owner": "limits::HY2_UDP_QUEUE",
+      "saturation": "drop full inbound queue without blocking sibling associations",
+      "cancellation": "owned logical close or physical session Stop releases retained state and joins drivers",
+      "boundary_cases": [
+        "N6-UNIT",
+        "N6-OWNED"
+      ]
+    },
+    {
+      "id": "hy2-pending-packets",
+      "value": 64,
+      "unit": "partial-packets-per-connection",
+      "owner": "limits::HY2_PENDING_PACKETS",
+      "saturation": "drop excess partial packets; retain bounded completion tombstones",
+      "cancellation": "owned logical close or physical session Stop releases retained state and joins drivers",
+      "boundary_cases": [
+        "N6-UNIT",
+        "N6-OWNED"
+      ]
+    },
+    {
+      "id": "hy2-pending-bytes",
+      "value": 262144,
+      "unit": "bytes-per-connection",
+      "owner": "limits::HY2_PENDING_BYTES",
+      "saturation": "reject fragment retaining overflow",
+      "cancellation": "owned logical close or physical session Stop releases retained state and joins drivers",
+      "boundary_cases": [
+        "N6-UNIT",
+        "N6-OWNED"
+      ]
+    },
+    {
+      "id": "hy2-fragment-ttl",
+      "value": 5,
+      "unit": "seconds",
+      "owner": "limits::HY2_FRAGMENT_TTL_SECONDS",
+      "saturation": "expire missing fragments on the owned cleanup timer",
+      "cancellation": "owned logical close or physical session Stop releases retained state and joins drivers",
+      "boundary_cases": [
+        "N6-UNIT",
+        "N6-OWNED"
+      ]
+    },
+    {
+      "id": "hy2-path-retire",
+      "value": 1,
+      "unit": "seconds",
+      "owner": "limits::HY2_PATH_RETIRE_SECONDS",
+      "saturation": "cancel and join the old path before another hop",
+      "cancellation": "owned logical close or physical session Stop releases retained state and joins drivers",
+      "boundary_cases": [
+        "N6-UNIT",
+        "N6-OWNED"
+      ]
+    },
+    {
+      "id": "hy2-quic-payload",
+      "value": 1400,
+      "unit": "bytes",
+      "owner": "limits::HY2_QUIC_PAYLOAD",
+      "saturation": "intersect controlled path payload budget including obfs overhead",
+      "cancellation": "owned logical close or physical session Stop releases retained state and joins drivers",
+      "boundary_cases": [
+        "N6-UNIT",
+        "N6-OWNED"
+      ]
+    },
+    {
+      "id": "hy2-uni-streams",
+      "value": 8,
+      "unit": "streams-per-connection",
+      "owner": "limits::HY2_UNI_STREAMS",
+      "saturation": "QUIC flow control bounds remote control streams",
+      "cancellation": "owned logical close or physical session Stop releases retained state and joins drivers",
+      "boundary_cases": [
+        "N6-UNIT",
+        "N6-OWNED"
+      ]
+    },
+    {
+      "id": "hy2-stream-window",
+      "value": 262144,
+      "unit": "bytes",
+      "owner": "limits::HY2_STREAM_WINDOW",
+      "saturation": "QUIC receive flow control",
+      "cancellation": "owned logical close or physical session Stop releases retained state and joins drivers",
+      "boundary_cases": [
+        "N6-UNIT",
+        "N6-OWNED"
+      ]
+    },
+    {
+      "id": "hy2-connection-window",
+      "value": 1048576,
+      "unit": "bytes",
+      "owner": "limits::HY2_CONNECTION_WINDOW",
+      "saturation": "QUIC aggregate send and receive flow control",
+      "cancellation": "owned logical close or physical session Stop releases retained state and joins drivers",
+      "boundary_cases": [
+        "N6-UNIT",
+        "N6-OWNED"
+      ]
+    },
+    {
+      "id": "hy2-datagram-buffer",
+      "value": 262144,
+      "unit": "bytes-per-direction",
+      "owner": "limits::HY2_DATAGRAM_BUFFER",
+      "saturation": "QUIC bounds retained datagram queues",
+      "cancellation": "owned logical close or physical session Stop releases retained state and joins drivers",
+      "boundary_cases": [
+        "N6-UNIT",
+        "N6-OWNED"
+      ]
+    },
+    {
+      "id": "hy2-auth-headers",
+      "value": 16384,
+      "unit": "bytes",
+      "owner": "limits::HY2_AUTH_HEADERS",
+      "saturation": "reject excess HTTP3 response headers",
+      "cancellation": "owned logical close or physical session Stop releases retained state and joins drivers",
+      "boundary_cases": [
+        "N6-UNIT",
+        "N6-OWNED"
+      ]
+    },
+    {
+      "id": "hy2-response-message",
+      "value": 2048,
+      "unit": "bytes",
+      "owner": "limits::HY2_RESPONSE_MESSAGE",
+      "saturation": "reject oversized TCP response message before allocation",
+      "cancellation": "owned logical close or physical session Stop releases retained state and joins drivers",
+      "boundary_cases": [
+        "N6-UNIT",
+        "N6-OWNED"
+      ]
+    },
+    {
+      "id": "hy2-response-padding",
+      "value": 4096,
+      "unit": "bytes",
+      "owner": "limits::HY2_RESPONSE_PADDING",
+      "saturation": "reject oversized TCP response padding before allocation",
+      "cancellation": "owned logical close or physical session Stop releases retained state and joins drivers",
+      "boundary_cases": [
+        "N6-UNIT",
+        "N6-OWNED"
       ]
     }
   ]

@@ -4,11 +4,11 @@
   <a href="../README.md">English</a> · 简体中文 · <a href="./README.ru.md">Русский</a>
 </p>
 
-VCore 是独立且不绑定特定宿主应用的 Rust 客户端代理 core。它通过严格 YAML 配置和 Invoke API v5 提供代理图、静态 `select` 代理组、DNS、规则、GeoData、HTTP/SOCKS5 listener、TUN 数据面与回环 Controller。内部配置 schema revision 为 20；revision 只出现在 `version` 响应和 `buildIdentity` 中，不写入 YAML。
+VCore 是独立且不绑定特定宿主应用的 Rust 客户端代理 core。它通过严格 YAML 配置和 Invoke API v5 提供代理图、静态 `select` 代理组、DNS、规则、GeoData、HTTP/SOCKS5 listener、TUN 数据面与回环 Controller。内部配置 schema revision 为 21；revision 只出现在 `version` 响应和 `buildIdentity` 中，不写入 YAML。
 
 ## 能力
 
-- Outbound：[VLESS TCP/WS/gRPC/HTTP/H2/XHTTP、TLS/REALITY 与 Vision](../docs/vless.md)、SOCKS5 CONNECT/UDP ASSOCIATE、AnyTLS TCP/UoT、Shadowsocks 2022、[Trojan TCP/UDP（TLS/WS/gRPC）](../docs/trojan.md)、[VMess AEAD（TCP/WS/gRPC/HTTP/H2）](../docs/vmess.md)、DIRECT。
+- Outbound：[VLESS TCP/WS/gRPC/HTTP/H2/XHTTP、TLS/REALITY 与 Vision](../docs/vless.md)、SOCKS5 CONNECT/UDP ASSOCIATE、AnyTLS TCP/UoT、Shadowsocks 2022、[Trojan TCP/UDP（TLS/WS/gRPC）](../docs/trojan.md)、[VMess AEAD（TCP/WS/gRPC/HTTP/H2）](../docs/vmess.md)、[Hysteria2 TCP/UDP、带宽、Salamander 与端口跳跃](../docs/hysteria2.md)、DIRECT。
 - 代理链：`dialer-proxy` 组成任意长度的有向无环图；节点 A 指向 B 时，物理路径为 `client -> B -> A -> target`。
 - 代理组：静态 `select` 组保留有序成员，可包含具体节点、嵌套组、`DIRECT` 与 `REJECT`；当前 session 的选择可通过 Controller 实时修改。`dialer-proxy` 可引用节点或组；上游组的 DIRECT 连接当前节点预解析的服务器。
 - 路由：顺序执行 `DOMAIN`、`DOMAIN-SUFFIX`、`DOMAIN-KEYWORD`、`GEOSITE`、`GEOIP`、`IP-CIDR`、`IP-CIDR6`、`DST-PORT`、`NETWORK` 和最终 `MATCH`。
@@ -72,6 +72,8 @@ Authorization: Bearer <secret>
 
 `GET /traffic` 返回一次 TUN `up/down/upTotal/downTotal` snapshot。代理组端点读取或修改静态 `select` 组的当前直接成员；成功切换只影响当前 session 后续新建的物理 TCP、UDP 与 DNS transport，不迁移既有连接、UDP association、DNS 状态或 TCP 连接池，也不自动故障转移。Controller 管理代理组时，全部路由必须共用一个 Bearer secret，并且可以不启用 TUN。详见 [`docs/controller-api.md`](../docs/controller-api.md)。
 
+已认证的 Hysteria2 会话在端口跳跃期间保留上游选择；同一 QUIC 会话替换物理 socket 不重新读取组选择，只有新建认证会话才使用新选择。
+
 ## 平台
 
 | 平台 | 数据面 | 状态 |
@@ -114,6 +116,7 @@ TCP session、普通 UDP association、half-open、outbound handshake 和 active
 - [Trojan 出站](../docs/trojan.md)
 - [VMess AEAD 出站](../docs/vmess.md)
 - [VLESS 与 Vision 出站](../docs/vless.md)
+- [Hysteria2 出站](../docs/hysteria2.md)
 - [REALITY V1 客户端协议](../docs/reality-wire-protocol.md)
 - [TLS 指纹与证书策略](../docs/tls-client-fingerprint.md)
 - [TLS 依赖与发布要求](../docs/tls-dependencies.md)

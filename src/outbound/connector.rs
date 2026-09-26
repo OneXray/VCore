@@ -205,12 +205,14 @@ impl fmt::Write for BoundedMessage {
 /// A router builds this context once and passes it through the complete
 /// configured chain so nested connectors share one timeout instead of restarting it at
 /// every hop.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct EstablishContext {
     deadline: Instant,
     resolution: ResolutionContext,
-    selections: Mutex<HashMap<usize, (Arc<AtomicUsize>, usize)>>,
+    selections: Arc<Mutex<SelectionSnapshot>>,
 }
+
+type SelectionSnapshot = HashMap<usize, (Arc<AtomicUsize>, usize)>;
 
 impl EstablishContext {
     #[must_use]
@@ -223,7 +225,7 @@ impl EstablishContext {
         Self {
             deadline: inherited_deadline(Instant::now() + duration),
             resolution,
-            selections: Mutex::new(HashMap::new()),
+            selections: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -241,6 +243,23 @@ impl EstablishContext {
 
     pub fn resolution(&self) -> ResolutionContext {
         self.resolution.clone()
+    }
+
+    /// Only for a new physical path of an already authenticated session, never
+    /// for extending an in-progress setup. Freeze its group choices and give
+    /// this socket's complete upstream establishment a new absolute deadline.
+    #[cfg(feature = "outbound-hysteria2")]
+    pub(crate) fn authenticated_continuation(&self) -> Self {
+        Self {
+            deadline: Instant::now() + DEFAULT_ESTABLISH_TIMEOUT,
+            resolution: self.resolution.clone(),
+            selections: Arc::new(Mutex::new(
+                self.selections
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .clone(),
+            )),
+        }
     }
 
     /// One read per group for the entire setup, including both legs of a
@@ -576,7 +595,11 @@ impl UpstreamPath {
 
     /// Pins a native UDP proxy server without performing DNS after prepare.
     /// Resolving here and opening IO below share the context's group snapshot.
-    #[cfg(any(feature = "outbound-shadowsocks", feature = "outbound-vless"))]
+    #[cfg(any(
+        feature = "outbound-shadowsocks",
+        feature = "outbound-vless",
+        feature = "outbound-hysteria2"
+    ))]
     pub(crate) fn datagram_server(
         &self,
         server: &Destination,
@@ -711,6 +734,52 @@ mod tests {
     };
 
     use super::*;
+
+    #[cfg(feature = "outbound-hysteria2")]
+    #[tokio::test]
+    async fn authenticated_continuation_keeps_group_choice_but_has_a_new_io_deadline() {
+        #[cfg(feature = "interop-test")]
+        let _case = crate::resources::case_events::Case::new(
+            "N6-UNIT",
+            "authenticated_continuation_keeps_group_choice_but_has_a_new_io_deadline",
+        );
+        let selection = Arc::new(AtomicUsize::new(0));
+        let path = selected_path(
+            selection.clone(),
+            vec![
+                SelectUpstreamMember::Proxy(Arc::new(MarkedConnector {
+                    marker: 1,
+                    ..Default::default()
+                })),
+                SelectUpstreamMember::Proxy(Arc::new(MarkedConnector {
+                    marker: 2,
+                    ..Default::default()
+                })),
+            ],
+        );
+        let context = EstablishContext::with_timeout(Duration::from_millis(1));
+        let request = DatagramRequest::new(DatagramSession::new(
+            InboundKind::InternalMeasure,
+            test_session().source,
+        ));
+        let mut initial = path.open_datagram(request.clone(), &context).await.unwrap();
+        assert_eq!(initial.receive().await.unwrap().payload[0], 1);
+        tokio::time::sleep(Duration::from_millis(2)).await;
+        selection.store(1, Ordering::Release);
+        let continuation = context.authenticated_continuation();
+        assert!(context.deadline() < Instant::now());
+        assert!(continuation.deadline() > Instant::now());
+        let mut old = path
+            .open_datagram(request.clone(), &continuation)
+            .await
+            .unwrap();
+        assert_eq!(old.receive().await.unwrap().payload[0], 1);
+        let mut new = path
+            .open_datagram(request, &EstablishContext::default())
+            .await
+            .unwrap();
+        assert_eq!(new.receive().await.unwrap().payload[0], 2);
+    }
 
     struct UnreachableConnector;
 

@@ -43454,6 +43454,1625 @@
       ],
       "runner": "xhttp-gate",
       "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N6-BANDWIDTH",
+      "stage": "N6",
+      "substage": "N6.3",
+      "required": true,
+      "row_ids": [
+        "HY04",
+        "HY05"
+      ],
+      "protocol": "hysteria2",
+      "network": "quic",
+      "security": "tls13",
+      "udp_codec": "hysteria2-datagram",
+      "field_values": {
+        "obfs": false
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct",
+      "peer_kind": "M",
+      "peer_config": {
+        "test": "native_bandwidth_matrix",
+        "obfs": false
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "native_bandwidth_matrix"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-hysteria2",
+      "timeout_seconds": 600
+    },
+    {
+      "case_id": "N6-CFG",
+      "stage": "N6",
+      "substage": "N6.6",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "C06",
+        "HY01",
+        "HY02",
+        "HY03",
+        "HY04",
+        "HY05",
+        "HY06",
+        "HY07",
+        "HY08",
+        "T01",
+        "T03",
+        "T04",
+        "T05",
+        "T07",
+        "T08"
+      ],
+      "protocol": "hysteria2",
+      "network": "quic",
+      "security": "tls13",
+      "udp_codec": "hysteria2-datagram",
+      "field_values": {},
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "memory-only/build",
+      "upstream_graph": "direct",
+      "peer_kind": "unit",
+      "peer_config": {
+        "test": "N6-CFG"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "hysteria2_configuration_follows_its_protocol_feature",
+        "hysteria2_accepts_the_approved_tls_bandwidth_obfs_and_hopping_configuration",
+        "hysteria2_fields_are_strict_normalized_and_credentials_are_not_trimmed"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup"
+      ],
+      "prerequisites": [
+        "rust-toolchain"
+      ],
+      "runner": "hysteria2-gate",
+      "timeout_seconds": 1200
+    },
+    {
+      "case_id": "N6-CLOSE",
+      "stage": "N6",
+      "substage": "N6.1",
+      "required": true,
+      "row_ids": [],
+      "protocol": "hysteria2",
+      "network": "quic",
+      "security": "tls13",
+      "udp_codec": "hysteria2-datagram",
+      "field_values": {
+        "obfs": false
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct",
+      "peer_kind": "M",
+      "peer_config": {
+        "test": "native_mihomo_close_alignment",
+        "obfs": false
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "native_mihomo_close_alignment"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-hysteria2",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N6-CLOSE-SALAMANDER",
+      "stage": "N6",
+      "substage": "N6.1",
+      "required": true,
+      "row_ids": [
+        "HY02",
+        "HY03"
+      ],
+      "protocol": "hysteria2",
+      "network": "quic",
+      "security": "tls13",
+      "udp_codec": "hysteria2-datagram",
+      "field_values": {
+        "obfs": true
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct",
+      "peer_kind": "M",
+      "peer_config": {
+        "test": "native_mihomo_close_alignment",
+        "obfs": true
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "native_mihomo_close_alignment"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-hysteria2",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N6-DEADLINE",
+      "stage": "N6",
+      "substage": "N6.1",
+      "required": true,
+      "row_ids": [
+        "HY06"
+      ],
+      "protocol": "hysteria2",
+      "network": "quic",
+      "security": "tls13",
+      "udp_codec": "hysteria2-datagram",
+      "field_values": {
+        "obfs": false
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct",
+      "peer_kind": "M",
+      "peer_config": {
+        "test": "native_deadline_and_udp_budget",
+        "obfs": false
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "native_deadline_and_udp_budget"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-hysteria2",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N6-ENTRYPOINTS",
+      "stage": "N6",
+      "substage": "N6.1",
+      "required": true,
+      "row_ids": [
+        "C05"
+      ],
+      "protocol": "hysteria2",
+      "network": "quic",
+      "security": "tls13",
+      "udp_codec": "hysteria2-datagram",
+      "field_values": {
+        "obfs": false
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct",
+      "peer_kind": "M",
+      "peer_config": {
+        "test": "runtime::public_entrypoints",
+        "obfs": false
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "runtime::public_entrypoints"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-hysteria2",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N6-FEATURES",
+      "stage": "N6",
+      "substage": "N6.6",
+      "required": true,
+      "row_ids": [],
+      "protocol": "hysteria2",
+      "network": "quic",
+      "security": "tls13",
+      "udp_codec": "hysteria2-datagram",
+      "field_values": {},
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "memory-only/build",
+      "upstream_graph": "direct",
+      "peer_kind": "unit",
+      "peer_config": {
+        "test": "N6-FEATURES"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N6-FEATURES"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup"
+      ],
+      "prerequisites": [
+        "rust-toolchain"
+      ],
+      "runner": "hysteria2-gate",
+      "timeout_seconds": 1200
+    },
+    {
+      "case_id": "N6-GRAPH",
+      "stage": "N6",
+      "substage": "N6.1",
+      "required": true,
+      "row_ids": [
+        "C06",
+        "HY07",
+        "HY08"
+      ],
+      "protocol": "hysteria2",
+      "network": "quic",
+      "security": "tls13",
+      "udp_codec": "hysteria2-datagram",
+      "field_values": {
+        "obfs": false
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "test": "hysteria2::public_graph_and_hop_snapshot",
+        "obfs": false
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "hysteria2::public_graph_and_hop_snapshot"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-hysteria2",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N6-H3-REGRESSION",
+      "stage": "N6",
+      "substage": "N6.6",
+      "required": true,
+      "row_ids": [],
+      "protocol": "vless",
+      "network": "quic",
+      "security": "tls13",
+      "udp_codec": "vless",
+      "field_values": {},
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct",
+      "peer_kind": "XR",
+      "peer_config": {
+        "test": "shared-quic-h3-native-regression"
+      },
+      "gap_source": {
+        "reason": "XHTTP H3 shared-adapter regression uses the N5 official Xray handler",
+        "source": "https://github.com/XTLS/Xray-core"
+      },
+      "expected_observation": [
+        "shared-quic-h3-native-regression"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "hysteria2-gate",
+      "timeout_seconds": 900
+    },
+    {
+      "case_id": "N6-HOP-PROTECT",
+      "stage": "N6",
+      "substage": "N6.5",
+      "required": true,
+      "row_ids": [
+        "C04",
+        "HY07",
+        "HY08"
+      ],
+      "protocol": "hysteria2",
+      "network": "quic",
+      "security": "tls13",
+      "udp_codec": "hysteria2-datagram",
+      "field_values": {
+        "test": "native_hop_protect_rejection",
+        "ipv6": false,
+        "obfs": false,
+        "random_interval": false
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct",
+      "peer_kind": "H",
+      "peer_config": {
+        "test": "native_hop_protect_rejection",
+        "ipv6": false,
+        "obfs": false,
+        "random_interval": false
+      },
+      "gap_source": {
+        "reason": "Mihomo HY2 listener cannot redirect one QUIC state across a port set or disable authenticated business UDP; official Hysteria provides these gates",
+        "source": "https://github.com/HyNetworks/hysteria/blob/e1366b173ccf5706e1e4630fe8aa654a4b574085/core/server/server.go"
+      },
+      "expected_observation": [
+        "native_hop_protect_rejection"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-hysteria2",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N6-HOP-STOP",
+      "stage": "N6",
+      "substage": "N6.5",
+      "required": true,
+      "row_ids": [
+        "C04",
+        "HY07",
+        "HY08"
+      ],
+      "protocol": "hysteria2",
+      "network": "quic",
+      "security": "tls13",
+      "udp_codec": "hysteria2-datagram",
+      "field_values": {
+        "test": "native_stop_during_hop",
+        "ipv6": true,
+        "obfs": true,
+        "random_interval": false
+      },
+      "outer_family": "IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct",
+      "peer_kind": "H",
+      "peer_config": {
+        "test": "native_stop_during_hop",
+        "ipv6": true,
+        "obfs": true,
+        "random_interval": false
+      },
+      "gap_source": {
+        "reason": "Mihomo HY2 listener cannot redirect one QUIC state across a port set or disable authenticated business UDP; official Hysteria provides these gates",
+        "source": "https://github.com/HyNetworks/hysteria/blob/e1366b173ccf5706e1e4630fe8aa654a4b574085/core/server/server.go"
+      },
+      "expected_observation": [
+        "native_stop_during_hop"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-hysteria2",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N6-HOP-V4-OBFS-FIXED",
+      "stage": "N6",
+      "substage": "N6.5",
+      "required": true,
+      "row_ids": [
+        "C04",
+        "HY07",
+        "HY08"
+      ],
+      "protocol": "hysteria2",
+      "network": "quic",
+      "security": "tls13",
+      "udp_codec": "hysteria2-datagram",
+      "field_values": {
+        "test": "native_hopping",
+        "ipv6": false,
+        "obfs": true,
+        "random_interval": false
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct",
+      "peer_kind": "H",
+      "peer_config": {
+        "test": "native_hopping",
+        "ipv6": false,
+        "obfs": true,
+        "random_interval": false
+      },
+      "gap_source": {
+        "reason": "Mihomo HY2 listener cannot redirect one QUIC state across a port set or disable authenticated business UDP; official Hysteria provides these gates",
+        "source": "https://github.com/HyNetworks/hysteria/blob/e1366b173ccf5706e1e4630fe8aa654a4b574085/core/server/server.go"
+      },
+      "expected_observation": [
+        "native_hopping"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-hysteria2",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N6-HOP-V4-OBFS-RANDOM",
+      "stage": "N6",
+      "substage": "N6.5",
+      "required": true,
+      "row_ids": [
+        "C04",
+        "HY07",
+        "HY08"
+      ],
+      "protocol": "hysteria2",
+      "network": "quic",
+      "security": "tls13",
+      "udp_codec": "hysteria2-datagram",
+      "field_values": {
+        "test": "native_hopping",
+        "ipv6": false,
+        "obfs": true,
+        "random_interval": true
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct",
+      "peer_kind": "H",
+      "peer_config": {
+        "test": "native_hopping",
+        "ipv6": false,
+        "obfs": true,
+        "random_interval": true
+      },
+      "gap_source": {
+        "reason": "Mihomo HY2 listener cannot redirect one QUIC state across a port set or disable authenticated business UDP; official Hysteria provides these gates",
+        "source": "https://github.com/HyNetworks/hysteria/blob/e1366b173ccf5706e1e4630fe8aa654a4b574085/core/server/server.go"
+      },
+      "expected_observation": [
+        "native_hopping"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-hysteria2",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N6-HOP-V4-PLAIN-FIXED",
+      "stage": "N6",
+      "substage": "N6.5",
+      "required": true,
+      "row_ids": [
+        "C04",
+        "HY07",
+        "HY08"
+      ],
+      "protocol": "hysteria2",
+      "network": "quic",
+      "security": "tls13",
+      "udp_codec": "hysteria2-datagram",
+      "field_values": {
+        "test": "native_hopping",
+        "ipv6": false,
+        "obfs": false,
+        "random_interval": false
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct",
+      "peer_kind": "H",
+      "peer_config": {
+        "test": "native_hopping",
+        "ipv6": false,
+        "obfs": false,
+        "random_interval": false
+      },
+      "gap_source": {
+        "reason": "Mihomo HY2 listener cannot redirect one QUIC state across a port set or disable authenticated business UDP; official Hysteria provides these gates",
+        "source": "https://github.com/HyNetworks/hysteria/blob/e1366b173ccf5706e1e4630fe8aa654a4b574085/core/server/server.go"
+      },
+      "expected_observation": [
+        "native_hopping"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-hysteria2",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N6-HOP-V4-PLAIN-RANDOM",
+      "stage": "N6",
+      "substage": "N6.5",
+      "required": true,
+      "row_ids": [
+        "C04",
+        "HY07",
+        "HY08"
+      ],
+      "protocol": "hysteria2",
+      "network": "quic",
+      "security": "tls13",
+      "udp_codec": "hysteria2-datagram",
+      "field_values": {
+        "test": "native_hopping",
+        "ipv6": false,
+        "obfs": false,
+        "random_interval": true
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct",
+      "peer_kind": "H",
+      "peer_config": {
+        "test": "native_hopping",
+        "ipv6": false,
+        "obfs": false,
+        "random_interval": true
+      },
+      "gap_source": {
+        "reason": "Mihomo HY2 listener cannot redirect one QUIC state across a port set or disable authenticated business UDP; official Hysteria provides these gates",
+        "source": "https://github.com/HyNetworks/hysteria/blob/e1366b173ccf5706e1e4630fe8aa654a4b574085/core/server/server.go"
+      },
+      "expected_observation": [
+        "native_hopping"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-hysteria2",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N6-HOP-V6-OBFS-FIXED",
+      "stage": "N6",
+      "substage": "N6.5",
+      "required": true,
+      "row_ids": [
+        "C04",
+        "HY07",
+        "HY08"
+      ],
+      "protocol": "hysteria2",
+      "network": "quic",
+      "security": "tls13",
+      "udp_codec": "hysteria2-datagram",
+      "field_values": {
+        "test": "native_hopping",
+        "ipv6": true,
+        "obfs": true,
+        "random_interval": false
+      },
+      "outer_family": "IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct",
+      "peer_kind": "H",
+      "peer_config": {
+        "test": "native_hopping",
+        "ipv6": true,
+        "obfs": true,
+        "random_interval": false
+      },
+      "gap_source": {
+        "reason": "Mihomo HY2 listener cannot redirect one QUIC state across a port set or disable authenticated business UDP; official Hysteria provides these gates",
+        "source": "https://github.com/HyNetworks/hysteria/blob/e1366b173ccf5706e1e4630fe8aa654a4b574085/core/server/server.go"
+      },
+      "expected_observation": [
+        "native_hopping"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-hysteria2",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N6-HOP-V6-OBFS-RANDOM",
+      "stage": "N6",
+      "substage": "N6.5",
+      "required": true,
+      "row_ids": [
+        "C04",
+        "HY07",
+        "HY08"
+      ],
+      "protocol": "hysteria2",
+      "network": "quic",
+      "security": "tls13",
+      "udp_codec": "hysteria2-datagram",
+      "field_values": {
+        "test": "native_hopping",
+        "ipv6": true,
+        "obfs": true,
+        "random_interval": true
+      },
+      "outer_family": "IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct",
+      "peer_kind": "H",
+      "peer_config": {
+        "test": "native_hopping",
+        "ipv6": true,
+        "obfs": true,
+        "random_interval": true
+      },
+      "gap_source": {
+        "reason": "Mihomo HY2 listener cannot redirect one QUIC state across a port set or disable authenticated business UDP; official Hysteria provides these gates",
+        "source": "https://github.com/HyNetworks/hysteria/blob/e1366b173ccf5706e1e4630fe8aa654a4b574085/core/server/server.go"
+      },
+      "expected_observation": [
+        "native_hopping"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-hysteria2",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N6-HOP-V6-PLAIN-FIXED",
+      "stage": "N6",
+      "substage": "N6.5",
+      "required": true,
+      "row_ids": [
+        "C04",
+        "HY07",
+        "HY08"
+      ],
+      "protocol": "hysteria2",
+      "network": "quic",
+      "security": "tls13",
+      "udp_codec": "hysteria2-datagram",
+      "field_values": {
+        "test": "native_hopping",
+        "ipv6": true,
+        "obfs": false,
+        "random_interval": false
+      },
+      "outer_family": "IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct",
+      "peer_kind": "H",
+      "peer_config": {
+        "test": "native_hopping",
+        "ipv6": true,
+        "obfs": false,
+        "random_interval": false
+      },
+      "gap_source": {
+        "reason": "Mihomo HY2 listener cannot redirect one QUIC state across a port set or disable authenticated business UDP; official Hysteria provides these gates",
+        "source": "https://github.com/HyNetworks/hysteria/blob/e1366b173ccf5706e1e4630fe8aa654a4b574085/core/server/server.go"
+      },
+      "expected_observation": [
+        "native_hopping"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-hysteria2",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N6-HOP-V6-PLAIN-RANDOM",
+      "stage": "N6",
+      "substage": "N6.5",
+      "required": true,
+      "row_ids": [
+        "C04",
+        "HY07",
+        "HY08"
+      ],
+      "protocol": "hysteria2",
+      "network": "quic",
+      "security": "tls13",
+      "udp_codec": "hysteria2-datagram",
+      "field_values": {
+        "test": "native_hopping",
+        "ipv6": true,
+        "obfs": false,
+        "random_interval": true
+      },
+      "outer_family": "IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct",
+      "peer_kind": "H",
+      "peer_config": {
+        "test": "native_hopping",
+        "ipv6": true,
+        "obfs": false,
+        "random_interval": true
+      },
+      "gap_source": {
+        "reason": "Mihomo HY2 listener cannot redirect one QUIC state across a port set or disable authenticated business UDP; official Hysteria provides these gates",
+        "source": "https://github.com/HyNetworks/hysteria/blob/e1366b173ccf5706e1e4630fe8aa654a4b574085/core/server/server.go"
+      },
+      "expected_observation": [
+        "native_hopping"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-hysteria2",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N6-IPV6-GATES",
+      "stage": "N6",
+      "substage": "N6.1",
+      "required": true,
+      "row_ids": [
+        "C03",
+        "C05"
+      ],
+      "protocol": "hysteria2",
+      "network": "quic",
+      "security": "tls13",
+      "udp_codec": "hysteria2-datagram",
+      "field_values": {
+        "obfs": false
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct",
+      "peer_kind": "M",
+      "peer_config": {
+        "test": "runtime::public_ipv6_and_gates",
+        "obfs": false
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "runtime::public_ipv6_and_gates"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-hysteria2",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N6-LIFE",
+      "stage": "N6",
+      "substage": "N6.1",
+      "required": true,
+      "row_ids": [],
+      "protocol": "hysteria2",
+      "network": "quic",
+      "security": "tls13",
+      "udp_codec": "hysteria2-datagram",
+      "field_values": {
+        "obfs": false
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct",
+      "peer_kind": "M",
+      "peer_config": {
+        "test": "runtime::public_lifecycle",
+        "obfs": false
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "runtime::public_lifecycle"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-hysteria2",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N6-OWNED",
+      "stage": "N6",
+      "substage": "N6.1",
+      "required": true,
+      "row_ids": [],
+      "protocol": "hysteria2",
+      "network": "quic",
+      "security": "tls13",
+      "udp_codec": "hysteria2-datagram",
+      "field_values": {
+        "obfs": false
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct",
+      "peer_kind": "M",
+      "peer_config": {
+        "test": "native_owned_lifecycle",
+        "obfs": false
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "native_owned_lifecycle"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-hysteria2",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N6-PLATFORMS",
+      "stage": "N6",
+      "substage": "N6.6",
+      "required": true,
+      "row_ids": [],
+      "protocol": "hysteria2",
+      "network": "quic",
+      "security": "tls13",
+      "udp_codec": "hysteria2-datagram",
+      "field_values": {},
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "memory-only/build",
+      "upstream_graph": "direct",
+      "peer_kind": "unit",
+      "peer_config": {
+        "test": "N6-PLATFORMS"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N6-PLATFORMS"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup"
+      ],
+      "prerequisites": [
+        "rust-toolchain"
+      ],
+      "runner": "hysteria2-gate",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N6-QUALITY",
+      "stage": "N6",
+      "substage": "N6.6",
+      "required": true,
+      "row_ids": [],
+      "protocol": "hysteria2",
+      "network": "quic",
+      "security": "tls13",
+      "udp_codec": "hysteria2-datagram",
+      "field_values": {},
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "memory-only/build",
+      "upstream_graph": "direct",
+      "peer_kind": "unit",
+      "peer_config": {
+        "test": "N6-QUALITY"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N6-QUALITY"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup"
+      ],
+      "prerequisites": [
+        "rust-toolchain"
+      ],
+      "runner": "hysteria2-gate",
+      "timeout_seconds": 1200
+    },
+    {
+      "case_id": "N6-REGRESSION",
+      "stage": "N6",
+      "substage": "N6.6",
+      "required": true,
+      "row_ids": [],
+      "protocol": "hysteria2",
+      "network": "quic",
+      "security": "tls13",
+      "udp_codec": "hysteria2-datagram",
+      "field_values": {},
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "memory-only/build",
+      "upstream_graph": "direct",
+      "peer_kind": "unit",
+      "peer_config": {
+        "test": "N6-REGRESSION"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N6-REGRESSION"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup"
+      ],
+      "prerequisites": [
+        "rust-toolchain"
+      ],
+      "runner": "hysteria2-gate",
+      "timeout_seconds": 1200
+    },
+    {
+      "case_id": "N6-RELEASE",
+      "stage": "N6",
+      "substage": "N6.6",
+      "required": true,
+      "row_ids": [],
+      "protocol": "hysteria2",
+      "network": "quic",
+      "security": "tls13",
+      "udp_codec": "hysteria2-datagram",
+      "field_values": {},
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "memory-only/build",
+      "upstream_graph": "direct",
+      "peer_kind": "unit",
+      "peer_config": {
+        "test": "N6-RELEASE"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "hysteria2_configuration_follows_its_protocol_feature",
+        "hysteria2_accepts_the_approved_tls_bandwidth_obfs_and_hopping_configuration",
+        "hysteria2_fields_are_strict_normalized_and_credentials_are_not_trimmed",
+        "tcp_wire_matches_the_protocol_and_preserves_server_first_bytes",
+        "udp_wire_round_trips_at_budget_and_bounds_malformed_fragments",
+        "udp_reassembly_isolates_sources_duplicates_counts_bytes_and_expiry",
+        "salamander_matches_independent_blake2b256_vector_and_rejects_short_packets",
+        "pacer_limits_actual_bytes_after_one_bounded_burst",
+        "bandwidth_negotiation_obeys_auto_and_the_lower_positive_limit",
+        "application_eof_closes_both_directions_without_consuming_a_tail",
+        "shutdown_wakes_an_already_pending_logical_reader",
+        "a_client_first_write_does_not_steal_a_pending_read_wakeup",
+        "a_new_path_packet_does_not_end_the_old_receive_window",
+        "authenticated_continuation_keeps_group_choice_but_has_a_new_io_deadline",
+        "controlled_path_maps_only_its_authorized_source_and_stops_without_replay"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup"
+      ],
+      "prerequisites": [
+        "rust-toolchain"
+      ],
+      "runner": "hysteria2-gate",
+      "timeout_seconds": 1200
+    },
+    {
+      "case_id": "N6-SCRIPTS",
+      "stage": "N6",
+      "substage": "N6.6",
+      "required": true,
+      "row_ids": [],
+      "protocol": "hysteria2",
+      "network": "quic",
+      "security": "tls13",
+      "udp_codec": "hysteria2-datagram",
+      "field_values": {},
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "memory-only/build",
+      "upstream_graph": "direct",
+      "peer_kind": "unit",
+      "peer_config": {
+        "test": "N6-SCRIPTS"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N6-SCRIPTS"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup"
+      ],
+      "prerequisites": [
+        "rust-toolchain"
+      ],
+      "runner": "hysteria2-gate",
+      "timeout_seconds": 1200
+    },
+    {
+      "case_id": "N6-SECURITY",
+      "stage": "N6",
+      "substage": "N6.1",
+      "required": true,
+      "row_ids": [
+        "HY01",
+        "HY02",
+        "HY03",
+        "T01",
+        "T03",
+        "T04",
+        "T05",
+        "T07",
+        "T08"
+      ],
+      "protocol": "hysteria2",
+      "network": "quic",
+      "security": "tls13",
+      "udp_codec": "hysteria2-datagram",
+      "field_values": {
+        "obfs": false
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct",
+      "peer_kind": "M",
+      "peer_config": {
+        "test": "native_security_matrix",
+        "obfs": false
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "native_security_matrix"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-hysteria2",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N6-TCP",
+      "stage": "N6",
+      "substage": "N6.1",
+      "required": true,
+      "row_ids": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "HY01",
+        "T01",
+        "T03"
+      ],
+      "protocol": "hysteria2",
+      "network": "quic",
+      "security": "tls13",
+      "udp_codec": "hysteria2-datagram",
+      "field_values": {
+        "obfs": false
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct",
+      "peer_kind": "M",
+      "peer_config": {
+        "test": "hysteria2_tcp_base",
+        "obfs": false
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "hysteria2_tcp_base"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-hysteria2",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N6-TCP-SALAMANDER",
+      "stage": "N6",
+      "substage": "N6.1",
+      "required": true,
+      "row_ids": [
+        "HY02",
+        "HY03"
+      ],
+      "protocol": "hysteria2",
+      "network": "quic",
+      "security": "tls13",
+      "udp_codec": "hysteria2-datagram",
+      "field_values": {
+        "obfs": true
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct",
+      "peer_kind": "M",
+      "peer_config": {
+        "test": "hysteria2_tcp_base",
+        "obfs": true
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "hysteria2_tcp_base"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-hysteria2",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N6-UDP",
+      "stage": "N6",
+      "substage": "N6.2",
+      "required": true,
+      "row_ids": [
+        "C05",
+        "HY06"
+      ],
+      "protocol": "hysteria2",
+      "network": "quic",
+      "security": "tls13",
+      "udp_codec": "hysteria2-datagram",
+      "field_values": {
+        "obfs": false
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct",
+      "peer_kind": "M",
+      "peer_config": {
+        "test": "hysteria2_udp_base",
+        "obfs": false
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "hysteria2_udp_base"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-hysteria2",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N6-UDP-BOUNDARIES",
+      "stage": "N6",
+      "substage": "N6.2",
+      "required": true,
+      "row_ids": [
+        "HY06"
+      ],
+      "protocol": "hysteria2",
+      "network": "quic",
+      "security": "tls13",
+      "udp_codec": "hysteria2-datagram",
+      "field_values": {
+        "obfs": false
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct",
+      "peer_kind": "M",
+      "peer_config": {
+        "test": "hysteria2::public_udp_boundaries",
+        "obfs": false
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "hysteria2::public_udp_boundaries"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-hysteria2",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N6-UDP-DISABLED",
+      "stage": "N6",
+      "substage": "N6.2",
+      "required": true,
+      "row_ids": [
+        "C05"
+      ],
+      "protocol": "hysteria2",
+      "network": "quic",
+      "security": "tls13",
+      "udp_codec": "hysteria2-datagram",
+      "field_values": {
+        "test": "native_udp_disabled",
+        "ipv6": false,
+        "obfs": false,
+        "random_interval": false
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct",
+      "peer_kind": "H",
+      "peer_config": {
+        "test": "native_udp_disabled",
+        "ipv6": false,
+        "obfs": false,
+        "random_interval": false
+      },
+      "gap_source": {
+        "reason": "Mihomo HY2 listener cannot redirect one QUIC state across a port set or disable authenticated business UDP; official Hysteria provides these gates",
+        "source": "https://github.com/HyNetworks/hysteria/blob/e1366b173ccf5706e1e4630fe8aa654a4b574085/core/server/server.go"
+      },
+      "expected_observation": [
+        "native_udp_disabled"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-hysteria2",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N6-UDP-SALAMANDER",
+      "stage": "N6",
+      "substage": "N6.2",
+      "required": true,
+      "row_ids": [
+        "HY02",
+        "HY03",
+        "HY06"
+      ],
+      "protocol": "hysteria2",
+      "network": "quic",
+      "security": "tls13",
+      "udp_codec": "hysteria2-datagram",
+      "field_values": {
+        "obfs": true
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct",
+      "peer_kind": "M",
+      "peer_config": {
+        "test": "hysteria2_udp_base",
+        "obfs": true
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "hysteria2_udp_base"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-hysteria2",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N6-UNIT",
+      "stage": "N6",
+      "substage": "N6.6",
+      "required": true,
+      "row_ids": [],
+      "protocol": "hysteria2",
+      "network": "quic",
+      "security": "tls13",
+      "udp_codec": "hysteria2-datagram",
+      "field_values": {},
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "memory-only/build",
+      "upstream_graph": "direct",
+      "peer_kind": "unit",
+      "peer_config": {
+        "test": "N6-UNIT"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "tcp_wire_matches_the_protocol_and_preserves_server_first_bytes",
+        "udp_wire_round_trips_at_budget_and_bounds_malformed_fragments",
+        "udp_reassembly_isolates_sources_duplicates_counts_bytes_and_expiry",
+        "salamander_matches_independent_blake2b256_vector_and_rejects_short_packets",
+        "pacer_limits_actual_bytes_after_one_bounded_burst",
+        "bandwidth_negotiation_obeys_auto_and_the_lower_positive_limit",
+        "application_eof_closes_both_directions_without_consuming_a_tail",
+        "shutdown_wakes_an_already_pending_logical_reader",
+        "a_client_first_write_does_not_steal_a_pending_read_wakeup",
+        "a_new_path_packet_does_not_end_the_old_receive_window",
+        "authenticated_continuation_keeps_group_choice_but_has_a_new_io_deadline",
+        "controlled_path_maps_only_its_authorized_source_and_stops_without_replay"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup"
+      ],
+      "prerequisites": [
+        "rust-toolchain"
+      ],
+      "runner": "hysteria2-gate",
+      "timeout_seconds": 1200
+    },
+    {
+      "case_id": "N6-UPSTREAM",
+      "stage": "N6",
+      "substage": "N6.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "hysteria2",
+      "network": "quic",
+      "security": "tls13",
+      "udp_codec": "hysteria2-datagram",
+      "field_values": {
+        "obfs": false
+      },
+      "outer_family": "IPv4",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "test": "hysteria2::public_concrete_upstream",
+        "obfs": false
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "hysteria2::public_concrete_upstream"
+      ],
+      "required_evidence": [
+        "structured-assertions",
+        "command",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "native-hysteria2",
+      "timeout_seconds": 300
     }
   ]
 }

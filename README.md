@@ -4,11 +4,11 @@
   English · <a href="./readme/README.zh_CN.md">简体中文</a> · <a href="./readme/README.ru.md">Русский</a>
 </p>
 
-VCore is a standalone, host-agnostic Rust client proxy core. It provides proxy graphs, static `select` proxy groups, DNS, routing rules, GeoData, HTTP/SOCKS5 listeners, a TUN data plane, and a loopback Controller through strict YAML configuration and Invoke API v5. The internal configuration schema revision is 20; the revision appears only in the `version` response and `buildIdentity`, not in YAML.
+VCore is a standalone, host-agnostic Rust client proxy core. It provides proxy graphs, static `select` proxy groups, DNS, routing rules, GeoData, HTTP/SOCKS5 listeners, a TUN data plane, and a loopback Controller through strict YAML configuration and Invoke API v5. The internal configuration schema revision is 21; the revision appears only in the `version` response and `buildIdentity`, not in YAML.
 
 ## Features
 
-- Outbounds: [VLESS TCP/WS/gRPC/HTTP/H2/XHTTP, TLS/REALITY and Vision](docs/vless.md), SOCKS5 CONNECT/UDP ASSOCIATE, AnyTLS TCP/UoT, Shadowsocks 2022, [Trojan TCP/UDP over TLS/WS/gRPC](docs/trojan.md), [VMess AEAD over TCP/WS/gRPC/HTTP/H2](docs/vmess.md), and DIRECT. SS supports three standard 2022 algorithms and AES identity chains; see its [upstream risks and acceptance boundaries](docs/shadowsocks.md).
+- Outbounds: [VLESS TCP/WS/gRPC/HTTP/H2/XHTTP, TLS/REALITY and Vision](docs/vless.md), SOCKS5 CONNECT/UDP ASSOCIATE, AnyTLS TCP/UoT, Shadowsocks 2022, [Trojan TCP/UDP over TLS/WS/gRPC](docs/trojan.md), [VMess AEAD over TCP/WS/gRPC/HTTP/H2](docs/vmess.md), [Hysteria2 TCP/UDP, bandwidth, Salamander and port hopping](docs/hysteria2.md), and DIRECT. SS supports three standard 2022 algorithms and AES identity chains; see its [upstream risks and acceptance boundaries](docs/shadowsocks.md).
 - Proxy chains: `dialer-proxy` forms a directed acyclic graph of arbitrary length. If node A points to B, the physical path is `client -> B -> A -> target`.
 - Proxy groups: static `select` groups keep ordered members, including concrete nodes, nested groups, `DIRECT`, and `REJECT`; their current-session selection can be changed live through the Controller. `dialer-proxy` may reference nodes or groups; DIRECT in an upstream group connects the current node's prepared server.
 - Routing: ordered `DOMAIN`, `DOMAIN-SUFFIX`, `DOMAIN-KEYWORD`, `GEOSITE`, `GEOIP`, `IP-CIDR`, `IP-CIDR6`, `DST-PORT`, `NETWORK`, and final `MATCH` rules.
@@ -73,6 +73,8 @@ Authorization: Bearer <secret>
 
 `GET /traffic` is a one-time `up/down/upTotal/downTotal` TUN snapshot. The group endpoints expose and change the selected direct member of static `select` groups; a successful change affects only new physical TCP, UDP, and DNS transports in the current session. It does not migrate existing connections, UDP associations, DNS state, or pooled TCP transports, and it never performs automatic failover. A Controller that manages groups requires one Bearer secret for all routes and may run without TUN. See [`docs/controller-api.md`](docs/controller-api.md).
 
+An authenticated Hysteria2 session keeps its upstream selection during port hopping. A replacement socket for that same QUIC session does not resample the group; only a new authenticated session does.
+
 ## Platforms
 
 | Platform | Data plane | Status |
@@ -115,6 +117,7 @@ TCP sessions, ordinary UDP associations, half-open connections, outbound handsha
 - [Trojan outbound](docs/trojan.md)
 - [VMess AEAD outbound](docs/vmess.md)
 - [VLESS and Vision outbound](docs/vless.md)
+- [Hysteria2 outbound](docs/hysteria2.md)
 - [Shadowsocks 2022 outbound and limitations](docs/shadowsocks.md)
 - [REALITY V1 client protocol](docs/reality-wire-protocol.md)
 - [TLS profiles and certificate policy](docs/tls-client-fingerprint.md)

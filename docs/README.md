@@ -4,7 +4,7 @@
 
 ## 公共契约
 
-1. [配置协议](config.yaml)：配置修订版 19 的完整 YAML 示例、静态 `select` 代理组及组上游和严格字段边界；XHTTP/sing-mux 详见 [专用契约](xhttp.md)。
+1. [配置协议](config.yaml)：配置修订版 21 的完整 YAML 示例、静态 `select` 代理组及组上游和严格字段边界；XHTTP/sing-mux 详见 [专用契约](xhttp.md)。
 2. [Invoke API](invoke-api.md)：API v5 的请求格式、生命周期和平台回调。
 3. [AnyTLS 出站](anytls.md)：TLS、会话复用、填充、TCP/UoT 和清理语义。
 4. [REALITY V1 协议](reality-wire-protocol.md)：握手、认证、连接状态和失败边界。
@@ -20,6 +20,7 @@
 14. [VLESS 与 Vision 出站](vless.md)：六种流传输、TLS/mTLS/经典 REALITY、Vision、gRPC 池、UDP 编码及关闭语义。
 15. [XHTTP 与 VLESS sing-mux](xhttp.md)：H1/H2/H3、请求字段、独立下载安全与连接池，以及 h2mux/smux/yamux。
 16. [TLS 客户端指纹](tls-client-fingerprint.md)：证书 pin 与命名 ClientHello profile、后端选择、下载继承和限制。
+17. [Hysteria2 出站](hysteria2.md)：QUIC TCP/UDP、带宽控制、Salamander、端口跳跃与同步回收。
 
 ## 平台与运行架构
 

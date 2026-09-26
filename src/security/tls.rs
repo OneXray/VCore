@@ -136,16 +136,18 @@ impl std::fmt::Debug for StandardTlsClient {
 }
 
 impl StandardTlsClient {
-    #[cfg(feature = "outbound-vless")]
+    #[cfg(any(feature = "outbound-vless", feature = "outbound-hysteria2"))]
     pub(crate) fn quic_config(&self) -> io::Result<(Arc<ClientConfig>, String)> {
-        if self.required_alpn.as_deref() != Some(b"h3") {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "QUIC requires an HTTP/3 TLS policy",
-            ));
-        }
         match &self.connector {
             StandardConnector::Rustls(connector) => {
+                // XHTTP validates its exclusive h3 policy before construction.
+                // Hysteria2 also uses H3 but permits a custom negotiated ALPN.
+                if connector.config().alpn_protocols.is_empty() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "QUIC requires ALPN",
+                    ));
+                }
                 Ok((connector.config().clone(), self.server_name.clone()))
             }
             #[cfg(feature = "tls-fingerprint")]

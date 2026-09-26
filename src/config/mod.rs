@@ -19,6 +19,8 @@ use crate::{Result, VCoreError};
 
 mod credentials;
 pub use credentials::{ProxyAccess, ProxyCredentials};
+mod hysteria2;
+pub use hysteria2::{Hysteria2Hopping, Hysteria2OutboundConfig};
 mod shadowsocks;
 pub use shadowsocks::{ShadowsocksCipher, ShadowsocksOutboundConfig};
 mod trojan;
@@ -295,6 +297,7 @@ pub struct ProxyConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProxyProtocol {
+    Hysteria2(Hysteria2OutboundConfig),
     Vmess(VmessOutboundConfig),
     Trojan(TrojanOutboundConfig),
     Vless(VlessOutboundConfig),
@@ -307,6 +310,7 @@ impl ProxyConfig {
     #[must_use]
     pub fn address(&self) -> &str {
         match &self.protocol {
+            ProxyProtocol::Hysteria2(config) => &config.address,
             ProxyProtocol::Vmess(config) => &config.address,
             ProxyProtocol::Trojan(config) => &config.address,
             ProxyProtocol::Vless(config) => &config.address,
@@ -319,6 +323,7 @@ impl ProxyConfig {
     #[must_use]
     pub const fn port(&self) -> u16 {
         match &self.protocol {
+            ProxyProtocol::Hysteria2(config) => config.port,
             ProxyProtocol::Vmess(config) => config.port,
             ProxyProtocol::Trojan(config) => config.port,
             ProxyProtocol::Vless(config) => config.port,
@@ -823,6 +828,8 @@ where
 // protocol fields inline avoids extra heap allocations in the startup path.
 #[allow(clippy::large_enum_variant)]
 enum RawOutbound {
+    #[serde(rename = "hysteria2")]
+    Hysteria2(hysteria2::RawHysteria2),
     #[serde(rename = "vmess")]
     Vmess(vmess::RawVmess),
     #[serde(rename = "trojan")]
@@ -1881,6 +1888,7 @@ pub(crate) fn proxy_graph_order(
 impl RawOutbound {
     fn normalize(self) -> Result<PendingProxyConfig> {
         let (tag, dialer_proxy, udp, protocol) = match self {
+            Self::Hysteria2(raw) => raw.normalize()?,
             Self::Vmess(raw) => raw.normalize()?,
             Self::Trojan(raw) => raw.normalize()?,
             Self::Shadowsocks {

@@ -40,9 +40,12 @@ pub use vless::{
     VlessCommand, VlessOutbound, VlessStream, encode_request_header, read_response_header,
 };
 
+#[cfg(feature = "outbound-hysteria2")]
+pub mod hysteria2;
 #[cfg(any(
     feature = "outbound-trojan",
     feature = "outbound-vmess",
-    feature = "outbound-vless"
+    feature = "outbound-vless",
+    feature = "outbound-hysteria2"
 ))]
 mod owned_stream;
