@@ -276,7 +276,9 @@ def run(
                             if peer.log.exists():
                                 (output / f"{tag}-{role}.log").write_text(
                                     redact(
-                                        peer.log.read_text(errors="replace")[-65536:]
+                                        # Capture before cleanup: live log
+                                        # following may buffer short messages.
+                                        command("logs", peer.name)[-65536:]
                                     )
                                 )
 

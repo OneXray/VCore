@@ -583,9 +583,12 @@ except RuntimeError as error:
             invalid["resolve"]["nodes"][0]["features"].append(forbidden)
             self.assertTrue(_tls_dependency_errors(invalid))
 
-        invalid = copy.deepcopy(metadata)
-        invalid["resolve"]["nodes"][1]["features"].append("fips")
-        self.assertTrue(_tls_dependency_errors(invalid))
+        for forbidden in ("fips", "restls"):
+            for index in (1, 2, 3):
+                with self.subTest(native_feature=forbidden, node=index):
+                    invalid = copy.deepcopy(metadata)
+                    invalid["resolve"]["nodes"][index]["features"].append(forbidden)
+                    self.assertTrue(_tls_dependency_errors(invalid))
 
         for source in CRATES_IO_SOURCES:
             with self.subTest(rustls_registry=source):

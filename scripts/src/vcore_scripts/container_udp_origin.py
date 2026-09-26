@@ -20,6 +20,7 @@ import time
 
 CAPACITY = 20000
 SLOTS = threading.BoundedSemaphore(8)
+COVER_SLOTS = threading.BoundedSemaphore(8)
 
 
 def receive_exact(stream, size):
@@ -230,20 +231,34 @@ def tls_context(version):
     return context
 
 
+def serve_camouflage(stream, context):
+    try:
+        with stream:
+            stream.settimeout(5)
+            with context.wrap_socket(stream, server_side=True) as secured:
+                secured.recv(1)
+    except OSError:
+        pass
+    finally:
+        COVER_SLOTS.release()
+
+
 def camouflage():
-    """Container-only TLS 1.3 target for REALITY's authenticated handshake."""
+    """Container-only TLS 1.3 target for REALITY authentication."""
     context = tls_context(ssl.TLSVersion.TLSv1_3)
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
         listener.bind(("0.0.0.0", 24001))
         listener.listen(8)
         while True:
             stream, _ = listener.accept()
-            stream.settimeout(5)
-            try:
-                with context.wrap_socket(stream, server_side=True) as secured:
-                    secured.recv(1)
-            except OSError:
+            # Independent XHTTP legs need concurrent cover handshakes. A quiet
+            # first leg must not hold the accept loop for its five-second bound.
+            if not COVER_SLOTS.acquire(blocking=False):
                 stream.close()
+                continue
+            threading.Thread(
+                target=serve_camouflage, args=(stream, context), daemon=True
+            ).start()
 
 
 def main():

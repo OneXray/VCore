@@ -79,7 +79,7 @@ async-trait = "0.1"
 base64 = "0.23"
 blake2 = { version = "=0.11.0", optional = true }
 blake3 = { version = "=1.8.7", optional = true }
-boring = { git = "https://github.com/OneXray/boring", rev = "a859a66311c82a2f2bf2d0bc392e1475c8615b66", version = "=5.2.0", features = ["client-fingerprint"], optional = true }
+boring = { git = "https://github.com/OneXray/boring", rev = "5ca9ba3e18b59d05326d82eef926f4ec07ced8c0", version = "=5.2.0", features = ["client-fingerprint"], optional = true }
 bytes = "1"
 crc32fast = { version = "1.5.2", optional = true }
 futures-util = { version = "0.3", features = ["sink"] }
@@ -111,7 +111,7 @@ shadowsocks = { git = "https://github.com/shadowsocks/shadowsocks-rust.git", rev
 socket2 = { version = "0.6", features = ["all"] }
 thiserror = "2"
 tokio = { version = "1", features = ["io-util", "macros", "net", "rt", "sync", "time"] }
-tokio-boring = { git = "https://github.com/OneXray/boring", rev = "a859a66311c82a2f2bf2d0bc392e1475c8615b66", version = "=5.2.0", optional = true }
+tokio-boring = { git = "https://github.com/OneXray/boring", rev = "5ca9ba3e18b59d05326d82eef926f4ec07ced8c0", version = "=5.2.0", optional = true }
 tokio-rustls = { version = "=0.26.5", default-features = false, features = ["ring", "tls12"] }
 tokio-tungstenite = { version = "=0.30.0", default-features = false, features = ["handshake"], optional = true }
 tokio-util = { version = "0.7", features = ["rt"] }
@@ -163,7 +163,7 @@ windows-core = { version = "=0.62.2", optional = true }
 
 [dev-dependencies]
 # Native peer controls for bounded in-memory ALPS tests; same published fork.
-boring-sys = { git = "https://github.com/OneXray/boring", rev = "a859a66311c82a2f2bf2d0bc392e1475c8615b66", version = "=5.2.0" }
+boring-sys = { git = "https://github.com/OneXray/boring", rev = "5ca9ba3e18b59d05326d82eef926f4ec07ced8c0", version = "=5.2.0" }
 foreign-types = "=0.5.0"
 tokio = { version = "1", features = ["test-util"] }
 # Independent EIH relay fixture only; production crypto remains the official SS crate.

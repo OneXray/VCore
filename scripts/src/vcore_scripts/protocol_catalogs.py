@@ -14,7 +14,7 @@ WORK_PACKAGES = {
     for stage, count in enumerate((0, 6, 4, 5, 4, 5, 6, 5, 5, 4, 4))
     for package in range(1, count + 1)
 }
-# Frozen schema-v1 requirements, independent of a catalog's self-reported count.
+# Schema-v2 requirements retain stable IDs while retiring removed security modes.
 FIELD_IDS = {
     f"{prefix}{index:02}"
     for prefix, count in {
@@ -34,6 +34,9 @@ FIELD_IDS = {
         "WG": 7,
     }.items()
     for index in range(1, count + 1)
+    if not (
+        (prefix == "D" and 22 <= index <= 24) or (prefix == "S" and 9 <= index <= 11)
+    )
 }
 COMBINATION_IDS = {
     "TR-TCP",
@@ -77,7 +80,6 @@ COMBINATION_IDS = {
     "VL-REALITY-HYBRID",
     "VL-ECH",
     "VL-SHADOWTLS",
-    "VL-RESTLS",
     "VL-JLS",
     "VL-ADVANCED-NATIVE-TRANSPORT",
     "VL-ADVANCED-DOWNLOAD",
@@ -151,7 +153,7 @@ def _load(directory: Path, name: str, kind: str, keys: set[str]) -> dict[str, An
     if (
         not isinstance(catalog, dict)
         or type(catalog.get("schema_version")) is not int
-        or catalog["schema_version"] != 1
+        or catalog["schema_version"] != 2
         or catalog.get("kind") != kind
         or "status" not in catalog
         or not isinstance(catalog.get("sources"), dict)

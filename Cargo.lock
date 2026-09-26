@@ -279,7 +279,7 @@ dependencies = [
 [[package]]
 name = "boring"
 version = "5.2.0"
-source = "git+https://github.com/OneXray/boring?rev=a859a66311c82a2f2bf2d0bc392e1475c8615b66#a859a66311c82a2f2bf2d0bc392e1475c8615b66"
+source = "git+https://github.com/OneXray/boring?rev=5ca9ba3e18b59d05326d82eef926f4ec07ced8c0#5ca9ba3e18b59d05326d82eef926f4ec07ced8c0"
 dependencies = [
  "bitflags 2.13.2",
  "boring-sys",
@@ -293,7 +293,7 @@ dependencies = [
 [[package]]
 name = "boring-sys"
 version = "5.2.0"
-source = "git+https://github.com/OneXray/boring?rev=a859a66311c82a2f2bf2d0bc392e1475c8615b66#a859a66311c82a2f2bf2d0bc392e1475c8615b66"
+source = "git+https://github.com/OneXray/boring?rev=5ca9ba3e18b59d05326d82eef926f4ec07ced8c0#5ca9ba3e18b59d05326d82eef926f4ec07ced8c0"
 dependencies = [
  "bindgen",
  "cmake",
@@ -2201,7 +2201,7 @@ dependencies = [
 [[package]]
 name = "tokio-boring"
 version = "5.2.0"
-source = "git+https://github.com/OneXray/boring?rev=a859a66311c82a2f2bf2d0bc392e1475c8615b66#a859a66311c82a2f2bf2d0bc392e1475c8615b66"
+source = "git+https://github.com/OneXray/boring?rev=5ca9ba3e18b59d05326d82eef926f4ec07ced8c0#5ca9ba3e18b59d05326d82eef926f4ec07ced8c0"
 dependencies = [
  "boring",
  "boring-sys",

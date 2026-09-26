@@ -1,6 +1,6 @@
 # VLESS 出站
 
-`outbound-vless` 使用共享 Dialer、上游图及 TLS/REALITY/JLS；协议不创建独立 socket 或系统 DNS。Invoke v5 不变，当前配置修订为 24。[N4 基础/传输/Vision](acceptance/next-protocols/N4.md)和 [N5 XHTTP/sing-mux](acceptance/next-protocols/N5.md)是此前阶段的本地证据；新 TLS 指纹、物理平台与发布结果单独记录，不能称为完整 VLESS 交付。
+`outbound-vless` 使用共享 Dialer、上游图及 TLS/REALITY/JLS；协议不创建独立 socket 或系统 DNS。Invoke v5 不变，当前配置修订为 26。[N4 基础/传输/Vision](acceptance/next-protocols/N4.md)和 [N5 XHTTP/sing-mux](acceptance/next-protocols/N5.md)是此前阶段的本地证据；新 TLS 指纹、物理平台与发布结果单独记录，不能称为完整 VLESS 交付。
 
 ## 配置与传输
 

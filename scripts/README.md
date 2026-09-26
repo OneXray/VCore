@@ -24,7 +24,7 @@ uv run --project scripts --locked vcore-scripts build windows
 - Apple 命令只能在 macOS 运行，输出 `dist/apple/LibVCore.xcframework`。
 - Android 命令在 macOS/Linux 运行，默认输出 `dist/android/{arm64-v8a,x86_64}/libvcore.so` 及同 ABI 的 `libc++_shared.so`；宿主必须一起打包，不能假定 Android 系统提供该 C++ runtime。
 - Windows 命令只能在已安装 Visual Studio C++ 工具的 Windows 运行；命令从系统注册表读取原生 ARM64/x64 处理器架构，通过 `vswhere` 加载对应的 MSVC 环境，验证三项 PE 的 machine type 后输出 `dist/windows/<architecture>` 下的 DLL、Provider Host、Session Host 和记录 package integration revision、架构及三项 SHA-256 的 `vcore-windows-artifacts.json`。
-- 所有构建都使用 `Cargo.lock`，并检查产物内的 Invoke API v5/config revision 24 身份。
+- 所有构建都使用 `Cargo.lock`，并检查产物内的 Invoke API v5/config revision 26 身份。
 - 标准 Apple、Android、Windows 构建显式包含两种客户端入站和七种代理出站（含 Hysteria2），不依赖 `ffi` / `tun` 的传递 feature 来隐式补齐；不包含 `interop-test`。Apple/Android 的自定义 `VCORE_FEATURES` 不得将测试信任注入用于交付。
 
 Apple/Android 继续接受现有环境变量：
@@ -175,9 +175,9 @@ uv run --project scripts --locked vcore-scripts check xhttp-gateway --identities
 
 `protocol-coverage --catalog-only`只检查本仓库`tests/protocols/fields.json`和`combinations.json`声明，也可用`--catalog-dir <directory>`指定副本。不读取清单所引用的源码、研究目录或URL，不下载或启动对端。必须显式选择`--catalog-only`或下面的`--run-dir`结果模式。
 
-检查 schema-v1 的完整145字段/69组合家族ID、重复JSON键、字段/来源/对端/override引用、协议适用范围、阶段与子包归属、必要观察项/模式维度、负例拒绝阶段、原生未知项说明及64个有序上游组合声明。稳定ID的增删必须同时审查版本化清单及验证器契约，不能靠改自报数量绕过漏项。来源只接受无凭据/查询参数的HTTPS链接或无 `..` 的相对路径，不检查其内容或网络可用性。
+检查 schema-v2 的完整139字段/68组合家族ID、重复JSON键、字段/来源/对端/override引用、协议适用范围、阶段与子包归属、必要观察项/模式维度、负例拒绝阶段、原生未知项说明及64个有序上游组合声明。稳定ID的增删必须同时审查版本化清单及验证器契约，不能靠改自报数量绕过漏项。来源只接受无凭据/查询参数的HTTPS链接或无 `..` 的相对路径，不检查其内容或网络可用性。
 
-有效清单退出0，stdout为JSON，`status: VALID`、`behavior_status: NOT RUN`；无效清单退出1、stderr只报告诊断，不输出JSON原文；缺少模式参数退出2。声明中不能写入PASS等运行结果。这个结果**不是145项字段或69项互通通过**，不解析条件说明或自动生成笛卡尔积。当前生产能力仍以`docs/config.yaml`为准。历史声明校验记录见[N1清单校验](../docs/acceptance/next-protocols/N1-catalogs.md)。
+有效清单退出0，stdout为JSON，`status: VALID`、`behavior_status: NOT RUN`；无效清单退出1、stderr只报告诊断，不输出JSON原文；缺少模式参数退出2。声明中不能写入PASS等运行结果。这个结果**不是139项字段或68项互通通过**，不解析条件说明或自动生成笛卡尔积。当前生产能力仍以`docs/config.yaml`为准。历史声明校验记录见[N1清单校验](../docs/acceptance/next-protocols/N1-catalogs.md)。
 
 ### 阶段执行与原始证据检查
 

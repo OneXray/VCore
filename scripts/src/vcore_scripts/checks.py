@@ -13,7 +13,7 @@ CRATES_IO_SOURCES = {
     "registry+https://github.com/rust-lang/crates.io-index",
     "registry+https://index.crates.io/",
 }
-BORING_REVISION = "a859a66311c82a2f2bf2d0bc392e1475c8615b66"
+BORING_REVISION = "5ca9ba3e18b59d05326d82eef926f4ec07ced8c0"
 BORING_GIT_SOURCE = (
     f"git+https://github.com/OneXray/boring?rev={BORING_REVISION}#{BORING_REVISION}"
 )
@@ -256,7 +256,13 @@ def _tls_dependency_errors(metadata: dict[str, Any]) -> list[str]:
         features = set(node["features"])
         if not required <= features:
             errors.append(f"{name} is missing required TLS features")
-        if features & {"fips", "fips-precompiled", "rpk", "pq-experimental"}:
+        if features & {
+            "fips",
+            "fips-precompiled",
+            "rpk",
+            "pq-experimental",
+            "restls",
+        }:
             errors.append(f"{name} enables an unapproved native TLS mode")
     for parent, children in (
         ("boring", {"boring-sys"}),

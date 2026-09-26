@@ -1,6 +1,6 @@
 # XHTTP 与 VLESS sing-mux
 
-当前 XHTTP/sing-mux 契约；[N5 本地阶段验收](acceptance/next-protocols/N5.md)已通过，历史开发过程见 [执行记录](acceptance/next-protocols/N5-progress.md)。schema22 增加 H1/H2 主腿和下载腿的显式混合 REALITY，独立证据见 [N7.2](acceptance/next-protocols/N7-reality-hybrid.md)；schema24 增加 [JLS](jls.md)，其他 N7 高级安全组合不由本文提前开放。配置保持严格类型，未知字段、null、无效或被忽略的组合在 IO 前拒绝。
+当前 XHTTP/sing-mux 契约；[N5 本地阶段验收](acceptance/next-protocols/N5.md)已通过，历史开发过程见 [执行记录](acceptance/next-protocols/N5-progress.md)。schema22 增加 H1/H2 主腿和下载腿的显式混合 REALITY，独立证据见 [N7.2](acceptance/next-protocols/N7-reality-hybrid.md)；schema24 增加 [JLS](jls.md)，当前 schema26；其他 N7 高级安全组合不由本文提前开放。配置保持严格类型，未知字段、null、无效或被忽略的组合在 IO 前拒绝。
 
 ## HTTP 版本和连接模式
 

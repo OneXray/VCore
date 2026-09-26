@@ -1,9 +1,9 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "kind": "planned-field-catalog",
   "baseline_date": "2026-09-22",
   "vcore_baseline": "bbe5100abcf07b1158f86cff39cd835e1f32ccf9",
-  "field_count": 145,
+  "field_count": 139,
   "scope": [
     "trojan",
     "vmess",
@@ -3449,96 +3449,6 @@
       "behavior_status": "NOT RUN"
     },
     {
-      "id": "D22",
-      "path": "proxies[].xhttp-opts.download-settings.restls-opts.password",
-      "protocols": [
-        "vless"
-      ],
-      "contract": "对象替换后必须完整认证，{} 清除",
-      "required_observation": "同一handler密码匹配；N7",
-      "work_packages": [
-        "N7.4",
-        "N7.5"
-      ],
-      "responsible_stages": [
-        "N7"
-      ],
-      "default_peer": "M",
-      "peer_override_rules": [
-        "vless-http-camouflage",
-        "legacy-h2",
-        "ws-custom-or-path-early-data",
-        "xhttp-h3"
-      ],
-      "sources": [
-        "M-VL",
-        "M-VL-IN",
-        "M-XREUSE",
-        "X-XHTTP"
-      ],
-      "behavior_status": "NOT RUN"
-    },
-    {
-      "id": "D23",
-      "path": "proxies[].xhttp-opts.download-settings.restls-opts.version-hint",
-      "protocols": [
-        "vless"
-      ],
-      "contract": "对象替换后显式 tls12/tls13",
-      "required_observation": "原生handshake目标对应版本；N7",
-      "work_packages": [
-        "N7.4",
-        "N7.5"
-      ],
-      "responsible_stages": [
-        "N7"
-      ],
-      "default_peer": "M",
-      "peer_override_rules": [
-        "vless-http-camouflage",
-        "legacy-h2",
-        "ws-custom-or-path-early-data",
-        "xhttp-h3"
-      ],
-      "sources": [
-        "M-VL",
-        "M-VL-IN",
-        "M-XREUSE",
-        "X-XHTTP"
-      ],
-      "behavior_status": "NOT RUN"
-    },
-    {
-      "id": "D24",
-      "path": "proxies[].xhttp-opts.download-settings.restls-opts.restls-script",
-      "protocols": [
-        "vless"
-      ],
-      "contract": "对象替换时默认空，可覆盖",
-      "required_observation": "同一对端实际可接受的记录序列；N7",
-      "work_packages": [
-        "N7.4",
-        "N7.5"
-      ],
-      "responsible_stages": [
-        "N7"
-      ],
-      "default_peer": "M",
-      "peer_override_rules": [
-        "vless-http-camouflage",
-        "legacy-h2",
-        "ws-custom-or-path-early-data",
-        "xhttp-h3"
-      ],
-      "sources": [
-        "M-VL",
-        "M-VL-IN",
-        "M-XREUSE",
-        "X-XHTTP"
-      ],
-      "behavior_status": "NOT RUN"
-    },
-    {
       "id": "D25",
       "path": "proxies[].xhttp-opts.download-settings.jls-opts.username",
       "protocols": [
@@ -3998,96 +3908,6 @@
       ],
       "contract": "v2/v3必填；v1无需密码",
       "required_observation": "v2 password / v3 users[].password；N7",
-      "work_packages": [
-        "N7.4"
-      ],
-      "responsible_stages": [
-        "N7"
-      ],
-      "default_peer": "M",
-      "peer_override_rules": [
-        "vless-http-camouflage",
-        "legacy-h2",
-        "ws-custom-or-path-early-data",
-        "xhttp-h3"
-      ],
-      "sources": [
-        "M-VL",
-        "M-VL-IN",
-        "M-VL-SVC",
-        "CR-SPLICE",
-        "R-HPKE"
-      ],
-      "behavior_status": "NOT RUN"
-    },
-    {
-      "id": "S09",
-      "path": "proxies[].restls-opts.password",
-      "protocols": [
-        "vless"
-      ],
-      "contract": "opts启用时必填密码",
-      "required_observation": "res-tls.password；错误记录认证与回落不可算成功；N7",
-      "work_packages": [
-        "N7.4"
-      ],
-      "responsible_stages": [
-        "N7"
-      ],
-      "default_peer": "M",
-      "peer_override_rules": [
-        "vless-http-camouflage",
-        "legacy-h2",
-        "ws-custom-or-path-early-data",
-        "xhttp-h3"
-      ],
-      "sources": [
-        "M-VL",
-        "M-VL-IN",
-        "M-VL-SVC",
-        "CR-SPLICE",
-        "R-HPKE"
-      ],
-      "behavior_status": "NOT RUN"
-    },
-    {
-      "id": "S10",
-      "path": "proxies[].restls-opts.version-hint",
-      "protocols": [
-        "vless"
-      ],
-      "contract": "opts启用时显式 tls12/tls13",
-      "required_observation": "同一原生handshake目标实际版本；N7",
-      "work_packages": [
-        "N7.4"
-      ],
-      "responsible_stages": [
-        "N7"
-      ],
-      "default_peer": "M",
-      "peer_override_rules": [
-        "vless-http-camouflage",
-        "legacy-h2",
-        "ws-custom-or-path-early-data",
-        "xhttp-h3"
-      ],
-      "sources": [
-        "M-VL",
-        "M-VL-IN",
-        "M-VL-SVC",
-        "CR-SPLICE",
-        "R-HPKE"
-      ],
-      "behavior_status": "NOT RUN"
-    },
-    {
-      "id": "S11",
-      "path": "proxies[].restls-opts.restls-script",
-      "protocols": [
-        "vless"
-      ],
-      "contract": "可选协议脚本，默认空采用协议默认",
-      "required_observation": "语法/长度/时序有界；脚本无任意代码执行；真实record序列；N7",
       "work_packages": [
         "N7.4"
       ],
@@ -4809,5 +4629,6 @@
       ],
       "behavior_status": "NOT RUN"
     }
-  ]
+  ],
+  "scope_revision": "2026-09-26: retire Restls, retain JLS and remaining stable IDs."
 }

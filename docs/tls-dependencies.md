@@ -18,8 +18,8 @@ REALITY 扩展不创建线程、异步任务、连接池或全局认证映射。
 ## 锁定依赖来源
 
 ```toml
-boring = { git = "https://github.com/OneXray/boring", rev = "a859a66311c82a2f2bf2d0bc392e1475c8615b66", version = "=5.2.0", features = ["client-fingerprint"] }
-tokio-boring = { git = "https://github.com/OneXray/boring", rev = "a859a66311c82a2f2bf2d0bc392e1475c8615b66", version = "=5.2.0" }
+boring = { git = "https://github.com/OneXray/boring", rev = "5ca9ba3e18b59d05326d82eef926f4ec07ced8c0", version = "=5.2.0", features = ["client-fingerprint"] }
+tokio-boring = { git = "https://github.com/OneXray/boring", rev = "5ca9ba3e18b59d05326d82eef926f4ec07ced8c0", version = "=5.2.0" }
 rustls = { version = "=0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
 tokio-rustls = { version = "=0.26.5", default-features = false, features = ["ring", "tls12"] }
 ```
@@ -54,8 +54,9 @@ REALITY 构建补丁 SHA-256 为 `308b0fabbf8651656d4e853e0f789746b4125033dd9bb3
 新增 JLS hook patch SHA-256 为
 `204879d971b95a30534cea9a3a2b723238857f24884236ab3139da9307761914`；已获准发布并
 由上述不可变 revision 接入。它认证原生 hello，保留 CertificateVerify/Finished 和
-TLS 记录保护，完整接线与证据见 [JLS](jls.md)。没有接入未发布的 Restls hook，
-没有本机 path/patch 依赖。
+TLS 记录保护，完整接线与证据见 [JLS](jls.md)。当前 revision 仅删除 Restls，
+JLS 保留；没有本机 path/patch 依赖。变更后的依赖与消费者验证见
+[Restls 撤回验收](acceptance/next-protocols/N7-restls-retirement.md)。
 补丁由 feature 控制，原始子模块不修改。Safari Zlib 增加可选 `flate2 1.1.10`
 （关闭默认 feature，使用纯 Rust `rust_backend`）；Chrome 保留 `brotli 9.0.0`。
 两者及传递依赖必须纳入当前解析图的许可证审查；不新增系统 zlib 链接依赖。

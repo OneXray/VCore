@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "kind": "planned-combination-catalog",
   "baseline_date": "2026-09-22",
   "status": "NOT RUN",
@@ -1596,7 +1596,6 @@
         "D16",
         "D17",
         "D20",
-        "D22",
         "D25"
       ],
       "stages": [
@@ -1837,13 +1836,11 @@
         "S03",
         "S04",
         "S07",
-        "S09",
         "S12",
         "D14",
         "D16",
         "D17",
         "D20",
-        "D22",
         "D25"
       ],
       "stages": [
@@ -1995,53 +1992,6 @@
       "behavior_status": "NOT RUN"
     },
     {
-      "id": "VL-RESTLS",
-      "classification": "supported-required",
-      "protocols": [
-        "vless"
-      ],
-      "networks": [
-        "tcp",
-        "ws",
-        "grpc",
-        "xhttp-h1",
-        "xhttp-h2"
-      ],
-      "security_modes": [
-        "restls-tls12",
-        "restls-tls13"
-      ],
-      "udp_codecs": [
-        "raw",
-        "xudp",
-        "packetaddr"
-      ],
-      "business": [
-        "tcp",
-        "udp"
-      ],
-      "peers": [
-        "M"
-      ],
-      "row_ids": [
-        "S09",
-        "S10",
-        "S11",
-        "VL05"
-      ],
-      "stages": [
-        "N0",
-        "N7"
-      ],
-      "required_observation": "Matching native handshake target, bounded scripts/records, wrong-authentication failure, no third-party source patch.",
-      "sources": [
-        "M-VL-IN",
-        "M-VL",
-        "CR-SPLICE"
-      ],
-      "behavior_status": "NOT RUN"
-    },
-    {
       "id": "VL-JLS",
       "classification": "supported-required",
       "protocols": [
@@ -2105,8 +2055,6 @@
         "shadowtls-v1",
         "shadowtls-v2",
         "shadowtls-v3",
-        "restls-tls12",
-        "restls-tls13",
         "jls"
       ],
       "udp_codecs": [
@@ -2129,7 +2077,6 @@
         "S03",
         "S04",
         "S07",
-        "S09",
         "S12"
       ],
       "stages": [
@@ -2163,8 +2110,6 @@
         "shadowtls-v1",
         "shadowtls-v2",
         "shadowtls-v3",
-        "restls-tls12",
-        "restls-tls13",
         "jls"
       ],
       "udp_codecs": [
@@ -2186,9 +2131,6 @@
         "D19",
         "D20",
         "D21",
-        "D22",
-        "D23",
-        "D24",
         "D25",
         "D26"
       ],
@@ -2548,16 +2490,14 @@
       "protocols": [
         "vless"
       ],
-      "when": "Two or more certificate TLS, REALITY, ShadowTLS, Restls or JLS wrappers on the same leg; includes conflicting inherited download objects.",
+      "when": "Two or more certificate TLS, REALITY, ShadowTLS or JLS wrappers on the same leg; includes conflicting inherited download objects.",
       "row_ids": [
         "VL05",
         "S01",
         "S07",
-        "S09",
         "S12",
         "D14",
         "D20",
-        "D22",
         "D25"
       ],
       "stages": [
@@ -2605,7 +2545,7 @@
       "protocols": [
         "vless"
       ],
-      "when": "XHTTP H3 with cleartext, REALITY, ShadowTLS, Restls or JLS on that leg.",
+      "when": "XHTTP H3 with cleartext, REALITY, ShadowTLS or JLS on that leg.",
       "row_ids": [
         "T03",
         "X03",
@@ -2613,7 +2553,6 @@
         "D08",
         "S01",
         "S07",
-        "S09",
         "S12"
       ],
       "stages": [
@@ -2928,5 +2867,6 @@
       ],
       "behavior_status": "NOT RUN"
     }
-  ]
+  ],
+  "scope_revision": "2026-09-26: retire Restls, retain JLS and remaining stable IDs."
 }

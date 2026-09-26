@@ -3,9 +3,23 @@
 2026-09-26。状态：**N7 未完成，N7.1 / N7.2 已完成本地子包签收。** Encryption
 的公开/分层/算法/票据门禁与 Apple/Android Release 通过，详见 [N7.1 报告](N7-encryption.md)。
 获准的 boring 混合扩展已发布为 `b7639ab7`；S03/D16 的 54 项容器门禁、32 项共享
-回归和生产构建证据见 [N7.2 报告](N7-reality-hybrid.md)。当前 schema24 / Invoke v5。
-JLS 的 S12–S13 / D25–D26 已完成本地子包签收，见 [JLS 报告](N7-jls.md)。
+回归和生产构建证据见 [N7.2 报告](N7-reality-hybrid.md)。当前 schema26 / Invoke v5。
+JLS 的 S12–S13 / D25–D26 已签收并继续保留，见 [JLS 记录](N7-jls.md)。
 下文保留开发时的原始失败与阶段性状态；N7.3 / N7.4 整体 / N7.5 仍未签收。
+
+最新范围：按用户决定，schema26 仅删除 Restls 配置、实现与专项测试，
+自有 boring fork 同步删除 Restls native hook、feature 和探针，恢复并保留 JLS。
+Restls 不再是 N7 的交付项或阻塞条件；旧字段严格拒绝，不静默降级为普通 TLS。
+最终固定 boring `5ca9ba3e`，JLS 定向互通 10/10、共享回归和 iOS/Android ARM64
+生产构建通过；此次收敛的输入、失败与边界见[撤回验收](N7-restls-retirement.md)。
+后续 N7.3 动态 ECH、N7.4 ShadowTLS / JLS、N7.5 合法组合与下载腿验收继续保留。
+必要 push 已获持续授权，不包含 PR 合并；历史逐提交授权表述不覆盖新授权。
+
+动态 ECH 已获准为 `prepare` / `measureDelay` 增加可选宿主 bootstrap DNS 入口，
+不再等待该项范围授权。入口尚未实现，不属于当前 Invoke 支持字段；只服务
+动态 ECH，不增加 YAML/global DNS 配置或公共后备。普通 TLS、静态 ECH 不依赖
+该入口，动态 ECH 缺安全可用能力失败关闭。后续仍需独立验证受控 Dialer、
+平台保护、防环、TTL/节点/传输腿隔离、取消/Stop 和无运行实例的测量。
 
 同日 N7.1 已完成[官方原语和 Encryption wire 纵切](N7-encryption.md)：Debug / Release
 各 14 项、18 项独立容器矩阵（含票据/重放/密文篡改）通过并保留初始失败。
@@ -15,6 +29,29 @@ Vision 和外层传输，schema23 / Invoke v5。新增 ChaCha 18 项、真实票
 59/59 通过，包含真实 Vision direct 关闭差分。最终其余五类 35/35、分层 36/36、
 常规/ChaCha 各 18/18、过期 9/9 和最大 padding 2/2 在同一输入下通过，完成 VL06
 子包签收；这些结果不抵扣尚未实现的高级安全组合。
+
+## 删除 Restls 之前的历史进度
+
+以下保留删除决定之前的授权、活跃度判断和互通失败，不再构成当前计划。
+
+最新授权与进度：用户已允许后续必要的 push，不必逐提交请求发布授权；下文
+未获发布授权的表述是当时边界，不覆盖新授权。Restls 原生 hook `d8d6d929`
+已发布并固定接入，公开配置与受控 Adapter 验收进行中，详见
+[Restls 记录](N7-restls.md)。该进度不等于 Restls 或完整 N7 签收。
+最新冻结验收在 TLS1.2 Restls + Mihomo gRPC 的首字节读取出现偶发 EOF，
+后续[专项诊断](N7-restls-grpc-diagnosis.md)已在默认脚本、2 核容器中两次捕获
+服务端读写互锁，导致 HTTP/2 SETTINGS 超时。先前官方客户端两组独立对照未
+复现的记录继续保留。根因已定位但未修复，当前仍停止 Restls 子包签收，
+不提交为已完成阶段；临时诊断 hook 已清理，正式资源门槛不变。
+随后按确认方案测试 VCore-only 的 gRPC 启动写入合并，真实默认脚本仍超时，
+并再次捕获同类互锁；候选与探针已撤回。此次否定一个客户端兼容候选，
+没有修复上游问题或改变 Restls 支持范围，详见同一专项诊断的实验记录。
+
+2026-09-26 范围复核：保留 JLS / Restls。Restls 原作者仓库长期未更新，但 Mihomo
+所用 MetaCubeX 分支在 2026-07-05 [新增服务端][RESTLS-SERVER]、2026-07-20
+[修复 TLS1.2 回落][RESTLS-FIX]，不据原仓库停更删除现有范围；JLS 也有
+[会话恢复认证修复][JLS-RESUMPTION]等近期维护。活跃度不是互通或安全验收，
+上述 Restls 偶发错误仍保持未解决，未因本次复核修改实现或降低门槛。
 
 ## 最初能力探针的输入和范围
 
@@ -167,3 +204,6 @@ JLS 追加进度：用户单独批准的 `a859a66311c82a2f2bf2d0bc392e1475c8615b
 [BORING-API]: https://github.com/OneXray/boring/blob/67581195fd6388a8bfd42c4e39e945f73c99a2b2/boring/src/ssl/reality.rs
 [BORING-PATCH]: https://github.com/OneXray/boring/blob/67581195fd6388a8bfd42c4e39e945f73c99a2b2/boring-sys/patches/reality-client.patch
 [MIHOMO]: https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/component/tls/reality.go
+[RESTLS-SERVER]: https://github.com/MetaCubeX/restls-client-go/commit/a8fa52c83df7e4feec0d94998fb2729f91b2a34a
+[RESTLS-FIX]: https://github.com/MetaCubeX/restls-client-go/commit/61f3272b964b2282a90278174c390cd9afb095f2
+[JLS-RESUMPTION]: https://github.com/MetaCubeX/jls-tls/commit/048cc206000261943fdf93f5b3bbe2b81524be77

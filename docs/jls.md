@@ -49,5 +49,5 @@ Mihomo v1.19.31 无指纹 gRPC 的 ALPN 状态读取存在已复现缺口：关�
 其 Chrome 指纹路径作显式标注的对照，VCore 待测节点仍保持无指纹，不冒称
 完全同配置差分，也不更改第三方实现。
 [JLS 验收记录](acceptance/next-protocols/N7-jls.md)区分独立 fork、VCore 公共消费者、
-下载腿、共享回归与生产构建。JLS 子包不代表 ShadowTLS、Restls、ECH、N7.5 或
+下载腿、共享回归与生产构建。JLS 子包不代表 ShadowTLS、ECH、N7.5 或
 完整 N7 已签收，也不替代 Windows 原生、设备/TUN、远端 CI 与发布门禁。
