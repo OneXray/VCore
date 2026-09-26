@@ -1,6 +1,6 @@
 # VLESS 出站
 
-`outbound-vless` 使用共享 Dialer、上游图及 TLS/REALITY；协议不创建独立 socket 或系统 DNS。Invoke v5 不变，当前配置修订为 23。[N4 基础/传输/Vision](acceptance/next-protocols/N4.md)和 [N5 XHTTP/sing-mux](acceptance/next-protocols/N5.md)是此前阶段的本地证据；新 TLS 指纹、物理平台与发布结果单独记录，不能称为完整 VLESS 交付。
+`outbound-vless` 使用共享 Dialer、上游图及 TLS/REALITY/JLS；协议不创建独立 socket 或系统 DNS。Invoke v5 不变，当前配置修订为 24。[N4 基础/传输/Vision](acceptance/next-protocols/N4.md)和 [N5 XHTTP/sing-mux](acceptance/next-protocols/N5.md)是此前阶段的本地证据；新 TLS 指纹、物理平台与发布结果单独记录，不能称为完整 VLESS 交付。
 
 ## 配置与传输
 
@@ -23,6 +23,13 @@
 TLS 密钥交换，服务端选择经典组时失败；可用于主连接和 XHTTP 独立下载连接。
 仅 `chrome` 或未命名 profile 兼容，模板及下载继承约束见 [TLS 指纹](tls-client-fingerprint.md)。
 这不开放其余 N7 高级字段，也不代表完整 N7 签收。
+
+## JLS
+
+附加安全方式 [JLS](jls.md) 使用配对的 `jls-opts.username/password`，适用于主连接
+和 XHTTP H1/H2 独立下载连接。同腿与 REALITY/证书策略/mTLS 互斥，也不能用于
+Vision 或 H3；它保持完整 TLS 1.3 认证与记录保护。下载继承/替换/清除、凭据上限
+和不恢复规则见该文档，其他未实现高级字段仍拒绝。
 
 ## Encryption
 

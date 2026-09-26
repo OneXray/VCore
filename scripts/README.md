@@ -24,7 +24,7 @@ uv run --project scripts --locked vcore-scripts build windows
 - Apple 命令只能在 macOS 运行，输出 `dist/apple/LibVCore.xcframework`。
 - Android 命令在 macOS/Linux 运行，默认输出 `dist/android/{arm64-v8a,x86_64}/libvcore.so` 及同 ABI 的 `libc++_shared.so`；宿主必须一起打包，不能假定 Android 系统提供该 C++ runtime。
 - Windows 命令只能在已安装 Visual Studio C++ 工具的 Windows 运行；命令从系统注册表读取原生 ARM64/x64 处理器架构，通过 `vswhere` 加载对应的 MSVC 环境，验证三项 PE 的 machine type 后输出 `dist/windows/<architecture>` 下的 DLL、Provider Host、Session Host 和记录 package integration revision、架构及三项 SHA-256 的 `vcore-windows-artifacts.json`。
-- 所有构建都使用 `Cargo.lock`，并检查产物内的 Invoke API v5/config revision 23 身份。
+- 所有构建都使用 `Cargo.lock`，并检查产物内的 Invoke API v5/config revision 24 身份。
 - 标准 Apple、Android、Windows 构建显式包含两种客户端入站和七种代理出站（含 Hysteria2），不依赖 `ffi` / `tun` 的传递 feature 来隐式补齐；不包含 `interop-test`。Apple/Android 的自定义 `VCORE_FEATURES` 不得将测试信任注入用于交付。
 
 Apple/Android 继续接受现有环境变量：
@@ -105,6 +105,25 @@ uv run --project scripts --locked python -m vcore_scripts.protocol_fingerprint -
 不从别名或其他模板的 PASS 推导当前模板通过。
 
 ### 协议声明清单
+
+JLS 的独立 VCore 消费者入口（不代表整个 N7.4 / N7 签收）：
+
+无指纹 gRPC 的关闭对照单独标记 `jls-grpc-chrome-baseline`：官方 Mihomo
+v1.19.31 的普通 JLS 连接状态未被 gRPC ALPN 读取器识别，使用其可工作的 Chrome
+指纹路径测量关闭语义；VCore 待测节点仍保持无指纹。原始失败和差异保留于 JLS
+验收记录，不能当作完全同配置对照。其他 JLS 组合不套用此例外。
+
+```sh
+cargo test --locked --all-features --test n7_jls_config
+uv run --project scripts --locked python -m vcore_scripts.protocol_jls target/interop/runs/<fresh-run>
+uv run --project scripts --locked python -m vcore_scripts.protocol_jls target/interop/runs/<fresh-run> --client-fingerprint chrome
+```
+
+固定 51 组：TCP/WS/HTTPUpgrade/gRPC、XHTTP H1/H2 三模式及下载腿，完整数据与
+Mihomo 同模式关闭对照、两腿认证负例、多用户下载替换、代理组/入口/IPv6/UDP隔离，
+gRPC 和 XHTTP 下载各 20 轮公共及 20 轮自有资源检查。可追加 case ID 定向执行，
+部分选择不签收整组。对端每次重新下载 official latest；源身份变化或清理失败不可 PASS。
+其余安全组合、HTTP/H2 外层、平台与物理设备仍按各自记录，不借用 fork probe 结果。
 
 N7.1 的 Encryption 增量入口（不等于完整阶段门禁）：
 

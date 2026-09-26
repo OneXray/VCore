@@ -1,12 +1,12 @@
 # XHTTP 与 VLESS sing-mux
 
-当前 XHTTP/sing-mux 契约；[N5 本地阶段验收](acceptance/next-protocols/N5.md)已通过，历史开发过程见 [执行记录](acceptance/next-protocols/N5-progress.md)。schema22 增加 H1/H2 主腿和下载腿的显式混合 REALITY，独立证据见 [N7.2](acceptance/next-protocols/N7-reality-hybrid.md)；其他 N7 高级安全组合不由本文提前开放。配置保持严格类型，未知字段、null、无效或被忽略的组合在 IO 前拒绝。
+当前 XHTTP/sing-mux 契约；[N5 本地阶段验收](acceptance/next-protocols/N5.md)已通过，历史开发过程见 [执行记录](acceptance/next-protocols/N5-progress.md)。schema22 增加 H1/H2 主腿和下载腿的显式混合 REALITY，独立证据见 [N7.2](acceptance/next-protocols/N7-reality-hybrid.md)；schema24 增加 [JLS](jls.md)，其他 N7 高级安全组合不由本文提前开放。配置保持严格类型，未知字段、null、无效或被忽略的组合在 IO 前拒绝。
 
 ## HTTP 版本和连接模式
 
 `network: xhttp` 使用现有 Dialer、上游图、保护接口与 SecurityClient，不另建系统解析器或裸 socket。`alpn: [http/1.1]` 选择 H1；空列表、`[h2]` 或包含 H1/H2 的列表选择 H2；只有独占 `[h3]` 选择 H3。不会静默降级 HTTP 版本。
 
-H1/H2 可使用明文、标准 TLS 1.3 或 REALITY（经典默认、显式混合模式）。H3 必须使用标准 TLS 1.3，不允许同腿明文或 REALITY。QUIC 收发走受控数据报，上游有效预算小于 1200 字节即拒绝，不绕开代理、protect 或接口绑定；路径 MTU 探测关闭。
+H1/H2 可使用明文、标准 TLS 1.3、REALITY（经典默认、显式混合模式）或 JLS。H3 必须使用标准 TLS 1.3，不允许同腿明文、REALITY 或 JLS。QUIC 收发走受控数据报，上游有效预算小于 1200 字节即拒绝，不绕开代理、protect 或接口绑定；路径 MTU 探测关闭。
 
 `xhttp-opts.mode` 接受 `auto`（默认）、`packet-up`、`stream-up`、`stream-one`。auto 在 REALITY 无下载配置时选择 stream-one，有下载配置时选择 stream-up，其余选择 packet-up。stream-one 是一条双工 POST，不允许 `download-settings`；其余模式以同一会话 ID 关联上传与下载。`path` 默认 `/`，`host` 显式非空优先，否则使用该腿 servername/server；IPv6 authority 使用方括号。
 
@@ -47,13 +47,14 @@ packet-up 在发送间隔内聚合小块写入，而不是把每个 write 变成
 
 `download-settings` 缺省和 `{}` 不等价：存在即启用独立下载连接/池，但仍共用一次 VLESS 握手、会话 ID 和建链上下文。两腿必须汇聚到**同一个原生 XHTTP handler 的会话表**；两个独立 listener 不能构成共享会话。
 
-可覆盖 `server/port/tls/servername/alpn/host/path/headers`、`client-fingerprint`、普通 TLS 的 `skip-cert-verify/name-cert-verify/fingerprint/certificate/private-key`、`reality-opts` 和 `reuse-settings`。
+可覆盖 `server/port/tls/servername/alpn/host/path/headers`、`client-fingerprint`、普通 TLS 的 `skip-cert-verify/name-cert-verify/fingerprint/certificate/private-key`、`reality-opts`、`jls-opts` 和 `reuse-settings`。
 
 - 缺省叶字段继承主腿。headers 是整体替换，`{}` 清空；显式空 host 恢复下载认证名/server 推导。
 - `skip-cert-verify: false` 必须覆盖主腿 true；空 name-cert-verify/fingerprint 清除对应 override/pin。
 - `client-fingerprint` 缺省继承，显式名称覆盖，`none` / 空串清除。下载腿切到明文或 H3 前必须清除继承的已启用 profile；它不属于证书策略，不因切换 TLS/REALITY 自动清除。七值/四模板见 [TLS 指纹](tls-client-fingerprint.md)。
 - certificate/private-key 必须配对替换或同时空串清除；PEM 与密钥匹配在 IO 前检查。
 - reality-opts 缺省继承整个对象，`{}` 清除；非空对象必须提供 public-key，short-id 缺省空、support-x25519mlkem768 缺省 false，不按叶合并旧对象。仅提供混合开关不等同空对象，仍须提供 public-key。null 拒绝。
+- jls-opts 缺省继承整个身份，非空对象必须完整替换 username/password，`{}` 清除；同腿与 REALITY 和证书策略互斥，切换时须显式清除旧对象。JLS 仅 H1/H2，实际 TLS1.3，无恢复；完整约束见 [JLS](jls.md)。
 - 切换到明文或 REALITY 不会悄悄丢弃继承的证书策略；须显式清除冲突字段。每条腿独立重新校验最终安全配置。
 - 独立地址/端口在 prepare 时分别准备；两腿共享原绝对期限和每个上游组的选择快照，下载失败不会另起超时预算或绕过原图。
 

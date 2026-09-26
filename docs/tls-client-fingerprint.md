@@ -21,7 +21,7 @@
 
 ## 适用范围
 
-AnyTLS、Trojan、VMess + TLS、VLESS + TLS/REALITY 使用同一共享连接器。
+AnyTLS、Trojan、VMess + TLS、VLESS + TLS/REALITY/JLS 使用同一共享连接器。
 TCP、WS、gRPC、HTTP 首包伪装、legacy H2、Vision、XHTTP H1/H2 仍遵守各自的协议约束。
 关闭 TLS 时不能携带该字段。SOCKS5、SS 2022 不接入 TLS 指纹。
 
@@ -39,11 +39,12 @@ client-fingerprint: chrome
 ## 后端与认证
 
 - 未启用指纹的标准 TLS 和 QUIC 使用 crates.io 官方 rustls + ring，不依赖 rustls fork。
-- 命名指纹的标准 TLS，以及所有 REALITY，使用锁定提交的自有 boring fork。
+- 命名指纹的标准 TLS，以及所有 REALITY/JLS，使用锁定提交的自有 boring fork。
 - 普通 TLS 两条路径共用同一个 WebPKI 证书验证器和发布信任根；叶 pin、非叶信任锚、
   独立验证名、skip 优先级不变。TLS 握手签名仍由各自后端强制验证。
 - VLESS mTLS 继续使用配对的内联 PEM，密钥匹配在使用 IO 前检查；profile 不修改身份。
 - REALITY 仅允许自身临时证书认证，不能混用 pin/skip/mTLS 或降级到普通站点证书。
+- [JLS](jls.md) 使用共享凭据身份和完整原生 TLS1.3，不启用恢复或 PKI 回退；profile 不改变身份。
 - 连接器只包装 Dialer/上游交付的 IO，不解析 DNS、不创建 socket、不绕过平台 protect。
 
 ## 四模板边界

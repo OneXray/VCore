@@ -21,6 +21,8 @@ mod credentials;
 pub use credentials::{ProxyAccess, ProxyCredentials};
 mod hysteria2;
 pub use hysteria2::{Hysteria2Hopping, Hysteria2OutboundConfig};
+mod jls;
+pub use jls::JlsConfig;
 mod shadowsocks;
 pub use shadowsocks::{ShadowsocksCipher, ShadowsocksOutboundConfig};
 mod trojan;
@@ -470,6 +472,7 @@ pub enum SecurityConfig {
     None,
     Tls(TlsConfig),
     Reality(RealityConfig),
+    Jls(JlsConfig),
 }
 
 impl SecurityConfig {
@@ -478,6 +481,7 @@ impl SecurityConfig {
             Self::None => None,
             Self::Tls(config) => config.client_fingerprint,
             Self::Reality(config) => config.client_fingerprint,
+            Self::Jls(config) => config.tls.client_fingerprint,
         }
     }
     #[must_use]
@@ -486,6 +490,7 @@ impl SecurityConfig {
             Self::None => "",
             Self::Tls(config) => &config.server_name,
             Self::Reality(config) => &config.server_name,
+            Self::Jls(config) => &config.tls.server_name,
         }
     }
 }
@@ -1145,6 +1150,8 @@ struct RawXHttpDownloadSettings {
         deserialize_with = "deserialize_present_map"
     )]
     reality_opts: Option<RawXHttpDownloadReality>,
+    #[serde(rename = "jls-opts", default, deserialize_with = "jls::deserialize")]
+    jls_opts: Option<jls::RawJls>,
     #[serde(default, deserialize_with = "deserialize_present_option")]
     path: Option<String>,
     #[serde(default, deserialize_with = "deserialize_present_option")]
@@ -2256,6 +2263,7 @@ impl RawXHttpDownloadSettings {
             certificate,
             private_key,
             reality_opts,
+            jls_opts,
             path,
             host,
             headers,
@@ -2345,6 +2353,7 @@ impl RawXHttpDownloadSettings {
         // mode. A mode switch must not silently erase a pin or client identity.
         let mut config = match default_security {
             SecurityConfig::Tls(config) => config.clone(),
+            SecurityConfig::Jls(config) => config.tls.clone(),
             _ => TlsConfig::xhttp(server_name.clone()),
         };
         config.server_name = server_name;
@@ -2393,7 +2402,18 @@ impl RawXHttpDownloadSettings {
             || config.certificate.verification_name.is_some()
             || config.certificate.fingerprint.is_some()
             || config.identity.is_some();
-        if (reality.is_some() || !tls) && certificate_policy {
+        let jls = match jls_opts {
+            Some(raw) if raw.is_empty() => None,
+            Some(raw) => Some(raw.normalize(config.clone())?),
+            None => match default_security {
+                SecurityConfig::Jls(config) => Some(config.clone()),
+                _ => None,
+            },
+        };
+        if reality.is_some() && jls.is_some() {
+            return invalid("XHTTP download JLS and REALITY are mutually exclusive");
+        }
+        if (reality.is_some() || jls.is_some() || !tls) && certificate_policy {
             return invalid(
                 "XHTTP download must explicitly clear inherited certificate policy before changing security mode",
             );
@@ -2406,6 +2426,13 @@ impl RawXHttpDownloadSettings {
             reality.client_fingerprint = client_fingerprint;
             reality.validate_fingerprint()?;
             SecurityConfig::Reality(reality)
+        } else if let Some(mut jls) = jls {
+            if !tls {
+                return invalid("XHTTP download JLS requires TLS");
+            }
+            jls.tls = config;
+            jls.validate()?;
+            SecurityConfig::Jls(jls)
         } else if tls {
             SecurityConfig::Tls(config)
         } else {
@@ -3906,7 +3933,6 @@ geo-update-interval: 24"#,
         for fields in [
             "shadow-tls-opts: {}",
             "restls-opts: {}",
-            "jls-opts: {}",
             "ech-opts: {}",
             "mode: stream-up",
             "typo: true",
@@ -3919,11 +3945,7 @@ geo-update-interval: 24"#,
             );
         }
 
-        for unsupported in [
-            "    shadow-tls-opts: {}\n",
-            "    restls-opts: {}\n",
-            "    jls-opts: null\n",
-        ] {
+        for unsupported in ["    shadow-tls-opts: {}\n", "    restls-opts: {}\n"] {
             let yaml = CURRENT_TLS.replace(
                 "    xhttp-opts:\n",
                 &format!("{unsupported}    xhttp-opts:\n"),

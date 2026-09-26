@@ -140,6 +140,50 @@ class VlessEvidenceTest(unittest.TestCase):
         self.assertEqual(case["field_values"]["close_reference"], scope)
         self.assertIn("not a same-combination", case["gap_source"]["reason"])
 
+    def test_jls_grpc_close_reference_labels_the_official_alpn_type_gap(self):
+        for profile in (None, "", "none", "chrome", "chrome120", "firefox", "safari"):
+            node = {
+                "network": "grpc",
+                "tls": True,
+                "jls-opts": {"username": "synthetic", "password": "synthetic"},
+            }
+            if profile is not None:
+                node["client-fingerprint"] = profile
+            original = copy.deepcopy(node)
+            reference, scope = close_reference(
+                "grpc-tls", node, {}, Path("cert"), Path("key"), "pin"
+            )
+            baseline = profile in (None, "", "none")
+            self.assertEqual(
+                scope, "jls-grpc-chrome-baseline" if baseline else "same-mode"
+            )
+            self.assertEqual(
+                reference["client-fingerprint"], "chrome" if baseline else profile
+            )
+            self.assertEqual(reference["jls-opts"], node["jls-opts"])
+            self.assertEqual(node, original)
+
+        for node in ({"network": "grpc"}, {"network": "tcp", "jls-opts": {}}):
+            reference, scope = close_reference(
+                "tcp-tls", node, {}, Path("cert"), Path("key"), "pin"
+            )
+            self.assertEqual(scope, "same-mode")
+            self.assertNotIn("client-fingerprint", reference)
+
+    def test_reality_close_reference_keeps_explicit_browser_profiles(self):
+        for profile in (None, "none", "chrome120", "firefox", "safari"):
+            node = {"network": "grpc"}
+            if profile is not None:
+                node["client-fingerprint"] = profile
+            reference, scope = close_reference(
+                "grpc-reality", node, {}, Path("cert"), Path("key"), "pin"
+            )
+            self.assertEqual(scope, "same-mode")
+            self.assertEqual(
+                reference["client-fingerprint"],
+                "chrome" if profile in (None, "none") else profile,
+            )
+
     def test_independent_features_match_the_executed_command_set(self):
         case = next(c for c in definitions() if c["case_id"] == "N4-FEATURES")
         with (

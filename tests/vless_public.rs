@@ -557,6 +557,42 @@ fn denied(node: Value, f: &Value) {
     origin.quiet();
     core.stop();
 }
+
+#[test]
+#[ignore = "isolated N7 JLS runner"]
+fn public_jls_download_identity() {
+    let _case = Case::start("N4-PUBLIC", "public_jls_download_identity");
+    let f = fixture();
+    initialize(&f);
+    let original = f["node"].clone();
+    assert!(original["xhttp-opts"]["download-settings"].is_object());
+    let port = free_port();
+    let core = Core::start(&config(original.clone(), port));
+    echo(port, &f);
+    core.stop();
+    let mut replaced = original.clone();
+    replaced["xhttp-opts"]["download-settings"]["jls-opts"] = f["jls_download_credentials"].clone();
+    replaced["xhttp-opts"]["download-settings"]["client-fingerprint"] = json!("firefox");
+    let core = Core::start(&config(replaced.clone(), port));
+    bulk(port, &f, false, false);
+    let mut udp = Association::new(&f, port, false, false);
+    udp.exchange(b"independent-jls-download");
+    core.stop();
+    for field in ["username", "password"] {
+        let mut bad = replaced.clone();
+        bad["xhttp-opts"]["download-settings"]["jls-opts"][field] = json!("incorrect-credential");
+        denied(bad, &f);
+    }
+    // An explicit clear must remove JLS, even though the peer still requires it.
+    let mut cleared = original.clone();
+    cleared["xhttp-opts"]["download-settings"]["jls-opts"] = json!({});
+    denied(cleared, &f);
+    // A failed independently authenticated leg cannot poison a new valid node.
+    let core = Core::start(&config(original, port));
+    echo(port, &f);
+    core.stop();
+}
+
 #[test]
 #[ignore = "isolated N4 runner"]
 fn public_negative() {

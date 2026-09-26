@@ -138,6 +138,12 @@ pub(super) struct RawVless {
     )]
     reality_opts: Option<RawRealitySettings>,
     #[serde(
+        rename = "jls-opts",
+        default,
+        deserialize_with = "super::jls::deserialize"
+    )]
+    jls_opts: Option<super::jls::RawJls>,
+    #[serde(
         rename = "xhttp-opts",
         default,
         deserialize_with = "deserialize_present_map"
@@ -226,6 +232,9 @@ impl RawVless {
         };
         let network = self.network.as_deref().unwrap_or("tcp");
         let vision = self.flow == "xtls-rprx-vision";
+        if self.jls_opts.is_some() && (vision || self.reality_opts.is_some()) {
+            return invalid("JLS cannot be combined with REALITY or Vision");
+        }
         if (!self.flow.is_empty() && !vision)
             || (vision
                 && (network != "tcp"
@@ -331,6 +340,7 @@ impl RawVless {
             && (self.servername.is_some()
                 || (network != "xhttp" && self.alpn.is_some())
                 || self.reality_opts.is_some()
+                || self.jls_opts.is_some()
                 || self.client_fingerprint.is_some()
                 || standard_options)
         {
@@ -338,6 +348,9 @@ impl RawVless {
         }
         if self.reality_opts.is_some() && standard_options {
             return invalid("standard certificate options cannot be used with REALITY");
+        }
+        if self.jls_opts.is_some() && standard_options {
+            return invalid("standard certificate options cannot be used with JLS");
         }
         let xhttp_version = if network == "xhttp" {
             super::XHttpVersion::from_alpn(self.alpn.as_deref().unwrap_or_default())?
@@ -386,15 +399,24 @@ impl RawVless {
             }
             _ => return invalid("VLESS certificate and private-key must be provided together"),
         };
-        let security = match self.reality_opts {
-            Some(raw) => {
+        let security = match (self.reality_opts, self.jls_opts) {
+            (Some(raw), None) => {
                 let mut config = raw.normalize(server_name)?;
                 config.alpn = alpn;
                 config.client_fingerprint = client_fingerprint;
                 config.validate_fingerprint()?;
                 SecurityConfig::Reality(config)
             }
-            None if self.tls => SecurityConfig::Tls(TlsConfig {
+            (None, Some(raw)) => SecurityConfig::Jls(raw.normalize(TlsConfig {
+                client_fingerprint,
+                server_name,
+                alpn,
+                tls13_only: true,
+                required_alpn: default_alpn.map(<[u8]>::to_vec),
+                certificate: Default::default(),
+                identity: None,
+            })?),
+            (None, None) if self.tls => SecurityConfig::Tls(TlsConfig {
                 client_fingerprint,
                 server_name,
                 alpn,
@@ -411,7 +433,8 @@ impl RawVless {
                 },
                 identity,
             }),
-            None => SecurityConfig::None,
+            (None, None) => SecurityConfig::None,
+            (Some(_), Some(_)) => return invalid("JLS and REALITY are mutually exclusive"),
         };
         let transport = if network == "xhttp" {
             VlessTransport::Xhttp(Box::new(self.xhttp_opts.unwrap_or_default().normalize(

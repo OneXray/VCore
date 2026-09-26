@@ -31,6 +31,10 @@ enum SecurityBackend {
         client: super::boring::BoringTlsClient,
         buffer_limit: usize,
     },
+    Jls {
+        client: super::boring::BoringTlsClient,
+        buffer_limit: usize,
+    },
 }
 
 #[derive(Clone)]
@@ -50,6 +54,10 @@ impl std::fmt::Debug for SecurityClient {
                 .debug_struct("SecurityClient::Reality")
                 .field("buffer_limit", buffer_limit)
                 .finish_non_exhaustive(),
+            SecurityBackend::Jls { buffer_limit, .. } => formatter
+                .debug_struct("SecurityClient::Jls")
+                .field("buffer_limit", buffer_limit)
+                .finish_non_exhaustive(),
         }
     }
 }
@@ -65,7 +73,7 @@ impl SecurityClient {
         }
     }
 
-    /// Builds one TLS or REALITY transport leg from its normalized security
+    /// Builds one TLS, REALITY or JLS transport leg from its normalized security
     /// configuration. A VLESS XHTTP download leg may use security settings
     /// distinct from the enclosing proxy's primary leg.
     pub fn from_security(config: &SecurityConfig) -> io::Result<Self> {
@@ -85,8 +93,8 @@ impl SecurityClient {
     /// Builds one node from instance-shared cryptographic material. The
     /// caller allocates the aggregate TLS resumption budget across standard-TLS
     /// nodes; zero disables resumption when the fixed four-session runtime
-    /// budget cannot provide a slot for every node. REALITY always ignores the
-    /// budget because its resumption policy is disabled.
+    /// budget cannot provide a slot for every node. REALITY and JLS ignore the
+    /// budget because their resumption policies are disabled.
     pub(crate) fn from_proxy_with_context(
         config: &VlessOutboundConfig,
         context: &SecurityContext,
@@ -203,6 +211,10 @@ impl SecurityClient {
                 client: super::boring::BoringTlsClient::reality(reality)?,
                 buffer_limit,
             },
+            SecurityConfig::Jls(jls) => SecurityBackend::Jls {
+                client: super::boring::BoringTlsClient::jls(jls)?,
+                buffer_limit,
+            },
         };
 
         Ok(Self { backend })
@@ -213,6 +225,10 @@ impl SecurityClient {
             SecurityBackend::Plain => Ok(stream),
             SecurityBackend::Standard(client) => client.connect(stream).await,
             SecurityBackend::Reality {
+                client,
+                buffer_limit,
+            }
+            | SecurityBackend::Jls {
                 client,
                 buffer_limit,
             } => client.connect(stream, *buffer_limit).await,
@@ -229,6 +245,10 @@ impl SecurityClient {
                 io::ErrorKind::InvalidInput,
                 "Vision requires TLS",
             )),
+            SecurityBackend::Jls { .. } => Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Vision cannot use JLS",
+            )),
             SecurityBackend::Standard(client) => client.connect_vision(stream, stats).await,
             SecurityBackend::Reality {
                 client,
@@ -242,7 +262,8 @@ impl SecurityClient {
         match &self.backend {
             SecurityBackend::Plain => 0,
             SecurityBackend::Standard(client) => client.buffer_limit(),
-            SecurityBackend::Reality { buffer_limit, .. } => *buffer_limit,
+            SecurityBackend::Reality { buffer_limit, .. }
+            | SecurityBackend::Jls { buffer_limit, .. } => *buffer_limit,
         }
     }
 }

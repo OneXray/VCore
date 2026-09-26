@@ -27,6 +27,14 @@ pub(super) struct BoringTlsClient {
     sessions: super::boring_resumption::Sessions,
     #[cfg(feature = "outbound-vless")]
     reality: Option<boring::ssl::RealityClientConfig>,
+    #[cfg(feature = "outbound-vless")]
+    jls: Option<Arc<JlsCredentials>>,
+}
+
+#[cfg(feature = "outbound-vless")]
+struct JlsCredentials {
+    username: zeroize::Zeroizing<Vec<u8>>,
+    password: zeroize::Zeroizing<Vec<u8>>,
 }
 
 #[derive(Clone)]
@@ -126,6 +134,8 @@ impl BoringTlsClient {
             sessions,
             #[cfg(feature = "outbound-vless")]
             reality: None,
+            #[cfg(feature = "outbound-vless")]
+            jls: None,
         })
     }
 
@@ -181,6 +191,41 @@ impl BoringTlsClient {
             required_alpn: None,
             sessions,
             reality: Some(reality),
+            jls: None,
+        })
+    }
+
+    #[cfg(feature = "outbound-vless")]
+    pub(super) fn jls(config: &crate::config::JlsConfig) -> io::Result<Self> {
+        config.validate().map_err(|_| invalid())?;
+        ServerName::try_from(config.tls.server_name.to_owned()).map_err(|_| invalid())?;
+        let mut builder = SslConnector::builder(SslMethod::tls()).map_err(|_| invalid())?;
+        // Retain the advertised template floor. Native JLS independently
+        // requires an authenticated TLS 1.3 result, including CV and Finished.
+        builder
+            .set_min_proto_version(Some(SslVersion::TLS1_2))
+            .map_err(|_| invalid())?;
+        builder
+            .set_max_proto_version(Some(SslVersion::TLS1_3))
+            .map_err(|_| invalid())?;
+        let sessions = super::boring_resumption::Sessions::new(&mut builder, 0)?;
+        let connector = match config.tls.client_fingerprint {
+            Some(value) => Connector::Named(
+                FingerprintConnector::new(builder, profile(value)).map_err(|_| invalid())?,
+            ),
+            None => Connector::Default(builder.build()),
+        };
+        Ok(Self {
+            connector,
+            server_name: config.tls.server_name.clone(),
+            alpn: wire_alpn(&config.tls.alpn)?,
+            required_alpn: config.tls.required_alpn.clone(),
+            sessions,
+            reality: None,
+            jls: Some(Arc::new(JlsCredentials {
+                username: config.username.as_bytes().to_vec().into(),
+                password: config.password.as_bytes().to_vec().into(),
+            })),
         })
     }
 
@@ -221,6 +266,12 @@ impl BoringTlsClient {
         #[cfg(feature = "outbound-vless")]
         if let Some(reality) = &self.reality {
             config.set_reality_client(reality).map_err(|_| invalid())?;
+        }
+        #[cfg(feature = "outbound-vless")]
+        if let Some(jls) = &self.jls {
+            config
+                .set_jls_client(&jls.username, &jls.password)
+                .map_err(|_| invalid())?;
         }
         let tls = tokio_boring::connect(config, &self.server_name, KeepOpen(stream))
             .await

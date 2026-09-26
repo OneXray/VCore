@@ -156,7 +156,25 @@ async fn native_vision_direct_close_alignment() {
 #[tokio::test]
 #[ignore = "official isolated container peer required"]
 async fn native_mihomo_close_alignment() {
-    compare_native_close("native_mihomo_close_alignment", "same-mode").await;
+    let fixture = fixture();
+    let node = &fixture["node"];
+    let jls_grpc_without_profile = node["network"] == "grpc"
+        && node["jls-opts"].is_object()
+        && matches!(
+            node["client-fingerprint"].as_str(),
+            None | Some("" | "none")
+        );
+    let scope = if jls_grpc_without_profile {
+        assert_eq!(fixture["close_reference"]["client_fingerprint"], "chrome");
+        assert_eq!(
+            fixture["close_reference"]["dut_client_fingerprint"],
+            node["client-fingerprint"]
+        );
+        "jls-grpc-chrome-baseline"
+    } else {
+        "same-mode"
+    };
+    compare_native_close("native_mihomo_close_alignment", scope).await;
 }
 
 #[tokio::test]
@@ -406,6 +424,74 @@ fn session(target: Destination) -> StreamSession {
         destination: target,
         sniffed_domain: None,
     }
+}
+
+#[tokio::test]
+#[ignore = "isolated N7 JLS runner"]
+async fn native_jls_fail_closed() {
+    let name = "native_jls_fail_closed";
+    event(name, "BEGIN");
+    let original = fixture();
+    let split = original["node"]["xhttp-opts"]["download-settings"].is_object();
+    for download in [false, true]
+        .into_iter()
+        .filter(|download| !download || split)
+    {
+        for field in ["username", "password"] {
+            let mut f = original.clone();
+            let credentials = f["node"]["jls-opts"].clone();
+            let leg = if download {
+                let leg = &mut f["node"]["xhttp-opts"]["download-settings"];
+                leg["jls-opts"] = credentials;
+                leg
+            } else {
+                &mut f["node"]
+            };
+            leg["jls-opts"][field] = json!("incorrect-credential");
+            let (mut control, destination) = origin(&f, 13, "ipv4").await;
+            let outbound = node(&f, None);
+            let failure = tokio::time::timeout(Duration::from_secs(5), async {
+                let mut io = outbound
+                    .connect_stream(session(destination), &EstablishContext::default())
+                    .await
+                    .map_err(|_| std::io::Error::other("connection rejected"))?
+                    .io;
+                io.write_all(b"must-not-arrive").await?;
+                io.flush().await?;
+                io.read_u8().await
+            })
+            .await
+            .expect("JLS rejection must not be a timeout");
+            assert!(
+                failure.is_err(),
+                "invalid JLS identity admitted a business stream"
+            );
+            outbound.shutdown().await;
+            assert!(
+                tokio::time::timeout(Duration::from_millis(200), control.read_u8())
+                    .await
+                    .is_err(),
+                "JLS rejection must open no origin connection"
+            );
+        }
+    }
+    // Use the same public node factory after failures; no fallback or stale identity.
+    let (mut control, destination) = origin(&original, 13, "ipv4").await;
+    let outbound = node(&original, None);
+    let mut io = outbound
+        .connect_stream(session(destination), &EstablishContext::default())
+        .await
+        .unwrap()
+        .io;
+    io.write_all(b"authenticated").await.unwrap();
+    io.flush().await.unwrap();
+    let mut response = [0; 13];
+    io.read_exact(&mut response).await.unwrap();
+    assert_eq!(&response, b"authenticated");
+    assert_eq!(control.read_u8().await.unwrap(), b'A');
+    drop(io);
+    outbound.shutdown().await;
+    event(name, "PASS");
 }
 
 #[tokio::test]

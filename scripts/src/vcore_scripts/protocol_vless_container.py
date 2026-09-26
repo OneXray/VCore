@@ -69,8 +69,22 @@ def close_reference(mode, node, config, certificate, private_key, pin):
         reference.pop("reality-opts")
         reference.update(port=23003, fingerprint=pin)
         scope = "ws-standard-tls-baseline"
-    elif mode.endswith("-reality"):
+    elif mode.endswith("-reality") and reference.get("client-fingerprint") in (
+        None,
+        "",
+        "none",
+    ):
         reference["client-fingerprint"] = "chrome"
+    elif (
+        reference.get("jls-opts")
+        and reference.get("network") == "grpc"
+        and reference.get("client-fingerprint") in (None, "", "none")
+    ):
+        # Official Mihomo v1.19.31's gRPC ALPN reader does not recognize the
+        # ordinary jls-tls ConnectionState type. uTLS JLS does work. Keep the
+        # VCore node unchanged and label this different-profile close baseline.
+        reference["client-fingerprint"] = "chrome"
+        scope = "jls-grpc-chrome-baseline"
     return reference, scope
 
 
@@ -81,6 +95,7 @@ def run(
     preflight_only=False,
     client_fingerprint=None,
     encryption=None,
+    jls=False,
 ):
     if client_fingerprint is not None and client_fingerprint not in CLIENT_FINGERPRINTS:
         raise ValueError("unsupported named client profile")
@@ -113,6 +128,15 @@ def run(
             for key, value in all_cases.items()
             if not value[3].startswith("native_")
         }
+    if jls:
+        from .protocol_jls import catalog
+
+        all_cases = catalog()
+        public_cases = {
+            key: value
+            for key, value in all_cases.items()
+            if not value[3].startswith("native_")
+        }
     selected = list(all_cases) if selected is None else selected
     if (
         not selected
@@ -131,7 +155,14 @@ def run(
             for kind in sorted(kinds)
         ]
     report = dict(
-        stage="N7.1" if encryption else "F5" if client_fingerprint else "N4",
+        stage="N7.4-JLS"
+        if jls
+        else "N7.1"
+        if encryption
+        else "F5"
+        if client_fingerprint
+        else "N4",
+        jls=jls,
         encryption_profile=encryption,
         client_fingerprint=client_fingerprint,
         scope="container-wire-and-public-consumer",
@@ -157,7 +188,7 @@ def run(
                     kind, directory, "linux-arm64", defer_version=True
                 )
             report["peers"][kind] = artifacts[kind].identity
-        lab = ContainerLab(report["isolation"], mtu=1500 if encryption else 1280)
+        lab = ContainerLab(report["isolation"], mtu=1500 if encryption or jls else 1280)
         report["phase"] = "build"
         built = run_command(
             [
@@ -318,7 +349,7 @@ def run(
                             config["inbounds"][0]["listen"] = "::"
                     else:
                         node, config = configuration(
-                            mode,
+                            mode.removesuffix("-h1") if jls else mode,
                             server.ipv4,
                             origin.ipv4,
                             Path("/data/fixture") / cert.name,
@@ -338,6 +369,11 @@ def run(
                             )
                     if client_fingerprint:
                         node["client-fingerprint"] = client_fingerprint
+                    extra_fixture = {}
+                    if jls:
+                        from .protocol_jls import configuration as jls_config
+
+                        extra_fixture = jls_config(node, config, origin.ipv4, mode)
                     if encryption:
                         from .protocol_encryption_public import (
                             configuration as encrypted_config,
@@ -362,15 +398,6 @@ def run(
                             Path("/data/fixture") / key.name,
                             pin,
                         )
-                        if client_fingerprint:
-                            # Mihomo REALITY requires uTLS even for our no-profile
-                            # control. That case compares close behavior only.
-                            reference_node["client-fingerprint"] = (
-                                "chrome"
-                                if client_fingerprint == "none"
-                                and mode.endswith("-reality")
-                                else client_fingerprint
-                            )
                     (server_dir / "config.json").write_text(json.dumps(config))
                     upstream = None
                     hop = None
@@ -443,13 +470,14 @@ def run(
                                 ),
                                 hop=hop,
                                 peer_kind=kind,
+                                **extra_fixture,
                             )
                         )
                     )
                     origin.release()
                     server.release()
                     origin.wait_tcp(24000)
-                    if mode.endswith("-reality"):
+                    if mode.endswith("-reality") or jls:
                         origin.wait_tcp(24001)
                     server.wait_tcp(23000)
                     comparison = None
@@ -506,6 +534,12 @@ def run(
                             raise RuntimeError("official close comparison failed")
                         reference = json.loads(observed_close.stdout)
                         reference["scope"] = reference_scope
+                        reference["client_fingerprint"] = reference_node.get(
+                            "client-fingerprint"
+                        )
+                        reference["dut_client_fingerprint"] = node.get(
+                            "client-fingerprint"
+                        )
                         (output / f"{tag}-close-reference.json").write_text(
                             json.dumps(reference) + "\n"
                         )
@@ -586,7 +620,9 @@ def run(
                                 VCORE_VLESS_ORIGIN_V4=origin.ipv4,
                                 VCORE_VLESS_INPUT=str(fixture),
                                 VCORE_CASE_EVENTS=str(events),
-                                VCORE_PROTOCOL_STAGE="N7" if encryption else "N4",
+                                VCORE_PROTOCOL_STAGE="N7"
+                                if encryption or jls
+                                else "N4",
                             ),
                         )
                         (output / f"{case}.log").write_text(
@@ -606,14 +642,16 @@ def run(
                                     observed,
                                     test,
                                     mode,
-                                    stage="N7" if encryption else "N4",
+                                    stage="N7" if encryption or jls else "N4",
                                 )
                                 if case in public_cases
                                 else observed
                                 == [
                                     dict(
                                         schema_version=1,
-                                        suite="N7-WIRE" if encryption else "N4-WIRE",
+                                        suite="N7-WIRE"
+                                        if encryption or jls
+                                        else "N4-WIRE",
                                         assertion=test,
                                         status=status,
                                     )
