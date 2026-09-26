@@ -2,6 +2,10 @@
 
 2026-09-26。状态：**N7 未完成，N7.2 已完成本地子包签收。获准的 boring 混合扩展已发布为 `b7639ab7`；VCore 的 S03/D16 完整 54 项容器门禁、32 项共享回归和 Apple/Android Release 构建通过。** 当前证据见 [N7.2 报告](N7-reality-hybrid.md)。下文原始接口失败保留，不是已交付经典 REALITY 的回归。N7.1 / N7.3 / N7.4 / N7.5 未签收；不能将一个后端限制推广成所有高级安全实现都不可行。
 
+同日 N7.1 已完成[官方原语和 Encryption wire 纵切](N7-encryption.md)：Debug / Release
+各 14 项、18 项独立容器矩阵（含票据/重放/密文篡改）通过并保留初始失败。
+模块尚未开放公开 YAML / runtime，UDP、Vision、外层传输与阶段签收仍待完成。
+
 ## 最初能力探针的输入和范围
 
 - VCore 基线 `def0e19cb0945614397c884388a9ee561818a19a`，新本地分支 `feat/vless-advanced-security`。

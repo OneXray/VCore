@@ -35,6 +35,9 @@ pub use direct::DirectOutbound;
 pub use socks5::{Socks5Auth, Socks5Outbound};
 #[cfg(feature = "outbound-vless")]
 pub(crate) use vless::VlessResourceLimits;
+#[cfg(all(feature = "outbound-vless", feature = "interop-test"))]
+#[doc(hidden)]
+pub use vless::encryption::Client as VlessEncryptionClient;
 #[cfg(feature = "outbound-vless")]
 pub use vless::{
     VlessCommand, VlessOutbound, VlessStream, encode_request_header, read_response_header,

@@ -29,8 +29,16 @@ tokio-rustls = { version = "=0.26.5", default-features = false, features = ["rin
 1. boring 三个 crate 必须来自同一已发布 revision；rustls/tokio-rustls 只使用官方 crates.io 发行版。不使用本机路径、`references` 依赖、rustls Git patch 或第二个 source；
 2. `Cargo.toml` 和 `Cargo.lock` 在同一提交中更新，lockfile 必须包含 registry 校验值和 boring 完整 Git revision；
 3. 没有相邻 rustls/boring 目录时，`cargo fetch --locked` 和后续构建仍能成功；
-4. rustls 只启用 ring；`outbound-vless` 启用 `boring/reality`，命名指纹由 `tls-fingerprint` feature 统一拥有；
+4. rustls 只启用 ring；`outbound-vless` 启用 `boring/reality` 和公共 `boring/mlkem`，命名指纹由 `tls-fingerprint` feature 统一拥有；
 5. 发布记录保存 VCore/boring revision、rustls/tokio-rustls 版本与 registry 校验值、BoringSSL 子模块和补丁校验值、lockfile hash 及产物 SHA-256。
+
+N7.1 Encryption 复用同一 boring 的公共 X25519、ML-KEM-768、AEAD 和 AES-CTR。
+固定文本 context 的哈希/派生使用官方 Rust `blake3 1.8.7`；任意二进制 context
+使用获准的私有 `vcore-blake3-raw`，只包装未修改的官方 BLAKE3 1.8.7 C portable
+源。来源/逐文件 hash/许可证与符号隔离见 [crate 说明](../crates/vcore-blake3-raw/README.md)。
+临时自有密钥材料采用 `zeroize 1.9.0`；不宣称能擦除第三方内部临时副本。
+这不新增 TLS 后端，不使用外部研究路径或 build-time 下载。当前 Encryption 模块
+仍只由 test / interop-test 编译；其原语和 wire 证据不能替代公开功能与生产构建。
 
 旧 rustls fork 已退役，远端计划永久删除，不再作为依赖、回退或重建来源。旧 REALITY 选择实验已从 security spike 移除；纯内存 TLS/record、HPKE/ECH 与官方 binding 接口实验仍保留。历史 N0/N1 验收保留当时的结果与摘要，不追改为官方 rustls 或 boring 的新结果；旧 Git 提交可能无法再重建。当前替换验证见 [fork 退役验收](acceptance/rustls-fork-retirement.md)。
 

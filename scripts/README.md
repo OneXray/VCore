@@ -106,6 +106,20 @@ uv run --project scripts --locked python -m vcore_scripts.protocol_fingerprint -
 
 ### 协议声明清单
 
+N7.1 的 Encryption wire 增量入口（尚非公开 YAML 或完整阶段门禁）：
+
+```sh
+uv run --project scripts --locked python -m vcore_scripts.protocol_encryption target/interop/runs/<fresh-run>
+```
+
+三外观 × 两 RTT × X25519 / ML-KEM / 混合 key 链，共 18 项；可追加 case ID
+做定向验证。每项执行四轮 IPv4/IPv6 双向各 10 MiB，再检查独立节点、错误 key、
+服务端握手/票据/长度密文篡改。0-RTT 项还检查实际短 flight、对端重放拒绝、
+独立 handler 拒绝旧票据，以及下一次显式连接的完整握手和新票据恢复；不重试业务。
+协议对端与原站位于两个独占容器；源码变化或清理失败均不能 PASS。
+只记录计数、版本/hash 和状态；重放样本只在进程内有界暂存、不保存到报告。
+该入口不抵扣公共运行时、UDP、Vision、外层传输、平台或完整 N7.1 签收。
+
 N7.2 的独立混合 REALITY 子包入口（不替代完整 N7 门禁）：
 
 ```sh

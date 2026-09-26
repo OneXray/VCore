@@ -2478,12 +2478,14 @@ dependencies = [
  "tun",
  "url",
  "uuid",
+ "vcore-blake3-raw",
  "vcore-netstack",
  "webpki-roots",
  "windows",
  "windows-collections",
  "windows-core",
  "yamux",
+ "zeroize",
 ]
 
 [[package]]
