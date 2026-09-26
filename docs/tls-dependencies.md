@@ -18,8 +18,8 @@ REALITY 扩展不创建线程、异步任务、连接池或全局认证映射。
 ## 锁定依赖来源
 
 ```toml
-boring = { git = "https://github.com/OneXray/boring", rev = "b7639ab705076748133d5e8658914e3c3a364cb6", version = "=5.2.0", features = ["client-fingerprint"] }
-tokio-boring = { git = "https://github.com/OneXray/boring", rev = "b7639ab705076748133d5e8658914e3c3a364cb6", version = "=5.2.0" }
+boring = { git = "https://github.com/OneXray/boring", rev = "de7bf4943ff9cd4b40e6f1d3ee98939284aa63b1", version = "=5.2.0", features = ["client-fingerprint"] }
+tokio-boring = { git = "https://github.com/OneXray/boring", rev = "de7bf4943ff9cd4b40e6f1d3ee98939284aa63b1", version = "=5.2.0" }
 rustls = { version = "=0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
 tokio-rustls = { version = "=0.26.5", default-features = false, features = ["ring", "tls12"] }
 ```
@@ -29,7 +29,7 @@ tokio-rustls = { version = "=0.26.5", default-features = false, features = ["rin
 1. boring 三个 crate 必须来自同一已发布 revision；rustls/tokio-rustls 只使用官方 crates.io 发行版。不使用本机路径、`references` 依赖、rustls Git patch 或第二个 source；
 2. `Cargo.toml` 和 `Cargo.lock` 在同一提交中更新，lockfile 必须包含 registry 校验值和 boring 完整 Git revision；
 3. 没有相邻 rustls/boring 目录时，`cargo fetch --locked` 和后续构建仍能成功；
-4. rustls 只启用 ring；`outbound-vless` 启用 `boring/reality` 和公共 `boring/mlkem`，命名指纹由 `tls-fingerprint` feature 统一拥有；
+4. rustls 只启用 ring；`outbound-vless` 启用 `boring/reality`、公共 `boring/mlkem` 和获准的 `boring/shadow-tls-v3` hook，命名指纹由 `tls-fingerprint` feature 统一拥有；
 5. 发布记录保存 VCore/boring revision、rustls/tokio-rustls 版本与 registry 校验值、BoringSSL 子模块和补丁校验值、lockfile hash 及产物 SHA-256。
 
 N7.1 Encryption 复用同一 boring 的公共 X25519、ML-KEM-768、AEAD 和 AES-CTR。
@@ -46,6 +46,12 @@ N7.1 Encryption 复用同一 boring 的公共 X25519、ML-KEM-768、AEAD 和 AES
 本次 boring revision 内的 BoringSSL 子模块为 `e2a57cfb4d915b4ba820585aef9fdee7bca13fe5`，
 指纹构建补丁 SHA-256 为 `5d91f9d8a5200df1d8581b5fbbf53ad2435a293d75d21fd6820fa6a3772864ff`；
 REALITY 构建补丁 SHA-256 为 `308b0fabbf8651656d4e853e0f789746b4125033dd9bb398903f6bae31ade4da`。
+新增 ShadowTLS v3 hook patch SHA-256 为
+`0c89bcd209bf40ab9033c1cd7f4e12388c1d44a6684a7c874e772a1ee1fa8138`。
+该 hook 仅认证真正的 ClientHello，必须另行实现 relay record 认证、完整原生 TLS
+成功后的记录切换及受控 IO；启用编译 feature 不等于公开 ShadowTLS 配置已交付。
+依赖准入和独立 fork 证据见 [N7.4 记录](acceptance/next-protocols/N7-shadow-tls.md)。
+本次没有接入未发布的 JLS/Restls hook，没有本机 path/patch 依赖。
 补丁由 feature 控制，原始子模块不修改。Safari Zlib 增加可选 `flate2 1.1.10`
 （关闭默认 feature，使用纯 Rust `rust_backend`）；Chrome 保留 `brotli 9.0.0`。
 两者及传递依赖必须纳入当前解析图的许可证审查；不新增系统 zlib 链接依赖。

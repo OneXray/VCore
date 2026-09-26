@@ -523,10 +523,10 @@ except RuntimeError as error:
                     },
                     {
                         "id": "boring",
-                        "features": ["reality", "client-fingerprint"],
+                        "features": ["reality", "client-fingerprint", "shadow-tls-v3"],
                         "deps": [{"pkg": "boring-sys"}],
                     },
-                    {"id": "boring-sys", "features": ["reality"]},
+                    {"id": "boring-sys", "features": ["reality", "shadow-tls-v3"]},
                     {
                         "id": "tokio-boring",
                         "features": [],
@@ -553,7 +553,7 @@ except RuntimeError as error:
                 invalid["packages"][3]["source"] = source
                 self.assertTrue(_tls_dependency_errors(invalid))
 
-        for required in ["reality", "client-fingerprint"]:
+        for required in ["reality", "client-fingerprint", "shadow-tls-v3"]:
             with self.subTest(boring_feature=required):
                 invalid = copy.deepcopy(metadata)
                 invalid["resolve"]["nodes"][1]["features"].remove(required)

@@ -148,7 +148,8 @@ WireGuard 拒绝和 Hysteria2 feature admission；不改变运行时行为。
 
 N7.4 追加进度：ShadowTLS v3 最小原生 hook 已通过独立 fork 的 25/25 隔离门禁。
 用户另行批准后，`de7bf4943ff9cd4b40e6f1d3ee98939284aa63b1` 已推送到正式 boring
-分支并核对远端；VCore 固定 revision 接入获准，将在 N7.1 本地提交后独立执行。
+分支并核对远端；VCore 在 N7.1 提交后完成固定依赖准入：37 项容器回归、120 轮
+生命周期/资源检查、Apple 五目标和 Android 两 ABI Release 通过，schema23 不变。
 这不是 VCore ShadowTLS 或 N7.4 签收，也不授权后续 fork 提交自动发布，详见
 [ShadowTLS 接线记录](N7-shadow-tls.md)。
 

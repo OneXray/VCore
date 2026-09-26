@@ -13,7 +13,7 @@ CRATES_IO_SOURCES = {
     "registry+https://github.com/rust-lang/crates.io-index",
     "registry+https://index.crates.io/",
 }
-BORING_REVISION = "b7639ab705076748133d5e8658914e3c3a364cb6"
+BORING_REVISION = "de7bf4943ff9cd4b40e6f1d3ee98939284aa63b1"
 BORING_GIT_SOURCE = (
     f"git+https://github.com/OneXray/boring?rev={BORING_REVISION}#{BORING_REVISION}"
 )
@@ -239,8 +239,8 @@ def _tls_dependency_errors(metadata: dict[str, Any]) -> list[str]:
     native = {}
     node_by_id = {node["id"]: node for node in nodes}
     for name, required in (
-        ("boring", {"reality", "client-fingerprint"}),
-        ("boring-sys", {"reality"}),
+        ("boring", {"reality", "client-fingerprint", "shadow-tls-v3"}),
+        ("boring-sys", {"reality", "shadow-tls-v3"}),
         ("tokio-boring", set()),
     ):
         package = require_single(name, "5.2.0")
