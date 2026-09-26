@@ -58,6 +58,8 @@
 
 2026-09-26 [N6 Hysteria2 阶段签收](acceptance/next-protocols/N6.md)完成 HTTP/3 认证、TCP/UDP、TLS/mTLS、真实带宽控制、Salamander 和端口跳跃。在同一冻结源码下通过 36/36 组 required、20/20 个字段、10 个带宽样本、八组 60 秒跳跃及 40 轮公共/自有生命周期；两种路径入口的独立 coverage、共享 H3 回归和 Apple/Android Release 构建通过，69/69 个所属容器回收。经 Rust 库复用调研后采用内部薄协议层与官方 Quinn/h3/rustls，不修改第三方。原生 Hysteria 的 UDP 回包缓冲包含头部、实际载荷小于 4096 的限制单列；Mihomo 的 4096 字节业务载荷另验通过。schema21 / Invoke v5；[开发记录](acceptance/next-protocols/N6-progress.md)保留真实失败，不继承为 N7–N10、真机、Windows 原生、远端 CI 或发布通过。
 
+2026-09-26 [N7 前置验证与 fork 子包](acceptance/next-protocols/N7-progress.md)先在当前锁定 boring 上复现经典接口裁剪混合 share 的限制，原始失败保留。随后获准在自有 boring 独立分支增加显式混合模式，保留经典默认与完整认证；库侧内存/功能开关回归及独立最新 Mihomo 容器互通 13/13 通过，包含实际 group 4588、IPv4/IPv6 双向各 10 MiB 和七项失败关闭检查，两个容器均回收。VCore 尚未接入：需先获得 fork 发布授权并锁定不可变 revision，再签收 S03/D16 的主腿/下载腿及公共运行时；其他 N7 子包未完成，生产配置、依赖和 schema21 未变。
+
 当前 source/tests 覆盖：
 
 - Invoke API v5、单实例生命周期、Debug/Release 运行时线程重入拒绝、panic 与同步清理；
