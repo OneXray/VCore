@@ -24,15 +24,15 @@ uv run --project scripts --locked vcore-scripts build windows
 - Apple 命令只能在 macOS 运行，输出 `dist/apple/LibVCore.xcframework`。
 - Android 命令在 macOS/Linux 运行，默认输出 `dist/android/{arm64-v8a,x86_64}/libvcore.so` 及同 ABI 的 `libc++_shared.so`；宿主必须一起打包，不能假定 Android 系统提供该 C++ runtime。
 - Windows 命令只能在已安装 Visual Studio C++ 工具的 Windows 运行；命令从系统注册表读取原生 ARM64/x64 处理器架构，通过 `vswhere` 加载对应的 MSVC 环境，验证三项 PE 的 machine type 后输出 `dist/windows/<architecture>` 下的 DLL、Provider Host、Session Host 和记录 package integration revision、架构及三项 SHA-256 的 `vcore-windows-artifacts.json`。
-- 所有构建都使用 `Cargo.lock`，并检查产物内的 Invoke API v5/config revision 21 身份。
-- 标准 Apple、Android、Windows 构建显式包含两种客户端入站和六种代理出站（含 VMess），不依赖 `ffi` / `tun` 的传递 feature 来隐式补齐；不包含 `interop-test`。Apple/Android 的自定义 `VCORE_FEATURES` 不得将测试信任注入用于交付。
+- 所有构建都使用 `Cargo.lock`，并检查产物内的 Invoke API v5/config revision 22 身份。
+- 标准 Apple、Android、Windows 构建显式包含两种客户端入站和七种代理出站（含 Hysteria2），不依赖 `ffi` / `tun` 的传递 feature 来隐式补齐；不包含 `interop-test`。Apple/Android 的自定义 `VCORE_FEATURES` 不得将测试信任注入用于交付。
 
 Apple/Android 继续接受现有环境变量：
 
 | 变量 | 默认值 |
 | --- | --- |
 | `VCORE_BUILD_PROFILE` | `release`，也可为 `debug` |
-| `VCORE_FEATURES` | `ffi,tun,inbound-http,inbound-socks5,outbound-anytls,outbound-socks5,outbound-shadowsocks,outbound-trojan,outbound-vmess,outbound-vless` |
+| `VCORE_FEATURES` | `ffi,tun,inbound-http,inbound-socks5,outbound-anytls,outbound-socks5,outbound-shadowsocks,outbound-trojan,outbound-vmess,outbound-vless,outbound-hysteria2` |
 | `VCORE_APPLE_DIST_DIR` | `dist/apple` |
 | `VCORE_IOS_DEPLOYMENT_TARGET` | `13.0` |
 | `VCORE_MACOS_DEPLOYMENT_TARGET` | `10.15` |
@@ -105,6 +105,20 @@ uv run --project scripts --locked python -m vcore_scripts.protocol_fingerprint -
 不从别名或其他模板的 PASS 推导当前模板通过。
 
 ### 协议声明清单
+
+N7.2 的独立混合 REALITY 子包入口（不替代完整 N7 门禁）：
+
+```sh
+uv run --project scripts --locked vcore-scripts check reality-hybrid --run-dir target/interop/runs/<fresh-run>
+```
+
+冻结 54 组：原生/Chrome133、12 类传输、XHTTP H1/H2 同 handler 双腿、混合/经典独立
+选择、错误身份/经典降级/HRR/普通证书/TLS1.2、公开入口/组/IPv6、Vision direct 和
+四个代表拓扑各 20 轮公共/自有资源检查。`--case` 可重复，只用于定位，不签收完整子包。
+官方 latest Mihomo、原站、cover/透明观察器和上游入口都位于独占容器；记录实际
+ClientHello share 的组号/长度及 ServerHello 选组，不保存随机数/密钥或原始 hello。
+新目录记录 `reality-results.json`、结构化断言、观察与摘要；源码变化、失败或清理不全
+不能记 PASS。字段/后端子包、其余 N7 高级安全及平台/设备/发布分别验收。
 
 N5 前置原生能力诊断（不是阶段签收）另有以下入口，输出目录必须是本仓库 `target/interop/runs/` 下尚不存在的直接子目录：
 

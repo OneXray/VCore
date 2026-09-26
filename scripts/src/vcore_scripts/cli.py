@@ -40,6 +40,12 @@ def _parser() -> argparse.ArgumentParser:
     checks = check.add_subparsers(dest="check", required=True)
     checks.add_parser("c-header", help="compile vcore.h as C and C++")
     checks.add_parser("tls-dependencies", help="validate the locked TLS graph")
+    reality = checks.add_parser(
+        "reality-hybrid",
+        help="run isolated N7.2 S03/D16 checks, not complete N7 acceptance",
+    )
+    reality.add_argument("--run-dir", type=Path, required=True)
+    reality.add_argument("--case", dest="identifiers", action="append")
     xhttp = checks.add_parser(
         "xhttp-peers",
         help="probe isolated native N5 peer capabilities, not stage acceptance",
@@ -178,6 +184,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                     soak_seconds=args.soak_seconds,
                     container=args.container,
                 )
+            elif args.check == "reality-hybrid":
+                from .protocol_reality_hybrid import main as run_reality_hybrid
+
+                return run_reality_hybrid(args.run_dir, args.identifiers)
             else:
                 check_tls_dependencies()
         else:

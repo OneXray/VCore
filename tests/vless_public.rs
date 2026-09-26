@@ -31,6 +31,14 @@ impl Case {
                 "N4-OWNED" => "N6-OWNED",
                 _ => panic!("unknown public consumer suite"),
             }
+        } else if std::env::var("VCORE_PROTOCOL_STAGE").as_deref() == Ok("N7") {
+            match suite {
+                "N4-PUBLIC" => "N7-PUBLIC",
+                "N4-BASE" => "N7-BASE",
+                "N4-LIFE" => "N7-LIFE",
+                "N4-OWNED" => "N7-OWNED",
+                _ => panic!("unknown public consumer suite"),
+            }
         } else {
             suite
         };

@@ -131,6 +131,7 @@ impl BoringTlsClient {
 
     #[cfg(feature = "outbound-vless")]
     pub(super) fn reality(config: &crate::config::RealityConfig) -> io::Result<Self> {
+        config.validate_fingerprint().map_err(|_| invalid())?;
         ServerName::try_from(config.server_name.to_owned()).map_err(|_| invalid())?;
         let mut builder = SslConnector::builder(SslMethod::tls()).map_err(|_| invalid())?;
         builder
@@ -146,7 +147,13 @@ impl BoringTlsClient {
         builder
             .set_max_proto_version(Some(SslVersion::TLS1_3))
             .map_err(|_| invalid())?;
-        builder.set_curves_list("X25519").map_err(|_| invalid())?;
+        builder
+            .set_curves_list(if config.support_x25519mlkem768 {
+                "X25519MLKEM768"
+            } else {
+                "X25519"
+            })
+            .map_err(|_| invalid())?;
         let sessions = super::boring_resumption::Sessions::new(&mut builder, 0)?;
         let connector = match config.client_fingerprint {
             Some(value) => Connector::Named(
@@ -160,6 +167,11 @@ impl BoringTlsClient {
             super::REALITY_CLIENT_VERSION,
         )
         .map_err(|_| invalid())?;
+        let reality = if config.support_x25519mlkem768 {
+            reality.require_x25519mlkem768()
+        } else {
+            reality
+        };
         Ok(Self {
             connector,
             server_name: config.server_name.clone(),

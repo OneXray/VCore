@@ -4,7 +4,7 @@
   English · <a href="./readme/README.zh_CN.md">简体中文</a> · <a href="./readme/README.ru.md">Русский</a>
 </p>
 
-VCore is a standalone, host-agnostic Rust client proxy core. It provides proxy graphs, static `select` proxy groups, DNS, routing rules, GeoData, HTTP/SOCKS5 listeners, a TUN data plane, and a loopback Controller through strict YAML configuration and Invoke API v5. The internal configuration schema revision is 21; the revision appears only in the `version` response and `buildIdentity`, not in YAML.
+VCore is a standalone, host-agnostic Rust client proxy core. It provides proxy graphs, static `select` proxy groups, DNS, routing rules, GeoData, HTTP/SOCKS5 listeners, a TUN data plane, and a loopback Controller through strict YAML configuration and Invoke API v5. The internal configuration schema revision is 22; the revision appears only in the `version` response and `buildIdentity`, not in YAML.
 
 ## Features
 
@@ -168,7 +168,7 @@ VCore's dependencies, maintained forks, public API/protocol references, architec
 - [windows-rs](https://github.com/microsoft/windows-rs), [UWP VPN Plugin Sample](https://github.com/microsoft/UwpVpnPluginSample), [wireguard-uwp-rs](https://github.com/luqmana/wireguard-uwp-rs), [Maple](https://github.com/YtFlow/Maple), and [YtFlowCore](https://github.com/YtFlow/YtFlowCore): Windows VPN, WinRT activation, and packet flow.
 - [Xray-core](https://github.com/XTLS/Xray-core), [Mihomo](https://github.com/MetaCubeX/mihomo), and [Leaf](https://github.com/eycorsican/leaf): proxy protocols, routing, TUN architecture, and interoperability references.
 - [rustls](https://github.com/rustls/rustls): unprofiled TLS/QUIC and shared WebPKI certificate policy.
-- [boring](https://github.com/cloudflare/boring) and [BoringSSL](https://boringssl.googlesource.com/boringssl/): upstreams of the maintained fork for named ClientHello profiles and classic REALITY.
+- [boring](https://github.com/cloudflare/boring) and [BoringSSL](https://boringssl.googlesource.com/boringssl/): upstreams of the maintained fork for named ClientHello profiles and classic / opt-in hybrid REALITY.
 - [shadowsocks-rust](https://github.com/shadowsocks/shadowsocks-rust): the unmodified SS 2022 protocol dependency and source of the derived UDP replay window; see the [MIT notices in the source header](src/outbound/shadowsocks/packet_window.rs).
 
 ## License

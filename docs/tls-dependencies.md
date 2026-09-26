@@ -1,6 +1,6 @@
 # TLS 依赖与发布要求
 
-VCore 通过 GitHub 的不可变提交引用自有 boring 5.2.0 fork，承载命名 ClientHello 和经典 REALITY。普通无指纹 TLS、QUIC 和共享 WebPKI 验证使用 crates.io 官方 rustls 0.23.45 + tokio-rustls 0.26.5，仅启用 ring provider。生产和四个独立实验工程均不再依赖自有 rustls fork，不保留第二套 REALITY 后端。
+VCore 通过 GitHub 的不可变提交引用自有 boring 5.2.0 fork，承载命名 ClientHello 和 REALITY（经典默认及显式混合模式）。普通无指纹 TLS、QUIC 和共享 WebPKI 验证使用 crates.io 官方 rustls 0.23.45 + tokio-rustls 0.26.5，仅启用 ring provider。生产和四个独立实验工程均不再依赖自有 rustls fork，不保留第二套 REALITY 后端。
 
 ## 实现边界
 
@@ -13,13 +13,13 @@ boring fork 提供 Chrome120、Chrome133、Firefox120、Safari16.0 模板及连�
 
 REALITY 扩展不创建线程、异步任务、连接池或全局认证映射。VCore 负责策略和 IO 生命周期；握手字节、认证状态及临时秘密属于 BoringSSL。命名指纹普通 TLS 通过回调复用 VCore 原 WebPKI 验证器，而不是改用系统 OpenSSL 信任。
 
-普通 TLS 与 REALITY 使用不同的不可变连接器，不能热切换身份。只启用 classic X25519 REALITY，不启用 FIPS、RPK、QUIC 或外部预编译 TLS 库。配置与 ALPS 限制见 [TLS 指纹](tls-client-fingerprint.md)，认证线格式见 [REALITY V1](reality-wire-protocol.md)。
+普通 TLS 与 REALITY 使用不同的不可变连接器，不能热切换身份。默认 classic X25519 REALITY；显式混合模式强制 X25519MLKEM768，不启用 FIPS、RPK、QUIC 或外部预编译 TLS 库。配置与 ALPS 限制见 [TLS 指纹](tls-client-fingerprint.md)，认证线格式见 [REALITY V1](reality-wire-protocol.md)。
 
 ## 锁定依赖来源
 
 ```toml
-boring = { git = "https://github.com/OneXray/boring", rev = "67581195fd6388a8bfd42c4e39e945f73c99a2b2", version = "=5.2.0", features = ["client-fingerprint"] }
-tokio-boring = { git = "https://github.com/OneXray/boring", rev = "67581195fd6388a8bfd42c4e39e945f73c99a2b2", version = "=5.2.0" }
+boring = { git = "https://github.com/OneXray/boring", rev = "b7639ab705076748133d5e8658914e3c3a364cb6", version = "=5.2.0", features = ["client-fingerprint"] }
+tokio-boring = { git = "https://github.com/OneXray/boring", rev = "b7639ab705076748133d5e8658914e3c3a364cb6", version = "=5.2.0" }
 rustls = { version = "=0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
 tokio-rustls = { version = "=0.26.5", default-features = false, features = ["ring", "tls12"] }
 ```
@@ -36,7 +36,7 @@ tokio-rustls = { version = "=0.26.5", default-features = false, features = ["rin
 
 本次 boring revision 内的 BoringSSL 子模块为 `e2a57cfb4d915b4ba820585aef9fdee7bca13fe5`，
 指纹构建补丁 SHA-256 为 `5d91f9d8a5200df1d8581b5fbbf53ad2435a293d75d21fd6820fa6a3772864ff`；
-REALITY 构建补丁 SHA-256 为 `a28e55298c3aa2efcc4bc66f3fb64e05583333811284d8c9abafe744d1370e30`。
+REALITY 构建补丁 SHA-256 为 `308b0fabbf8651656d4e853e0f789746b4125033dd9bb398903f6bae31ade4da`。
 补丁由 feature 控制，原始子模块不修改。Safari Zlib 增加可选 `flate2 1.1.10`
 （关闭默认 feature，使用纯 Rust `rust_backend`）；Chrome 保留 `brotli 9.0.0`。
 两者及传递依赖必须纳入当前解析图的许可证审查；不新增系统 zlib 链接依赖。

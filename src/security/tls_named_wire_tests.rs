@@ -183,6 +183,7 @@ async fn named_reality_retains_browser_offer_but_rejects_tls12_server_hello() {
         assert!(handshake(&ordinary, peer.clone()).await.0);
         let reality = crate::security::SecurityClient::from_security(
             &crate::config::SecurityConfig::Reality(crate::config::RealityConfig {
+                support_x25519mlkem768: false,
                 client_fingerprint: profile,
                 server_name: "fixture.invalid".into(),
                 public_key: [7; 32],

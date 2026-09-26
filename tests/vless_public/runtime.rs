@@ -541,9 +541,7 @@ async fn owned_resources() {
     use vcore::{
         config::{Config, ProxyProtocol},
         dialer::{Dialer, ResolvedEndpoint},
-        outbound::{
-            DatagramRequest, EstablishContext, OutboundConnector, UpstreamPath, VlessOutbound,
-        },
+        outbound::{DatagramRequest, EstablishContext, OutboundConnector, VlessOutbound},
         resources::observation::{ResourceKind, ResourceProbe},
         session::{Datagram, DatagramSession, InboundKind, StreamSession},
     };
@@ -565,9 +563,19 @@ async fn owned_resources() {
                     port: node.port,
                     addresses: vec![SocketAddr::new(node.address.parse().unwrap(), node.port)],
                 };
-                let outbound = VlessOutbound::new_with_path(
+                let download_endpoint = node.download().map(|download| ResolvedEndpoint {
+                    logical_host: download.address.clone(),
+                    port: download.port,
+                    addresses: vec![SocketAddr::new(
+                        download.address.parse().unwrap(),
+                        download.port,
+                    )],
+                });
+                let outbound = VlessOutbound::new_with_endpoints(
                     node,
-                    UpstreamPath::direct(endpoint, Dialer::default()),
+                    endpoint,
+                    download_endpoint,
+                    Dialer::default(),
                 )
                 .unwrap();
                 let mut origin1 = Origin::new(&f, 13, false);

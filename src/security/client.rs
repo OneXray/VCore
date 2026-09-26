@@ -308,6 +308,7 @@ mod tests {
     #[test]
     fn security_level_constructor_keeps_an_independent_reality_identity() {
         let security = SecurityConfig::Reality(crate::config::RealityConfig {
+            support_x25519mlkem768: false,
             client_fingerprint: None,
             server_name: "download.example.com".to_owned(),
             public_key: [7; 32],

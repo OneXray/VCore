@@ -21,7 +21,7 @@
 
 ## 适用范围
 
-AnyTLS、Trojan、VMess + TLS、VLESS + TLS/经典 REALITY 使用同一共享连接器。
+AnyTLS、Trojan、VMess + TLS、VLESS + TLS/REALITY 使用同一共享连接器。
 TCP、WS、gRPC、HTTP 首包伪装、legacy H2、Vision、XHTTP H1/H2 仍遵守各自的协议约束。
 关闭 TLS 时不能携带该字段。SOCKS5、SS 2022 不接入 TLS 指纹。
 
@@ -39,7 +39,7 @@ client-fingerprint: chrome
 ## 后端与认证
 
 - 未启用指纹的标准 TLS 和 QUIC 使用 crates.io 官方 rustls + ring，不依赖 rustls fork。
-- 命名指纹的标准 TLS，以及所有经典 REALITY，使用锁定提交的自有 boring fork。
+- 命名指纹的标准 TLS，以及所有 REALITY，使用锁定提交的自有 boring fork。
 - 普通 TLS 两条路径共用同一个 WebPKI 证书验证器和发布信任根；叶 pin、非叶信任锚、
   独立验证名、skip 优先级不变。TLS 握手签名仍由各自后端强制验证。
 - VLESS mTLS 继续使用配对的内联 PEM，密钥匹配在使用 IO 前检查；profile 不修改身份。
@@ -53,7 +53,7 @@ client-fingerprint: chrome
 | 模板 | 主要差异 |
 | --- | --- |
 | Chrome120 | 经典 X25519 share，GREASE/乱序、ECH GREASE、Brotli、条件 padding、旧 ALPS 17513 |
-| Chrome133 | 普通 TLS 使用原生 X25519MLKEM768 和 X25519 双 share；新 ALPS 17613，无 padding |
+| Chrome133 | 普通 TLS 与显式混合 REALITY 使用原生 X25519MLKEM768 和 X25519 双 share；新 ALPS 17613，无 padding |
 | Firefox120 | 自有 cipher 顺序、固定扩展顺序、X25519/P-256 双 share，无 GREASE/ALPS/证书压缩 |
 | Safari16.0 | 固定扩展和签名顺序、GREASE、条件 padding、真实 Zlib 解压，无 ECH/ALPS |
 
@@ -68,10 +68,16 @@ ALPS 仅在实际提供 h2 时发送，不复制 Mihomo 某些 WS 调用中的�
 classic REALITY 移除 Chrome133 的 ML-KEM group/share，并绑定实际 X25519 私钥；
 Firefox 的额外经典 share 不产生第二份 REALITY 身份。REALITY 仍拒绝 HRR、恢复和 0-RTT。
 
+配置修订版 22 增加 `reality-opts.support-x25519mlkem768`：默认 false，true 要求实际
+发送且协商 X25519MLKEM768（4588），经典选组即失败，不重试或降级。只兼容 `chrome`
+或关闭命名指纹；后者使用原生混合-only offer，不自动切到 chrome。Chrome120、Firefox120、
+Safari16.0 在配置期拒绝该组合。下载腿继承/整体替换 REALITY 后，再独立验证最终 profile。
+ML-KEM 增强 TLS 密钥交换，REALITY 身份认证仍基于 X25519，不宣称后量子身份认证。
+
 Firefox 的 FFDHE、delegated credentials、record size limit 及 Safari 的模板专用
 cipher 声明不开放新的配置能力；不能真实完成的对端选择明确失败，不静默换模板。
 
-不模拟浏览器 HTTP/2 SETTINGS、QUIC 参数、实际 ECH 或混合后量子 REALITY。
+不模拟浏览器 HTTP/2 SETTINGS、QUIC 参数、实际 ECH。
 当前 HTTP 驱动不导入 TLS ALPS 中的应用设置，因此**非空 ALPS 响应明确失败**；
 未协商或协商空设置可用。Brotli/Zlib 解压输出和原生证书消息上限均为 128 KiB；
 超限、截断、错误算法和损坏压缩流失败，不能绕过证书认证。

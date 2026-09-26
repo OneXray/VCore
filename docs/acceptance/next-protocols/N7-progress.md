@@ -1,8 +1,8 @@
 # N7 高级安全：当前后端前置验证
 
-2026-09-26。状态：**N7 未完成；已获准在自有 boring 独立分支扩展混合 REALITY，并完成库侧内存/真实对端门禁。VCore 仍锁定原 revision，等待 fork 发布授权后进行 S03/D16 生产接线。** 下文原始接口失败保留，不是已交付经典 REALITY 的回归。N7.1 / N7.3 / N7.4 / N7.5 未签收；不能将一个后端限制推广成所有高级安全实现都不可行。
+2026-09-26。状态：**N7 未完成，N7.2 已完成本地子包签收。获准的 boring 混合扩展已发布为 `b7639ab7`；VCore 的 S03/D16 完整 54 项容器门禁、32 项共享回归和 Apple/Android Release 构建通过。** 当前证据见 [N7.2 报告](N7-reality-hybrid.md)。下文原始接口失败保留，不是已交付经典 REALITY 的回归。N7.1 / N7.3 / N7.4 / N7.5 未签收；不能将一个后端限制推广成所有高级安全实现都不可行。
 
-## 本次输入和范围
+## 最初能力探针的输入和范围
 
 - VCore 基线 `def0e19cb0945614397c884388a9ee561818a19a`，新本地分支 `feat/vless-advanced-security`。
 - 生产锁定 boring `67581195fd6388a8bfd42c4e39e945f73c99a2b2`，版本 5.2.0；官方 rustls 0.23.45 / tokio-rustls 0.26.5 + ring 未改变。
@@ -50,7 +50,7 @@ cargo test --locked --all-features --test n7_security_capabilities n7_requires_h
 
 用户已批准在自有 boring 的 `feat/reality-hybrid` 分支最小扩展混合 REALITY，保留经典默认，不降低认证、不恢复旧 rustls fork。该授权不包含其他握手 hook、新 TLS 引擎或远端发布。
 
-库侧实现已本地提交为 `b7639ab705076748133d5e8658914e3c3a364cb6`；提交后八个被测输入 hash 与最终容器记录一致，工作区干净。未 push；不能把该提交提前写入 VCore 生产依赖或视为已发布。测试发生在提交前，具体父 SHA 与被测输入见 fork 报告，不倒填测试时尚不存在的提交号。
+库侧实现已本地提交为 `b7639ab705076748133d5e8658914e3c3a364cb6`；提交后八个被测输入 hash 与最终容器记录一致，工作区干净。该库门禁结束时尚未 push；后续追加授权与实际发布另记于下文。测试发生在提交前，具体父 SHA 与被测输入见 fork 报告，不倒填测试时尚不存在的提交号。
 
 - 新增显式 `RealityClientConfig::require_x25519mlkem768()`；原 `new` 与旧 C 入口继续是经典模式。混合模式要求实际 ClientHello 和协商结果均为 group 4588，经典选组或 HRR 失败关闭，不静默重试经典模式。
 - 保留配置的真实 share；有独立 X25519 时用其认证，否则使用实际混合 share 内的 X25519 分量，与 Mihomo 服务端取值一致。ML-KEM/TLS 密钥交换仍由原生后端完成；REALITY 认证本身不宣称为后量子认证。
@@ -77,14 +77,65 @@ cargo test --locked --all-features --test n7_security_capabilities n7_requires_h
 
 这是独立 fork 客户端到真实 Mihomo 的能力证明，不经过 VCore 的公开 YAML、受控 Dialer、运行时或同步 Stop，不能抵扣 S03/D16 主腿/下载腿及 N7 阶段验收。
 
+## 已获准发布与 VCore 接线
+
+用户追加授权后，`feat/reality-hybrid` 已推送到正式 boring 远端；`git ls-remote`
+确认完整 SHA 为 `b7639ab705076748133d5e8658914e3c3a364cb6`。VCore 从该 HTTPS Git
+来源锁定三个 crate；仅变更三条 source，保持既有 Windows 配套解析，不使用相邻源码。
+schema22 / Invoke v5；经典默认保留，主/下载腿均接受显式混合开关。公开配置和实际
+ClientHello 内存探针已通过，非兼容模板在 IO 前拒绝；真实容器子包仍独立验收。
+
+首个 VCore 冒烟 `n7-hybrid-vcore-smoke-v1` 因新增测试的错误类型转换编译失败，未启动
+容器；修正自有测试后 v2 的原生 TCP、Chrome H2 双腿和认证/降级负例 3/3 通过，
+四个所属容器已回收。`n7-hybrid-vcore-full-v1` 在补齐构建身份/多语言文档前主动中断，
+保存 INTERRUPTED 与清理结果；不算完整子包通过，也不拼接其已通过的子集。
+
+完整运行 v2 在 16 个通过用例后因 `none-tcp-security` 的观测门禁失败停止；Rust
+认证/拒绝断言通过，源码未变化，四个容器清理通过。保留原始 FAIL，不将它解释为
+生产降级成功。隔离对照 `n7-hybrid-vcore-security-diagnostic-v1` 确认：无命名模板只
+声明 group 4588，经典/P-384 cover 均返回原生 `NO_SUITABLE_KEY_SHARE`，Mihomo
+关闭连接而未生成 ServerHello；Chrome133 则分别收到 group 29 和 group 24 的 HRR。
+原观察器门禁错误地要求两种配置都收到这两个 ServerHello。
+
+修正仅位于自有观测夹具和验收谓词：混合-only 必须同时具备实际 groups/share、
+原生无共同组错误、零字节服务端 flight 和关闭证据；Chrome 必须捕获经典选组及
+HRR，并逐主/下载腿计数。缺失观测、超时或仅“没有 ServerHello”不能记 PASS。
+回放回归先红后绿；临时诊断日志已移除，未改变生产 TLS 或第三方代码。另修正
+N1 测量配置遗留测试将 N6 已支持的 Hysteria2 当作未来协议的过时断言，保留
+WireGuard 拒绝和 Hysteria2 feature admission；不改变运行时行为。
+
+负例复验 `n7-hybrid-vcore-security-v2` 的 `none-tcp-security` 通过，随后独立下载
+配置在旧 native 测试构造入口报缺少 prepared download endpoint，尚未进行网络
+握手；全部容器回收。通过无网络回归复现后，测试改用已存在的双端点构造入口，
+从容器 fixture 的字面 IP 准备下载端点；不放宽生产 prepare 防护。
+同类 owned-resources 构造入口也补齐独立下载端点。随后
+`n7-hybrid-vcore-security-v3` 的两种指纹 × TCP/H1/H2 六组负例全部通过，源码身份
+不变、四个容器回收；该定向运行不替代下面的完整子包验收。
+
+最终完整运行 `n7-hybrid-vcore-full-v3` 在同一生产输入下 54/54 PASS，包含 46 项
+功能/认证/公开接线组和八组各 20 轮生命周期/资源检查，四个容器回收，
+`source_unchanged=true`。不拼接前面诊断运行的 PASS；共享回归、平台构建和准确
+边界在 [N7.2 报告](N7-reality-hybrid.md)单独记录。
+
+## 后续独立授权
+
+- N7.1：用户批准未修改的官方稳定版 BLAKE3 C 源和最小自有 FFI，用于任意二进制
+  context 的 DeriveKey；不手写密码算法，不从外部研究 checkout 动态取得生产源码。
+- N7.4：用户批准在自有 boring 的独立分支，按 ShadowTLS v3、Restls、JLS 分别
+  最小扩展原生握手认证能力并验证；保留完整 TLS 认证，不恢复旧 rustls fork，
+  不新增自制 TLS 引擎。这不是对第三方任意修改或远端发布的授权。
+- 两项授权解决实施边界，不是功能、下载腿、互通或阶段通过证据。
+
 ## 其他子包与下一步
 
 - VL06 Encryption 与 ECH 是独立路线，本次未完成其原生互通；不受同一 share 裁剪直接阻塞，也不因此宣称已实现。
 - 三种附加封装的当前公开接口与参考实现核查见[安全封装可行性研究](N7-security-feasibility.md)。有源码实现不等于满足当前认证/生命周期边界；未做原生验证的路径仍未证明。
-- 当前最小混合 REALITY 扩展已经获准，库门禁见上文；不会将该授权扩大到其他 native hook、TLS 引擎或 AWS-LC。
-- 下一步需获得 boring 分支的 push 授权，使不可变 revision 能从正式 Git 来源解析，再接入 VCore 的 S03/D16 和下载腿、跑共享回归及 N7 全矩阵。不能以相邻 `path`、`file://` 或未发布 revision 留下不可复现的生产依赖。
+- 当前最小混合 REALITY 扩展已经获准，库门禁见上文；N7.4 原生扩展依靠新授权，不能从混合模式授权自行推定；TLS 引擎和 AWS-LC 边界不变。
+- boring 混合分支发布授权已执行；S03/D16 子包已本地验收。下一步继续 N7.1 的官方 BLAKE3 C 原语、Encryption 协议与独立互通；N7.4 使用新建的 `feat/n7-security-handshakes` 独立分支。不自动 VCore 或新 boring 分支 push，不进入 N8。
 
-尚无完成的 VCore 生产子包，不创建 N7 完成提交、不自动 push，不进入 N8。已验证的库侧子包按既有约定本地提交，进度/研究记录不冒称生产完成。安全封装若还需其他新 hook 或独立 TLS 引擎，仍须按自己的前置证据和授权边界处理，不从本次混合扩展推定许可。
+生产子包完成时按既有约定本地提交；全部 N7 门禁未通过前，不创建 N7 完成提交。
+进度/研究记录不冒称生产完成。安全封装仍须各自取得前置证据，不能用另一个
+协议成功或新授权替代真实认证、下载腿与生命周期验收。
 
 [BORING-API]: https://github.com/OneXray/boring/blob/67581195fd6388a8bfd42c4e39e945f73c99a2b2/boring/src/ssl/reality.rs
 [BORING-PATCH]: https://github.com/OneXray/boring/blob/67581195fd6388a8bfd42c4e39e945f73c99a2b2/boring-sys/patches/reality-client.patch

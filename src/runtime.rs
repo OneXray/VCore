@@ -1916,6 +1916,7 @@ rules:
             };
             config.security =
                 crate::config::SecurityConfig::Reality(crate::config::RealityConfig {
+                    support_x25519mlkem768: false,
                     client_fingerprint: None,
                     server_name: "example.com".to_owned(),
                     public_key: [7; 32],

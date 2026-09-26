@@ -9,6 +9,7 @@ use boring::ssl::{
 };
 use foreign_types::ForeignTypeRef;
 use std::io::{self, Read, Write};
+use tokio::io::AsyncReadExt;
 
 const X25519: u16 = 29;
 const X25519_MLKEM768: u16 = 4588;
@@ -38,6 +39,10 @@ impl Write for Capture {
 }
 
 fn client(reality: bool) -> Ssl {
+    client_with_hybrid(reality, false)
+}
+
+fn client_with_hybrid(reality: bool, hybrid: bool) -> Ssl {
     let builder = SslConnector::builder(SslMethod::tls()).unwrap();
     let connector = FingerprintConnector::new(builder, ClientFingerprint::Chrome133).unwrap();
     let mut ssl = connector
@@ -52,8 +57,13 @@ fn client(reality: bool) -> Ssl {
             0x35, 0x37, 0x3f, 0x83, 0x43, 0xc8, 0x5b, 0x78, 0x67, 0x4d, 0xad, 0xfc, 0x7e, 0x14,
             0x6f, 0x88, 0x2b, 0x4f,
         ];
-        ssl.set_reality_client(&RealityClientConfig::new(public, &[], [26, 7, 11]).unwrap())
-            .unwrap();
+        let config = RealityClientConfig::new(public, &[], [26, 7, 11]).unwrap();
+        let config = if hybrid {
+            config.require_x25519mlkem768()
+        } else {
+            config
+        };
+        ssl.set_reality_client(&config).unwrap();
     }
     ssl
 }
@@ -131,7 +141,7 @@ fn current_classic_reality_removes_the_hybrid_share() {
     assert_eq!(code, ErrorCode::WANT_READ);
     let shares = key_shares(&wire);
     assert_eq!(shares, [(X25519, 32)]);
-    println!("classic REALITY: group/length={shares:?}; N7 S03/D16 unavailable");
+    println!("classic REALITY: group/length={shares:?}; explicit hybrid remains opt-in");
 }
 
 #[test]
@@ -153,15 +163,79 @@ fn current_reality_rejects_public_key_share_override_before_io() {
     println!("REALITY + reintroduced hybrid share: native rejection, emitted bytes=0");
 }
 
-/// Deliberately red until an authorized backend extension supplies hybrid
-/// REALITY. Run explicitly; an ignored result must never count as an N7 pass.
+/// The original prerequisite failure remains in the N7 progress record.
+/// Exercise the new opt-in API without weakening the classic default.
 #[test]
-#[ignore = "N7 S03/D16 prerequisite blocked by the locked classic-only REALITY API"]
 fn n7_requires_hybrid_reality_in_the_actual_client_hello() {
-    let (code, wire) = capture(client(true));
+    let (code, wire) = capture(client_with_hybrid(true, true));
     assert_eq!(code, ErrorCode::WANT_READ);
     assert!(
         key_shares(&wire).contains(&(X25519_MLKEM768, 1216)),
-        "N7 BLOCKED: current REALITY removes the required X25519MLKEM768 share"
+        "explicit hybrid REALITY must retain the required X25519MLKEM768 share"
     );
+}
+
+#[tokio::test]
+async fn public_hybrid_reality_emits_required_shares_on_both_transport_legs() {
+    use serde_json::json;
+    use vcore::{
+        config::{Config, ProxyProtocol},
+        security::SecurityClient,
+    };
+
+    for profile in ["none", "chrome"] {
+        let yaml = serde_json::to_vec(&json!({
+            "socks-port": 1080,
+            "proxies": [{
+                "name": "edge", "type": "vless", "server": "example.invalid", "port": 443,
+                "uuid": "07070707-0707-0707-0707-070707070707", "tls": true,
+                "client-fingerprint": profile,
+                "reality-opts": {
+                    "public-key": "3p7bfXt9wbTTW2HC7OQ1Nz-DQ8hbeGdNrfx-FG-IK08",
+                    "support-x25519mlkem768": true
+                },
+                "network": "xhttp",
+                "xhttp-opts": {"mode": "stream-up", "download-settings": {}}
+            }],
+            "rules": ["MATCH,edge"]
+        }))
+        .unwrap();
+        let config = Config::parse_yaml(&yaml).unwrap();
+        let ProxyProtocol::Vless(node) = &config.proxies[0].protocol else {
+            panic!()
+        };
+        for security in [&node.security, &node.download().unwrap().security] {
+            let client = SecurityClient::from_security(security).unwrap();
+            let (io, mut peer) = tokio::io::duplex(HELLO_LIMIT);
+            let handshake = tokio::spawn(async move { client.connect(Box::new(io)).await });
+            let mut header = [0u8; 5];
+            tokio::time::timeout(
+                std::time::Duration::from_secs(2),
+                peer.read_exact(&mut header),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            assert_eq!(header[0], 22);
+            let size = word(&header, 3);
+            assert!(size <= 16_384);
+            let mut wire = header.to_vec();
+            wire.resize(5 + size, 0);
+            peer.read_exact(&mut wire[5..]).await.unwrap();
+            let shares = key_shares(&wire);
+            handshake.abort();
+            assert!(matches!(handshake.await, Err(error) if error.is_cancelled()));
+            let expected = if profile == "chrome" {
+                vec![(X25519_MLKEM768, 1216), (X25519, 32)]
+            } else {
+                vec![(X25519_MLKEM768, 1216)]
+            };
+            assert_eq!(shares, expected, "public {profile} REALITY");
+            assert_eq!(
+                peer.read(&mut header).await.unwrap(),
+                0,
+                "cancel releases supplied IO"
+            );
+        }
+    }
 }

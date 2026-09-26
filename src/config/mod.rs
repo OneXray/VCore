@@ -540,10 +540,27 @@ impl TlsConfig {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RealityConfig {
     pub client_fingerprint: Option<ClientFingerprint>,
+    pub support_x25519mlkem768: bool,
     pub server_name: String,
     pub public_key: [u8; 32],
     pub short_id: Vec<u8>,
     pub alpn: Vec<Vec<u8>>,
+}
+
+impl RealityConfig {
+    pub(crate) fn validate_fingerprint(&self) -> Result<()> {
+        if self.support_x25519mlkem768
+            && !matches!(
+                self.client_fingerprint,
+                None | Some(ClientFingerprint::Chrome133)
+            )
+        {
+            return invalid(
+                "hybrid REALITY requires client-fingerprint chrome or no named fingerprint",
+            );
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1142,6 +1159,12 @@ struct RawXHttpDownloadReality {
         deserialize_with = "deserialize_present_option"
     )]
     short_id: Option<String>,
+    #[serde(
+        rename = "support-x25519mlkem768",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    support_x25519mlkem768: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1151,6 +1174,8 @@ struct RawRealitySettings {
     public_key: String,
     #[serde(rename = "short-id", default)]
     short_id: String,
+    #[serde(rename = "support-x25519mlkem768", default)]
+    support_x25519mlkem768: bool,
 }
 
 #[derive(Debug)]
@@ -1986,6 +2011,7 @@ impl RawRealitySettings {
 
         Ok(RealityConfig {
             client_fingerprint: None,
+            support_x25519mlkem768: self.support_x25519mlkem768,
             server_name,
             public_key,
             short_id,
@@ -2290,14 +2316,17 @@ impl RawXHttpDownloadSettings {
             Some(RawXHttpDownloadReality {
                 public_key: None,
                 short_id: None,
+                support_x25519mlkem768: None,
             }) => None,
             Some(RawXHttpDownloadReality {
                 public_key: Some(public_key),
                 short_id,
+                support_x25519mlkem768,
             }) => Some(
                 RawRealitySettings {
                     public_key,
                     short_id: short_id.unwrap_or_default(),
+                    support_x25519mlkem768: support_x25519mlkem768.unwrap_or(false),
                 }
                 .normalize(server_name.clone())?,
             ),
@@ -2366,6 +2395,7 @@ impl RawXHttpDownloadSettings {
             }
             reality.alpn = vec![http_version.alpn().to_vec()];
             reality.client_fingerprint = client_fingerprint;
+            reality.validate_fingerprint()?;
             SecurityConfig::Reality(reality)
         } else if tls {
             SecurityConfig::Tls(config)
@@ -3926,7 +3956,7 @@ geo-update-interval: 24"#,
             CURRENT_TLS.replace("      path: /x", "      typo: true\n      path: /x"),
             reality_yaml().replace(
                 "      public-key:",
-                "      support-x25519mlkem768: true\n      public-key:",
+                "      unknown-reality-option: true\n      public-key:",
             ),
         ] {
             let error = Config::parse_yaml(yaml.as_bytes()).unwrap_err();

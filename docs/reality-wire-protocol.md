@@ -1,6 +1,6 @@
 # REALITY V1 客户端协议
 
-本文定义 VCore 当前启用的 classic REALITY V1 客户端线上行为。它不是通用 REALITY 规范。可选的四套 ClientHello 模板见 [TLS 指纹](tls-client-fingerprint.md)；认证协议与模板独立，不支持混合密钥交换。
+本文定义 VCore 的 REALITY V1 客户端线上行为。它不是通用 REALITY 规范。经典模式为默认，配置修订版 22 可显式要求混合密钥交换。可选的四套 ClientHello 模板及混合兼容边界见 [TLS 指纹](tls-client-fingerprint.md)。
 
 ## 版本边界
 
@@ -10,26 +10,30 @@ V1 只支持：
 
 - 客户端模式；
 - TLS 1.3；
-- X25519；
+- 经典 X25519，或显式要求 X25519MLKEM768 的 TLS 密钥交换；
 - classic Ed25519 临时证书认证；
 - 0–8 字节 short ID，在线上右侧补零到 8 字节；
 - BoringSSL 原生握手和加密实现。
 
-不支持 REALITY 服务端、TLS 1.2 协商、QUIC 传输、实际 ECH、HelloRetryRequest、会话恢复、0-RTT、混合后量子密钥交换或 `fp`。ECH GREASE 与实际 ECH 不同。收到 HRR 或 REALITY 认证失败时立即终止，不降级为普通 WebPKI。
+不支持 REALITY 服务端、TLS 1.2 协商、QUIC 传输、实际 ECH、HelloRetryRequest、会话恢复、0-RTT 或 `fp`。ECH GREASE 与实际 ECH 不同。收到 HRR 或 REALITY 认证失败时立即终止，不降级为普通 WebPKI。
 
 ## ClientHello 认证
 
-每个原生 SSL 握手独占一份 X25519 临时私钥，同时用于：
+每次 REALITY 认证绑定本次原生 SSL 握手中的一份真实 X25519 临时私钥，同时用于：
 
-1. TLS 1.3 ClientHello 的 X25519 key share；
+1. TLS 1.3 ClientHello 的实际 X25519 share，或混合 share 中的 X25519 分量；
 2. 与配置中的服务端静态 X25519 公钥执行 ECDH。
 
 VCore 不能读取该私钥，也不能为两个用途生成不同密钥。
 
 原生封装按实际 GroupID 找到唯一 X25519 share，不依赖 share 下标。Firefox 可保留
 额外 P-256 share，但认证始终绑定同一 X25519 临时私钥。Chrome133 的普通 TLS
-ML-KEM group/share 在 classic REALITY 中裁剪；重复 X25519、低阶点、非经典或
-缺失认证 share 失败。配置后再启用 PQ/0-RTT 也不能绕过此限制。
+ML-KEM group/share 在 classic REALITY 中裁剪。显式混合模式保留模板中的真实混合 share；
+无命名指纹时只提供混合 share。若同时存在独立 X25519，优先用它派生认证，否则使用
+实际混合 share 内的 X25519 分量，与 Mihomo 的认证取值一致。
+重复/缺失认证 share、低阶点均失败。显式混合模式还在 ServerHello 处理时要求
+实际选择 group 4588，经典组或 HRR 立即失败，不重新发起经典握手。REALITY 身份
+认证仍是经典 X25519/Ed25519，不能将混合 TLS 密钥交换称为后量子身份认证。
 
 ClientHello 的 legacy session ID 固定为 32 字节。生成密文前先把该字段清零，再编码完整 TLS Handshake `ClientHello`，将其作为 AES-GCM 的 AAD。
 

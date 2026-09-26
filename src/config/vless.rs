@@ -385,6 +385,7 @@ impl RawVless {
                 let mut config = raw.normalize(server_name)?;
                 config.alpn = alpn;
                 config.client_fingerprint = client_fingerprint;
+                config.validate_fingerprint()?;
                 SecurityConfig::Reality(config)
             }
             None if self.tls => SecurityConfig::Tls(TlsConfig {

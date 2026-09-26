@@ -107,14 +107,21 @@ mod tests {
             "N1-SCHEMA",
             "measurement_rejects_future_protocols_and_oversized_documents",
         );
-        for protocol in ["hysteria2", "wireguard"] {
-            let yaml = format!(
-                "proxies:\n  - name: node\n    type: {protocol}\n    server: example.com\n    port: 443\n"
-            );
-            assert!(super::MeasureConfig::parse_yaml(yaml.as_bytes()).is_err());
-        }
+        let yaml =
+            b"proxies:\n  - name: node\n    type: wireguard\n    server: example.com\n    port: 443\n";
+        assert!(super::MeasureConfig::parse_yaml(yaml).is_err());
         assert!(
             super::MeasureConfig::parse_yaml(&vec![b'x'; super::MAX_CONFIG_BYTES + 1]).is_err()
+        );
+    }
+
+    #[test]
+    fn measurement_hysteria2_admission_matches_the_protocol_feature() {
+        let yaml =
+            b"proxies:\n  - name: node\n    type: hysteria2\n    server: example.com\n    port: 443\n";
+        assert_eq!(
+            super::MeasureConfig::parse_yaml(yaml).is_ok(),
+            cfg!(feature = "outbound-hysteria2")
         );
     }
     use super::*;

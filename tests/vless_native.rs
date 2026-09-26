@@ -226,7 +226,7 @@ fn event(name: &str, status: &str) {
     writeln!(
         file,
         "{}",
-        json!({"schema_version":1,"suite":"N4-WIRE","assertion":name,"status":status})
+        json!({"schema_version":1,"suite":if std::env::var("VCORE_PROTOCOL_STAGE").as_deref() == Ok("N7") {"N7-WIRE"} else {"N4-WIRE"},"assertion":name,"status":status})
     )
     .unwrap();
 }
@@ -253,14 +253,48 @@ fn node(fixture: &Value, encoding: Option<&str>) -> VlessOutbound {
             config.port,
         )],
     };
+    let download_endpoint = config.download().map(|download| ResolvedEndpoint {
+        logical_host: download.address.clone(),
+        port: download.port,
+        addresses: vec![SocketAddr::new(
+            download.address.parse().unwrap(),
+            download.port,
+        )],
+    });
     if matches!(config.security, vcore::config::SecurityConfig::Tls(_)) {
         let root: Vec<u8> = serde_json::from_value(fixture["root_der"].clone()).unwrap();
-        VlessOutbound::new_with_test_tls_roots(&config, endpoint, Dialer::default(), [root])
-            .unwrap()
+        VlessOutbound::new_with_test_tls_roots_and_endpoints(
+            &config,
+            endpoint,
+            download_endpoint,
+            Dialer::default(),
+            [root],
+        )
+        .unwrap()
     } else {
-        VlessOutbound::new(&config, endpoint, Dialer::default()).unwrap()
+        VlessOutbound::new_with_endpoints(&config, endpoint, download_endpoint, Dialer::default())
+            .unwrap()
     }
 }
+
+#[test]
+fn native_fixture_prepares_the_independent_download_endpoint() {
+    let f = json!({"node": {
+        "name": "peer", "type": "vless", "server": "192.0.2.1", "port": 443,
+        "uuid": "00000000-0000-4000-8000-000000000001", "network": "xhttp",
+        "tls": true, "servername": "fixture.test",
+        "reality-opts": {
+            "public-key": "CQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "support-x25519mlkem768": true
+        },
+        "xhttp-opts": {
+            "mode": "stream-up", "path": "/x",
+            "download-settings": {"port": 444}
+        }
+    }});
+    let _outbound = node(&f, None);
+}
+
 async fn origin(fixture: &Value, mode: u8, family: &str) -> (tokio::net::TcpStream, Destination) {
     let mut control = tokio::net::TcpStream::connect(fixture["origin_control"].as_str().unwrap())
         .await
@@ -301,6 +335,120 @@ fn session(target: Destination) -> StreamSession {
         destination: target,
         sniffed_domain: None,
     }
+}
+
+#[tokio::test]
+#[ignore = "isolated N7 hybrid REALITY runner"]
+async fn native_hybrid_fail_closed() {
+    use vcore::{config::SecurityConfig, security::SecurityClient};
+    let name = "native_hybrid_fail_closed";
+    event(name, "BEGIN");
+    let original = fixture();
+    let (mut observer, target) = origin(&original, 13, "ipv4").await;
+    let outbound = node(&original, None);
+    let mut io = outbound
+        .connect_stream(session(target), &EstablishContext::default())
+        .await
+        .unwrap()
+        .io;
+    io.write_all(b"control").await.unwrap();
+    io.flush().await.unwrap();
+    let mut reply = [0; 7];
+    io.read_exact(&mut reply).await.unwrap();
+    assert_eq!(&reply, b"control");
+    assert_eq!(observer.read_u8().await.unwrap(), b'A');
+    drop(io);
+    outbound.shutdown().await;
+    assert_eq!(observer.read_u8().await.unwrap(), b'D');
+
+    let split = original["node"]["xhttp-opts"]["download-settings"].is_object();
+    for download in [false, true]
+        .into_iter()
+        .filter(|download| !download || split)
+    {
+        for fault in ["public-key", "short-id", "servername"] {
+            let mut f = original.clone();
+            let base_reality = f["node"]["reality-opts"].clone();
+            let target = if download {
+                let leg = &mut f["node"]["xhttp-opts"]["download-settings"];
+                leg["reality-opts"] = base_reality;
+                leg
+            } else {
+                &mut f["node"]
+            };
+            match fault {
+                "public-key" => {
+                    target["reality-opts"][fault] =
+                        json!("CQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+                }
+                "short-id" => target["reality-opts"][fault] = json!("ffffffffffffffff"),
+                _ => target[fault] = json!("wrong.fixture.test"),
+            }
+            let (mut control, destination) = origin(&f, 13, "ipv4").await;
+            let outbound = node(&f, None);
+            let failed = tokio::time::timeout(Duration::from_secs(5), async {
+                let mut io = outbound
+                    .connect_stream(session(destination), &EstablishContext::default())
+                    .await
+                    .map_err(|_| std::io::Error::other("connection rejected"))?
+                    .io;
+                io.write_all(b"must-not-arrive").await?;
+                io.flush().await?;
+                io.read_u8().await
+            })
+            .await
+            .expect("authentication failure must not be a timeout");
+            assert!(
+                failed.is_err(),
+                "REALITY {fault} accepted on download={download}"
+            );
+            outbound.shutdown().await;
+            assert!(
+                tokio::time::timeout(Duration::from_millis(200), control.read_u8())
+                    .await
+                    .is_err(),
+                "rejected identity reached the origin"
+            );
+        }
+    }
+
+    let config = Config::parse_yaml(
+        json!({"socks-port":1080,"proxies":[original["node"]],"rules":["MATCH,peer"]})
+            .to_string()
+            .as_bytes(),
+    )
+    .unwrap();
+    let ProxyProtocol::Vless(proxy) = &config.proxies[0].protocol else {
+        panic!()
+    };
+    let mut legs = vec![&proxy.security];
+    if let Some(download) = proxy.download() {
+        legs.push(&download.security);
+    }
+    for security in legs {
+        assert!(matches!(security, SecurityConfig::Reality(r) if r.support_x25519mlkem768));
+        for field in [
+            "downgrade_port",
+            "hrr_port",
+            "ordinary_tls_port",
+            "tls12_port",
+        ] {
+            let port = original[field].as_u64().unwrap() as u16;
+            let stream = tokio::net::TcpStream::connect((
+                original["node"]["server"].as_str().unwrap(),
+                port,
+            ))
+            .await
+            .unwrap();
+            let client = SecurityClient::from_security(security).unwrap();
+            let result =
+                tokio::time::timeout(Duration::from_secs(5), client.connect(Box::new(stream)))
+                    .await
+                    .expect("peer rejection must not be a timeout");
+            assert!(result.is_err(), "required hybrid security accepted {field}");
+        }
+    }
+    event(name, "PASS");
 }
 
 #[tokio::test]
