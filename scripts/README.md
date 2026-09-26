@@ -24,7 +24,7 @@ uv run --project scripts --locked vcore-scripts build windows
 - Apple 命令只能在 macOS 运行，输出 `dist/apple/LibVCore.xcframework`。
 - Android 命令在 macOS/Linux 运行，默认输出 `dist/android/{arm64-v8a,x86_64}/libvcore.so` 及同 ABI 的 `libc++_shared.so`；宿主必须一起打包，不能假定 Android 系统提供该 C++ runtime。
 - Windows 命令只能在已安装 Visual Studio C++ 工具的 Windows 运行；命令从系统注册表读取原生 ARM64/x64 处理器架构，通过 `vswhere` 加载对应的 MSVC 环境，验证三项 PE 的 machine type 后输出 `dist/windows/<architecture>` 下的 DLL、Provider Host、Session Host 和记录 package integration revision、架构及三项 SHA-256 的 `vcore-windows-artifacts.json`。
-- 所有构建都使用 `Cargo.lock`，并检查产物内的 Invoke API v5/config revision 26 身份。
+- 所有构建都使用 `Cargo.lock`，并检查产物内的 Invoke API v5/config revision 27 身份。
 - 标准 Apple、Android、Windows 构建显式包含两种客户端入站和七种代理出站（含 Hysteria2），不依赖 `ffi` / `tun` 的传递 feature 来隐式补齐；不包含 `interop-test`。Apple/Android 的自定义 `VCORE_FEATURES` 不得将测试信任注入用于交付。
 
 Apple/Android 继续接受现有环境变量：
@@ -175,9 +175,9 @@ uv run --project scripts --locked vcore-scripts check xhttp-gateway --identities
 
 `protocol-coverage --catalog-only`只检查本仓库`tests/protocols/fields.json`和`combinations.json`声明，也可用`--catalog-dir <directory>`指定副本。不读取清单所引用的源码、研究目录或URL，不下载或启动对端。必须显式选择`--catalog-only`或下面的`--run-dir`结果模式。
 
-检查 schema-v2 的完整139字段/68组合家族ID、重复JSON键、字段/来源/对端/override引用、协议适用范围、阶段与子包归属、必要观察项/模式维度、负例拒绝阶段、原生未知项说明及64个有序上游组合声明。稳定ID的增删必须同时审查版本化清单及验证器契约，不能靠改自报数量绕过漏项。来源只接受无凭据/查询参数的HTTPS链接或无 `..` 的相对路径，不检查其内容或网络可用性。
+检查 schema-v3 的完整133字段/67组合家族ID、重复JSON键、字段/来源/对端/override引用、协议适用范围、阶段与子包归属、必要观察项/模式维度、负例拒绝阶段、原生未知项说明及64个有序上游组合声明。稳定ID的增删必须同时审查版本化清单及验证器契约，不能靠改自报数量绕过漏项。来源只接受无凭据/查询参数的HTTPS链接或无 `..` 的相对路径，不检查其内容或网络可用性。
 
-有效清单退出0，stdout为JSON，`status: VALID`、`behavior_status: NOT RUN`；无效清单退出1、stderr只报告诊断，不输出JSON原文；缺少模式参数退出2。声明中不能写入PASS等运行结果。这个结果**不是139项字段或68项互通通过**，不解析条件说明或自动生成笛卡尔积。当前生产能力仍以`docs/config.yaml`为准。历史声明校验记录见[N1清单校验](../docs/acceptance/next-protocols/N1-catalogs.md)。
+有效清单退出0，stdout为JSON，`status: VALID`、`behavior_status: NOT RUN`；无效清单退出1、stderr只报告诊断，不输出JSON原文；缺少模式参数退出2。声明中不能写入PASS等运行结果。这个结果**不是133项字段或67项互通通过**，不解析条件说明或自动生成笛卡尔积。当前生产能力仍以`docs/config.yaml`为准。历史声明校验记录见[N1清单校验](../docs/acceptance/next-protocols/N1-catalogs.md)。
 
 ### 阶段执行与原始证据检查
 
@@ -205,11 +205,28 @@ uv run --project scripts --locked vcore-scripts check protocol-coverage --stage 
 uv run --project scripts --locked vcore-scripts check protocol-interop --stage N6 --list
 uv run --project scripts --locked vcore-scripts check protocol-interop --stage N6
 uv run --project scripts --locked vcore-scripts check protocol-coverage --stage N6 --run-dir target/interop/runs/<run-id>
+uv run --project scripts --locked vcore-scripts check protocol-interop --stage N7 --list
+uv run --project scripts --locked vcore-scripts check protocol-interop --stage N7
+uv run --project scripts --locked vcore-scripts check protocol-coverage --stage N7 --run-dir target/interop/runs/<run-id>
 ```
+
+N7 冻结 43 组 required / 11 个字段，签收“选定 VLESS 能力集”，不是完整上游扩展。
+保留 Encryption、混合 REALITY、JLS，新增主/下载腿静态 ECH；动态 ECH/宿主
+bootstrap 后置，ShadowTLS 不开放，Restls 不恢复。七组本地门禁与原生组合分开，
+必须同一冻结源码完整执行，不能拼接历史子包结果。普通传输优先 Mihomo，H3 用
+Xray；原生 HTTP/H2/扩展 WS 的 ECH 使用 Xray TLS → V2Ray transport → Mihomo
+VLESS 分层验证，不宣称 V2Ray 自身支持 ECH。该测试网关仅使用官方
+`XRAY_BUF_SPLICE=disable` 开关保证下行保留 TLS 封装，不修改第三方源码。
+四种命名模板、六类 Encryption、主/下载腿替换/清除、mux、资源与 N4/N5 回归
+均按冻结清单显式展开；不声称所有维度的笛卡尔积已验收。
+官方对端与 `python:3-alpine` 每轮分别刷新一次，再以实际摘要冻结供整轮复用；
+镜像刷新日志和跨组摘要也参与独立检查，失败不回落旧缓存，下轮重新刷新。
+Safari ECH 的 gRPC 关闭参照明确采用 Chrome + 同一 ECH listener，DUT 保持
+Safari；官方 Safari ECH 的原始失败及适用边界见 N7 验收记录。
 
 N6 [Hysteria2](../docs/hysteria2.md) 有 36 组 required / 20 个适用字段。Mihomo 验认证/TLS/mTLS、TCP/UDP、Salamander、10 个真实带宽样本、关闭对照、公开入口及 40 轮生命周期；官方 Hysteria 验 UDP-disabled、8 组 60 秒跳端口、protect 拒绝和跳跃中 Stop。Xray 补共享 H3 adapter 的三模式回归。官方 latest 产物在本次运行内共用且核对 hash；Hysteria 的 nftables APK 仅在准备容器下载，离线装入自有 NET_ADMIN 服务容器。所有服务仍使用 host-only 网络。`--preflight` 只准备官方产物和隔离包，不代表协议通过。完整阶段必须一次运行全部门禁，再独立重算事件、带宽桶、跳跃/认证计数、字段和清理；不得拼接旧子集 PASS。
 
-统一入口具有 N1 公共基础（21 组 required）、N2 Trojan（41 组 / 18 字段）、N3 VMess（117 组 / 30 字段）、N4 VLESS（145 组 / 39 字段）、N5 XHTTP / sing-mux（416 组 / 57 字段）和 N6 Hysteria2（36 组 / 20 字段）的独立清单。`cases.json` 逐组列出断言、字段关联、对端、期限和证据类型；`limits.json` 引用可执行边界 case，Rust 测试核对真实常量。未来阶段没有可执行 required 集合时非零返回 NOT RUN。N1/N2 的历史宿主服务入口未全部迁移，不得用于新的服务端验收；全容器阶段入口是 N3/N4/N5/N6。阶段之间不继承 PASS。
+统一入口具有 N1 公共基础（21 组 required）、N2 Trojan（41 组 / 18 字段）、N3 VMess（117 组 / 30 字段）、N4 VLESS（145 组 / 39 字段）、N5 XHTTP / sing-mux（416 组 / 57 字段）、N6 Hysteria2（36 组 / 20 字段）和 N7 选定 VLESS 安全能力（43 组 / 11 字段）的独立清单。`cases.json` 逐组列出断言、字段关联、对端、期限和证据类型；`limits.json` 引用可执行边界 case，Rust 测试核对真实常量。未来阶段没有可执行 required 集合时非零返回 NOT RUN。N1/N2 的历史宿主服务入口未全部迁移，不得用于新的服务端验收；全容器阶段入口是 N3–N7。阶段之间不继承 PASS。
 
 N2三种传输分别执行真实Mihomo TCP/UDP、上游/组、HTTP/模拟TUN/DNS、外层IPv6、证书/路径负例和UDP隔离；公共Invoke生命周期、协议自有资源各20轮，每轮Stop返回即检查，再静默5秒。域名UDP因Mihomo listener缺口由Xray单独补验，自定义头/路径ED由V2Ray补验；失败与对端缓冲限制保留在[N2.2记录](../docs/acceptance/next-protocols/N2-tcp.md)。`fields.json`按row ID汇总，只有完整执行、原始事件和所有必需项通过才可签收；单独运行原生子工具用于开发定位，不替代统一门禁。
 
@@ -234,7 +251,7 @@ uv run --project scripts --locked python -m vcore_scripts.protocol_vless_contain
   target/interop/runs/<new-native-run> N4-TCP-TLS-BASE
 ```
 
-`protocol_vless` 提供按传输模式筛选的便捷入口，复用同一容器夹具。N4 不签收 N5 的 XHTTP 新功能，也不签收 N7 的高级安全；完整 VLESS 仍需后续阶段。
+`protocol_vless` 提供按传输模式筛选的便捷入口，复用同一容器夹具。N4 不签收 N5 的 XHTTP 新功能，也不签收 N7 的高级安全；后续仅签收选定 VLESS 能力集。
 
 N5 的冻结清单为 416 组 required / 57 个字段（X01–X29、D01–D15/D27–D32、M01–M07）。七个本地门禁、406 个原生/公开路径及三个安全组分别记录；安全组内部为 112 项身份与双腿行为检查，不把组数与内部断言相加计算覆盖率。有限枚举逐项、耦合 HTTP 版本/安全/mode/下载分支显式覆盖；独立调节项按 pairwise 组合，不宣称无约束笛卡尔积。
 

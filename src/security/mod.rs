@@ -9,6 +9,8 @@ mod boring_stream;
 #[cfg(feature = "outbound-vless")]
 mod client;
 mod context;
+#[cfg(feature = "outbound-vless")]
+mod ech;
 mod resumption;
 mod stream;
 mod tls;

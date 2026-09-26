@@ -56,7 +56,7 @@ client-fingerprint: chrome
 | Chrome120 | 经典 X25519 share，GREASE/乱序、ECH GREASE、Brotli、条件 padding、旧 ALPS 17513 |
 | Chrome133 | 普通 TLS 与显式混合 REALITY 使用原生 X25519MLKEM768 和 X25519 双 share；新 ALPS 17613，无 padding |
 | Firefox120 | 自有 cipher 顺序、固定扩展顺序、X25519/P-256 双 share，无 GREASE/ALPS/证书压缩 |
-| Safari16.0 | 固定扩展和签名顺序、GREASE、条件 padding、真实 Zlib 解压，无 ECH/ALPS |
+| Safari16.0 | 固定扩展和签名顺序、GREASE、条件 padding、真实 Zlib 解压，模板本身不加 ECH/ALPS |
 
 TLS 版本范围、SNI、ALPN、证书策略、身份和恢复预算仍由节点及传输决定。
 因此名称表示版本固定的 TLS 模板，不承诺完整浏览器行为或所有上下文的逐字节相同。
@@ -78,7 +78,9 @@ ML-KEM 增强 TLS 密钥交换，REALITY 身份认证仍基于 X25519，不宣�
 Firefox 的 FFDHE、delegated credentials、record size limit 及 Safari 的模板专用
 cipher 声明不开放新的配置能力；不能真实完成的对端选择明确失败，不静默换模板。
 
-不模拟浏览器 HTTP/2 SETTINGS、QUIC 参数、实际 ECH。
+模板不模拟浏览器 HTTP/2 SETTINGS、QUIC 参数，也不会自动启用实际 ECH。
+VLESS 可另行显式配置[静态 ECH](ech.md)：四模板均可使用，届时强制 TLS1.3、
+加入真实 ECH 并关闭恢复；不再声称与未启用 ECH 的历史浏览器模板逐字节相同。
 当前 HTTP 驱动不导入 TLS ALPS 中的应用设置，因此**非空 ALPS 响应明确失败**；
 未协商或协商空设置可用。Brotli/Zlib 解压输出和原生证书消息上限均为 128 KiB；
 超限、截断、错误算法和损坏压缩流失败，不能绕过证书认证。

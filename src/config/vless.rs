@@ -144,6 +144,12 @@ pub(super) struct RawVless {
     )]
     jls_opts: Option<super::jls::RawJls>,
     #[serde(
+        rename = "ech-opts",
+        default,
+        deserialize_with = "super::ech::deserialize"
+    )]
+    ech_opts: Option<super::ech::RawEch>,
+    #[serde(
         rename = "xhttp-opts",
         default,
         deserialize_with = "deserialize_present_map"
@@ -341,6 +347,7 @@ impl RawVless {
                 || (network != "xhttp" && self.alpn.is_some())
                 || self.reality_opts.is_some()
                 || self.jls_opts.is_some()
+                || self.ech_opts.is_some()
                 || self.client_fingerprint.is_some()
                 || standard_options)
         {
@@ -351,6 +358,14 @@ impl RawVless {
         }
         if self.jls_opts.is_some() && standard_options {
             return invalid("standard certificate options cannot be used with JLS");
+        }
+        let ech = self
+            .ech_opts
+            .map(super::ech::RawEch::normalize)
+            .transpose()?
+            .flatten();
+        if ech.is_some() && (self.reality_opts.is_some() || self.jls_opts.is_some() || vision) {
+            return invalid("ECH requires standard TLS without REALITY, JLS or Vision");
         }
         let xhttp_version = if network == "xhttp" {
             super::XHttpVersion::from_alpn(self.alpn.as_deref().unwrap_or_default())?
@@ -385,6 +400,9 @@ impl RawVless {
         let explicit_name = self.servername.is_some();
         let server_name = self.servername.unwrap_or(fallback_name);
         validate_host(&server_name, "VLESS servername")?;
+        if ech.is_some() && server_name.parse::<std::net::IpAddr>().is_ok() {
+            return invalid("ECH requires a DNS servername");
+        }
         if let Some(name) = &self.name_cert_verify {
             validate_host(name, "VLESS certificate verification name")?;
         }
@@ -408,6 +426,7 @@ impl RawVless {
                 SecurityConfig::Reality(config)
             }
             (None, Some(raw)) => SecurityConfig::Jls(raw.normalize(TlsConfig {
+                ech: None,
                 client_fingerprint,
                 server_name,
                 alpn,
@@ -417,11 +436,13 @@ impl RawVless {
                 identity: None,
             })?),
             (None, None) if self.tls => SecurityConfig::Tls(TlsConfig {
+                tls13_only: ech.is_some()
+                    || network == "xhttp"
+                    || (vision && matches!(&encryption, VlessEncryption::None)),
+                ech,
                 client_fingerprint,
                 server_name,
                 alpn,
-                tls13_only: network == "xhttp"
-                    || (vision && matches!(&encryption, VlessEncryption::None)),
                 required_alpn: default_alpn.map(<[u8]>::to_vec),
                 certificate: TlsCertificatePolicy {
                     verification_name: self.name_cert_verify,

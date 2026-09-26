@@ -1,6 +1,6 @@
 # VLESS 出站
 
-`outbound-vless` 使用共享 Dialer、上游图及 TLS/REALITY/JLS；协议不创建独立 socket 或系统 DNS。Invoke v5 不变，当前配置修订为 26。[N4 基础/传输/Vision](acceptance/next-protocols/N4.md)和 [N5 XHTTP/sing-mux](acceptance/next-protocols/N5.md)是此前阶段的本地证据；新 TLS 指纹、物理平台与发布结果单独记录，不能称为完整 VLESS 交付。
+`outbound-vless` 使用共享 Dialer、上游图及 TLS/REALITY/JLS；协议不创建独立 socket 或系统 DNS。Invoke v5 不变，当前配置修订为 27。[N4 基础/传输/Vision](acceptance/next-protocols/N4.md)和 [N5 XHTTP/sing-mux](acceptance/next-protocols/N5.md)是此前阶段的本地证据；新 TLS 指纹、物理平台与发布结果单独记录。本文定义选定 VLESS 能力集，不承诺覆盖上游所有扩展。
 
 ## 配置与传输
 
@@ -22,14 +22,22 @@
 `reality-opts.support-x25519mlkem768` 为非 null 布尔值，默认 false。true 强制真实混合
 TLS 密钥交换，服务端选择经典组时失败；可用于主连接和 XHTTP 独立下载连接。
 仅 `chrome` 或未命名 profile 兼容，模板及下载继承约束见 [TLS 指纹](tls-client-fingerprint.md)。
-这不开放其余 N7 高级字段，也不代表完整 N7 签收。
+独立子包证据不替代 N7 的当前组合与资源门禁。
 
 ## JLS
 
 附加安全方式 [JLS](jls.md) 使用配对的 `jls-opts.username/password`，适用于主连接
 和 XHTTP H1/H2 独立下载连接。同腿与 REALITY/证书策略/mTLS 互斥，也不能用于
 Vision 或 H3；它保持完整 TLS 1.3 认证与记录保护。下载继承/替换/清除、凭据上限
-和不恢复规则见该文档，其他未实现高级字段仍拒绝。
+和不恢复规则见该文档；新增静态 ECH 为另一个互斥安全模式，不叠加在 JLS 上。
+
+## 静态 ECH
+
+标准 TLS 可配置 `ech-opts: {enable: true, config: "<Base64 ECHConfigList>"}`，
+主连接和 XHTTP 独立下载连接均可使用。实际 TLS 1.3，强制 ECH accepted；
+错误配置或服务端拒绝时失败，不自动重拨、不明文回落。下载对象继承/整体替换/
+显式清除、mTLS 和 TLS 后端差异见 [ECH](ech.md)。动态 HTTPS RR/bootstrap、
+ShadowTLS、Restls 不在本版支持范围，相关配置严格拒绝。
 
 ## Encryption
 
@@ -57,8 +65,9 @@ Vision 在独立的 Encryption 记录边界切换：先排空已认证明文，�
 已有外层 TLS 保留，random 模式保留记录头 CTR，不重置计数器。
 进入 direct 后，native/xorpub 继承底层 CloseWrite 并保留读取方向；random 对齐
 Mihomo 不可替换的 XorConn，仍整流关闭。未进入 direct 时三种外观均整流关闭。
-已完成 [N7.1 本地子包验收](acceptance/next-protocols/N7-encryption.md)。尚未交付的
-高级安全封装组合归 N7.5；不能推断完整 N7、Windows 原生或设备已经签收。
+历史完整子包见 [N7.1](acceptance/next-protocols/N7-encryption.md)；当前保留安全层的
+组合由 [N7 本地阶段验收](acceptance/next-protocols/N7.md)重新签收。未列举的组合、
+Windows 原生和设备结果不从这些成绩推断。
 
 ## Vision
 
@@ -92,6 +101,6 @@ VLESS 响应头允许延迟到业务响应前；TCP 不等待它才允许发送�
 
 ## 验证边界
 
-所有服务端、原站、DNS 和对照入口均遵守[容器隔离规则](testing-isolation.md)。`protocol_vless` 是增量开发入口，不是 N4 完整阶段门禁；ignored 测试未实际执行不计通过。新 XHTTP/sing-mux 由 N5 的独立完整运行签收，不继承 N4 结果；HTTPUpgrade/fast-open + 新 sing-mux 未在 N5 单独展开。N7 高级安全仍不属于已签收范围。
+所有服务端、原站、DNS 和对照入口均遵守[容器隔离规则](testing-isolation.md)。`protocol_vless` 是增量开发入口，不是完整阶段门禁；ignored 测试未实际执行不计通过。XHTTP/sing-mux 由 N5 独立运行签收，不继承 N4 结果；HTTPUpgrade/fast-open + 新 sing-mux 未在 N5 单独展开。[N7](acceptance/next-protocols/N7.md)另以同一冻结输入签收静态 ECH、保留的 Encryption/混合 REALITY/JLS 组合与 N4/N5 共享回归；仅覆盖报告明确列举的组合，不代表完整上游 VLESS 生态或设备通过。
 
 WS + REALITY（普通 WS、HTTPUpgrade、fast-open）的数据及认证使用真实 Mihomo listener；关闭验证采用明确标注的分层参照。当前 Mihomo WS 客户端分支未接入 REALITY，不能作为同组合对照，因此使用标准 TLS 的同种传输客户端关闭基线，并独立验证 REALITY。不得将该结果写成 Mihomo WS + REALITY 客户端互通或同组合差分通过。

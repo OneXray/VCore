@@ -10,8 +10,8 @@ fn feature_skeletons_do_not_open_unimplemented_yaml_or_measurement_protocols() {
     let yaml = "proxies:\n  - name: node\n    type: wireguard\n    server: example.com\n    port: 443\nrules:\n  - MATCH,node\n";
     assert!(Config::parse_yaml(yaml.as_bytes()).is_err());
     assert_eq!(vcore::INVOKE_API_VERSION, 5);
-    assert_eq!(vcore::CONFIG_VERSION, 26);
-    assert!(vcore::BUILD_IDENTITY.ends_with("invokeApiVersion=5;configVersion=26"));
+    assert_eq!(vcore::CONFIG_VERSION, 27);
+    assert!(vcore::BUILD_IDENTITY.ends_with("invokeApiVersion=5;configVersion=27"));
 }
 
 #[test]

@@ -27,7 +27,7 @@ outbound protocols:
 
 ## Files and schema
 
-- `fields.json`: 145 stable field IDs, full `proxies[]` paths, protocol
+- `fields.json`: 133 stable field IDs, full `proxies[]` paths, protocol
   applicability, exact input/default/conditional contract, required observations,
   work packages and responsible stages. XHTTP and download paths include their
   `xhttp-opts.` prefix. Values and defaults are currently normative prose in
@@ -38,12 +38,16 @@ outbound protocols:
   unsupported Cartesian products.
 - `cases.json`: frozen executable cases for N1 foundations (21 groups), N2
   Trojan (41 groups), N3 VMess (117 groups), N4 VLESS (145 groups), and N5
-  XHTTP/sing-mux (416 groups), with assertion names, field
+  XHTTP/sing-mux (416 groups), N6 Hysteria2 (36 groups), and N7 selected
+  VLESS security (43 groups), with assertion names, field
   associations, official peers, input dimensions and required evidence.
 - `limits.json`: shared per-object limits and executable boundary case IDs;
   `limit_foundations` compares the registered numbers with Rust constants.
 
-Both use `schema_version: 1`. IDs are stable; revise a requirement with a
+Fields and combinations use `schema_version: 3`; cases and limits retain
+`schema_version: 1`. Restls, ShadowTLS and dynamic ECH fields were explicitly
+retired by the accepted scope decision; retained IDs are not renumbered.
+IDs are stable; revise a requirement with a
 reviewable reason rather than deleting a failing ID. Sources are public upstream
 URLs or repository-relative paths. The catalogs are self-contained: future
 coverage tooling must not read an external design document or source checkout.
@@ -52,7 +56,7 @@ coverage tooling must not read an external design document or source checkout.
 
 | Key | Meaning |
 | --- | --- |
-| `id` | Stable field identifier; unique across all 145 rows |
+| `id` | Stable field identifier; unique across all 133 rows |
 | `path` | Full YAML path; identical paths may have different protocol contracts |
 | `protocols` | Consumers that must independently discharge the requirement |
 | `contract` | Accepted values, default/absence semantics and conditional rules |
@@ -65,7 +69,7 @@ coverage tooling must not read an external design document or source checkout.
 
 Common N9 integration and N10 platform gates apply after consumer acceptance.
 One shared-field row can require cases on several protocols, networks and
-address families; therefore **145 fields does not mean 145 tests**.
+address families; therefore **133 fields does not mean 133 tests**.
 
 ## Peer selection
 
@@ -146,7 +150,7 @@ From the VCore repository root:
 uv run --project scripts --locked vcore-scripts check protocol-coverage --catalog-only
 ```
 
-This explicit mode checks the complete schema-v1 ID sets (145 fields, 69 mode
+This explicit mode checks the complete schema-v3 ID sets (133 fields, 67 mode
 families), references, ownership, native-peer declarations and required metadata.
 It also preserves the declared 64 ordered upstream pairs. A valid result is
 `VALID` with behavior status `NOT RUN`, never protocol acceptance. Invalid inputs
@@ -167,7 +171,7 @@ uv run --project scripts --locked vcore-scripts check protocol-interop --stage N
 uv run --project scripts --locked vcore-scripts check protocol-coverage --stage N3 --run-dir target/interop/runs/<run-id>
 ```
 
-N3, N4, and N5 are container-only stage runners; all peers, origins and upstream
+N3 through N7 are container-only stage runners; all peers, origins and upstream
 listeners follow the [isolation rule](../../docs/testing-isolation.md). Historical
 N1/N2 catalogs and reports remain available, but their server runners are not
 fully migrated and must not be rerun on the host. `--case` (repeatable) and
@@ -210,7 +214,25 @@ return and at least five seconds of subsequent quiet. Independent upload and
 download handshake cancellation is observed separately before and after Stop.
 The N5 preflight downloads current M/XR/V2 binaries and builds the approved
 Caddy gateway, checking versions inside owned containers without business
-traffic. Advanced security and full VLESS acceptance still require N7.
+traffic. Selected advanced VLESS security is independently accepted in N7.
+
+N7 freezes 43 required groups and 11 applicable field rows: retained Encryption,
+hybrid REALITY and JLS, plus static ECH on the main and XHTTP download legs.
+Seven local gates cover Debug/Release, regression, features, quality, harness
+integrity and Apple/Android production builds. Native groups explicitly list
+standard/named-profile ECH, H3, mux, six Encryption profiles, retained security
+and N4/N5 shared regressions. This is a reviewed covering set, not an arbitrary
+Cartesian product. Dynamic ECH/host bootstrap and ShadowTLS are not N7 targets;
+the delivery claim is **selected VLESS capabilities**, not full upstream VLESS.
+
+Native-only legacy transports use an official Xray ECH TLS gateway followed by
+the official V2Ray HTTP/H2/extended-WS handler; packetaddr/mux/Encryption use the
+existing separate Mihomo VLESS decoder. The gateway disables Xray freedom raw
+splice through its upstream environment switch so responses stay inside TLS.
+It is not direct V2Ray ECH support. All layers remain isolated containers.
+Run `--stage N7`, then independently check the same run with
+`protocol-coverage --stage N7 --run-dir ...`; selected subsets do not sign off
+the stage, and historical subpackage passes are not substituted for this run.
 
 N1's historical 21 required groups include configuration/limit/TLS/stream/XUDP/datagram/
 QUIC/resolution/resource assertions, nine native stream cases, the existing

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "kind": "executable-case-manifest",
-  "scope": "N1 foundation-only and N2 Trojan consumer cases. Other protocol consumers remain NOT RUN.",
+  "scope": "Frozen N1 foundations and N2-N7 consumer requirements. Declarations contain no run results; each stage requires its own complete evidence.",
   "cases": [
     {
       "case_id": "N1-SCHEMA",
@@ -45073,6 +45073,3120 @@
       ],
       "runner": "native-hysteria2",
       "timeout_seconds": 300
+    },
+    {
+      "case_id": "N7-CFG",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [
+        "D16",
+        "D17",
+        "D18",
+        "D25",
+        "D26",
+        "S03",
+        "S04",
+        "S05",
+        "S12",
+        "S13",
+        "VL06"
+      ],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {},
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "memory-only/build",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "unit",
+      "peer_config": {
+        "runner": "gate"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N7-CFG"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions"
+      ],
+      "prerequisites": [
+        "rust-toolchain"
+      ],
+      "runner": "vless-security-gate",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N7-ECH-CHROME",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [
+        "D17",
+        "D18",
+        "S04",
+        "S05"
+      ],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {
+        "selected": [
+          "N7-ECH-TCP-TLS-BASE",
+          "N7-ECH-TCP-TLS-REJECT",
+          "N7-ECH-WS-TLS-BASE",
+          "N7-ECH-GRPC-TLS-BASE",
+          "N7-ECH-GRPC-TLS-CLOSE",
+          "N7-ECH-TCP-MTLS-IDENTITY",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-REJECT",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-DOWNLOAD",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-H1-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-H1-DOWNLOAD"
+        ],
+        "ech": true,
+        "client_fingerprint": "chrome"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "runner": "vless",
+        "selected": [
+          "N7-ECH-TCP-TLS-BASE",
+          "N7-ECH-TCP-TLS-REJECT",
+          "N7-ECH-WS-TLS-BASE",
+          "N7-ECH-GRPC-TLS-BASE",
+          "N7-ECH-GRPC-TLS-CLOSE",
+          "N7-ECH-TCP-MTLS-IDENTITY",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-REJECT",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-DOWNLOAD",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-H1-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-H1-DOWNLOAD"
+        ],
+        "ech": true,
+        "client_fingerprint": "chrome"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N7-ECH-CHROME"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "vless-security-vless",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N7-ECH-CHROME120",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [
+        "D17",
+        "D18",
+        "S04",
+        "S05"
+      ],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {
+        "selected": [
+          "N7-ECH-TCP-TLS-BASE",
+          "N7-ECH-TCP-TLS-REJECT",
+          "N7-ECH-WS-TLS-BASE",
+          "N7-ECH-GRPC-TLS-BASE",
+          "N7-ECH-GRPC-TLS-CLOSE",
+          "N7-ECH-TCP-MTLS-IDENTITY",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-REJECT",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-DOWNLOAD",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-H1-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-H1-DOWNLOAD"
+        ],
+        "ech": true,
+        "client_fingerprint": "chrome120"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "runner": "vless",
+        "selected": [
+          "N7-ECH-TCP-TLS-BASE",
+          "N7-ECH-TCP-TLS-REJECT",
+          "N7-ECH-WS-TLS-BASE",
+          "N7-ECH-GRPC-TLS-BASE",
+          "N7-ECH-GRPC-TLS-CLOSE",
+          "N7-ECH-TCP-MTLS-IDENTITY",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-REJECT",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-DOWNLOAD",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-H1-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-H1-DOWNLOAD"
+        ],
+        "ech": true,
+        "client_fingerprint": "chrome120"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N7-ECH-CHROME120"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "vless-security-vless",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N7-ECH-ENCRYPTION-NATIVE-0RTT-MIXED",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [
+        "D17",
+        "D18",
+        "S04",
+        "S05",
+        "VL06"
+      ],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {
+        "ech": true,
+        "encryption": "native-0rtt-mixed",
+        "client_fingerprint": "chrome",
+        "selected": [
+          "N7-ECH-TCP-TLS-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-H1-BASE"
+        ]
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "runner": "vless",
+        "ech": true,
+        "encryption": "native-0rtt-mixed",
+        "client_fingerprint": "chrome",
+        "selected": [
+          "N7-ECH-TCP-TLS-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-H1-BASE"
+        ]
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N7-ECH-ENCRYPTION-NATIVE-0RTT-MIXED"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "vless-security-vless",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N7-ECH-ENCRYPTION-NATIVE-1RTT-MIXED",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [
+        "D17",
+        "D18",
+        "S04",
+        "S05",
+        "VL06"
+      ],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {
+        "ech": true,
+        "encryption": "native-1rtt-mixed",
+        "client_fingerprint": "chrome",
+        "selected": [
+          "N7-ECH-TCP-TLS-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-H1-BASE"
+        ]
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "runner": "vless",
+        "ech": true,
+        "encryption": "native-1rtt-mixed",
+        "client_fingerprint": "chrome",
+        "selected": [
+          "N7-ECH-TCP-TLS-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-H1-BASE"
+        ]
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N7-ECH-ENCRYPTION-NATIVE-1RTT-MIXED"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "vless-security-vless",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N7-ECH-ENCRYPTION-RANDOM-0RTT-MIXED",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [
+        "D17",
+        "D18",
+        "S04",
+        "S05",
+        "VL06"
+      ],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {
+        "ech": true,
+        "encryption": "random-0rtt-mixed",
+        "client_fingerprint": "chrome",
+        "selected": [
+          "N7-ECH-TCP-TLS-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-H1-BASE"
+        ]
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "runner": "vless",
+        "ech": true,
+        "encryption": "random-0rtt-mixed",
+        "client_fingerprint": "chrome",
+        "selected": [
+          "N7-ECH-TCP-TLS-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-H1-BASE"
+        ]
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N7-ECH-ENCRYPTION-RANDOM-0RTT-MIXED"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "vless-security-vless",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N7-ECH-ENCRYPTION-RANDOM-1RTT-MIXED",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [
+        "D17",
+        "D18",
+        "S04",
+        "S05",
+        "VL06"
+      ],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {
+        "ech": true,
+        "encryption": "random-1rtt-mixed",
+        "client_fingerprint": "chrome",
+        "selected": [
+          "N7-ECH-TCP-TLS-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-H1-BASE"
+        ]
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "runner": "vless",
+        "ech": true,
+        "encryption": "random-1rtt-mixed",
+        "client_fingerprint": "chrome",
+        "selected": [
+          "N7-ECH-TCP-TLS-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-H1-BASE"
+        ]
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N7-ECH-ENCRYPTION-RANDOM-1RTT-MIXED"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "vless-security-vless",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N7-ECH-ENCRYPTION-XORPUB-0RTT-MIXED",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [
+        "D17",
+        "D18",
+        "S04",
+        "S05",
+        "VL06"
+      ],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {
+        "ech": true,
+        "encryption": "xorpub-0rtt-mixed",
+        "client_fingerprint": "chrome",
+        "selected": [
+          "N7-ECH-TCP-TLS-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-H1-BASE"
+        ]
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "runner": "vless",
+        "ech": true,
+        "encryption": "xorpub-0rtt-mixed",
+        "client_fingerprint": "chrome",
+        "selected": [
+          "N7-ECH-TCP-TLS-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-H1-BASE"
+        ]
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N7-ECH-ENCRYPTION-XORPUB-0RTT-MIXED"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "vless-security-vless",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N7-ECH-ENCRYPTION-XORPUB-1RTT-MIXED",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [
+        "D17",
+        "D18",
+        "S04",
+        "S05",
+        "VL06"
+      ],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {
+        "ech": true,
+        "encryption": "xorpub-1rtt-mixed",
+        "client_fingerprint": "chrome",
+        "selected": [
+          "N7-ECH-TCP-TLS-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-H1-BASE"
+        ]
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "runner": "vless",
+        "ech": true,
+        "encryption": "xorpub-1rtt-mixed",
+        "client_fingerprint": "chrome",
+        "selected": [
+          "N7-ECH-TCP-TLS-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-H1-BASE"
+        ]
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N7-ECH-ENCRYPTION-XORPUB-1RTT-MIXED"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "vless-security-vless",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N7-ECH-FIREFOX",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [
+        "D17",
+        "D18",
+        "S04",
+        "S05"
+      ],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {
+        "selected": [
+          "N7-ECH-TCP-TLS-BASE",
+          "N7-ECH-TCP-TLS-REJECT",
+          "N7-ECH-WS-TLS-BASE",
+          "N7-ECH-GRPC-TLS-BASE",
+          "N7-ECH-GRPC-TLS-CLOSE",
+          "N7-ECH-TCP-MTLS-IDENTITY",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-REJECT",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-DOWNLOAD",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-H1-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-H1-DOWNLOAD"
+        ],
+        "ech": true,
+        "client_fingerprint": "firefox"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "runner": "vless",
+        "selected": [
+          "N7-ECH-TCP-TLS-BASE",
+          "N7-ECH-TCP-TLS-REJECT",
+          "N7-ECH-WS-TLS-BASE",
+          "N7-ECH-GRPC-TLS-BASE",
+          "N7-ECH-GRPC-TLS-CLOSE",
+          "N7-ECH-TCP-MTLS-IDENTITY",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-REJECT",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-DOWNLOAD",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-H1-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-H1-DOWNLOAD"
+        ],
+        "ech": true,
+        "client_fingerprint": "firefox"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N7-ECH-FIREFOX"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "vless-security-vless",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N7-ECH-H3",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [
+        "D17",
+        "D18",
+        "S04",
+        "S05"
+      ],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {
+        "jobs": {
+          "h3-stream-one-headers": [
+            {
+              "case_id": "h3-stream-one-headers-0",
+              "test": "public_base"
+            }
+          ],
+          "h3-stream-up-headers": [
+            {
+              "case_id": "h3-stream-up-headers-0",
+              "test": "public_base"
+            }
+          ],
+          "h3-packet-up-headers": [
+            {
+              "case_id": "h3-packet-up-headers-0",
+              "test": "public_base"
+            }
+          ],
+          "h3-ech-reject-main": [
+            {
+              "case_id": "h3-ech-reject-main-0",
+              "test": "security::native_xhttp_security"
+            }
+          ],
+          "h3-ech-reject-download": [
+            {
+              "case_id": "h3-ech-reject-download-0",
+              "test": "security::native_xhttp_security"
+            }
+          ],
+          "h3-ech-replace": [
+            {
+              "case_id": "h3-ech-replace-0",
+              "test": "public_base"
+            }
+          ],
+          "h3-ech-clear": [
+            {
+              "case_id": "h3-ech-clear-0",
+              "test": "public_base"
+            }
+          ],
+          "h3-stream-up-reuse": [
+            {
+              "case_id": "h3-stream-up-reuse-0",
+              "test": "runtime::public_graph"
+            },
+            {
+              "case_id": "h3-stream-up-reuse-1",
+              "test": "runtime::public_entrypoints"
+            },
+            {
+              "case_id": "h3-stream-up-reuse-2",
+              "test": "runtime::public_ipv6_and_gates"
+            },
+            {
+              "case_id": "h3-stream-up-reuse-3",
+              "test": "runtime::public_udp_isolation"
+            },
+            {
+              "case_id": "h3-stream-up-reuse-4",
+              "test": "runtime::public_lifecycle"
+            },
+            {
+              "case_id": "h3-stream-up-reuse-5",
+              "test": "lifecycle::native_xhttp_owned_resources"
+            }
+          ],
+          "h3-keepalive": [
+            {
+              "case_id": "h3-keepalive-0",
+              "test": "keepalive::native_h3_keepalive_observes_each_leg_and_stop"
+            }
+          ]
+        },
+        "ech": true
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "XR",
+      "peer_config": {
+        "runner": "xhttp",
+        "jobs": {
+          "h3-stream-one-headers": [
+            {
+              "case_id": "h3-stream-one-headers-0",
+              "test": "public_base"
+            }
+          ],
+          "h3-stream-up-headers": [
+            {
+              "case_id": "h3-stream-up-headers-0",
+              "test": "public_base"
+            }
+          ],
+          "h3-packet-up-headers": [
+            {
+              "case_id": "h3-packet-up-headers-0",
+              "test": "public_base"
+            }
+          ],
+          "h3-ech-reject-main": [
+            {
+              "case_id": "h3-ech-reject-main-0",
+              "test": "security::native_xhttp_security"
+            }
+          ],
+          "h3-ech-reject-download": [
+            {
+              "case_id": "h3-ech-reject-download-0",
+              "test": "security::native_xhttp_security"
+            }
+          ],
+          "h3-ech-replace": [
+            {
+              "case_id": "h3-ech-replace-0",
+              "test": "public_base"
+            }
+          ],
+          "h3-ech-clear": [
+            {
+              "case_id": "h3-ech-clear-0",
+              "test": "public_base"
+            }
+          ],
+          "h3-stream-up-reuse": [
+            {
+              "case_id": "h3-stream-up-reuse-0",
+              "test": "runtime::public_graph"
+            },
+            {
+              "case_id": "h3-stream-up-reuse-1",
+              "test": "runtime::public_entrypoints"
+            },
+            {
+              "case_id": "h3-stream-up-reuse-2",
+              "test": "runtime::public_ipv6_and_gates"
+            },
+            {
+              "case_id": "h3-stream-up-reuse-3",
+              "test": "runtime::public_udp_isolation"
+            },
+            {
+              "case_id": "h3-stream-up-reuse-4",
+              "test": "runtime::public_lifecycle"
+            },
+            {
+              "case_id": "h3-stream-up-reuse-5",
+              "test": "lifecycle::native_xhttp_owned_resources"
+            }
+          ],
+          "h3-keepalive": [
+            {
+              "case_id": "h3-keepalive-0",
+              "test": "keepalive::native_h3_keepalive_observes_each_leg_and_stop"
+            }
+          ]
+        },
+        "ech": true
+      },
+      "gap_source": {
+        "reason": "Mihomo has no H3 or legacy HTTP/H2/extended WS listener; official Xray/V2Ray terminate that transport, with Mihomo VLESS for packetaddr, Encryption and sing-mux.",
+        "source": "https://github.com/XTLS/Xray-core"
+      },
+      "expected_observation": [
+        "N7-ECH-H3"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "vless-security-xhttp",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N7-ECH-H3-ENCRYPTION",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [
+        "D17",
+        "D18",
+        "S04",
+        "S05",
+        "VL06"
+      ],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {
+        "jobs": {
+          "h3-stream-one-headers": [
+            {
+              "case_id": "h3-stream-one-headers-0",
+              "test": "public_base"
+            }
+          ],
+          "h3-stream-up-headers": [
+            {
+              "case_id": "h3-stream-up-headers-0",
+              "test": "public_base"
+            }
+          ],
+          "h3-packet-up-headers": [
+            {
+              "case_id": "h3-packet-up-headers-0",
+              "test": "public_base"
+            }
+          ],
+          "h3-ech-replace": [
+            {
+              "case_id": "h3-ech-replace-0",
+              "test": "public_base"
+            }
+          ]
+        },
+        "ech": true,
+        "encryption": "native-0rtt-mixed"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "XR",
+      "peer_config": {
+        "runner": "xhttp",
+        "jobs": {
+          "h3-stream-one-headers": [
+            {
+              "case_id": "h3-stream-one-headers-0",
+              "test": "public_base"
+            }
+          ],
+          "h3-stream-up-headers": [
+            {
+              "case_id": "h3-stream-up-headers-0",
+              "test": "public_base"
+            }
+          ],
+          "h3-packet-up-headers": [
+            {
+              "case_id": "h3-packet-up-headers-0",
+              "test": "public_base"
+            }
+          ],
+          "h3-ech-replace": [
+            {
+              "case_id": "h3-ech-replace-0",
+              "test": "public_base"
+            }
+          ]
+        },
+        "ech": true,
+        "encryption": "native-0rtt-mixed"
+      },
+      "gap_source": {
+        "reason": "Mihomo has no H3 or legacy HTTP/H2/extended WS listener; official Xray/V2Ray terminate that transport, with Mihomo VLESS for packetaddr, Encryption and sing-mux.",
+        "source": "https://github.com/XTLS/Xray-core"
+      },
+      "expected_observation": [
+        "N7-ECH-H3-ENCRYPTION"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "vless-security-xhttp",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N7-ECH-MUX",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [
+        "D17",
+        "D18",
+        "S04",
+        "S05"
+      ],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {
+        "jobs": {
+          "h1-mux-h2mux-padded": [
+            {
+              "case_id": "h1-mux-h2mux-padded-0",
+              "test": "public_base"
+            }
+          ],
+          "h1-mux-h2mux-padded-only-tcp": [
+            {
+              "case_id": "h1-mux-h2mux-padded-only-tcp-0",
+              "test": "public_base"
+            }
+          ],
+          "h1-mux-smux-padded": [
+            {
+              "case_id": "h1-mux-smux-padded-0",
+              "test": "public_base"
+            }
+          ],
+          "h1-mux-smux-padded-only-tcp": [
+            {
+              "case_id": "h1-mux-smux-padded-only-tcp-0",
+              "test": "public_base"
+            }
+          ],
+          "h1-mux-yamux-padded": [
+            {
+              "case_id": "h1-mux-yamux-padded-0",
+              "test": "public_base"
+            }
+          ],
+          "h1-mux-yamux-padded-only-tcp": [
+            {
+              "case_id": "h1-mux-yamux-padded-only-tcp-0",
+              "test": "public_base"
+            }
+          ],
+          "h2-mux-h2mux-padded": [
+            {
+              "case_id": "h2-mux-h2mux-padded-0",
+              "test": "public_base"
+            }
+          ],
+          "h2-mux-h2mux-padded-only-tcp": [
+            {
+              "case_id": "h2-mux-h2mux-padded-only-tcp-0",
+              "test": "public_base"
+            }
+          ],
+          "h2-mux-smux-padded": [
+            {
+              "case_id": "h2-mux-smux-padded-0",
+              "test": "public_base"
+            }
+          ],
+          "h2-mux-smux-padded-only-tcp": [
+            {
+              "case_id": "h2-mux-smux-padded-only-tcp-0",
+              "test": "public_base"
+            }
+          ],
+          "h2-mux-yamux-padded": [
+            {
+              "case_id": "h2-mux-yamux-padded-0",
+              "test": "public_base"
+            }
+          ],
+          "h2-mux-yamux-padded-only-tcp": [
+            {
+              "case_id": "h2-mux-yamux-padded-only-tcp-0",
+              "test": "public_base"
+            }
+          ],
+          "h3-mux-h2mux-padded": [
+            {
+              "case_id": "h3-mux-h2mux-padded-0",
+              "test": "public_base"
+            }
+          ],
+          "h3-mux-h2mux-padded-only-tcp": [
+            {
+              "case_id": "h3-mux-h2mux-padded-only-tcp-0",
+              "test": "public_base"
+            }
+          ],
+          "h3-mux-smux-padded": [
+            {
+              "case_id": "h3-mux-smux-padded-0",
+              "test": "public_base"
+            }
+          ],
+          "h3-mux-smux-padded-only-tcp": [
+            {
+              "case_id": "h3-mux-smux-padded-only-tcp-0",
+              "test": "public_base"
+            }
+          ],
+          "h3-mux-yamux-padded": [
+            {
+              "case_id": "h3-mux-yamux-padded-0",
+              "test": "public_base"
+            }
+          ],
+          "h3-mux-yamux-padded-only-tcp": [
+            {
+              "case_id": "h3-mux-yamux-padded-only-tcp-0",
+              "test": "public_base"
+            }
+          ]
+        },
+        "ech": true,
+        "encryption": "native-0rtt-mixed"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "runner": "xhttp",
+        "jobs": {
+          "h1-mux-h2mux-padded": [
+            {
+              "case_id": "h1-mux-h2mux-padded-0",
+              "test": "public_base"
+            }
+          ],
+          "h1-mux-h2mux-padded-only-tcp": [
+            {
+              "case_id": "h1-mux-h2mux-padded-only-tcp-0",
+              "test": "public_base"
+            }
+          ],
+          "h1-mux-smux-padded": [
+            {
+              "case_id": "h1-mux-smux-padded-0",
+              "test": "public_base"
+            }
+          ],
+          "h1-mux-smux-padded-only-tcp": [
+            {
+              "case_id": "h1-mux-smux-padded-only-tcp-0",
+              "test": "public_base"
+            }
+          ],
+          "h1-mux-yamux-padded": [
+            {
+              "case_id": "h1-mux-yamux-padded-0",
+              "test": "public_base"
+            }
+          ],
+          "h1-mux-yamux-padded-only-tcp": [
+            {
+              "case_id": "h1-mux-yamux-padded-only-tcp-0",
+              "test": "public_base"
+            }
+          ],
+          "h2-mux-h2mux-padded": [
+            {
+              "case_id": "h2-mux-h2mux-padded-0",
+              "test": "public_base"
+            }
+          ],
+          "h2-mux-h2mux-padded-only-tcp": [
+            {
+              "case_id": "h2-mux-h2mux-padded-only-tcp-0",
+              "test": "public_base"
+            }
+          ],
+          "h2-mux-smux-padded": [
+            {
+              "case_id": "h2-mux-smux-padded-0",
+              "test": "public_base"
+            }
+          ],
+          "h2-mux-smux-padded-only-tcp": [
+            {
+              "case_id": "h2-mux-smux-padded-only-tcp-0",
+              "test": "public_base"
+            }
+          ],
+          "h2-mux-yamux-padded": [
+            {
+              "case_id": "h2-mux-yamux-padded-0",
+              "test": "public_base"
+            }
+          ],
+          "h2-mux-yamux-padded-only-tcp": [
+            {
+              "case_id": "h2-mux-yamux-padded-only-tcp-0",
+              "test": "public_base"
+            }
+          ],
+          "h3-mux-h2mux-padded": [
+            {
+              "case_id": "h3-mux-h2mux-padded-0",
+              "test": "public_base"
+            }
+          ],
+          "h3-mux-h2mux-padded-only-tcp": [
+            {
+              "case_id": "h3-mux-h2mux-padded-only-tcp-0",
+              "test": "public_base"
+            }
+          ],
+          "h3-mux-smux-padded": [
+            {
+              "case_id": "h3-mux-smux-padded-0",
+              "test": "public_base"
+            }
+          ],
+          "h3-mux-smux-padded-only-tcp": [
+            {
+              "case_id": "h3-mux-smux-padded-only-tcp-0",
+              "test": "public_base"
+            }
+          ],
+          "h3-mux-yamux-padded": [
+            {
+              "case_id": "h3-mux-yamux-padded-0",
+              "test": "public_base"
+            }
+          ],
+          "h3-mux-yamux-padded-only-tcp": [
+            {
+              "case_id": "h3-mux-yamux-padded-only-tcp-0",
+              "test": "public_base"
+            }
+          ]
+        },
+        "ech": true,
+        "encryption": "native-0rtt-mixed"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N7-ECH-MUX"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "vless-security-xhttp",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N7-ECH-NATIVE-TRANSPORT",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [
+        "D17",
+        "D18",
+        "S04",
+        "S05"
+      ],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {
+        "jobs": {
+          "outer-http-tls": [
+            {
+              "case_id": "outer-http-tls-0",
+              "test": "public_base"
+            }
+          ],
+          "outer-h2-tls": [
+            {
+              "case_id": "outer-h2-tls-0",
+              "test": "public_base"
+            }
+          ],
+          "outer-ws-header-tls": [
+            {
+              "case_id": "outer-ws-header-tls-0",
+              "test": "public_base"
+            }
+          ],
+          "outer-ws-path-tls": [
+            {
+              "case_id": "outer-ws-path-tls-0",
+              "test": "public_base"
+            }
+          ]
+        },
+        "ech": true,
+        "encryption": "native-0rtt-mixed"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "XR",
+      "peer_config": {
+        "runner": "xhttp",
+        "jobs": {
+          "outer-http-tls": [
+            {
+              "case_id": "outer-http-tls-0",
+              "test": "public_base"
+            }
+          ],
+          "outer-h2-tls": [
+            {
+              "case_id": "outer-h2-tls-0",
+              "test": "public_base"
+            }
+          ],
+          "outer-ws-header-tls": [
+            {
+              "case_id": "outer-ws-header-tls-0",
+              "test": "public_base"
+            }
+          ],
+          "outer-ws-path-tls": [
+            {
+              "case_id": "outer-ws-path-tls-0",
+              "test": "public_base"
+            }
+          ]
+        },
+        "ech": true,
+        "encryption": "native-0rtt-mixed"
+      },
+      "gap_source": {
+        "reason": "Mihomo has no H3 or legacy HTTP/H2/extended WS listener; official Xray/V2Ray terminate that transport, with Mihomo VLESS for packetaddr, Encryption and sing-mux.",
+        "source": "https://github.com/XTLS/Xray-core"
+      },
+      "expected_observation": [
+        "N7-ECH-NATIVE-TRANSPORT"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "vless-security-xhttp",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N7-ECH-SAFARI",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [
+        "D17",
+        "D18",
+        "S04",
+        "S05"
+      ],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {
+        "selected": [
+          "N7-ECH-TCP-TLS-BASE",
+          "N7-ECH-TCP-TLS-REJECT",
+          "N7-ECH-WS-TLS-BASE",
+          "N7-ECH-GRPC-TLS-BASE",
+          "N7-ECH-GRPC-TLS-CLOSE",
+          "N7-ECH-TCP-MTLS-IDENTITY",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-REJECT",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-DOWNLOAD",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-H1-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-H1-DOWNLOAD"
+        ],
+        "ech": true,
+        "client_fingerprint": "safari"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "runner": "vless",
+        "selected": [
+          "N7-ECH-TCP-TLS-BASE",
+          "N7-ECH-TCP-TLS-REJECT",
+          "N7-ECH-WS-TLS-BASE",
+          "N7-ECH-GRPC-TLS-BASE",
+          "N7-ECH-GRPC-TLS-CLOSE",
+          "N7-ECH-TCP-MTLS-IDENTITY",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-REJECT",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-DOWNLOAD",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-H1-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-H1-DOWNLOAD"
+        ],
+        "ech": true,
+        "client_fingerprint": "safari"
+      },
+      "gap_source": {
+        "reason": "Mihomo v1.19.31 Safari ECH fails before business data. Only the gRPC close reference uses Chrome with the same ECH listener; VCore remains Safari, not a same-profile comparison.",
+        "source": "https://github.com/MetaCubeX/utls/blob/v1.8.7/u_handshake_client.go"
+      },
+      "expected_observation": [
+        "N7-ECH-SAFARI"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "vless-security-vless",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N7-ECH-STANDARD",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [
+        "D17",
+        "D18",
+        "S04",
+        "S05"
+      ],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {
+        "selected": [
+          "N7-ECH-TCP-TLS-BASE",
+          "N7-ECH-TCP-TLS-CLOSE",
+          "N7-ECH-WS-TLS-BASE",
+          "N7-ECH-WS-TLS-CLOSE",
+          "N7-ECH-UPGRADE-TLS-BASE",
+          "N7-ECH-UPGRADE-TLS-CLOSE",
+          "N7-ECH-UPGRADE-FAST-TLS-BASE",
+          "N7-ECH-UPGRADE-FAST-TLS-CLOSE",
+          "N7-ECH-GRPC-TLS-BASE",
+          "N7-ECH-GRPC-TLS-CLOSE",
+          "N7-ECH-XHTTP-STREAM-ONE-BASE",
+          "N7-ECH-XHTTP-STREAM-ONE-CLOSE",
+          "N7-ECH-XHTTP-STREAM-ONE-H1-BASE",
+          "N7-ECH-XHTTP-STREAM-ONE-H1-CLOSE",
+          "N7-ECH-XHTTP-STREAM-UP-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-CLOSE",
+          "N7-ECH-XHTTP-STREAM-UP-H1-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-H1-CLOSE",
+          "N7-ECH-XHTTP-PACKET-UP-BASE",
+          "N7-ECH-XHTTP-PACKET-UP-CLOSE",
+          "N7-ECH-XHTTP-PACKET-UP-H1-BASE",
+          "N7-ECH-XHTTP-PACKET-UP-H1-CLOSE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-CLOSE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-H1-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-H1-CLOSE",
+          "N7-ECH-XHTTP-PACKET-UP-DOWNLOAD-BASE",
+          "N7-ECH-XHTTP-PACKET-UP-DOWNLOAD-CLOSE",
+          "N7-ECH-XHTTP-PACKET-UP-DOWNLOAD-H1-BASE",
+          "N7-ECH-XHTTP-PACKET-UP-DOWNLOAD-H1-CLOSE",
+          "N7-ECH-TCP-TLS-REJECT",
+          "N7-ECH-WS-TLS-REJECT",
+          "N7-ECH-GRPC-TLS-REJECT",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-REJECT",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-H1-REJECT",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-DOWNLOAD",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-H1-DOWNLOAD",
+          "N7-ECH-XHTTP-PACKET-UP-DOWNLOAD-DOWNLOAD",
+          "N7-ECH-XHTTP-PACKET-UP-DOWNLOAD-H1-DOWNLOAD",
+          "N7-ECH-TCP-MTLS-IDENTITY",
+          "N7-ECH-WS-MTLS-IDENTITY",
+          "N7-ECH-GRPC-MTLS-IDENTITY",
+          "N7-ECH-TCP-TLS-GRAPH",
+          "N7-ECH-TCP-TLS-ENTRYPOINTS",
+          "N7-ECH-TCP-TLS-IPV6",
+          "N7-ECH-TCP-TLS-UDP-ISOLATION",
+          "N7-ECH-GRPC-TLS-LIFE",
+          "N7-ECH-GRPC-TLS-OWNED",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-LIFE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-OWNED"
+        ],
+        "ech": true
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "runner": "vless",
+        "selected": [
+          "N7-ECH-TCP-TLS-BASE",
+          "N7-ECH-TCP-TLS-CLOSE",
+          "N7-ECH-WS-TLS-BASE",
+          "N7-ECH-WS-TLS-CLOSE",
+          "N7-ECH-UPGRADE-TLS-BASE",
+          "N7-ECH-UPGRADE-TLS-CLOSE",
+          "N7-ECH-UPGRADE-FAST-TLS-BASE",
+          "N7-ECH-UPGRADE-FAST-TLS-CLOSE",
+          "N7-ECH-GRPC-TLS-BASE",
+          "N7-ECH-GRPC-TLS-CLOSE",
+          "N7-ECH-XHTTP-STREAM-ONE-BASE",
+          "N7-ECH-XHTTP-STREAM-ONE-CLOSE",
+          "N7-ECH-XHTTP-STREAM-ONE-H1-BASE",
+          "N7-ECH-XHTTP-STREAM-ONE-H1-CLOSE",
+          "N7-ECH-XHTTP-STREAM-UP-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-CLOSE",
+          "N7-ECH-XHTTP-STREAM-UP-H1-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-H1-CLOSE",
+          "N7-ECH-XHTTP-PACKET-UP-BASE",
+          "N7-ECH-XHTTP-PACKET-UP-CLOSE",
+          "N7-ECH-XHTTP-PACKET-UP-H1-BASE",
+          "N7-ECH-XHTTP-PACKET-UP-H1-CLOSE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-CLOSE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-H1-BASE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-H1-CLOSE",
+          "N7-ECH-XHTTP-PACKET-UP-DOWNLOAD-BASE",
+          "N7-ECH-XHTTP-PACKET-UP-DOWNLOAD-CLOSE",
+          "N7-ECH-XHTTP-PACKET-UP-DOWNLOAD-H1-BASE",
+          "N7-ECH-XHTTP-PACKET-UP-DOWNLOAD-H1-CLOSE",
+          "N7-ECH-TCP-TLS-REJECT",
+          "N7-ECH-WS-TLS-REJECT",
+          "N7-ECH-GRPC-TLS-REJECT",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-REJECT",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-H1-REJECT",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-DOWNLOAD",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-H1-DOWNLOAD",
+          "N7-ECH-XHTTP-PACKET-UP-DOWNLOAD-DOWNLOAD",
+          "N7-ECH-XHTTP-PACKET-UP-DOWNLOAD-H1-DOWNLOAD",
+          "N7-ECH-TCP-MTLS-IDENTITY",
+          "N7-ECH-WS-MTLS-IDENTITY",
+          "N7-ECH-GRPC-MTLS-IDENTITY",
+          "N7-ECH-TCP-TLS-GRAPH",
+          "N7-ECH-TCP-TLS-ENTRYPOINTS",
+          "N7-ECH-TCP-TLS-IPV6",
+          "N7-ECH-TCP-TLS-UDP-ISOLATION",
+          "N7-ECH-GRPC-TLS-LIFE",
+          "N7-ECH-GRPC-TLS-OWNED",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-LIFE",
+          "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-OWNED"
+        ],
+        "ech": true
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N7-ECH-STANDARD"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "vless-security-vless",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N7-ENCRYPTION-CHACHA",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [
+        "VL06"
+      ],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {
+        "chacha": true
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "runner": "encryption",
+        "chacha": true
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N7-ENCRYPTION-CHACHA"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "vless-security-encryption",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N7-ENCRYPTION-EXPIRY",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [
+        "VL06"
+      ],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {
+        "expiry": true
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "runner": "encryption",
+        "expiry": true
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N7-ENCRYPTION-EXPIRY"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "vless-security-encryption",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N7-ENCRYPTION-WIRE",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [
+        "VL06"
+      ],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {},
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "runner": "encryption"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N7-ENCRYPTION-WIRE"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "vless-security-encryption",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N7-FEATURES",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {},
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "memory-only/build",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "unit",
+      "peer_config": {
+        "runner": "gate"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N7-FEATURES"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions"
+      ],
+      "prerequisites": [
+        "rust-toolchain"
+      ],
+      "runner": "vless-security-gate",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N7-HYBRID-ENCRYPTION-NATIVE-0RTT-MIXED",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [
+        "D16",
+        "S03",
+        "VL06"
+      ],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {
+        "encryption": "native-0rtt-mixed",
+        "selected": [
+          "chrome-tcp-base",
+          "chrome-vision-base",
+          "chrome-h2-stream-up-base"
+        ]
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "runner": "hybrid",
+        "encryption": "native-0rtt-mixed",
+        "selected": [
+          "chrome-tcp-base",
+          "chrome-vision-base",
+          "chrome-h2-stream-up-base"
+        ]
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N7-HYBRID-ENCRYPTION-NATIVE-0RTT-MIXED"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "vless-security-hybrid",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N7-HYBRID-ENCRYPTION-NATIVE-1RTT-MIXED",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [
+        "D16",
+        "S03",
+        "VL06"
+      ],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {
+        "encryption": "native-1rtt-mixed",
+        "selected": [
+          "chrome-tcp-base",
+          "chrome-vision-base",
+          "chrome-h2-stream-up-base"
+        ]
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "runner": "hybrid",
+        "encryption": "native-1rtt-mixed",
+        "selected": [
+          "chrome-tcp-base",
+          "chrome-vision-base",
+          "chrome-h2-stream-up-base"
+        ]
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N7-HYBRID-ENCRYPTION-NATIVE-1RTT-MIXED"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "vless-security-hybrid",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N7-HYBRID-ENCRYPTION-RANDOM-0RTT-MIXED",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [
+        "D16",
+        "S03",
+        "VL06"
+      ],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {
+        "encryption": "random-0rtt-mixed",
+        "selected": [
+          "chrome-tcp-base",
+          "chrome-vision-base",
+          "chrome-h2-stream-up-base"
+        ]
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "runner": "hybrid",
+        "encryption": "random-0rtt-mixed",
+        "selected": [
+          "chrome-tcp-base",
+          "chrome-vision-base",
+          "chrome-h2-stream-up-base"
+        ]
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N7-HYBRID-ENCRYPTION-RANDOM-0RTT-MIXED"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "vless-security-hybrid",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N7-HYBRID-ENCRYPTION-RANDOM-1RTT-MIXED",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [
+        "D16",
+        "S03",
+        "VL06"
+      ],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {
+        "encryption": "random-1rtt-mixed",
+        "selected": [
+          "chrome-tcp-base",
+          "chrome-vision-base",
+          "chrome-h2-stream-up-base"
+        ]
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "runner": "hybrid",
+        "encryption": "random-1rtt-mixed",
+        "selected": [
+          "chrome-tcp-base",
+          "chrome-vision-base",
+          "chrome-h2-stream-up-base"
+        ]
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N7-HYBRID-ENCRYPTION-RANDOM-1RTT-MIXED"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "vless-security-hybrid",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N7-HYBRID-ENCRYPTION-XORPUB-0RTT-MIXED",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [
+        "D16",
+        "S03",
+        "VL06"
+      ],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {
+        "encryption": "xorpub-0rtt-mixed",
+        "selected": [
+          "chrome-tcp-base",
+          "chrome-vision-base",
+          "chrome-h2-stream-up-base"
+        ]
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "runner": "hybrid",
+        "encryption": "xorpub-0rtt-mixed",
+        "selected": [
+          "chrome-tcp-base",
+          "chrome-vision-base",
+          "chrome-h2-stream-up-base"
+        ]
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N7-HYBRID-ENCRYPTION-XORPUB-0RTT-MIXED"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "vless-security-hybrid",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N7-HYBRID-ENCRYPTION-XORPUB-1RTT-MIXED",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [
+        "D16",
+        "S03",
+        "VL06"
+      ],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {
+        "encryption": "xorpub-1rtt-mixed",
+        "selected": [
+          "chrome-tcp-base",
+          "chrome-vision-base",
+          "chrome-h2-stream-up-base"
+        ]
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "runner": "hybrid",
+        "encryption": "xorpub-1rtt-mixed",
+        "selected": [
+          "chrome-tcp-base",
+          "chrome-vision-base",
+          "chrome-h2-stream-up-base"
+        ]
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N7-HYBRID-ENCRYPTION-XORPUB-1RTT-MIXED"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "vless-security-hybrid",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N7-HYBRID-RETAINED",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [
+        "D16",
+        "S03"
+      ],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {
+        "selected": [
+          "none-tcp-base",
+          "none-tcp-security",
+          "none-h1-stream-up-base",
+          "none-h1-stream-up-security",
+          "none-h2-stream-up-base",
+          "none-h2-stream-up-security",
+          "chrome-tcp-base",
+          "chrome-tcp-security",
+          "chrome-h1-stream-up-base",
+          "chrome-h1-stream-up-security",
+          "chrome-h2-stream-up-base",
+          "chrome-h2-stream-up-security",
+          "chrome-vision-inner-tls",
+          "chrome-h2-stream-up-owned",
+          "chrome-h2-stream-up-life",
+          "chrome-h1-main-classic",
+          "chrome-h2-download-classic"
+        ]
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "runner": "hybrid",
+        "selected": [
+          "none-tcp-base",
+          "none-tcp-security",
+          "none-h1-stream-up-base",
+          "none-h1-stream-up-security",
+          "none-h2-stream-up-base",
+          "none-h2-stream-up-security",
+          "chrome-tcp-base",
+          "chrome-tcp-security",
+          "chrome-h1-stream-up-base",
+          "chrome-h1-stream-up-security",
+          "chrome-h2-stream-up-base",
+          "chrome-h2-stream-up-security",
+          "chrome-vision-inner-tls",
+          "chrome-h2-stream-up-owned",
+          "chrome-h2-stream-up-life",
+          "chrome-h1-main-classic",
+          "chrome-h2-download-classic"
+        ]
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N7-HYBRID-RETAINED"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "vless-security-hybrid",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N7-JLS-ENCRYPTION-NATIVE-0RTT-MIXED",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [
+        "D25",
+        "D26",
+        "S12",
+        "S13",
+        "VL06"
+      ],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {
+        "jls": true,
+        "encryption": "native-0rtt-mixed",
+        "selected": [
+          "N7-JLS-TCP-BASE",
+          "N7-JLS-XHTTP-STREAM-UP-DOWNLOAD-BASE"
+        ]
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "runner": "vless",
+        "jls": true,
+        "encryption": "native-0rtt-mixed",
+        "selected": [
+          "N7-JLS-TCP-BASE",
+          "N7-JLS-XHTTP-STREAM-UP-DOWNLOAD-BASE"
+        ]
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N7-JLS-ENCRYPTION-NATIVE-0RTT-MIXED"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "vless-security-vless",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N7-JLS-ENCRYPTION-NATIVE-1RTT-MIXED",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [
+        "D25",
+        "D26",
+        "S12",
+        "S13",
+        "VL06"
+      ],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {
+        "jls": true,
+        "encryption": "native-1rtt-mixed",
+        "selected": [
+          "N7-JLS-TCP-BASE",
+          "N7-JLS-XHTTP-STREAM-UP-DOWNLOAD-BASE"
+        ]
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "runner": "vless",
+        "jls": true,
+        "encryption": "native-1rtt-mixed",
+        "selected": [
+          "N7-JLS-TCP-BASE",
+          "N7-JLS-XHTTP-STREAM-UP-DOWNLOAD-BASE"
+        ]
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N7-JLS-ENCRYPTION-NATIVE-1RTT-MIXED"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "vless-security-vless",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N7-JLS-ENCRYPTION-RANDOM-0RTT-MIXED",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [
+        "D25",
+        "D26",
+        "S12",
+        "S13",
+        "VL06"
+      ],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {
+        "jls": true,
+        "encryption": "random-0rtt-mixed",
+        "selected": [
+          "N7-JLS-TCP-BASE",
+          "N7-JLS-XHTTP-STREAM-UP-DOWNLOAD-BASE"
+        ]
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "runner": "vless",
+        "jls": true,
+        "encryption": "random-0rtt-mixed",
+        "selected": [
+          "N7-JLS-TCP-BASE",
+          "N7-JLS-XHTTP-STREAM-UP-DOWNLOAD-BASE"
+        ]
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N7-JLS-ENCRYPTION-RANDOM-0RTT-MIXED"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "vless-security-vless",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N7-JLS-ENCRYPTION-RANDOM-1RTT-MIXED",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [
+        "D25",
+        "D26",
+        "S12",
+        "S13",
+        "VL06"
+      ],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {
+        "jls": true,
+        "encryption": "random-1rtt-mixed",
+        "selected": [
+          "N7-JLS-TCP-BASE",
+          "N7-JLS-XHTTP-STREAM-UP-DOWNLOAD-BASE"
+        ]
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "runner": "vless",
+        "jls": true,
+        "encryption": "random-1rtt-mixed",
+        "selected": [
+          "N7-JLS-TCP-BASE",
+          "N7-JLS-XHTTP-STREAM-UP-DOWNLOAD-BASE"
+        ]
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N7-JLS-ENCRYPTION-RANDOM-1RTT-MIXED"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "vless-security-vless",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N7-JLS-ENCRYPTION-XORPUB-0RTT-MIXED",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [
+        "D25",
+        "D26",
+        "S12",
+        "S13",
+        "VL06"
+      ],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {
+        "jls": true,
+        "encryption": "xorpub-0rtt-mixed",
+        "selected": [
+          "N7-JLS-TCP-BASE",
+          "N7-JLS-XHTTP-STREAM-UP-DOWNLOAD-BASE"
+        ]
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "runner": "vless",
+        "jls": true,
+        "encryption": "xorpub-0rtt-mixed",
+        "selected": [
+          "N7-JLS-TCP-BASE",
+          "N7-JLS-XHTTP-STREAM-UP-DOWNLOAD-BASE"
+        ]
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N7-JLS-ENCRYPTION-XORPUB-0RTT-MIXED"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "vless-security-vless",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N7-JLS-ENCRYPTION-XORPUB-1RTT-MIXED",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [
+        "D25",
+        "D26",
+        "S12",
+        "S13",
+        "VL06"
+      ],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {
+        "jls": true,
+        "encryption": "xorpub-1rtt-mixed",
+        "selected": [
+          "N7-JLS-TCP-BASE",
+          "N7-JLS-XHTTP-STREAM-UP-DOWNLOAD-BASE"
+        ]
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "runner": "vless",
+        "jls": true,
+        "encryption": "xorpub-1rtt-mixed",
+        "selected": [
+          "N7-JLS-TCP-BASE",
+          "N7-JLS-XHTTP-STREAM-UP-DOWNLOAD-BASE"
+        ]
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N7-JLS-ENCRYPTION-XORPUB-1RTT-MIXED"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "vless-security-vless",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N7-JLS-MUX",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [
+        "D25",
+        "D26",
+        "S12",
+        "S13"
+      ],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {
+        "jobs": {
+          "h1-mux-h2mux-padded": [
+            {
+              "case_id": "h1-mux-h2mux-padded-0",
+              "test": "public_base"
+            }
+          ],
+          "h1-mux-h2mux-padded-only-tcp": [
+            {
+              "case_id": "h1-mux-h2mux-padded-only-tcp-0",
+              "test": "public_base"
+            }
+          ],
+          "h1-mux-smux-padded": [
+            {
+              "case_id": "h1-mux-smux-padded-0",
+              "test": "public_base"
+            }
+          ],
+          "h1-mux-smux-padded-only-tcp": [
+            {
+              "case_id": "h1-mux-smux-padded-only-tcp-0",
+              "test": "public_base"
+            }
+          ],
+          "h1-mux-yamux-padded": [
+            {
+              "case_id": "h1-mux-yamux-padded-0",
+              "test": "public_base"
+            }
+          ],
+          "h1-mux-yamux-padded-only-tcp": [
+            {
+              "case_id": "h1-mux-yamux-padded-only-tcp-0",
+              "test": "public_base"
+            }
+          ],
+          "h2-mux-h2mux-padded": [
+            {
+              "case_id": "h2-mux-h2mux-padded-0",
+              "test": "public_base"
+            }
+          ],
+          "h2-mux-h2mux-padded-only-tcp": [
+            {
+              "case_id": "h2-mux-h2mux-padded-only-tcp-0",
+              "test": "public_base"
+            }
+          ],
+          "h2-mux-smux-padded": [
+            {
+              "case_id": "h2-mux-smux-padded-0",
+              "test": "public_base"
+            }
+          ],
+          "h2-mux-smux-padded-only-tcp": [
+            {
+              "case_id": "h2-mux-smux-padded-only-tcp-0",
+              "test": "public_base"
+            }
+          ],
+          "h2-mux-yamux-padded": [
+            {
+              "case_id": "h2-mux-yamux-padded-0",
+              "test": "public_base"
+            }
+          ],
+          "h2-mux-yamux-padded-only-tcp": [
+            {
+              "case_id": "h2-mux-yamux-padded-only-tcp-0",
+              "test": "public_base"
+            }
+          ]
+        },
+        "jls": true,
+        "encryption": "native-0rtt-mixed"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "runner": "xhttp",
+        "jobs": {
+          "h1-mux-h2mux-padded": [
+            {
+              "case_id": "h1-mux-h2mux-padded-0",
+              "test": "public_base"
+            }
+          ],
+          "h1-mux-h2mux-padded-only-tcp": [
+            {
+              "case_id": "h1-mux-h2mux-padded-only-tcp-0",
+              "test": "public_base"
+            }
+          ],
+          "h1-mux-smux-padded": [
+            {
+              "case_id": "h1-mux-smux-padded-0",
+              "test": "public_base"
+            }
+          ],
+          "h1-mux-smux-padded-only-tcp": [
+            {
+              "case_id": "h1-mux-smux-padded-only-tcp-0",
+              "test": "public_base"
+            }
+          ],
+          "h1-mux-yamux-padded": [
+            {
+              "case_id": "h1-mux-yamux-padded-0",
+              "test": "public_base"
+            }
+          ],
+          "h1-mux-yamux-padded-only-tcp": [
+            {
+              "case_id": "h1-mux-yamux-padded-only-tcp-0",
+              "test": "public_base"
+            }
+          ],
+          "h2-mux-h2mux-padded": [
+            {
+              "case_id": "h2-mux-h2mux-padded-0",
+              "test": "public_base"
+            }
+          ],
+          "h2-mux-h2mux-padded-only-tcp": [
+            {
+              "case_id": "h2-mux-h2mux-padded-only-tcp-0",
+              "test": "public_base"
+            }
+          ],
+          "h2-mux-smux-padded": [
+            {
+              "case_id": "h2-mux-smux-padded-0",
+              "test": "public_base"
+            }
+          ],
+          "h2-mux-smux-padded-only-tcp": [
+            {
+              "case_id": "h2-mux-smux-padded-only-tcp-0",
+              "test": "public_base"
+            }
+          ],
+          "h2-mux-yamux-padded": [
+            {
+              "case_id": "h2-mux-yamux-padded-0",
+              "test": "public_base"
+            }
+          ],
+          "h2-mux-yamux-padded-only-tcp": [
+            {
+              "case_id": "h2-mux-yamux-padded-only-tcp-0",
+              "test": "public_base"
+            }
+          ]
+        },
+        "jls": true,
+        "encryption": "native-0rtt-mixed"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N7-JLS-MUX"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "vless-security-xhttp",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N7-JLS-RETAINED",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [
+        "D25",
+        "D26",
+        "S12",
+        "S13"
+      ],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {
+        "jls": true,
+        "selected": [
+          "N7-JLS-TCP-BASE",
+          "N7-JLS-TCP-CLOSE",
+          "N7-JLS-GRPC-BASE",
+          "N7-JLS-GRPC-CLOSE",
+          "N7-JLS-XHTTP-STREAM-UP-DOWNLOAD-BASE",
+          "N7-JLS-XHTTP-STREAM-UP-DOWNLOAD-CLOSE",
+          "N7-JLS-XHTTP-STREAM-UP-DOWNLOAD-H1-BASE",
+          "N7-JLS-XHTTP-STREAM-UP-DOWNLOAD-H1-CLOSE",
+          "N7-JLS-TCP-AUTH",
+          "N7-JLS-GRPC-AUTH",
+          "N7-JLS-XHTTP-STREAM-UP-DOWNLOAD-AUTH",
+          "N7-JLS-XHTTP-STREAM-UP-DOWNLOAD-H1-AUTH",
+          "N7-JLS-XHTTP-STREAM-UP-DOWNLOAD-IDENTITY",
+          "N7-JLS-XHTTP-STREAM-UP-DOWNLOAD-H1-IDENTITY",
+          "N7-JLS-GRPC-LIFE",
+          "N7-JLS-GRPC-OWNED",
+          "N7-JLS-XHTTP-STREAM-UP-DOWNLOAD-LIFE",
+          "N7-JLS-XHTTP-STREAM-UP-DOWNLOAD-OWNED"
+        ]
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "runner": "vless",
+        "jls": true,
+        "selected": [
+          "N7-JLS-TCP-BASE",
+          "N7-JLS-TCP-CLOSE",
+          "N7-JLS-GRPC-BASE",
+          "N7-JLS-GRPC-CLOSE",
+          "N7-JLS-XHTTP-STREAM-UP-DOWNLOAD-BASE",
+          "N7-JLS-XHTTP-STREAM-UP-DOWNLOAD-CLOSE",
+          "N7-JLS-XHTTP-STREAM-UP-DOWNLOAD-H1-BASE",
+          "N7-JLS-XHTTP-STREAM-UP-DOWNLOAD-H1-CLOSE",
+          "N7-JLS-TCP-AUTH",
+          "N7-JLS-GRPC-AUTH",
+          "N7-JLS-XHTTP-STREAM-UP-DOWNLOAD-AUTH",
+          "N7-JLS-XHTTP-STREAM-UP-DOWNLOAD-H1-AUTH",
+          "N7-JLS-XHTTP-STREAM-UP-DOWNLOAD-IDENTITY",
+          "N7-JLS-XHTTP-STREAM-UP-DOWNLOAD-H1-IDENTITY",
+          "N7-JLS-GRPC-LIFE",
+          "N7-JLS-GRPC-OWNED",
+          "N7-JLS-XHTTP-STREAM-UP-DOWNLOAD-LIFE",
+          "N7-JLS-XHTTP-STREAM-UP-DOWNLOAD-OWNED"
+        ]
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N7-JLS-RETAINED"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "vless-security-vless",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N7-PLATFORMS",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {},
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "memory-only/build",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "unit",
+      "peer_config": {
+        "runner": "gate"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N7-PLATFORMS"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions"
+      ],
+      "prerequisites": [
+        "rust-toolchain"
+      ],
+      "runner": "vless-security-gate",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N7-QUALITY",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {},
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "memory-only/build",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "unit",
+      "peer_config": {
+        "runner": "gate"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N7-QUALITY"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions"
+      ],
+      "prerequisites": [
+        "rust-toolchain"
+      ],
+      "runner": "vless-security-gate",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N7-REGRESSION",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {},
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "memory-only/build",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "unit",
+      "peer_config": {
+        "runner": "gate"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N7-REGRESSION"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions"
+      ],
+      "prerequisites": [
+        "rust-toolchain"
+      ],
+      "runner": "vless-security-gate",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N7-RELEASE",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [
+        "D16",
+        "D17",
+        "D18",
+        "D25",
+        "D26",
+        "S03",
+        "S04",
+        "S05",
+        "S12",
+        "S13",
+        "VL06"
+      ],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {},
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "memory-only/build",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "unit",
+      "peer_config": {
+        "runner": "gate"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N7-RELEASE"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions"
+      ],
+      "prerequisites": [
+        "rust-toolchain"
+      ],
+      "runner": "vless-security-gate",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N7-SCRIPTS",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {},
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "memory-only/build",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "unit",
+      "peer_config": {
+        "runner": "gate"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N7-SCRIPTS"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions"
+      ],
+      "prerequisites": [
+        "rust-toolchain"
+      ],
+      "runner": "vless-security-gate",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N7-SHARED-CHROME",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {
+        "client_fingerprint": "chrome",
+        "selected": [
+          "N4-TCP-TLS-BASE",
+          "N4-TCP-TLS-NEG",
+          "N4-TCP-REALITY-BASE",
+          "N4-TCP-REALITY-NEG",
+          "N4-VISION-REALITY-BASE",
+          "N4-GRPC-TLS-BASE",
+          "N4-HTTP-TLS-BASE",
+          "N4-H2-TLS-BASE",
+          "N4-REGRESSION-TROJAN-TCP",
+          "N4-REGRESSION-VMESS-GRPC",
+          "F5-ANYTLS"
+        ]
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "runner": "vless",
+        "client_fingerprint": "chrome",
+        "selected": [
+          "N4-TCP-TLS-BASE",
+          "N4-TCP-TLS-NEG",
+          "N4-TCP-REALITY-BASE",
+          "N4-TCP-REALITY-NEG",
+          "N4-VISION-REALITY-BASE",
+          "N4-GRPC-TLS-BASE",
+          "N4-HTTP-TLS-BASE",
+          "N4-H2-TLS-BASE",
+          "N4-REGRESSION-TROJAN-TCP",
+          "N4-REGRESSION-VMESS-GRPC",
+          "F5-ANYTLS"
+        ]
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N7-SHARED-CHROME"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "vless-security-vless",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N7-SHARED-NONE",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {
+        "client_fingerprint": "none",
+        "selected": [
+          "N4-TCP-TLS-BASE",
+          "N4-TCP-TLS-NEG",
+          "N4-TCP-REALITY-BASE",
+          "N4-TCP-REALITY-NEG",
+          "N4-VISION-REALITY-BASE",
+          "N4-GRPC-TLS-BASE",
+          "N4-HTTP-TLS-BASE",
+          "N4-H2-TLS-BASE",
+          "N4-REGRESSION-TROJAN-TCP",
+          "N4-REGRESSION-VMESS-GRPC",
+          "F5-ANYTLS"
+        ]
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "runner": "vless",
+        "client_fingerprint": "none",
+        "selected": [
+          "N4-TCP-TLS-BASE",
+          "N4-TCP-TLS-NEG",
+          "N4-TCP-REALITY-BASE",
+          "N4-TCP-REALITY-NEG",
+          "N4-VISION-REALITY-BASE",
+          "N4-GRPC-TLS-BASE",
+          "N4-HTTP-TLS-BASE",
+          "N4-H2-TLS-BASE",
+          "N4-REGRESSION-TROJAN-TCP",
+          "N4-REGRESSION-VMESS-GRPC",
+          "F5-ANYTLS"
+        ]
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N7-SHARED-NONE"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "vless-security-vless",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N7-SHARED-XHTTP",
+      "stage": "N7",
+      "substage": "N7.5",
+      "required": true,
+      "row_ids": [],
+      "protocol": "vless",
+      "network": "explicit-selected-compositions",
+      "security": "static-ech/encryption/hybrid-reality/jls",
+      "udp_codec": "raw/xudp/packetaddr/sing-mux",
+      "field_values": {
+        "jobs": {
+          "h1-stream-up-split-reuse": [
+            {
+              "case_id": "h1-stream-up-split-reuse-0",
+              "test": "public_base"
+            }
+          ],
+          "h2-stream-up-split-reuse": [
+            {
+              "case_id": "h2-stream-up-split-reuse-0",
+              "test": "public_base"
+            }
+          ],
+          "h3-stream-up-split-reuse": [
+            {
+              "case_id": "h3-stream-up-split-reuse-0",
+              "test": "public_base"
+            }
+          ],
+          "h2r-stream-up-split-reuse": [
+            {
+              "case_id": "h2r-stream-up-split-reuse-0",
+              "test": "public_base"
+            }
+          ],
+          "h3-mux-yamux-padded": [
+            {
+              "case_id": "h3-mux-yamux-padded-0",
+              "test": "public_base"
+            }
+          ]
+        }
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated synthetic origin",
+      "upstream_graph": "direct/concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "runner": "xhttp",
+        "jobs": {
+          "h1-stream-up-split-reuse": [
+            {
+              "case_id": "h1-stream-up-split-reuse-0",
+              "test": "public_base"
+            }
+          ],
+          "h2-stream-up-split-reuse": [
+            {
+              "case_id": "h2-stream-up-split-reuse-0",
+              "test": "public_base"
+            }
+          ],
+          "h3-stream-up-split-reuse": [
+            {
+              "case_id": "h3-stream-up-split-reuse-0",
+              "test": "public_base"
+            }
+          ],
+          "h2r-stream-up-split-reuse": [
+            {
+              "case_id": "h2r-stream-up-split-reuse-0",
+              "test": "public_base"
+            }
+          ],
+          "h3-mux-yamux-padded": [
+            {
+              "case_id": "h3-mux-yamux-padded-0",
+              "test": "public_base"
+            }
+          ]
+        }
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N7-SHARED-XHTTP"
+      ],
+      "required_evidence": [
+        "command",
+        "cleanup",
+        "structured-assertions",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "vless-security-xhttp",
+      "timeout_seconds": 3600
     }
   ]
 }

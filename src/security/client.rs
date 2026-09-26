@@ -184,6 +184,7 @@ impl SecurityClient {
                 context,
                 &tls.server_name,
                 TlsClientOptions {
+                    ech: tls.ech.clone(),
                     client_fingerprint: tls.client_fingerprint,
                     versions: if tls.tls13_only {
                         TlsVersions::Tls13

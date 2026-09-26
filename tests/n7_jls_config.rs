@@ -8,6 +8,11 @@ use vcore::{
 
 #[test]
 fn public_jls_builds_an_authenticated_security_client_without_exposing_credentials() {
+    #[cfg(feature = "interop-test")]
+    let _case = vcore::resources::case_events::Case::new(
+        "N7-CONFIG-TLS",
+        "public_jls_builds_an_authenticated_security_client_without_exposing_credentials",
+    );
     let config = Config::parse_yaml(
         &serde_json::to_vec(&json!({
             "socks-port":1080,
@@ -50,6 +55,11 @@ fn parse(node: serde_json::Value) -> vcore::Result<VlessOutboundConfig> {
 
 #[test]
 fn independent_download_inherits_jls_identity_and_applies_its_own_tls_fields() {
+    #[cfg(feature = "interop-test")]
+    let _case = vcore::resources::case_events::Case::new(
+        "N7-CONFIG-TLS",
+        "independent_download_inherits_jls_identity_and_applies_its_own_tls_fields",
+    );
     let mut input = node();
     input["network"] = json!("xhttp");
     input["xhttp-opts"] = json!({"mode":"stream-up", "download-settings":{
@@ -68,6 +78,11 @@ fn independent_download_inherits_jls_identity_and_applies_its_own_tls_fields() {
 
 #[test]
 fn download_jls_credentials_are_replaced_as_a_whole_or_explicitly_cleared() {
+    #[cfg(feature = "interop-test")]
+    let _case = vcore::resources::case_events::Case::new(
+        "N7-CONFIG-TLS",
+        "download_jls_credentials_are_replaced_as_a_whole_or_explicitly_cleared",
+    );
     let mut input = node();
     input["network"] = json!("xhttp");
     input["xhttp-opts"] = json!({"mode":"stream-up", "download-settings":{
@@ -93,6 +108,11 @@ fn download_jls_credentials_are_replaced_as_a_whole_or_explicitly_cleared() {
 
 #[test]
 fn malformed_or_partial_credentials_never_inherit_a_missing_secret() {
+    #[cfg(feature = "interop-test")]
+    let _case = vcore::resources::case_events::Case::new(
+        "N7-CONFIG-TLS",
+        "malformed_or_partial_credentials_never_inherit_a_missing_secret",
+    );
     for replacement in [
         json!(null),
         json!([]),
@@ -135,6 +155,11 @@ fn malformed_or_partial_credentials_never_inherit_a_missing_secret() {
 
 #[test]
 fn invalid_jls_objects_do_not_echo_credentials_in_public_configuration_errors() {
+    #[cfg(feature = "interop-test")]
+    let _case = vcore::resources::case_events::Case::new(
+        "N7-CONFIG-TLS",
+        "invalid_jls_objects_do_not_echo_credentials_in_public_configuration_errors",
+    );
     for credential in ["username", "password"] {
         let mut input = node();
         input["jls-opts"][credential] = json!(98765432198765_u64);
@@ -168,6 +193,11 @@ fn invalid_jls_objects_do_not_echo_credentials_in_public_configuration_errors() 
 
 #[test]
 fn jls_rejects_incompatible_security_at_configuration_time() {
+    #[cfg(feature = "interop-test")]
+    let _case = vcore::resources::case_events::Case::new(
+        "N7-CONFIG-TLS",
+        "jls_rejects_incompatible_security_at_configuration_time",
+    );
     for overrides in [
         json!({"tls":false}),
         json!({"flow":"xtls-rprx-vision"}),
@@ -202,6 +232,11 @@ fn jls_rejects_incompatible_security_at_configuration_time() {
 
 #[test]
 fn download_security_switch_requires_explicit_clearing_of_inherited_identity() {
+    #[cfg(feature = "interop-test")]
+    let _case = vcore::resources::case_events::Case::new(
+        "N7-CONFIG-TLS",
+        "download_security_switch_requires_explicit_clearing_of_inherited_identity",
+    );
     let reality = json!({"public-key":"BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc"});
     let mut input = node();
     input["network"] = json!("xhttp");
@@ -237,6 +272,11 @@ fn download_security_switch_requires_explicit_clearing_of_inherited_identity() {
 #[cfg(feature = "tls-fingerprint")]
 #[test]
 fn selected_profiles_build_jls_without_changing_its_identity() {
+    #[cfg(feature = "interop-test")]
+    let _case = vcore::resources::case_events::Case::new(
+        "N7-CONFIG-TLS",
+        "selected_profiles_build_jls_without_changing_its_identity",
+    );
     for profile in [
         "none",
         "",
@@ -272,6 +312,11 @@ fn selected_profiles_build_jls_without_changing_its_identity() {
 
 #[tokio::test]
 async fn cancelled_jls_handshakes_release_supplied_io_and_never_reuse_randoms() {
+    #[cfg(feature = "interop-test")]
+    let _case = vcore::resources::case_events::Case::new(
+        "N7-CONFIG-TLS",
+        "cancelled_jls_handshakes_release_supplied_io_and_never_reuse_randoms",
+    );
     use std::time::Duration;
     use tokio::io::AsyncReadExt;
     let client = SecurityClient::from_proxy(&parse(node()).unwrap()).unwrap();
@@ -307,6 +352,11 @@ async fn cancelled_jls_handshakes_release_supplied_io_and_never_reuse_randoms() 
 
 #[tokio::test]
 async fn jls_security_client_rejects_ordinary_tls_before_application_data() {
+    #[cfg(feature = "interop-test")]
+    let _case = vcore::resources::case_events::Case::new(
+        "N7-CONFIG-TLS",
+        "jls_security_client_rejects_ordinary_tls_before_application_data",
+    );
     use boring::{
         pkey::PKey,
         ssl::{SslAcceptor, SslMethod, SslVersion},

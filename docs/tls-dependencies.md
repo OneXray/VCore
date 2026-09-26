@@ -29,7 +29,7 @@ tokio-rustls = { version = "=0.26.5", default-features = false, features = ["rin
 1. boring 三个 crate 必须来自同一已发布 revision；rustls/tokio-rustls 只使用官方 crates.io 发行版。不使用本机路径、`references` 依赖、rustls Git patch 或第二个 source；
 2. `Cargo.toml` 和 `Cargo.lock` 在同一提交中更新，lockfile 必须包含 registry 校验值和 boring 完整 Git revision；
 3. 没有相邻 rustls/boring 目录时，`cargo fetch --locked` 和后续构建仍能成功；
-4. rustls 只启用 ring；`outbound-vless` 启用 `boring/reality`、公共 `boring/mlkem` 和获准的 `boring/shadow-tls-v3` / `boring/jls` hook，命名指纹由 `tls-fingerprint` feature 统一拥有；
+4. rustls 只启用 ring；`outbound-vless` 启用 `boring/reality`、公共 `boring/mlkem` 和 `boring/jls` hook，命名指纹由 `tls-fingerprint` feature 统一拥有。已取消 ShadowTLS 生产目标；锁定 fork 的 JLS feature 仍传递依赖共用的 `shadow-tls-v3` 底层 hook，不代表开放 ShadowTLS；
 5. 发布记录保存 VCore/boring revision、rustls/tokio-rustls 版本与 registry 校验值、BoringSSL 子模块和补丁校验值、lockfile hash 及产物 SHA-256。
 
 N7.1 Encryption 复用同一 boring 的公共 X25519、ML-KEM-768、AEAD 和 AES-CTR。
@@ -41,16 +41,24 @@ N7.1 Encryption 复用同一 boring 的公共 X25519、ML-KEM-768、AEAD 和 AES
 `outbound-vless` 编译，默认算法根据 CPU 选择；测试用强制 ChaCha 入口只存在于
 `interop-test`。原语和 wire 证据不替代公开功能、完整 N7.1 与生产平台构建。
 
+N7.3 静态 ECH 在 `outbound-vless` 下引入官方 crates.io `hpke 0.14.1`
+（alloc/aes/chacha/x25519，关闭默认 features），通过 rustls 公开 HPKE trait 使用
+X25519/HKDF-SHA256 与三种 AEAD。无需 AWS-LC TLS provider、私有 rustls fork
+或新的 TLS 引擎。wire enum 的公开 internal 路径封装在 `security/ech.rs`，升级
+rustls 时单独审查。新增官方传递依赖及许可证须纳入 release graph 审计；ECH
+配置和失败边界见 [ECH](ech.md)。
+
 旧 rustls fork 已退役，远端计划永久删除，不再作为依赖、回退或重建来源。旧 REALITY 选择实验已从 security spike 移除；纯内存 TLS/record、HPKE/ECH 与官方 binding 接口实验仍保留。历史 N0/N1 验收保留当时的结果与摘要，不追改为官方 rustls 或 boring 的新结果；旧 Git 提交可能无法再重建。当前替换验证见 [fork 退役验收](acceptance/rustls-fork-retirement.md)。
 
 本次 boring revision 内的 BoringSSL 子模块为 `e2a57cfb4d915b4ba820585aef9fdee7bca13fe5`，
 指纹构建补丁 SHA-256 为 `5d91f9d8a5200df1d8581b5fbbf53ad2435a293d75d21fd6820fa6a3772864ff`；
 REALITY 构建补丁 SHA-256 为 `308b0fabbf8651656d4e853e0f789746b4125033dd9bb398903f6bae31ade4da`。
-新增 ShadowTLS v3 hook patch SHA-256 为
+锁定 revision 中由 JLS 复用的 ShadowTLS v3 hook patch SHA-256 为
 `0c89bcd209bf40ab9033c1cd7f4e12388c1d44a6684a7c874e772a1ee1fa8138`。
-该 hook 仅认证真正的 ClientHello，必须另行实现 relay record 认证、完整原生 TLS
-成功后的记录切换及受控 IO；启用编译 feature 不等于公开 ShadowTLS 配置已交付。
-依赖准入和独立 fork 证据见 [N7.4 记录](acceptance/next-protocols/N7-shadow-tls.md)。
+该 hook 仅认证真正的 ClientHello，不包含公开 ShadowTLS 所需的 relay record
+认证与受控记录切换。ShadowTLS 目标已取消；保留 JLS 的内部依赖不构成该协议
+支持，也不增加当前阶段的开发目标。历史准入和独立 fork 证据见
+[N7.4 记录](acceptance/next-protocols/N7-shadow-tls.md)。
 新增 JLS hook patch SHA-256 为
 `204879d971b95a30534cea9a3a2b723238857f24884236ab3139da9307761914`；已获准发布并
 由上述不可变 revision 接入。它认证原生 hello，保留 CertificateVerify/Finished 和

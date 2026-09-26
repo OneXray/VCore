@@ -1,9 +1,9 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "kind": "planned-field-catalog",
   "baseline_date": "2026-09-22",
   "vcore_baseline": "bbe5100abcf07b1158f86cff39cd835e1f32ccf9",
-  "field_count": 139,
+  "field_count": 133,
   "scope": [
     "trojan",
     "vmess",
@@ -3334,100 +3334,10 @@
       "protocols": [
         "vless"
       ],
-      "contract": "对象替换时默认空；启用时显式 Base64 或走查询",
-      "required_observation": "错配置不明文回落成功；N7",
+      "contract": "启用时必须提供显式标准 Base64 ECHConfigList；不查询 DNS、不自动采用 retry config",
+      "required_observation": "正确/错误/不兼容静态 config；实际 ECH accepted；错误密钥零业务数据；两腿独立继承/替换/清除；N7",
       "work_packages": [
         "N7.3",
-        "N7.5"
-      ],
-      "responsible_stages": [
-        "N7"
-      ],
-      "default_peer": "M",
-      "peer_override_rules": [
-        "vless-http-camouflage",
-        "legacy-h2",
-        "ws-custom-or-path-early-data",
-        "xhttp-h3"
-      ],
-      "sources": [
-        "M-VL",
-        "M-VL-IN",
-        "M-XREUSE",
-        "X-XHTTP"
-      ],
-      "behavior_status": "NOT RUN"
-    },
-    {
-      "id": "D19",
-      "path": "proxies[].xhttp-opts.download-settings.ech-opts.query-server-name",
-      "protocols": [
-        "vless"
-      ],
-      "contract": "对象替换时按下载认证名；显式 DNS 名",
-      "required_observation": "独立 HTTPS RR 查询/缓存键，禁止依赖递归；N7",
-      "work_packages": [
-        "N7.3",
-        "N7.5"
-      ],
-      "responsible_stages": [
-        "N7"
-      ],
-      "default_peer": "M",
-      "peer_override_rules": [
-        "vless-http-camouflage",
-        "legacy-h2",
-        "ws-custom-or-path-early-data",
-        "xhttp-h3"
-      ],
-      "sources": [
-        "M-VL",
-        "M-VL-IN",
-        "M-XREUSE",
-        "X-XHTTP"
-      ],
-      "behavior_status": "NOT RUN"
-    },
-    {
-      "id": "D20",
-      "path": "proxies[].xhttp-opts.download-settings.shadow-tls-opts.version",
-      "protocols": [
-        "vless"
-      ],
-      "contract": "对象缺省继承；存在时同 S07 默认/值；{} 清除",
-      "required_observation": "同一原生handler版本匹配；N7",
-      "work_packages": [
-        "N7.4",
-        "N7.5"
-      ],
-      "responsible_stages": [
-        "N7"
-      ],
-      "default_peer": "M",
-      "peer_override_rules": [
-        "vless-http-camouflage",
-        "legacy-h2",
-        "ws-custom-or-path-early-data",
-        "xhttp-h3"
-      ],
-      "sources": [
-        "M-VL",
-        "M-VL-IN",
-        "M-XREUSE",
-        "X-XHTTP"
-      ],
-      "behavior_status": "NOT RUN"
-    },
-    {
-      "id": "D21",
-      "path": "proxies[].xhttp-opts.download-settings.shadow-tls-opts.password",
-      "protocols": [
-        "vless"
-      ],
-      "contract": "对象替换后按所选版本要求",
-      "required_observation": "v3同一listener多用户；错误密码；N7",
-      "work_packages": [
-        "N7.4",
         "N7.5"
       ],
       "responsible_stages": [
@@ -3816,100 +3726,10 @@
       "protocols": [
         "vless"
       ],
-      "contract": "Base64 ECHConfigList；启用时可显式提供",
-      "required_observation": "正确/错误/不兼容config与刷新；显式值优先，免DNS探测；N7",
+      "contract": "启用时必须提供显式标准 Base64 ECHConfigList；不查询 DNS、不自动采用 retry config",
+      "required_observation": "正确/错误/不兼容静态 config；实际 ECH accepted；错误密钥零业务数据；两腿独立继承/替换/清除；N7",
       "work_packages": [
         "N7.3"
-      ],
-      "responsible_stages": [
-        "N7"
-      ],
-      "default_peer": "M",
-      "peer_override_rules": [
-        "vless-http-camouflage",
-        "legacy-h2",
-        "ws-custom-or-path-early-data",
-        "xhttp-h3"
-      ],
-      "sources": [
-        "M-VL",
-        "M-VL-IN",
-        "M-VL-SVC",
-        "CR-SPLICE",
-        "R-HPKE"
-      ],
-      "behavior_status": "NOT RUN"
-    },
-    {
-      "id": "S06",
-      "path": "proxies[].ech-opts.query-server-name",
-      "protocols": [
-        "vless"
-      ],
-      "contract": "未给config时的HTTPS RR查询DNS名；默认认证名",
-      "required_observation": "prepare/bootstrap独立解析路线，不递归待建出站；受控DNS+Mihomo；N7",
-      "work_packages": [
-        "N7.3"
-      ],
-      "responsible_stages": [
-        "N7"
-      ],
-      "default_peer": "M",
-      "peer_override_rules": [
-        "vless-http-camouflage",
-        "legacy-h2",
-        "ws-custom-or-path-early-data",
-        "xhttp-h3"
-      ],
-      "sources": [
-        "M-VL",
-        "M-VL-IN",
-        "M-VL-SVC",
-        "CR-SPLICE",
-        "R-HPKE"
-      ],
-      "behavior_status": "NOT RUN"
-    },
-    {
-      "id": "S07",
-      "path": "proxies[].shadow-tls-opts.version",
-      "protocols": [
-        "vless"
-      ],
-      "contract": "1/2/3；非空opts省略version默认2",
-      "required_observation": "shadow-tls.version；逐版本数据/错误认证；N7",
-      "work_packages": [
-        "N7.4"
-      ],
-      "responsible_stages": [
-        "N7"
-      ],
-      "default_peer": "M",
-      "peer_override_rules": [
-        "vless-http-camouflage",
-        "legacy-h2",
-        "ws-custom-or-path-early-data",
-        "xhttp-h3"
-      ],
-      "sources": [
-        "M-VL",
-        "M-VL-IN",
-        "M-VL-SVC",
-        "CR-SPLICE",
-        "R-HPKE"
-      ],
-      "behavior_status": "NOT RUN"
-    },
-    {
-      "id": "S08",
-      "path": "proxies[].shadow-tls-opts.password",
-      "protocols": [
-        "vless"
-      ],
-      "contract": "v2/v3必填；v1无需密码",
-      "required_observation": "v2 password / v3 users[].password；N7",
-      "work_packages": [
-        "N7.4"
       ],
       "responsible_stages": [
         "N7"
@@ -4630,5 +4450,5 @@
       "behavior_status": "NOT RUN"
     }
   ],
-  "scope_revision": "2026-09-26: retire Restls, retain JLS and remaining stable IDs."
+  "scope_revision": "2026-09-27: selected VLESS scope; retire ShadowTLS and defer dynamic ECH. Restls remains retired; JLS retains its accepted scope. Historical failures are not relabelled."
 }

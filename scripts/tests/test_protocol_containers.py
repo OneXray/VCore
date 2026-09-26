@@ -17,6 +17,59 @@ from vcore_scripts.protocol_vmess_udp_container import client_config
 
 
 class ContainerTests(unittest.TestCase):
+    def test_frozen_latest_image_is_single_run_owned(self):
+        from vcore_scripts.protocol_containers import IMAGE, frozen_image
+
+        network = dict(
+            configuration=dict(mode="hostOnly", labels={"purpose": NETWORK}),
+            status=dict(ipv4Subnet="192.0.2.0/24", ipv6Subnet="fd00::/64"),
+        )
+        digest = "sha256:" + "a" * 64
+        inspection = dict(configuration=dict(descriptor=dict(digest=digest)))
+
+        def command(*args, **_):
+            return json.dumps([network if args[0] == "network" else inspection])
+
+        with (
+            tempfile.TemporaryDirectory() as root,
+            patch("vcore_scripts.protocol_containers.command", side_effect=command),
+            patch("vcore_scripts.protocol_containers.run_command") as pull,
+        ):
+            pull.return_value = SimpleNamespace(
+                returncode=0, cleanup=True, stdout=b"ok"
+            )
+            with frozen_image(Path(root) / "image.log") as snapshot:
+                first, second = ContainerLab({}), ContainerLab({})
+                self.assertEqual(first.image, second.image)
+                self.assertTrue(first.image.endswith("@" + digest))
+                self.assertEqual(snapshot["digest"], digest)
+                self.assertEqual(snapshot["tag"], IMAGE)
+            self.assertEqual(pull.call_count, 1)
+            ContainerLab({})
+            self.assertEqual(
+                pull.call_count, 2, "no image cache across independent runs"
+            )
+
+    def test_image_refresh_failure_never_falls_back_to_a_cached_image(self):
+        from vcore_scripts.protocol_containers import frozen_image
+
+        with (
+            tempfile.TemporaryDirectory() as root,
+            patch("vcore_scripts.protocol_containers.command") as inspect,
+            patch("vcore_scripts.protocol_containers.run_command") as pull,
+        ):
+            pull.return_value = SimpleNamespace(
+                returncode=1,
+                cleanup=True,
+                stdout=b"registry unavailable token=synthetic-secret",
+            )
+            log = Path(root) / "image.log"
+            with self.assertRaisesRegex(RuntimeError, "image pull"), frozen_image(log):
+                self.fail("failed refresh must not establish a frozen image scope")
+            inspect.assert_not_called()
+            self.assertIn("registry unavailable", log.read_text())
+            self.assertNotIn("synthetic-secret", log.read_text())
+
     def test_dns_fixture_remains_owned_across_idle_business_phases(self):
         control, udp = MagicMock(), MagicMock()
         control.recv.return_value = b"\x11"

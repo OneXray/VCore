@@ -164,13 +164,23 @@ async fn native_mihomo_close_alignment() {
             node["client-fingerprint"].as_str(),
             None | Some("" | "none")
         );
-    let scope = if jls_grpc_without_profile {
+    let ech_safari_grpc = node["network"] == "grpc"
+        && node["ech-opts"]["enable"] == true
+        && matches!(
+            node["client-fingerprint"].as_str(),
+            Some("safari" | "safari16")
+        );
+    let scope = if jls_grpc_without_profile || ech_safari_grpc {
         assert_eq!(fixture["close_reference"]["client_fingerprint"], "chrome");
         assert_eq!(
             fixture["close_reference"]["dut_client_fingerprint"],
             node["client-fingerprint"]
         );
-        "jls-grpc-chrome-baseline"
+        if jls_grpc_without_profile {
+            "jls-grpc-chrome-baseline"
+        } else {
+            "ech-safari-chrome-baseline"
+        }
     } else {
         "same-mode"
     };
@@ -491,6 +501,58 @@ async fn native_jls_fail_closed() {
     assert_eq!(control.read_u8().await.unwrap(), b'A');
     drop(io);
     outbound.shutdown().await;
+    event(name, "PASS");
+}
+
+#[tokio::test]
+#[ignore = "isolated N7 ECH runner"]
+async fn native_ech_fail_closed() {
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    let name = "native_ech_fail_closed";
+    event(name, "BEGIN");
+    let original = fixture();
+    let split = original["node"]["xhttp-opts"]["download-settings"].is_object();
+    for download in [false, true]
+        .into_iter()
+        .filter(|download| !download || split)
+    {
+        let mut f = original.clone();
+        let ech = f["node"]["ech-opts"].clone();
+        if split {
+            f["node"]["xhttp-opts"]["download-settings"]["ech-opts"] = ech.clone();
+        }
+        let leg = if download {
+            &mut f["node"]["xhttp-opts"]["download-settings"]
+        } else {
+            &mut f["node"]
+        };
+        let mut wrong = STANDARD.decode(ech["config"].as_str().unwrap()).unwrap();
+        // A well-formed but stale public key must fail during ECH, not parsing.
+        wrong[11..43].fill(7);
+        leg["ech-opts"] = json!({"enable":true,"config":STANDARD.encode(wrong)});
+        let (mut control, destination) = origin(&f, 13, "ipv4").await;
+        let outbound = node(&f, None);
+        let failure = tokio::time::timeout(Duration::from_secs(5), async {
+            let mut io = outbound
+                .connect_stream(session(destination), &EstablishContext::default())
+                .await
+                .map_err(|_| std::io::Error::other("connection rejected"))?
+                .io;
+            io.write_all(b"must-not-arrive").await?;
+            io.flush().await?;
+            io.read_u8().await
+        })
+        .await
+        .expect("ECH rejection must not be a timeout");
+        assert!(failure.is_err(), "rejected ECH admitted a business stream");
+        outbound.shutdown().await;
+        assert!(
+            tokio::time::timeout(Duration::from_millis(200), control.read_u8())
+                .await
+                .is_err(),
+            "ECH rejection opened an origin connection"
+        );
+    }
     event(name, "PASS");
 }
 

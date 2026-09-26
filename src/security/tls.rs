@@ -31,6 +31,7 @@ pub enum TlsVersions {
 /// always creates an independent resumption store, even for the same SNI.
 #[derive(Default)]
 pub struct TlsClientOptions {
+    pub ech: Option<crate::config::StaticEchConfig>,
     pub client_fingerprint: Option<crate::config::ClientFingerprint>,
     pub versions: TlsVersions,
     pub alpn: Vec<Vec<u8>>,
@@ -48,6 +49,7 @@ impl std::fmt::Debug for TlsClientOptions {
             .field("requires_alpn", &self.required_alpn.is_some())
             .field("certificate", &self.certificate)
             .field("client_identity", &self.identity.is_some())
+            .field("ech", &self.ech.is_some())
             .finish()
     }
 }
@@ -116,6 +118,7 @@ pub struct StandardTlsClient {
     server_name: String,
     required_alpn: Option<Vec<u8>>,
     buffer_limit: usize,
+    require_ech: bool,
 }
 
 #[derive(Clone)]
@@ -222,6 +225,20 @@ impl StandardTlsClient {
         let server_name = server_name.into();
         let name = ServerName::try_from(server_name.clone())
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid TLS server name"))?;
+        let require_ech = options.ech.is_some();
+        if require_ech && !matches!(name, ServerName::DnsName(_)) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "ECH requires a DNS server name",
+            ));
+        }
+        #[cfg(not(feature = "outbound-vless"))]
+        if require_ech {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "ECH is not compiled in",
+            ));
+        }
         if buffer_limit == 0 {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -272,6 +289,7 @@ impl StandardTlsClient {
                     server_name,
                     required_alpn: options.required_alpn,
                     buffer_limit,
+                    require_ech,
                 });
             }
         }
@@ -281,10 +299,24 @@ impl StandardTlsClient {
             TlsVersions::Tls13 => &[&TLS13],
             TlsVersions::Tls12And13 => &[&TLS13, &TLS12],
         };
-        let builder = ClientConfig::builder_with_provider(context.provider.clone())
+        let builder = ClientConfig::builder_with_provider(context.provider.clone());
+        #[cfg(feature = "outbound-vless")]
+        let builder = if let Some(ech) = &options.ech {
+            let ech = rustls::client::EchConfig::new(ech.as_bytes().into(), super::ech::SUITES)
+                .map_err(|_| {
+                    io::Error::new(io::ErrorKind::InvalidInput, "invalid static ECH config")
+                })?;
+            builder.with_ech(ech.into()).map_err(io_other)?
+        } else {
+            builder
+                .with_protocol_versions(protocol_versions)
+                .map_err(io_other)?
+        };
+        #[cfg(not(feature = "outbound-vless"))]
+        let builder = builder
             .with_protocol_versions(protocol_versions)
-            .map_err(io_other)?
-            .with_root_certificates(context.tls_roots.clone());
+            .map_err(io_other)?;
+        let builder = builder.with_root_certificates(context.tls_roots.clone());
         let mut config = if let Some(identity) = options.identity {
             let identity_size = identity
                 .certificates
@@ -306,7 +338,7 @@ impl StandardTlsClient {
         } else {
             builder.with_no_client_auth()
         };
-        config.resumption = if resumption_sessions == 0 {
+        config.resumption = if resumption_sessions == 0 || require_ech {
             Resumption::disabled()
         } else {
             Resumption::store(Arc::new(super::resumption::NodeSessionStore::new(
@@ -325,6 +357,7 @@ impl StandardTlsClient {
             server_name,
             required_alpn: options.required_alpn,
             buffer_limit,
+            require_ech,
         })
     }
 
@@ -345,6 +378,10 @@ impl StandardTlsClient {
             .await
             .map_err(|error| io::Error::new(error.kind(), "TLS handshake failed"))?;
 
+        if self.require_ech && tls.get_ref().1.ech_status() != rustls::client::EchStatus::Accepted {
+            return Err(io::Error::other("TLS ECH was not accepted"));
+        }
+
         if let Some(required_alpn) = self.required_alpn.as_deref()
             && tls.get_ref().1.alpn_protocol() != Some(required_alpn)
         {
@@ -363,6 +400,12 @@ impl StandardTlsClient {
         stream: BoxStream,
         stats: Arc<super::vision::SpliceStats>,
     ) -> io::Result<(BoxStream, super::vision::SpliceControl)> {
+        if self.require_ech {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Vision with ECH is not supported",
+            ));
+        }
         let connector = match &self.connector {
             StandardConnector::Rustls(connector) => connector,
             StandardConnector::Boring(client) => {

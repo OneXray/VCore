@@ -1,4 +1,71 @@
-# N7 高级安全：当前后端前置验证
+# N7 高级安全：开发与验收记录
+
+2026-09-27 最终状态：**按收敛范围完成 N7 本地阶段签收**。新完整运行
+`n7-complete-20260927-v3` 的 43/43 组、11/11 字段、301/301 原生 case、
+240 轮生命周期/资源检查及 Apple/Android 构建通过；470/470 个所属容器回收。
+仓库内、外两种路径的独立 coverage 均 PASS。完整输入与证据摘要见
+[N7 签收报告](N7.md)；下文所有开发失败和当时状态保持为历史记录。
+
+2026-09-27 范围更新：保留 Encryption、混合 REALITY、JLS；取消未接线的
+ShadowTLS 全版本，Restls 不恢复。N7.3 只实现静态 ECH，动态 HTTPS RR/bootstrap
+后置，不改变 Invoke v5。N7.5 的实际保留组合及共享回归由上述新完整运行签收；下文旧范围、
+授权和失败为历史记录，不得反向更改其验收结论。
+
+本轮静态 ECH 开发的真实失败：初始 public config RED（字段尚未准入）；
+容器夹具第一次编译漏了 DispatchError 转换；其次 uv 子进程选择系统 LibreSSL
+导致 X25519 生成失败，修为显式选择官方 OpenSSL 3。隐私测试曾将 GREASE 当
+TLS 版本而误报，修为过滤 RFC GREASE 后仍强制只提供 TLS1.3。mTLS 夹具因
+rcgen 未启用 PEM feature 编译失败，改用已有官方 boring PEM 编码，不扩依赖。
+这些是开发/测试夹具失败，不改记为协议通过。纯内存实际 ECH 两后端/四模板、
+三 AEAD、拒绝、mTLS 身份不泄露和 100 次取消已通过；Mihomo TCP 正反例、
+Xray H3 正例及主/下载错误密钥通过。完整矩阵和阶段签收仍在进行中。
+
+原生 HTTP/H2/扩展 WS 的静态 ECH 使用 Xray TLS 网关 → V2Ray transport →
+Mihomo VLESS 分层夹具。首次 HTTP + Encryption 在首个 SOCKS 连接失败；移除
+Encryption 后，TLS 建立成功但业务首包读到 `InvalidContentType`。Xray
+26.3.27 的 dokodemo-door 将入口标记为可 splice，freedom 默认响应分支可能直接
+写入原始入口 socket，绕过 TLS writer。仅在该网关进程设置官方
+`XRAY_BUF_SPLICE=disable` 后，同一无 Encryption HTTP 用例通过；未修改
+VCore 或第三方源码。首次失败目录 `n7-ech-native-transport-20260927-v1`、
+无 Encryption 对照 `n7-ech-legacy-no-encryption-20260927-v1` 保留，成功对照为
+同名前缀 `-v2`。四传输和真实组合仍需分别验收，不能从此对照推导全部通过。
+依据：[dokodemo-door](https://github.com/XTLS/Xray-core/blob/v26.3.27/proxy/dokodemo/dokodemo.go)、
+[freedom 响应路径](https://github.com/XTLS/Xray-core/blob/v26.3.27/proxy/freedom/freedom.go)、
+[官方环境开关](https://github.com/XTLS/Xray-core/blob/v26.3.27/common/platform/platform.go)。
+
+后续 `n7-compositions-development-20260927-v2` 已分别完成四种原生传输
+ECH + Encryption、Chrome ECH 的 11 项消费者，以及混合 REALITY + Encryption
+的 TCP / Vision / 双腿 XHTTP；这些是开发组合验证，不替代新冻结整阶段运行。
+
+完整运行 `n7-complete-20260927-v1` 在 Safari ECH 的官方 gRPC 关闭对照失败，
+保留整轮 FAIL，不拼接已通过组。最小 `n7-safari-grpc-close-repro-20260927-v1`
+及加对照端日志的 `-v2` 稳定复现；Mihomo v1.19.31 自身返回
+`tls: malformed outer client hello`，发生在 VCore 的 gRPC 用例执行前。
+同一 ECH 配置只换官方 Chrome 指纹通过；Safari 去除 ECH 也通过；VCore
+Safari + ECH 的独立 gRPC 业务用例通过。因此仅将这一条传输关闭参照标为
+`ech-safari-chrome-baseline`，仍连接同一个 ECH listener，VCore 节点保持 Safari。
+不将其宣称为双方同指纹差分，不修改 VCore 生产行为或第三方源码。新增测试
+先 RED 后 GREEN，独立覆盖检查必须拒绝缺失、伪装成 same-mode 或改变 DUT 指纹
+的参照。完整阶段需在新冻结输入上重新运行。
+依据：[Mihomo TLS 调用](https://github.com/MetaCubeX/mihomo/blob/v1.19.31/transport/vmess/tls.go)、
+[uTLS ECH transcript 重建](https://github.com/MetaCubeX/utls/blob/v1.8.7/u_handshake_client.go)、
+[outer ClientHello 解析错误](https://github.com/MetaCubeX/utls/blob/v1.8.7/ech.go)。
+
+随后完整 `n7-complete-20260927-v2` 的七组本地门禁和 18 个原生组 / 197 项通过，
+在首个混合 REALITY + Encryption 组刷新容器镜像时失败；该组未执行协议用例，
+也未创建容器。原错误仅保留 `isolated container operation failed: image`，不能
+据此断言限流或某一种网络原因。直接重新 pull 成功，得到相同镜像 digest，
+本次所属容器无残留；仍保留整轮失败，不改写为通过。
+
+为保持整轮输入冻结并避免每组重复刷新 latest，N7 现在像对端二进制一样每轮
+从官方刷新一次镜像，保留脱敏刷新日志，所有原生组按该 digest 启动；失败
+不回落旧缓存，下轮必须重新刷新。跨组镜像身份也加入独立 coverage 检查。
+新增回归测试先 RED 后 GREEN。本次只调整自有夹具，生产源码和第三方不变。
+新一轮先执行此前未跑到的保留组合，再完整重跑 ECH；不是拼接旧结果。
+
+## 2026-09-26 历史范围与进度
+
+以下包含当时的动态 ECH / ShadowTLS 目标；以文首 2026-09-27 范围为准。
 
 2026-09-26。状态：**N7 未完成，N7.1 / N7.2 已完成本地子包签收。** Encryption
 的公开/分层/算法/票据门禁与 Apple/Android Release 通过，详见 [N7.1 报告](N7-encryption.md)。

@@ -594,6 +594,37 @@ fn public_jls_download_identity() {
 }
 
 #[test]
+#[ignore = "isolated N7 ECH runner"]
+fn public_ech_download_identity() {
+    let _case = Case::start("N4-PUBLIC", "public_ech_download_identity");
+    let f = fixture();
+    initialize(&f);
+    let original = f["node"].clone();
+    assert!(original["xhttp-opts"]["download-settings"].is_object());
+    let port = free_port();
+    let core = Core::start(&config(original.clone(), port));
+    echo(port, &f);
+    core.stop();
+    let mut replaced = original.clone();
+    replaced["xhttp-opts"]["download-settings"]["ech-opts"] =
+        json!({"enable":true,"config":f["ech_download_config"]});
+    replaced["xhttp-opts"]["download-settings"]["client-fingerprint"] = json!("firefox");
+    let core = Core::start(&config(replaced.clone(), port));
+    bulk(port, &f, false, false);
+    let mut udp = Association::new(&f, port, false, false);
+    udp.exchange(b"independent-ech-download");
+    core.stop();
+    // Only an explicit clear permits the download leg to use ordinary TLS.
+    replaced["xhttp-opts"]["download-settings"]["ech-opts"] = json!({});
+    let core = Core::start(&config(replaced, port));
+    echo(port, &f);
+    core.stop();
+    let core = Core::start(&config(original, port));
+    echo(port, &f);
+    core.stop();
+}
+
+#[test]
 #[ignore = "isolated N4 runner"]
 fn public_negative() {
     let _case = Case::start("N4-PUBLIC", "public_negative");

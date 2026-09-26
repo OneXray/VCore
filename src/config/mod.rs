@@ -19,6 +19,8 @@ use crate::{Result, VCoreError};
 
 mod credentials;
 pub use credentials::{ProxyAccess, ProxyCredentials};
+mod ech;
+pub use ech::StaticEchConfig;
 mod hysteria2;
 pub use hysteria2::{Hysteria2Hopping, Hysteria2OutboundConfig};
 mod jls;
@@ -497,6 +499,7 @@ impl SecurityConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TlsConfig {
+    pub ech: Option<StaticEchConfig>,
     pub client_fingerprint: Option<ClientFingerprint>,
     pub server_name: String,
     pub alpn: Vec<Vec<u8>>,
@@ -540,6 +543,7 @@ impl std::fmt::Debug for TlsIdentityPem {
 impl TlsConfig {
     pub fn xhttp(server_name: String) -> Self {
         Self {
+            ech: None,
             client_fingerprint: None,
             server_name,
             alpn: vec![b"h2".to_vec()],
@@ -1152,6 +1156,8 @@ struct RawXHttpDownloadSettings {
     reality_opts: Option<RawXHttpDownloadReality>,
     #[serde(rename = "jls-opts", default, deserialize_with = "jls::deserialize")]
     jls_opts: Option<jls::RawJls>,
+    #[serde(rename = "ech-opts", default, deserialize_with = "ech::deserialize")]
+    ech_opts: Option<ech::RawEch>,
     #[serde(default, deserialize_with = "deserialize_present_option")]
     path: Option<String>,
     #[serde(default, deserialize_with = "deserialize_present_option")]
@@ -2264,6 +2270,7 @@ impl RawXHttpDownloadSettings {
             private_key,
             reality_opts,
             jls_opts,
+            ech_opts,
             path,
             host,
             headers,
@@ -2360,6 +2367,12 @@ impl RawXHttpDownloadSettings {
         config.client_fingerprint = client_fingerprint;
         config.alpn = vec![http_version.alpn().to_vec()];
         config.required_alpn = Some(http_version.alpn().to_vec());
+        if let Some(raw) = ech_opts {
+            config.ech = raw.normalize()?;
+        }
+        if config.ech.is_some() && config.server_name.parse::<IpAddr>().is_ok() {
+            return invalid("XHTTP download ECH requires a DNS servername");
+        }
         if let Some(skip) = skip_cert_verify {
             config.certificate.skip_cert_verify = skip;
         }
@@ -2412,6 +2425,11 @@ impl RawXHttpDownloadSettings {
         };
         if reality.is_some() && jls.is_some() {
             return invalid("XHTTP download JLS and REALITY are mutually exclusive");
+        }
+        if config.ech.is_some() && (reality.is_some() || jls.is_some() || !tls) {
+            return invalid(
+                "XHTTP download ECH requires standard TLS; clear inherited ECH before changing security mode",
+            );
         }
         if (reality.is_some() || jls.is_some() || !tls) && certificate_policy {
             return invalid(
@@ -3933,7 +3951,6 @@ geo-update-interval: 24"#,
         for fields in [
             "shadow-tls-opts: {}",
             "restls-opts: {}",
-            "ech-opts: {}",
             "mode: stream-up",
             "typo: true",
         ] {

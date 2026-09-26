@@ -513,6 +513,7 @@ except RuntimeError as error:
                     dict(id=name, name=name, version="5.2.0", source=BORING_GIT_SOURCE)
                     for name in ("boring", "boring-sys", "tokio-boring")
                 ],
+                dict(id="hpke", name="hpke", version="0.14.1", source=registry),
             ],
             "resolve": {
                 "nodes": [
@@ -540,10 +541,23 @@ except RuntimeError as error:
                         "features": [],
                         "deps": [{"pkg": "boring"}, {"pkg": "boring-sys"}],
                     },
+                    {
+                        "id": "hpke",
+                        "features": ["alloc", "aes", "chacha", "x25519", "hkdfsha2"],
+                    },
                 ]
             },
         }
         self.assertEqual(_tls_dependency_errors(metadata), [])
+
+        for invalid_source in (None, BORING_GIT_SOURCE):
+            invalid = copy.deepcopy(metadata)
+            invalid["packages"][-1]["source"] = invalid_source
+            self.assertTrue(_tls_dependency_errors(invalid))
+        for feature in ("alloc", "aes", "chacha", "x25519"):
+            invalid = copy.deepcopy(metadata)
+            invalid["resolve"]["nodes"][-1]["features"].remove(feature)
+            self.assertTrue(_tls_dependency_errors(invalid))
 
         for index, old_version in [(0, "0.23.43"), (1, "0.26.4"), (3, "5.1.0")]:
             with self.subTest(outdated_version=old_version):

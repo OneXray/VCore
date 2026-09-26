@@ -203,6 +203,7 @@ impl RawHysteria2 {
                 port,
                 password: self.password,
                 tls: TlsConfig {
+                    ech: None,
                     client_fingerprint: None,
                     server_name,
                     alpn: alpn.into_iter().map(String::into_bytes).collect(),

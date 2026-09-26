@@ -5,6 +5,11 @@ use vcore::config::{Config, ProxyProtocol, VlessEncryption};
 
 #[test]
 fn public_encryption_accepts_all_six_modes_without_exposing_key_material() {
+    #[cfg(feature = "interop-test")]
+    let _case = vcore::resources::case_events::Case::new(
+        "N7-CONFIG-TLS",
+        "public_encryption_accepts_all_six_modes_without_exposing_key_material",
+    );
     let key = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([9; 32]);
     for appearance in ["native", "xorpub", "random"] {
         for rtt in ["1rtt", "0rtt"] {
@@ -27,6 +32,11 @@ fn public_encryption_accepts_all_six_modes_without_exposing_key_material() {
 
 #[test]
 fn vision_encryption_is_independent_of_outer_tls_but_keeps_transport_and_udp_limits() {
+    #[cfg(feature = "interop-test")]
+    let _case = vcore::resources::case_events::Case::new(
+        "N7-CONFIG-TLS",
+        "vision_encryption_is_independent_of_outer_tls_but_keeps_transport_and_udp_limits",
+    );
     let key = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([9; 32]);
     for tls in [false, true] {
         for appearance in ["native", "xorpub", "random"] {

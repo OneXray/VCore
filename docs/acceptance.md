@@ -34,7 +34,7 @@
 
 [N1 基础与实验依赖更新](acceptance/next-protocols/N1-foundation-dependencies.md)继续升级基础库、smoltcp、WS/HPKE实验和兼容补丁锁，记录已批准的Windows SDK配套例外。全Debug/Release、全目标Clippy、真实对端回归和Apple/Android构建通过；不抵扣完整N1、新协议、真机或Windows原生门禁。
 
-[N1 声明清单校验](acceptance/next-protocols/N1-catalogs.md)提供 `check protocol-coverage --catalog-only`，历史 schema-v1 冻结145字段/69组合ID并检查引用、归属及必要元数据；仅撤回 Restls 后的当前 schema-v2 为139字段/68组合，旧 ID 不重排。有效结果为 `VALID / NOT RUN`，不是字段行为PASS；后续可执行case与运行结果单独签收。
+[N1 声明清单校验](acceptance/next-protocols/N1-catalogs.md)提供 `check protocol-coverage --catalog-only`，历史 schema-v1 冻结145字段/69组合ID并检查引用、归属及必要元数据；撤回 Restls 后的 schema-v2 为139字段/68组合。当前 schema-v3 再取消 ShadowTLS、后置动态 ECH，为133字段/67组合，旧 ID 不重排。有效结果为 `VALID / NOT RUN`，不是字段行为PASS；可执行case与运行结果单独签收。
 
 [N1.2 共享安全机制](acceptance/next-protocols/N1-security.md)增加类型化名称/ALPN/mTLS策略与不可变身份缓存隔离，并将标准TLS CloseWrite对齐Mihomo。未新增公开配置字段，独立接口测试不抵扣后续新协议字段互通。
 
@@ -79,14 +79,26 @@ schema24 / Invoke v5。S12–S13 / D25–D26 完成本地子包签收：122/122 
 与明示的 Chrome 指纹关闭参照分别记录，不修改第三方或待测节点。
 JLS 子包不等于 N7.4、N7.5 或完整 N7 完成，也不是 VCore push、远端 CI 或设备证据。
 
+2026-09-27 [N7 选定 VLESS 能力集完整本地签收](acceptance/next-protocols/N7.md)
+完成静态 ECH 主/下载腿、两 TLS 后端与 H3，并重新验证保留的 Encryption、混合
+REALITY、JLS、复用组合及 N4/N5 共享路径。新完整运行 43/43 组 required、11/11
+字段、301/301 原生 case、240 轮生命周期/资源检查全部通过；仓库内、外两种路径
+的独立 coverage 均 PASS，470/470 个所属容器回收。七组本地门禁 / 34 条命令、
+171 项离线脚本检查及 Apple 五目标/Android 两 ABI Release 构建通过。
+schema27 / Invoke v5；新增官方 Rust HPKE Adapter，不修改第三方或 boring fork。
+动态 ECH/bootstrap 后置，Restls/ShadowTLS 取消，不把取消项算 PASS。官方 Safari
+ECH 与无指纹 JLS 的 gRPC 关闭参照差异明确单列；先前两轮失败保留，不拼接成绩。
+仅签收冻结组合，不推导 N8–N10、Windows 原生、设备、远端 CI 或发布通过。
+
 当前 source/tests 覆盖：
 
 - Invoke API v5、单实例生命周期、Debug/Release 运行时线程重入拒绝、panic 与同步清理；
-- schema revision 26、IPv6、严格 YAML、节点 / `select` 组上游混合 DAG 和 node-only 测速；
+- schema revision 27、IPv6、严格 YAML、节点 / `select` 组上游混合 DAG 和 node-only 测速；
 - 组上游与路由的共享选择、SOCKS5 UDP 建链快照、潜在 DIRECT 首跳准备、独立下载端点和深图回收；
 - HTTP 本机 / 认证共享、双栈监听回滚、逐请求认证与分发、Keep-Alive / 正文定界、CONNECT / Upgrade、10 MiB 双向摘要与活动连接 Stop；
 - SOCKS5 入站认证、三类目标、半关闭、TCP 授权 UDP、源端口学习/隔离、IPv6 作用域固定端口/学习端口匹配与跨接口隔离、过期/满队列/慢上游取消及纯 SOCKS5 Controller（作用域匹配为合成地址测试，不代表物理 LAN 验证）；
 - VLESS TCP/WS/gRPC/HTTP/H2/XHTTP、HTTPUpgrade/fast-open、TLS/mTLS/经典及显式混合 REALITY、Vision、gRPC 池、三种 UDP 编码、响应头/期限/取消与同步 Stop；
+- VLESS Encryption、JLS 与主/下载腿静态 ECH，真实接受/认证拒绝、mTLS 隐私、严格互斥和独立组合门禁；
 - XHTTP H1/H2/H3、请求字段/有界 packet-up 聚合、双腿安全/连接池/受控 QUIC，以及独立 h2mux/smux/yamux、padding/only-tcp 和单流隔离；
 - SOCKS5、AnyTLS、代理链、DNS、规则、GeoData 和 HTTP/TLS/QUIC 嗅探；
 - AnyTLS 有序 ALPN、WebPKI / 跳过 / 叶与非叶 pin、TLS 1.2/1.3 伪造签名拒绝、节点间策略隔离和精确恢复票据预算；
@@ -126,6 +138,7 @@ schema 19 的命名 TLS profile、classic REALITY 后端接线及新增原生链
 | --- | --- | --- | --- |
 | VLESS 基础传输、TLS/mTLS/REALITY、Vision、三 UDP 编码 | 严格配置、feature、codec/取消、池与公共运行时；[N4 证据](acceptance/next-protocols/N4.md) | Mihomo 为主，V2Ray 补 HTTP/H2/扩展 ED；WS + REALITY 关闭参照的三项范围差异单列 | 新能力未验证；仅 Apple/Android 构建通过 |
 | VLESS XHTTP H1/H2/H3 与 sing-mux | 请求/安全/池/严格配置、受控 UDP、公共入口与资源；[N5 证据](acceptance/next-protocols/N5.md) | Mihomo 为主，Xray 补 H3；packetaddr/mux 分层解码及 Caddy mTLS 网关明确标注；HTTPUpgrade/fast-open + 新 sing-mux 未专项验收 | 仅 Apple/Android 构建；Windows ARM64 旧版本包记录不继承为当前版本设备通过 |
+| 选定 VLESS 高级安全：Encryption、混合 REALITY、JLS、静态 ECH | 两 TLS 后端/四模板、配置/身份/取消、公开运行时与资源；[N7 证据](acceptance/next-protocols/N7.md) | 301 项冻结原生 case；Mihomo 为主，Xray/V2Ray 补 H3/扩展传输，分层与两项关闭参照差异单列；不是任意组合全集 | Apple/Android Release 构建通过；设备、Windows 原生与发布未验证 |
 | SOCKS5 CONNECT / UDP ASSOCIATE 出站 | 已覆盖 | mihomo TCP/UDP、IPv4/IPv6 | Windows ARM64 历史开发包已覆盖 |
 | SOCKS5 CONNECT / TCP 授权 UDP 入站 | 已覆盖 | mihomo 双向 TCP/UDP、IPv4/IPv6 | 真实 LAN / 物理 IPv6 未验证 |
 | AnyTLS TCP / UoT v2、ALPN / 证书策略 | 已覆盖 | mihomo 公开 YAML，TCP/UoT IPv4/IPv6、测速及证书拒绝 | 旧能力有 Windows ARM64 历史开发包记录；新 TLS 字段未做设备验证 |

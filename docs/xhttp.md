@@ -1,6 +1,10 @@
 # XHTTP 与 VLESS sing-mux
 
-当前 XHTTP/sing-mux 契约；[N5 本地阶段验收](acceptance/next-protocols/N5.md)已通过，历史开发过程见 [执行记录](acceptance/next-protocols/N5-progress.md)。schema22 增加 H1/H2 主腿和下载腿的显式混合 REALITY，独立证据见 [N7.2](acceptance/next-protocols/N7-reality-hybrid.md)；schema24 增加 [JLS](jls.md)，当前 schema26；其他 N7 高级安全组合不由本文提前开放。配置保持严格类型，未知字段、null、无效或被忽略的组合在 IO 前拒绝。
+当前 XHTTP/sing-mux 契约；[N5 本地阶段验收](acceptance/next-protocols/N5.md)已通过，历史开发过程见 [执行记录](acceptance/next-protocols/N5-progress.md)。schema22 增加 H1/H2 主腿和下载腿的显式混合 REALITY，独立证据见 [N7.2](acceptance/next-protocols/N7-reality-hybrid.md)；schema24 增加 [JLS](jls.md)，schema27 增加两腿的[静态 ECH](ech.md)。配置保持严格类型，未知字段、null、无效或被忽略的组合在 IO 前拒绝；阶段签收仍需独立行为证据。
+
+[N7 本地阶段验收](acceptance/next-protocols/N7.md)已在新冻结输入上通过静态 ECH、
+保留高级安全与下载腿/复用组合、共享回归和资源门禁。只签收明确列举的组合，
+不将历史 N5 或本轮结果扩展为全部选项的笛卡尔积。
 
 ## HTTP 版本和连接模式
 
@@ -47,7 +51,7 @@ packet-up 在发送间隔内聚合小块写入，而不是把每个 write 变成
 
 `download-settings` 缺省和 `{}` 不等价：存在即启用独立下载连接/池，但仍共用一次 VLESS 握手、会话 ID 和建链上下文。两腿必须汇聚到**同一个原生 XHTTP handler 的会话表**；两个独立 listener 不能构成共享会话。
 
-可覆盖 `server/port/tls/servername/alpn/host/path/headers`、`client-fingerprint`、普通 TLS 的 `skip-cert-verify/name-cert-verify/fingerprint/certificate/private-key`、`reality-opts`、`jls-opts` 和 `reuse-settings`。
+可覆盖 `server/port/tls/servername/alpn/host/path/headers`、`client-fingerprint`、普通 TLS 的 `skip-cert-verify/name-cert-verify/fingerprint/certificate/private-key/ech-opts`、`reality-opts`、`jls-opts` 和 `reuse-settings`。
 
 - 缺省叶字段继承主腿。headers 是整体替换，`{}` 清空；显式空 host 恢复下载认证名/server 推导。
 - `skip-cert-verify: false` 必须覆盖主腿 true；空 name-cert-verify/fingerprint 清除对应 override/pin。
@@ -55,6 +59,7 @@ packet-up 在发送间隔内聚合小块写入，而不是把每个 write 变成
 - certificate/private-key 必须配对替换或同时空串清除；PEM 与密钥匹配在 IO 前检查。
 - reality-opts 缺省继承整个对象，`{}` 清除；非空对象必须提供 public-key，short-id 缺省空、support-x25519mlkem768 缺省 false，不按叶合并旧对象。仅提供混合开关不等同空对象，仍须提供 public-key。null 拒绝。
 - jls-opts 缺省继承整个身份，非空对象必须完整替换 username/password，`{}` 清除；同腿与 REALITY 和证书策略互斥，切换时须显式清除旧对象。JLS 仅 H1/H2，实际 TLS1.3，无恢复；完整约束见 [JLS](jls.md)。
+- ech-opts 缺省继承、非空对象整体替换，启用必须同时提供 enable=true 和静态 config；`{}` 清除。仅标准 TLS，可用于 H1/H2/H3。没有动态查询或自动重试；切换到 REALITY/JLS/明文前必须显式清除继承的 ECH。
 - 切换到明文或 REALITY 不会悄悄丢弃继承的证书策略；须显式清除冲突字段。每条腿独立重新校验最终安全配置。
 - 独立地址/端口在 prepare 时分别准备；两腿共享原绝对期限和每个上游组的选择快照，下载失败不会另起超时预算或绕过原图。
 

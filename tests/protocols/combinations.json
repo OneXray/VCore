@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "kind": "planned-combination-catalog",
   "baseline_date": "2026-09-22",
   "status": "NOT RUN",
@@ -1595,7 +1595,6 @@
         "D14",
         "D16",
         "D17",
-        "D20",
         "D25"
       ],
       "stages": [
@@ -1835,12 +1834,10 @@
         "S01",
         "S03",
         "S04",
-        "S07",
         "S12",
         "D14",
         "D16",
         "D17",
-        "D20",
         "D25"
       ],
       "stages": [
@@ -1908,7 +1905,8 @@
         "ws",
         "grpc",
         "xhttp-h1",
-        "xhttp-h2"
+        "xhttp-h2",
+        "xhttp-h3"
       ],
       "security_modes": [
         "tls-with-ech"
@@ -1923,12 +1921,12 @@
         "udp"
       ],
       "peers": [
-        "M"
+        "M",
+        "XR"
       ],
       "row_ids": [
         "S04",
         "S05",
-        "S06",
         "T02",
         "T04",
         "T05"
@@ -1937,57 +1935,11 @@
         "N0",
         "N7"
       ],
-      "required_observation": "Explicit config and independent HTTPS-RR bootstrap, ECH accepted, refusal/refresh and cache isolation; no plaintext success fallback.",
+      "required_observation": "Static explicit ECHConfigList, actual ECH accepted on both backends, fail-closed refusal without identity/business leakage, independent download config; no DNS, retry or TLS resumption.",
       "sources": [
         "M-VL-IN",
         "M-VL",
         "R-HPKE"
-      ],
-      "behavior_status": "NOT RUN"
-    },
-    {
-      "id": "VL-SHADOWTLS",
-      "classification": "supported-required",
-      "protocols": [
-        "vless"
-      ],
-      "networks": [
-        "tcp",
-        "ws",
-        "grpc",
-        "xhttp-h1",
-        "xhttp-h2"
-      ],
-      "security_modes": [
-        "shadowtls-v1",
-        "shadowtls-v2",
-        "shadowtls-v3"
-      ],
-      "udp_codecs": [
-        "raw",
-        "xudp",
-        "packetaddr"
-      ],
-      "business": [
-        "tcp",
-        "udp"
-      ],
-      "peers": [
-        "M"
-      ],
-      "row_ids": [
-        "S07",
-        "S08",
-        "VL05"
-      ],
-      "stages": [
-        "N0",
-        "N7"
-      ],
-      "required_observation": "Each version independently authenticates and passes data using public APIs; v1/password differences and v2/v3 rejection.",
-      "sources": [
-        "M-VL-IN",
-        "M-VL"
       ],
       "behavior_status": "NOT RUN"
     },
@@ -2049,13 +2001,8 @@
         "xhttp-h3"
       ],
       "security_modes": [
-        "reality-classic",
-        "reality-x25519mlkem768",
         "tls-with-ech",
-        "shadowtls-v1",
-        "shadowtls-v2",
-        "shadowtls-v3",
-        "jls"
+        "vless-encryption-plus-tls"
       ],
       "udp_codecs": [
         "raw",
@@ -2073,17 +2020,15 @@
       "row_ids": [
         "VL02",
         "VL04",
-        "S01",
-        "S03",
+        "VL06",
         "S04",
-        "S07",
-        "S12"
+        "S05"
       ],
       "stages": [
         "N0",
         "N7"
       ],
-      "required_observation": "First apply contract rejections, especially H3 wrapper restrictions. Remaining native-only transport/security/codec compositions need their own official decoder proof; no claim that Xray/V2Ray replace Mihomo-specific extensions.",
+      "required_observation": "Selected N7 set: static ECH and Encryption on official Xray H3 or native HTTP/H2/extended WS transports. JLS retains only its already accepted Mihomo transport set; no implicit expansion to unproved wrappers.",
       "sources": [
         "X-XHTTP",
         "X-CFG",
@@ -2092,7 +2037,7 @@
         "M-VL-IN"
       ],
       "behavior_status": "NOT RUN",
-      "blocked_on": "N0-E/N0-F: precise legal composition and peer"
+      "blocked_on": "N7.5: explicit native transport compositions in protocol_n7_catalog.py"
     },
     {
       "id": "VL-ADVANCED-DOWNLOAD",
@@ -2102,14 +2047,12 @@
       ],
       "networks": [
         "xhttp-h1",
-        "xhttp-h2"
+        "xhttp-h2",
+        "xhttp-h3"
       ],
       "security_modes": [
         "reality-x25519mlkem768",
         "tls-with-ech",
-        "shadowtls-v1",
-        "shadowtls-v2",
-        "shadowtls-v3",
         "jls"
       ],
       "udp_codecs": [
@@ -2122,15 +2065,13 @@
         "udp"
       ],
       "peers": [
-        "M"
+        "M",
+        "XR"
       ],
       "row_ids": [
         "D16",
         "D17",
         "D18",
-        "D19",
-        "D20",
-        "D21",
         "D25",
         "D26"
       ],
@@ -2138,7 +2079,7 @@
         "N0",
         "N7"
       ],
-      "required_observation": "Separate whole-object inheritance/replacement/clear proofs from same-handler wire proof, including each leg authentication and identity-specific pool.",
+      "required_observation": "Whole-object inheritance/replacement/clear and same-handler wire proof for each retained security family; H3 standard TLS with optional static ECH only. Concrete selected pairs are frozen in protocol_n7_catalog.py; do not infer arbitrary cross-security gateways.",
       "sources": [
         "M-VL-IN",
         "M-VL",
@@ -2490,14 +2431,12 @@
       "protocols": [
         "vless"
       ],
-      "when": "Two or more certificate TLS, REALITY, ShadowTLS or JLS wrappers on the same leg; includes conflicting inherited download objects.",
+      "when": "Two or more ordinary certificate TLS, REALITY or JLS security modes on the same leg; ECH is ordinary TLS only and conflicts with REALITY/JLS/Vision. Includes conflicting inherited download objects.",
       "row_ids": [
         "VL05",
         "S01",
-        "S07",
         "S12",
         "D14",
-        "D20",
         "D25"
       ],
       "stages": [
@@ -2545,14 +2484,13 @@
       "protocols": [
         "vless"
       ],
-      "when": "XHTTP H3 with cleartext, REALITY, ShadowTLS or JLS on that leg.",
+      "when": "XHTTP H3 with cleartext, REALITY or JLS on that leg.",
       "row_ids": [
         "T03",
         "X03",
         "D06",
         "D08",
         "S01",
-        "S07",
         "S12"
       ],
       "stages": [
@@ -2868,5 +2806,5 @@
       "behavior_status": "NOT RUN"
     }
   ],
-  "scope_revision": "2026-09-26: retire Restls, retain JLS and remaining stable IDs."
+  "scope_revision": "2026-09-27: selected VLESS scope; retire ShadowTLS and defer dynamic ECH. Restls remains retired; JLS retains its accepted scope. Historical failures are not relabelled."
 }

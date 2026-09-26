@@ -238,6 +238,19 @@ def _tls_dependency_errors(metadata: dict[str, Any]) -> list[str]:
 
     native = {}
     node_by_id = {node["id"]: node for node in nodes}
+    hpke = require_single("hpke", "0.14.1")
+    if hpke is not None:
+        if hpke.get("source") not in CRATES_IO_SOURCES:
+            errors.append("hpke must be the unmodified crates.io release")
+        hpke_node = node_by_id.get(hpke["id"])
+        if hpke_node is None or set(hpke_node.get("features", [])) != {
+            "alloc",
+            "aes",
+            "chacha",
+            "x25519",
+            "hkdfsha2",
+        }:
+            errors.append("hpke must use only the approved ECH algorithms")
     for name, required in (
         ("boring", {"reality", "client-fingerprint", "shadow-tls-v3", "jls"}),
         ("boring-sys", {"reality", "shadow-tls-v3", "jls"}),
@@ -315,6 +328,7 @@ def check_tls_dependencies() -> None:
     print("TLS dependency check passed:")
     print(f"- one official crates.io rustls {rustls['version']}")
     print("- one official tokio-rustls 0.26.5")
+    print("- one official hpke 0.14.1 with the approved static ECH algorithms")
     print(f"- one boring/boring-sys/tokio-boring 5.2.0 fork @ {BORING_REVISION[:12]}")
     print(f"- one registry ring {ring['version']} provider")
     print(

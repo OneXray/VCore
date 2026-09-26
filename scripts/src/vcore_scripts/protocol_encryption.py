@@ -39,6 +39,7 @@ def run(
     chacha=False,
     expiry=False,
     padding="minimal",
+    supplied=None,
 ):
     output = output.resolve()
     required = cases()
@@ -54,7 +55,7 @@ def run(
     }
     selected = list(required) if selected is None else selected
     if (
-        output.parent != CORE_DIR / "target/interop/runs"
+        not output.is_relative_to(CORE_DIR / "target/interop/runs")
         or not selected
         or len(set(selected)) != len(selected)
         or not set(selected) <= required.keys()
@@ -86,10 +87,13 @@ def run(
         status="NOT RUN",
     )
     try:
-        identity = {}
-        binary = download_mihomo(
-            "linux-arm64", directory=output / "binaries", identity=identity
-        )
+        if supplied is None:
+            identity = {}
+            binary = download_mihomo(
+                "linux-arm64", directory=output / "binaries", identity=identity
+            )
+        else:
+            binary, identity = supplied["M"]
         report["peer"] = identity
         built = run_command(
             [

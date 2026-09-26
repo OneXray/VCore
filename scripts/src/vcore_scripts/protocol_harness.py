@@ -444,7 +444,17 @@ def run_protocol_interop(
     try:
         run.update(run_identity(stage, selected, preflight_only))
         with exclusive_run(), deadline(run["suite_timeout_seconds"]):
-            if preflight_only and stage == "N6":
+            if preflight_only and stage == "N7":
+                _, peers = preflight(
+                    output / "binaries", {"M", "XR", "V2"}, container=True
+                )
+                (output / "peers.json").write_text(json.dumps(peers, indent=2) + "\n")
+                if any(
+                    peer["status"] != "READY" or peer.get("container_status") != "READY"
+                    for peer in peers
+                ):
+                    raise RuntimeError("N7 native prerequisites are BLOCKED")
+            elif preflight_only and stage == "N6":
                 from .protocol_hysteria2_acceptance import preflight as preflight_hy2
 
                 preflight_hy2(output)
@@ -502,6 +512,10 @@ def run_protocol_interop(
                     execute(selected, run, output, records)
                 elif stage == "N6":
                     from .protocol_hysteria2_acceptance import execute
+
+                    execute(selected, run, output, records)
+                elif stage == "N7":
+                    from .protocol_n7_acceptance import execute
 
                     execute(selected, run, output, records)
                 else:
@@ -570,6 +584,9 @@ def run_protocol_interop(
                 else "Hysteria2 N6 consumer evidence with container-only peers; "
                 "native H server limits and platform/device gates remain explicit.\n\n"
                 if stage == "N6"
+                else "N7 selected VLESS security consumers; static ECH only, "
+                "Container-only peers; N8/N9/N10 and devices remain separate.\n\n"
+                if stage == "N7"
                 else "Foundation-only evidence; "
                 "production protocol field consumers remain NOT RUN.\n\n"
             )

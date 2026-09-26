@@ -477,17 +477,26 @@ def run(
     supplied: dict | None = None,
     client_fingerprint: str | None = None,
     encryption: str | None = None,
+    ech: bool = False,
+    jls: bool = False,
 ):
+    if ech and jls:
+        raise ValueError("ECH and JLS are mutually exclusive")
     if client_fingerprint is not None and client_fingerprint not in CLIENT_FINGERPRINTS:
         raise ValueError("unsupported named client profile")
     if public is not None and (public not in PUBLIC_TESTS or udp or owned):
         raise ValueError("invalid public consumer selection")
     cases = variants()
+    if ech:
+        from .protocol_ech import field_variants
+
+        cases.update(field_variants())
     if encryption is not None:
         from .protocol_encryption import cases as encryption_profiles
 
         if encryption not in encryption_profiles():
             raise ValueError("unsupported Encryption fixture")
+    if encryption is not None or ech:
         # Official V2Ray terminates only the legacy transport. A separate
         # official Mihomo handler authenticates Encryption and decodes VLESS.
         for mode in ("http", "h2", "ws-header", "ws-path"):
@@ -518,6 +527,19 @@ def run(
         selected = list(cases)
     if len(selected) != len(set(selected)) or not set(selected) <= cases.keys():
         raise ValueError("invalid XHTTP field case selection")
+    if ech and any(
+        (
+            cases[name][1] not in {"h1", "h2", "h3"}
+            and not (
+                cases[name][1].startswith("outer-") and cases[name][1].endswith("-tls")
+            )
+        )
+        or "_main_alpn" in cases[name][0]
+        for name in selected
+    ):
+        raise ValueError("static ECH requires a native standard TLS peer")
+    if jls and any(cases[name][1] not in {"h1", "h2"} for name in selected):
+        raise ValueError("JLS field gate requires a Mihomo stream TLS peer")
     if client_fingerprint is not None:
         for name in selected:
             options, version = cases[name]
@@ -536,7 +558,9 @@ def run(
         raise ValueError("new run directory must be directly under target/interop/runs")
     output.mkdir(exist_ok=False)
     report = dict(
-        stage="N7.1" if encryption else "N5",
+        stage="N7.3-ECH" if ech else "N7.1" if encryption else "N5",
+        ech=ech,
+        jls=jls,
         encryption_profile=encryption,
         client_fingerprint=client_fingerprint,
         scope="protocol-consumer"
@@ -557,6 +581,8 @@ def run(
             artifacts["Caddy"] = gateway_artifact.binary
             report["peers"]["Caddy"] = gateway_artifact.identity
         kinds = {native_kind(cases[name][1]) for name in selected}
+        if ech and any(cases[name][1].startswith("outer-") for name in selected):
+            kinds.add("XR")
         if (
             encryption
             or jobs is not None
@@ -654,7 +680,7 @@ def run(
                         origin_dir / "close.py",
                     )
                 origin_security = []
-                if version.endswith(("r", "-reality")):
+                if version.endswith(("r", "-reality")) or jls:
                     origin_cert, origin_key, _ = certificates(origin_dir)
                     origin_security = [
                         f"VCORE_ORIGIN_CERT=/data/fixture/{origin_cert.name}",
@@ -722,6 +748,7 @@ def run(
                 main_alpn = options.pop("_main_alpn", None)
                 mux = options.pop("_mux", None)
                 require_padding = options.pop("_require-padding", False)
+                ech_action = options.pop("_ech_action", None)
                 decoder = None
                 encryption_node = {}
                 if kind != "M" and (needs_decoder or mux is not None):
@@ -933,6 +960,81 @@ def run(
                         )
 
                         encryption_config(encryption, node, config)
+                if jls:
+                    from .protocol_jls import configuration as jls_config
+
+                    jls_config(node, config, origin.ipv4, name)
+                if ech:
+                    from .protocol_ech import configuration as ech_config
+                    from .protocol_ech import (
+                        legacy_gateway_command,
+                        legacy_gateway_config,
+                        wrong_key,
+                    )
+
+                    ech_peer, ech_dir, ech_kind = config, server_dir, kind
+                    if outer_mode:
+                        # ECH is terminated by official Xray, not a custom TLS
+                        # server. V2Ray remains the native legacy transport;
+                        # the existing Mihomo decoder owns VLESS/Encryption.
+                        stream = config["inbounds"][0]["streamSettings"]
+                        tls_options = stream.pop("tlsSettings")
+                        stream["security"] = "none"
+                        gateway_dir = root / "gateway"
+                        gateway_dir.mkdir()
+                        shutil.copy2(artifacts["XR"], gateway_dir / "peer")
+                        for filename in (cert.name, key.name):
+                            shutil.copyfile(
+                                server_dir / filename, gateway_dir / filename
+                            )
+                        ech_peer = legacy_gateway_config(server.ipv4, tls_options)
+                        ech_dir, ech_kind = gateway_dir, "XR"
+                    ech_material = ech_config(
+                        node, ech_peer, ech_dir, name, kind=ech_kind
+                    )
+                    if outer_mode:
+                        (gateway_dir / "config.json").write_text(json.dumps(ech_peer))
+                        gateway = lab.start(
+                            stack,
+                            gateway_dir,
+                            name + "-ech-gateway",
+                            legacy_gateway_command(),
+                        )
+                        version_text = command(
+                            "exec", gateway.name, "/data/fixture/peer", "version"
+                        ).strip()
+                        digest = command(
+                            "exec", gateway.name, "sha256sum", "/data/fixture/peer"
+                        ).split()[0]
+                        if (
+                            not version_text
+                            or digest != report["peers"]["XR"]["binary_sha256"]
+                        ):
+                            raise RuntimeError("ECH gateway identity mismatch")
+                        report["peers"]["XR"]["version"] = version_text
+                        edge = gateway
+                        node["server"] = edge.ipv4
+
+                        def preserve_ech_gateway(peer=gateway, variant=name):
+                            (output / f"{variant}-gateway.log").write_text(
+                                redact(command("logs", peer.name)[-65536:])
+                            )
+
+                        stack.callback(preserve_ech_gateway)
+                    if ech_action in {"replace", "clear", "reject-download"}:
+                        replacement = (
+                            {}
+                            if ech_action == "clear"
+                            else dict(
+                                enable=True,
+                                config=ech_material["ech_download_config"],
+                            )
+                        )
+                        if ech_action == "reject-download":
+                            replacement = wrong_key(replacement)
+                        options["download-settings"]["ech-opts"] = replacement
+                    elif ech_action == "reject-main":
+                        node["ech-opts"] = wrong_key(node["ech-opts"])
                 # Client-only session generator and pacing have no server counterpart.
                 peer_options = {
                     k: v
@@ -1133,7 +1235,13 @@ def run(
                             seconds=result.seconds,
                             command_cleanup=result.cleanup,
                             decoder_path=(
-                                ("Caddy H2/H3 -> " if gateway else "")
+                                (
+                                    "Xray ECH -> "
+                                    if ech and outer_mode
+                                    else "Caddy H2/H3 -> "
+                                    if gateway
+                                    else ""
+                                )
                                 + f"{kind} {outer_mode or 'XHTTP'} -> Mihomo VLESS"
                             )
                             if decoder
@@ -1202,6 +1310,7 @@ if __name__ == "__main__":
     parser.add_argument("--owned", action="store_true")
     parser.add_argument("--public", choices=PUBLIC_TESTS)
     parser.add_argument("--encryption")
+    parser.add_argument("--ech", action="store_true")
     args = parser.parse_args()
     if sum((args.udp, args.owned, args.public is not None)) > 1:
         parser.error("select UDP or owned-resource checks")
@@ -1214,5 +1323,6 @@ if __name__ == "__main__":
                 owned=args.owned,
                 public=args.public,
                 encryption=args.encryption,
+                ech=args.ech,
             )
         )

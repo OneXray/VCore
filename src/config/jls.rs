@@ -24,7 +24,10 @@ impl JlsConfig {
                 return invalid("JLS credentials must each contain 1..65535 bytes");
             }
         }
-        if self.tls.certificate != TlsCertificatePolicy::default() || self.tls.identity.is_some() {
+        if self.tls.certificate != TlsCertificatePolicy::default()
+            || self.tls.identity.is_some()
+            || self.tls.ech.is_some()
+        {
             return invalid("JLS cannot use standard certificate policy or client identity");
         }
         Ok(())

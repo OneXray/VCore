@@ -25,6 +25,7 @@ pub(super) struct BoringTlsClient {
     alpn: Vec<u8>,
     required_alpn: Option<Vec<u8>>,
     sessions: super::boring_resumption::Sessions,
+    ech: Option<crate::config::StaticEchConfig>,
     #[cfg(feature = "outbound-vless")]
     reality: Option<boring::ssl::RealityClientConfig>,
     #[cfg(feature = "outbound-vless")]
@@ -71,15 +72,26 @@ impl BoringTlsClient {
         )?);
         let mut builder = SslConnector::builder(SslMethod::tls()).map_err(|_| invalid())?;
         builder
-            .set_min_proto_version(Some(match options.versions {
-                TlsVersions::Tls13 => SslVersion::TLS1_3,
-                TlsVersions::Tls12And13 => SslVersion::TLS1_2,
-            }))
+            .set_min_proto_version(Some(
+                match if options.ech.is_some() {
+                    TlsVersions::Tls13
+                } else {
+                    options.versions
+                } {
+                    TlsVersions::Tls13 => SslVersion::TLS1_3,
+                    TlsVersions::Tls12And13 => SslVersion::TLS1_2,
+                },
+            ))
             .map_err(|_| invalid())?;
         builder
             .set_max_proto_version(Some(SslVersion::TLS1_3))
             .map_err(|_| invalid())?;
-        let sessions = super::boring_resumption::Sessions::new(&mut builder, capacity)?;
+        let sessions = super::boring_resumption::Sessions::new(
+            &mut builder,
+            if options.ech.is_some() { 0 } else { capacity },
+        )?;
+        let rejection_verifier =
+            super::verifier::CertificateVerifier::new(context, Default::default())?;
         builder.set_custom_verify_callback(SslVerifyMode::PEER, move |ssl| {
             let reject = || SslVerifyError::Invalid(SslAlert::BAD_CERTIFICATE);
             let chain = ssl.peer_cert_chain().ok_or_else(reject)?;
@@ -89,6 +101,16 @@ impl BoringTlsClient {
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|_| reject())?;
             let (leaf, rest) = certificates.split_first().ok_or_else(reject)?;
+            let outer_name = ssl.get_ech_name_override().map(|bytes| {
+                std::str::from_utf8(bytes)
+                    .ok()
+                    .and_then(|name| ServerName::try_from(name.to_owned()).ok())
+            });
+            let (verifier, name): (&dyn ServerCertVerifier, _) = match outer_name {
+                Some(Some(outer)) => (&rejection_verifier, outer),
+                Some(None) => return Err(reject()),
+                None => (verifier.as_ref(), name.clone()),
+            };
             verifier
                 .verify_server_cert(
                     leaf,
@@ -132,6 +154,7 @@ impl BoringTlsClient {
             alpn,
             required_alpn: options.required_alpn.clone(),
             sessions,
+            ech: options.ech.clone(),
             #[cfg(feature = "outbound-vless")]
             reality: None,
             #[cfg(feature = "outbound-vless")]
@@ -190,6 +213,7 @@ impl BoringTlsClient {
             // configured HTTP version; no ordinary PKI fallback is permitted.
             required_alpn: None,
             sessions,
+            ech: None,
             reality: Some(reality),
             jls: None,
         })
@@ -221,6 +245,7 @@ impl BoringTlsClient {
             alpn: wire_alpn(&config.tls.alpn)?,
             required_alpn: config.tls.required_alpn.clone(),
             sessions,
+            ech: None,
             reality: None,
             jls: Some(Arc::new(JlsCredentials {
                 username: config.username.as_bytes().to_vec().into(),
@@ -263,6 +288,11 @@ impl BoringTlsClient {
         // verification names and pin precedence; wire SNI still uses server_name.
         config.set_verify_hostname(false);
         let sink = self.sessions.configure(&mut config)?;
+        if let Some(ech) = &self.ech {
+            config
+                .set_ech_config_list(ech.as_bytes())
+                .map_err(|_| invalid())?;
+        }
         #[cfg(feature = "outbound-vless")]
         if let Some(reality) = &self.reality {
             config.set_reality_client(reality).map_err(|_| invalid())?;
@@ -276,6 +306,9 @@ impl BoringTlsClient {
         let tls = tokio_boring::connect(config, &self.server_name, KeepOpen(stream))
             .await
             .map_err(|_| io::Error::other("TLS handshake failed"))?;
+        if self.ech.is_some() && !tls.ssl().ech_accepted() {
+            return Err(io::Error::other("TLS ECH was not accepted"));
+        }
         if self
             .required_alpn
             .as_deref()

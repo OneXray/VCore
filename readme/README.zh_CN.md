@@ -4,7 +4,7 @@
   <a href="../README.md">English</a> · 简体中文 · <a href="./README.ru.md">Русский</a>
 </p>
 
-VCore 是独立且不绑定特定宿主应用的 Rust 客户端代理 core。它通过严格 YAML 配置和 Invoke API v5 提供代理图、静态 `select` 代理组、DNS、规则、GeoData、HTTP/SOCKS5 listener、TUN 数据面与回环 Controller。内部配置 schema revision 为 24；revision 只出现在 `version` 响应和 `buildIdentity` 中，不写入 YAML。
+VCore 是独立且不绑定特定宿主应用的 Rust 客户端代理 core。它通过严格 YAML 配置和 Invoke API v5 提供代理图、静态 `select` 代理组、DNS、规则、GeoData、HTTP/SOCKS5 listener、TUN 数据面与回环 Controller。内部配置 schema revision 为 27；revision 只出现在 `version` 响应和 `buildIdentity` 中，不写入 YAML。
 
 ## 能力
 
@@ -17,6 +17,7 @@ VCore 是独立且不绑定特定宿主应用的 Rust 客户端代理 core。它
 - Listener：HTTP CONNECT/forward，逐请求认证与选路，支持流式正文、Keep-Alive 和 Upgrade；SOCKS5 CONNECT 与 TCP 授权的 UDP ASSOCIATE。默认本机免认证，局域网共享强制使用一组共用账号密码。
 - GeoData：VCore 管理 `dataDir/geodata` 下的 `geosite.dat` 和 `geoip.dat`，按需求加载并可通过代理链后台更新。
 - 测速：`measureDelay` 单次接收 1–5 份 node-only 配置，使用最多五个私有 worker，结果保持输入顺序。
+- TLS：独立证书 pin 与四种可选 [ClientHello 模板](../docs/tls-client-fingerprint.md)；[VLESS JLS](../docs/jls.md)保留完整原生 TLS 认证。[静态 ECH](../docs/ech.md)接受显式的 VLESS 主/下载腿配置，不执行动态 DNS 查询或失败回落。
 
 ## 配置
 

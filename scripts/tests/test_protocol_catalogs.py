@@ -51,14 +51,14 @@ class ProtocolCatalogTest(unittest.TestCase):
         report = json.loads(output)
         self.assertEqual(report["status"], "VALID")
         self.assertEqual(report["behavior_status"], "NOT RUN")
-        self.assertEqual(report["fields"], 139)
-        self.assertEqual(report["combination_families"], 68)
+        self.assertEqual(report["fields"], 133)
+        self.assertEqual(report["combination_families"], 67)
         self.assertEqual(errors, "")
 
     def test_field_catalog_cannot_drop_duplicate_or_replace_a_stable_id(self):
         def remove(data):
             data["fields"].pop()
-            data["field_count"] = 138
+            data["field_count"] = 132
 
         def duplicate(data):
             data["fields"][-1]["id"] = "C01"
@@ -156,12 +156,12 @@ class ProtocolCatalogTest(unittest.TestCase):
         bad_json = [
             "[]",
             '{"private-synthetic-marker":',
-            original.replace('"schema_version": 2', '"schema_version": 1'),
-            original.replace('"schema_version": 2', '"schema_version": true'),
+            original.replace('"schema_version": 3', '"schema_version": 1'),
+            original.replace('"schema_version": 3', '"schema_version": true'),
             original.replace(
-                '"field_count": 139',
+                '"field_count": 133',
                 '"private-synthetic-marker": 1, "private-synthetic-marker": 2, '
-                '"field_count": 139',
+                '"field_count": 133',
             ),
         ]
         for number, payload in enumerate(bad_json):
@@ -326,4 +326,4 @@ class ProtocolCatalogTest(unittest.TestCase):
         with chdir(self.catalogs), redirect_stdout(output):
             code = cli.main(["check", "protocol-coverage", "--catalog-only"])
         self.assertEqual(code, 0)
-        self.assertEqual(json.loads(output.getvalue())["fields"], 139)
+        self.assertEqual(json.loads(output.getvalue())["fields"], 133)

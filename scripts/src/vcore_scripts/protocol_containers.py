@@ -5,15 +5,54 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import json
+import re
 import socket
 import time
 import uuid
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 
+from .protocol_inputs import redact
 from .protocol_peers import OwnedProcess, run_command
 
 NETWORK = "vcore-mihomo-interop"
 IMAGE = "docker.io/library/python:3-alpine"
+_FROZEN_IMAGE = ContextVar("vcore_frozen_container_image", default=None)
+
+
+def _pull_image(log=None):
+    argv = ["container", "image", "pull", IMAGE]
+    result = run_command(argv, timeout=180)
+    if log is not None:
+        log.write_text(redact(result.stdout.decode(errors="replace")))
+    if result.returncode != 0 or not result.cleanup:
+        raise RuntimeError("isolated container image pull failed")
+    inspection = json.loads(command("image", "inspect", IMAGE))[0]
+    digest = inspection["configuration"]["descriptor"]["digest"]
+    if not isinstance(digest, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+        raise RuntimeError("invalid isolated container image identity")
+    return dict(
+        tag=IMAGE,
+        digest=digest,
+        command=argv,
+        exit_code=0,
+        cleanup=True,
+        log=log.name if log is not None else None,
+    )
+
+
+@contextmanager
+def frozen_image(log):
+    """Refresh once per owned run, never a persistent/offline fallback cache."""
+    if _FROZEN_IMAGE.get() is not None:
+        raise RuntimeError("container image scope is already frozen")
+    snapshot = _pull_image(log)
+    token = _FROZEN_IMAGE.set(snapshot["digest"])
+    try:
+        yield snapshot
+    finally:
+        _FROZEN_IMAGE.reset(token)
 
 
 def command(*args, timeout=30):
@@ -44,9 +83,9 @@ class ContainerLab:
             raise RuntimeError("owned host-only container network required")
         self.v4 = ipaddress.ip_network(network["status"]["ipv4Subnet"])
         self.v6 = ipaddress.ip_network(network["status"]["ipv6Subnet"])
-        command("image", "pull", IMAGE, timeout=180)
-        inspection = json.loads(command("image", "inspect", IMAGE))[0]
-        digest = inspection["configuration"]["descriptor"]["digest"]
+        digest = _FROZEN_IMAGE.get()
+        if digest is None:
+            digest = _pull_image()["digest"]
         self.image = IMAGE.split(":")[0] + "@" + digest
         record.update(
             backend="Apple Container",

@@ -184,6 +184,29 @@ class VlessEvidenceTest(unittest.TestCase):
                 "chrome" if profile in (None, "none") else profile,
             )
 
+    def test_safari_ech_close_reference_labels_the_official_client_gap(self):
+        for profile in ("safari", "safari16", "chrome", "firefox", "none"):
+            for enabled in (False, True):
+                node = {
+                    "network": "grpc",
+                    "tls": True,
+                    "client-fingerprint": profile,
+                    "ech-opts": {"enable": enabled, "config": "synthetic"},
+                }
+                original = copy.deepcopy(node)
+                reference, scope = close_reference(
+                    "grpc-tls", node, {}, Path("cert"), Path("key"), "pin"
+                )
+                baseline = enabled and profile in ("safari", "safari16")
+                self.assertEqual(
+                    scope, "ech-safari-chrome-baseline" if baseline else "same-mode"
+                )
+                self.assertEqual(
+                    reference["client-fingerprint"], "chrome" if baseline else profile
+                )
+                self.assertEqual(reference["ech-opts"], node["ech-opts"])
+                self.assertEqual(node, original)
+
     def test_independent_features_match_the_executed_command_set(self):
         case = next(c for c in definitions() if c["case_id"] == "N4-FEATURES")
         with (

@@ -14,7 +14,7 @@ WORK_PACKAGES = {
     for stage, count in enumerate((0, 6, 4, 5, 4, 5, 6, 5, 5, 4, 4))
     for package in range(1, count + 1)
 }
-# Schema-v2 requirements retain stable IDs while retiring removed security modes.
+# Schema-v3 retires ShadowTLS and defers dynamic ECH; remaining IDs stay stable.
 FIELD_IDS = {
     f"{prefix}{index:02}"
     for prefix, count in {
@@ -35,7 +35,7 @@ FIELD_IDS = {
     }.items()
     for index in range(1, count + 1)
     if not (
-        (prefix == "D" and 22 <= index <= 24) or (prefix == "S" and 9 <= index <= 11)
+        (prefix == "D" and 19 <= index <= 24) or (prefix == "S" and 6 <= index <= 11)
     )
 }
 COMBINATION_IDS = {
@@ -79,7 +79,6 @@ COMBINATION_IDS = {
     "VL-ENCRYPTION-WRAPPERS",
     "VL-REALITY-HYBRID",
     "VL-ECH",
-    "VL-SHADOWTLS",
     "VL-JLS",
     "VL-ADVANCED-NATIVE-TRANSPORT",
     "VL-ADVANCED-DOWNLOAD",
@@ -153,7 +152,7 @@ def _load(directory: Path, name: str, kind: str, keys: set[str]) -> dict[str, An
     if (
         not isinstance(catalog, dict)
         or type(catalog.get("schema_version")) is not int
-        or catalog["schema_version"] != 2
+        or catalog["schema_version"] != 3
         or catalog.get("kind") != kind
         or "status" not in catalog
         or not isinstance(catalog.get("sources"), dict)

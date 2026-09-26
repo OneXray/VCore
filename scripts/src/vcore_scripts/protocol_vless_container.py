@@ -85,6 +85,16 @@ def close_reference(mode, node, config, certificate, private_key, pin):
         # VCore node unchanged and label this different-profile close baseline.
         reference["client-fingerprint"] = "chrome"
         scope = "jls-grpc-chrome-baseline"
+    elif (
+        reference.get("network") == "grpc"
+        and reference.get("ech-opts", {}).get("enable") is True
+        and reference.get("client-fingerprint") in ("safari", "safari16")
+    ):
+        # Official Mihomo v1.19.31/uTLS rejects Safari ECH before business
+        # data with "malformed outer client hello". Compare the same ECH
+        # listener's transport close using Chrome; the VCore node stays Safari.
+        reference["client-fingerprint"] = "chrome"
+        scope = "ech-safari-chrome-baseline"
     return reference, scope
 
 
@@ -96,6 +106,8 @@ def run(
     client_fingerprint=None,
     encryption=None,
     jls=False,
+    ech=False,
+    supplied=None,
 ):
     if client_fingerprint is not None and client_fingerprint not in CLIENT_FINGERPRINTS:
         raise ValueError("unsupported named client profile")
@@ -120,7 +132,7 @@ def run(
         from .protocol_encryption import cases as encryption_profiles
         from .protocol_encryption_public import catalog
 
-        if encryption not in encryption_profiles() or client_fingerprint is not None:
+        if encryption not in encryption_profiles():
             raise ValueError("unsupported Encryption fixture")
         all_cases = catalog()
         public_cases = {
@@ -130,6 +142,17 @@ def run(
         }
     if jls:
         from .protocol_jls import catalog
+
+        all_cases = catalog()
+        public_cases = {
+            key: value
+            for key, value in all_cases.items()
+            if not value[3].startswith("native_")
+        }
+    if ech:
+        if jls:
+            raise ValueError("ECH and JLS are mutually exclusive")
+        from .protocol_ech import catalog
 
         all_cases = catalog()
         public_cases = {
@@ -155,7 +178,9 @@ def run(
             for kind in sorted(kinds)
         ]
     report = dict(
-        stage="N7.4-JLS"
+        stage="N7.3-ECH"
+        if ech
+        else "N7.4-JLS"
         if jls
         else "N7.1"
         if encryption
@@ -163,6 +188,7 @@ def run(
         if client_fingerprint
         else "N4",
         jls=jls,
+        ech=ech,
         encryption_profile=encryption,
         client_fingerprint=client_fingerprint,
         scope="container-wire-and-public-consumer",
@@ -177,7 +203,9 @@ def run(
         artifacts = {}
         for kind in sorted({all_cases[case][0] for case in selected} | {"M"}):
             directory = output / "binaries" / kind
-            if kind == "M":
+            if supplied is not None:
+                artifacts[kind] = PeerArtifact(*supplied[kind])
+            elif kind == "M":
                 identity = {}
                 binary = download_mihomo(
                     "linux-arm64", directory=directory, identity=identity
@@ -188,7 +216,7 @@ def run(
                     kind, directory, "linux-arm64", defer_version=True
                 )
             report["peers"][kind] = artifacts[kind].identity
-        lab = ContainerLab(report["isolation"], mtu=1500 if encryption or jls else 1280)
+        lab = ContainerLab(report["isolation"], mtu=1500)
         report["phase"] = "build"
         built = run_command(
             [
@@ -351,7 +379,7 @@ def run(
                             config["inbounds"][0]["listen"] = "::"
                     else:
                         node, config = configuration(
-                            mode.removesuffix("-h1") if jls else mode,
+                            mode.removesuffix("-h1") if jls or ech else mode,
                             server.ipv4,
                             origin.ipv4,
                             Path("/data/fixture") / cert.name,
@@ -372,6 +400,10 @@ def run(
                     if client_fingerprint:
                         node["client-fingerprint"] = client_fingerprint
                     extra_fixture = {}
+                    if ech:
+                        from .protocol_ech import configuration as ech_config
+
+                        extra_fixture = ech_config(node, config, server_dir, mode)
                     if jls:
                         from .protocol_jls import configuration as jls_config
 
@@ -493,7 +525,7 @@ def run(
                                     "socks-port": 23002,
                                     "allow-lan": True,
                                     "bind-address": "*",
-                                    "log-level": "silent",
+                                    "log-level": "warning",
                                     "ipv6": True,
                                     "proxies": [reference_node],
                                     "rules": ["MATCH,reference"],
@@ -514,6 +546,11 @@ def run(
                         )
                         comparison.release()
                         comparison.wait_tcp(23002)
+                        stack.callback(
+                            lambda peer=comparison, tag=tag: (
+                                output / f"{tag}-comparison.log"
+                            ).write_text(redact(command("logs", peer.name)[-65536:]))
+                        )
                         observed_close = run_command(
                             [
                                 "container",
@@ -623,7 +660,7 @@ def run(
                                 VCORE_VLESS_INPUT=str(fixture),
                                 VCORE_CASE_EVENTS=str(events),
                                 VCORE_PROTOCOL_STAGE="N7"
-                                if encryption or jls
+                                if encryption or jls or ech
                                 else "N4",
                             ),
                         )
@@ -644,7 +681,7 @@ def run(
                                     observed,
                                     test,
                                     mode,
-                                    stage="N7" if encryption or jls else "N4",
+                                    stage="N7" if encryption or jls or ech else "N4",
                                 )
                                 if case in public_cases
                                 else observed
@@ -652,7 +689,7 @@ def run(
                                     dict(
                                         schema_version=1,
                                         suite="N7-WIRE"
-                                        if encryption or jls
+                                        if encryption or jls or ech
                                         else "N4-WIRE",
                                         assertion=test,
                                         status=status,

@@ -176,10 +176,10 @@ def negative_wire_pass(events, profile, front=25000, legs=1):
     return True
 
 
-def run(output: Path, selected=None):
+def run(output: Path, selected=None, *, encryption=None, supplied=None):
     output = output.resolve()
-    if output.parent != CORE_DIR / "target/interop/runs":
-        raise ValueError("use a fresh direct child of target/interop/runs")
+    if not output.is_relative_to(CORE_DIR / "target/interop/runs"):
+        raise ValueError("use a fresh child of target/interop/runs")
     required = cases()
     selected = list(required) if selected is None else selected
     if (
@@ -192,6 +192,7 @@ def run(output: Path, selected=None):
     report = dict(
         stage="N7.2",
         scope="S03/D16-production",
+        encryption_profile=encryption,
         complete_selection=set(selected) == set(required),
         required=list(required),
         source=source_identity(),
@@ -201,10 +202,13 @@ def run(output: Path, selected=None):
         status="NOT RUN",
     )
     try:
-        identity = {}
-        binary = download_mihomo(
-            "linux-arm64", directory=output / "binaries", identity=identity
-        )
+        if supplied is None:
+            identity = {}
+            binary = download_mihomo(
+                "linux-arm64", directory=output / "binaries", identity=identity
+            )
+        else:
+            binary, identity = supplied["M"]
         report["peers"]["M"] = identity
         built = run_command(
             [
@@ -307,6 +311,10 @@ def run(output: Path, selected=None):
                 )
                 backend, front = 23010 + index * 10, 25000 + index * 10
                 listener = config["listeners"][0]
+                if encryption:
+                    from .protocol_encryption_public import configuration as encrypt
+
+                    encrypt(encryption, node, config)
                 listener.update(name=name, port=backend)
                 listener["reality-config"]["dest"] = f"{observer.ipv4}:24431"
                 listeners.append(listener)
@@ -489,6 +497,7 @@ def run(output: Path, selected=None):
                         exit_code=result.returncode,
                         command_cleanup=result.cleanup,
                         seconds=result.seconds,
+                        command=test_command,
                         wire_sha256=hashlib.sha256(wire_path.read_bytes()).hexdigest(),
                         assertions=assertions,
                         wire_valid=wire_valid,
