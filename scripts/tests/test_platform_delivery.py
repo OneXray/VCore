@@ -25,7 +25,7 @@ class PlatformDeliveryTest(unittest.TestCase):
             root = Path(directory)
             source = root / "source"
             source.mkdir()
-            (source / "Cargo.lock").write_text("fixture lock\n")
+            (source / "Cargo.lock").write_bytes(b"fixture lock\n")
             subprocess.run(["git", "init", "-q", str(source)], check=True)
             subprocess.run(["git", "-C", str(source), "add", "."], check=True)
             subprocess.run(

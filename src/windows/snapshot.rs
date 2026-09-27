@@ -247,7 +247,13 @@ fn is_session_file_name(name: &str) -> bool {
 }
 
 fn snapshot_digest(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    use std::fmt::Write as _;
+
+    let mut output = String::with_capacity(64);
+    for byte in Sha256::digest(bytes) {
+        write!(&mut output, "{byte:02x}").expect("writing to a String cannot fail");
+    }
+    output
 }
 
 fn invalid_snapshot() -> Error {

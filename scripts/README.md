@@ -80,7 +80,10 @@ Apple 的实际架构检查使用系统 `lipo`，不从 plist 自报架构推导
 不替代设备 VPN、完整宿主安装或 Windows Store 门禁。
 
 `.github/workflows/platform-delivery.yml` 在 N10 开发分支 push 时执行四组构建，
-仅执行离线脚本检查/构建/ABI，不启动历史宿主网络测试。未签名产物及原始记录
+仅执行离线脚本检查/构建/ABI，不启动历史宿主网络测试。Unix执行完整离线脚本
+套件，Windows执行跨平台产物检查、原生快照测试和未打包Host失败关闭；不把
+仅支持Unix进程组/权限语义的旧harness测试记为Windows通过。每个检查独立步骤，
+避免PowerShell后续命令成功掩盖前序失败。未签名产物及原始记录
 保留 14 天；实际 run URL、commit 和有效期另行记录，工作流存在不算通过。
 完整阶段的独立 required 清单见 [N10](../docs/acceptance/next-protocols/N10.md)。
 

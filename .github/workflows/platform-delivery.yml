@@ -47,12 +47,18 @@ jobs:
         with:
           version: "0.12.15"
           python-version: "3.13"
-      - name: Offline script contracts
-        run: |
-          uv run --project scripts --locked python -m unittest discover -s scripts/tests
-          uv run --project scripts --locked ruff check scripts
-          uv run --project scripts --locked ruff format --check scripts
-          cargo fmt --all -- --check
+      - name: Offline Unix harness contracts
+        if: runner.os != 'Windows'
+        run: uv run --project scripts --locked python -m unittest discover -s scripts/tests
+      - name: Cross-platform artifact contracts
+        if: runner.os == 'Windows'
+        run: uv run --project scripts --locked python -m unittest discover -s scripts/tests -p test_platform_delivery.py
+      - name: Script lint
+        run: uv run --project scripts --locked ruff check scripts
+      - name: Script formatting
+        run: uv run --project scripts --locked ruff format --check scripts
+      - name: Rust formatting
+        run: cargo fmt --all -- --check
       - name: Locked source
         run: cargo fetch --locked
       - name: Android toolchain
@@ -68,6 +74,12 @@ jobs:
       - name: Native production C ABI
         if: matrix.platform != 'android'
         run: uv run --project scripts --locked vcore-scripts check platform-abi --manifest ${{ matrix.manifest }}
+      - name: Native Windows snapshot contracts (no network servers)
+        if: matrix.platform == 'windows'
+        run: cargo test --locked --release --target ${{ matrix.targets }} --features ffi --lib windows::snapshot::tests
+      - name: Native unpackaged Windows host fails closed
+        if: matrix.platform == 'windows'
+        run: cargo test --locked --release --target ${{ matrix.targets }} --features ffi --test windows_session_startup
       - name: Preserve unsigned artifacts and evidence
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
