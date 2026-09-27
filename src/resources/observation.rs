@@ -213,6 +213,12 @@ pub(crate) fn observe_queue(_: QueueKind, _: usize, _: usize) {}
 #[cfg(not(any(test, feature = "interop-test")))]
 #[derive(Debug)]
 pub(crate) struct Guard;
+// Callers may end a tracked lifetime explicitly. Keep that RAII contract when
+// observation is disabled, without adding state, counters, or allocations.
+#[cfg(not(any(test, feature = "interop-test")))]
+impl Drop for Guard {
+    fn drop(&mut self) {}
+}
 #[cfg(not(any(test, feature = "interop-test")))]
 pub(crate) fn track(_: ResourceKind) -> Guard {
     Guard

@@ -10,8 +10,13 @@ permissions:
 
 jobs:
   client-contracts:
+    name: client-contracts / ${{ matrix.gate }}
     runs-on: macos-15
     timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        gate: [N9-DEBUG, N9-RELEASE, N9-FEATURES]
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -22,6 +27,7 @@ jobs:
           version: "0.12.15"
           python-version: "3.13"
       - name: Formatting, scripts, and dependency contract
+        if: matrix.gate == 'N9-FEATURES'
         run: |
           cargo fmt --all -- --check
           uv run --project scripts --locked python -m unittest discover -s scripts/tests
@@ -29,27 +35,33 @@ jobs:
           uv run --project scripts --locked ruff format --check scripts
           uv run --project scripts --locked vcore-scripts check c-header
           uv run --project scripts --locked vcore-scripts check tls-dependencies
-      - name: Frozen memory-only Debug, Release, and feature contracts
+      - name: Production, instrumented harness, and netstack clippy
+        if: matrix.gate == 'N9-FEATURES'
+        run: |
+          cargo clippy --locked --features ffi --lib --bins -- -D warnings
+          cargo clippy --locked --all-features --lib --bins -- -D warnings
+          cargo clippy --locked --features ffi,interop-test --test mihomo_interop -- -D warnings
+          cargo clippy --locked --manifest-path crates/vcore-netstack/Cargo.toml --all-targets -- -D warnings
+      - name: Frozen memory-only ${{ matrix.gate }} contract
+        env:
+          VCORE_CI_GATE: ${{ matrix.gate }}
         run: |
           uv run --project scripts --locked python - <<'PY'
+          import os
           import subprocess
           from vcore_scripts.protocol_n9_local import commands
-          for gate in ("N9-DEBUG", "N9-RELEASE", "N9-FEATURES"):
-              selected = commands(gate)
-              if not selected:
-                  raise RuntimeError(f"empty required gate: {gate}")
-              for command in selected:
-                  print(gate, command, flush=True)
-                  subprocess.run(command, check=True)
+          gate = os.environ["VCORE_CI_GATE"]
+          selected = commands(gate)
+          if not selected:
+              raise RuntimeError(f"empty required gate: {gate}")
+          for command in selected:
+              print(gate, command, flush=True)
+              subprocess.run(command, check=True)
           PY
       - name: Memory-only netstack tests
+        if: matrix.gate == 'N9-FEATURES'
         run: |
           cargo test --locked --manifest-path crates/vcore-netstack/Cargo.toml --all-targets
-      - name: Production and netstack clippy
-        run: |
-          cargo clippy --locked --all-features --lib --bins -- -D warnings
-          cargo clippy --locked --features ffi --test mihomo_interop -- -D warnings
-          cargo clippy --locked --manifest-path crates/vcore-netstack/Cargo.toml --all-targets -- -D warnings
 
   platform-build:
     uses: ./.github/workflows/platform-delivery.yml

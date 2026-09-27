@@ -51,7 +51,9 @@ Apple 的 module map 声明 `c++` 链接依赖；不使用模块的 C 宿主还�
 
 `.github/workflows/test.yml` 在 PR/main/N10 开发分支执行 N9 已冻结的纯内存
 Debug/Release 与完整/精简 feature 命令，不运行历史宿主服务端套件；网络互通
-仍由隔离容器验收单独记录。平台交付复用 `platform-delivery.yml`，覆盖 Apple
+仍由隔离容器验收单独记录。三个冻结集合并行执行且全部必需；feature 作业前置
+无观察的生产 lib/bins clippy，以及开启 `interop-test` 的观察型 harness clippy。
+平台交付复用 `platform-delivery.yml`，覆盖 Apple
 五目标、Android 两 ABI、原生 Windows ARM64/x64 Release 及未签名产物归档。
 Android job 显式使用 NDK `28.2.13676358`，不继承 runner 的另一默认版本；Linux
 runner 只作 Android 交叉构建，不意味着 VCore 支持 Linux 运行。runner 标签依据
