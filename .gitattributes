@@ -1,0 +1,2 @@
+# The same lockfile bytes identify production artifacts on every build host.
+Cargo.lock text eol=lf
