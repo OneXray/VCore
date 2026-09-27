@@ -1,6 +1,6 @@
 # TLS 依赖与发布要求
 
-VCore 通过 GitHub 的不可变提交引用自有 boring 5.2.0 fork，承载命名 ClientHello 和 REALITY（经典默认及显式混合模式）。普通无指纹 TLS、QUIC 和共享 WebPKI 验证使用 crates.io 官方 rustls 0.23.45 + tokio-rustls 0.26.5，仅启用 ring provider。生产和四个独立实验工程均不再依赖自有 rustls fork，不保留第二套 REALITY 后端。
+VCore 通过 GitHub 的 `release` 分支依赖自有 boring 5.2.0 fork，由 `Cargo.lock` 固定已验证的完整提交，承载命名 ClientHello、REALITY（经典默认及显式混合模式）和 JLS。普通无指纹 TLS、QUIC 和共享 WebPKI 验证使用 crates.io 官方 rustls 0.23.45 + tokio-rustls 0.26.5，仅启用 ring provider。生产和四个独立实验工程均不再依赖自有 rustls fork，不保留第二套 REALITY 后端。
 
 ## 实现边界
 
@@ -18,15 +18,17 @@ REALITY 扩展不创建线程、异步任务、连接池或全局认证映射。
 ## 锁定依赖来源
 
 ```toml
-boring = { git = "https://github.com/OneXray/boring", rev = "5ca9ba3e18b59d05326d82eef926f4ec07ced8c0", version = "=5.2.0", features = ["client-fingerprint"] }
-tokio-boring = { git = "https://github.com/OneXray/boring", rev = "5ca9ba3e18b59d05326d82eef926f4ec07ced8c0", version = "=5.2.0" }
+boring = { git = "https://github.com/OneXray/boring", branch = "release", version = "=5.2.0", features = ["client-fingerprint"] }
+tokio-boring = { git = "https://github.com/OneXray/boring", branch = "release", version = "=5.2.0" }
+# dev-dependency for the memory-only native peer tests
+boring-sys = { git = "https://github.com/OneXray/boring", branch = "release", version = "=5.2.0" }
 rustls = { version = "=0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
 tokio-rustls = { version = "=0.26.5", default-features = false, features = ["ring", "tls12"] }
 ```
 
 要求：
 
-1. boring 三个 crate 必须来自同一已发布 revision；rustls/tokio-rustls 只使用官方 crates.io 发行版。不使用本机路径、`references` 依赖、rustls Git patch 或第二个 source；
+1. boring 三个 crate 必须来自同一 `OneXray/boring` 的 `release` 分支和同一已发布 revision；当前锁定 `d5a5d41850886aef5b269015130ee6d6eb2129ba`。依赖审计同时检查分支来源及已批准的 lockfile revision，拒绝其他分支、Git `rev` 来源或混合提交；rustls/tokio-rustls 只使用官方 crates.io 发行版。不使用本机路径、`references` 依赖、rustls Git patch 或第二个 source；
 2. `Cargo.toml` 和 `Cargo.lock` 在同一提交中更新，lockfile 必须包含 registry 校验值和 boring 完整 Git revision；
 3. 没有相邻 rustls/boring 目录时，`cargo fetch --locked` 和后续构建仍能成功；
 4. rustls 只启用 ring；`outbound-vless` 启用 `boring/reality`、公共 `boring/mlkem` 和 `boring/jls` hook，命名指纹由 `tls-fingerprint` feature 统一拥有。已取消 ShadowTLS 生产目标；锁定 fork 的 JLS feature 仍传递依赖共用的 `shadow-tls-v3` 底层 hook，不代表开放 ShadowTLS；
@@ -59,11 +61,12 @@ REALITY 构建补丁 SHA-256 为 `308b0fabbf8651656d4e853e0f789746b4125033dd9bb3
 认证与受控记录切换。ShadowTLS 目标已取消；保留 JLS 的内部依赖不构成该协议
 支持，也不增加当前阶段的开发目标。历史准入和独立 fork 证据见
 [N7.4 记录](acceptance/next-protocols/N7-shadow-tls.md)。
-新增 JLS hook patch SHA-256 为
-`204879d971b95a30534cea9a3a2b723238857f24884236ab3139da9307761914`；已获准发布并
-由上述不可变 revision 接入。它认证原生 hello，保留 CertificateVerify/Finished 和
-TLS 记录保护，完整接线与证据见 [JLS](jls.md)。当前 revision 仅删除 Restls，
-JLS 保留；没有本机 path/patch 依赖。变更后的依赖与消费者验证见
+当前 JLS hook patch SHA-256 为
+`024e6c3724af18b9a714e8da34956e00503055b8c0b3548b600f49f4cc8b2028`；通过上述
+`release` 分支及锁文件接入。它认证原生 hello，保留 CertificateVerify/Finished 和
+TLS 记录保护，并在首次不可重试握手错误返回前清零原生凭据；非阻塞读写重试仍保留
+ServerHello 认证所需凭据。完整接线与证据见 [JLS](jls.md)。Restls 已删除，
+JLS 保留；没有本机 path/patch 依赖。历史范围撤回的依赖与消费者验证见
 [Restls 撤回验收](acceptance/next-protocols/N7-restls-retirement.md)。
 补丁由 feature 控制，原始子模块不修改。Safari Zlib 增加可选 `flate2 1.1.10`
 （关闭默认 feature，使用纯 Rust `rust_backend`）；Chrome 保留 `brotli 9.0.0`。
@@ -80,7 +83,7 @@ Android 输出须连同同 ABI、同 NDK 的 `libc++_shared.so` 打包；标准�
 许可证审查也必须包含该新增运行库。仅生成 `libvcore.so` 不能证明宿主可加载。
 发布须审查 boring 的 MIT/Apache-2.0 及 BoringSSL 随源许可/通知，不能仅检查 Rust crate 的 license 字段。
 
-分支前移不会自动改变 locked 构建。升级必须显式更新 `Cargo.lock`、审查解析 revision，并在同一变更中重新执行验证门禁。
+分支前移不会自动改变 locked 构建。升级必须显式更新 `Cargo.lock`、审查解析 revision，同步依赖审计中的批准 revision，并在同一变更中重新执行验证门禁。Shadowsocks 2022 使用官方 crates.io `shadowsocks = "=1.25.0"`，不是 Git 依赖；其唯一 AWS-LC 局部例外见 [Shadowsocks](shadowsocks.md)。
 
 ## 验证门禁
 
@@ -120,6 +123,6 @@ uv run --project scripts --locked vcore-scripts build windows
 2. 重新运行全部确定性线上向量；
 3. 审查 ClientHello、key share、证书验证器和 provider API 的变化；
 4. 重新执行平台构建和产品数据面；
-5. boring fork 的变更先发布不可变提交，再更新并审查 lockfile 中的依赖来源、版本、校验值及 Git revision。
+5. boring fork 的变更先合入并发布至 `release`，再更新并审查 lockfile 中的依赖来源、版本、校验值及完整 Git revision。
 
 回退通过新的 VCore 提交恢复已验证且依赖仍可获取的 lockfile revision；不能回到已退役 fork。VCore 不保留双 REALITY 实现或运行时降级开关。

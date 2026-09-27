@@ -18,8 +18,8 @@ from vcore_scripts import builds, cli, mihomo
 from vcore_scripts.builds import EXPECTED_IDENTITY, _android_target, _require_identity
 from vcore_scripts.checks import (
     BORING_GIT_SOURCE,
+    BORING_REVISION,
     CRATES_IO_SOURCES,
-    SHADOWSOCKS_GIT_SOURCE,
     _shadowsocks_aws_lc_errors,
     _tls_dependency_errors,
 )
@@ -569,11 +569,15 @@ except RuntimeError as error:
             None,
             registry,
             BORING_GIT_SOURCE.rsplit("#", 1)[0] + "#" + "f" * 40,
+            BORING_GIT_SOURCE.replace("?branch=release", "?branch=main"),
+            BORING_GIT_SOURCE.replace("?branch=release", f"?rev={BORING_REVISION}"),
+            BORING_GIT_SOURCE.replace("OneXray/boring", "example/boring"),
         ]:
-            with self.subTest(boring_source=source):
-                invalid = copy.deepcopy(metadata)
-                invalid["packages"][3]["source"] = source
-                self.assertTrue(_tls_dependency_errors(invalid))
+            for index in (3, 4, 5):
+                with self.subTest(boring_source=source, package=index):
+                    invalid = copy.deepcopy(metadata)
+                    invalid["packages"][index]["source"] = source
+                    self.assertTrue(_tls_dependency_errors(invalid))
 
         for required in ["reality", "client-fingerprint", "shadow-tls-v3", "jls"]:
             with self.subTest(boring_feature=required):
@@ -669,7 +673,7 @@ except RuntimeError as error:
                 for name, version, source in zip(
                     names,
                     ["1.25.0", "0.8.0", "1.18.1", "0.45.0"],
-                    [SHADOWSOCKS_GIT_SOURCE, registry, registry, registry],
+                    [registry] * 4,
                     strict=True,
                 )
             ],
@@ -691,6 +695,21 @@ except RuntimeError as error:
             },
         }
         self.assertEqual(_shadowsocks_aws_lc_errors(metadata), [])
+        for source in CRATES_IO_SOURCES:
+            with self.subTest(shadowsocks_registry=source):
+                official = copy.deepcopy(metadata)
+                official["packages"][0]["source"] = source
+                self.assertEqual(_shadowsocks_aws_lc_errors(official), [])
+        for source in (
+            "git+https://github.com/shadowsocks/shadowsocks-rust.git?rev="
+            "ab388c7466d21f979430e33cc9ef10e22fb05955#"
+            "ab388c7466d21f979430e33cc9ef10e22fb05955",
+            "registry+https://example.invalid/index",
+        ):
+            with self.subTest(shadowsocks_source=source):
+                invalid = copy.deepcopy(metadata)
+                invalid["packages"][0]["source"] = source
+                self.assertTrue(_shadowsocks_aws_lc_errors(invalid))
         for index, feature in [(0, "aead-cipher-2022-extra"), (1, "v2-extra")]:
             invalid = copy.deepcopy(metadata)
             invalid["resolve"]["nodes"][index]["features"].append(feature)

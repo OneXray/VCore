@@ -14,6 +14,12 @@
 
 ## 自动化覆盖
 
+2026-09-27 [boring release 与 Shadowsocks registry 接入复验](acceptance/boring-release-adoption.md)
+将三个 boring crate 改为 `release` 分支依赖并锁定 `d5a5d418`，Shadowsocks 改为
+官方 crates.io 1.25.0。Debug/Release 各261次定向执行、23条 feature 命令、182项
+脚本检查、17项 netstack、24项 JLS 容器用例及两组 SS 验证通过，29个所属容器回收。
+仅为依赖接入的定向回归，不重签完整N9、跨平台产物、设备或发布。
+
 2026-09-25 [精选指纹 CF0](acceptance/client-fingerprint-selected/CF0.md)完成七值/四模板的独立官方参考基线、116 组原始观测检查与冻结门禁。它只签收 `selected-v1` 的采样设施，不扩大生产名称、不抵扣新模板业务互通或平台验收；后续 CF1–CF5 独立记录。
 
 同轮 [fork 库阶段记录](acceptance/client-fingerprint-selected/library-progress.md)完成 CF1–CF3 及 CF4 的本地 REALITY 子包，组合测试 43 项通过。[本地 CF4](acceptance/client-fingerprint-selected/CF4.md)锁定获准发布的 `e81c6837`，完成四模板/七值及 schema20 接线，43 项独立容器互通、共享内存安全及 feature 门禁通过。

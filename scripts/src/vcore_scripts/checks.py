@@ -13,14 +13,9 @@ CRATES_IO_SOURCES = {
     "registry+https://github.com/rust-lang/crates.io-index",
     "registry+https://index.crates.io/",
 }
-BORING_REVISION = "5ca9ba3e18b59d05326d82eef926f4ec07ced8c0"
+BORING_REVISION = "d5a5d41850886aef5b269015130ee6d6eb2129ba"
 BORING_GIT_SOURCE = (
-    f"git+https://github.com/OneXray/boring?rev={BORING_REVISION}#{BORING_REVISION}"
-)
-SHADOWSOCKS_REVISION = "ab388c7466d21f979430e33cc9ef10e22fb05955"
-SHADOWSOCKS_GIT_SOURCE = (
-    "git+https://github.com/shadowsocks/shadowsocks-rust.git"
-    f"?rev={SHADOWSOCKS_REVISION}#{SHADOWSOCKS_REVISION}"
+    f"git+https://github.com/OneXray/boring?branch=release#{BORING_REVISION}"
 )
 
 _C_SOURCE = r"""#include "vcore.h"
@@ -101,7 +96,7 @@ def _shadowsocks_aws_lc_errors(metadata: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     allowed: dict[str, dict[str, Any]] = {}
     expected = {
-        "shadowsocks": ("1.25.0", {SHADOWSOCKS_GIT_SOURCE}),
+        "shadowsocks": ("1.25.0", CRATES_IO_SOURCES),
         "shadowsocks-crypto": ("0.8.0", CRATES_IO_SOURCES),
         "aws-lc-rs": (None, CRATES_IO_SOURCES),
         "aws-lc-sys": (None, CRATES_IO_SOURCES),
@@ -261,7 +256,10 @@ def _tls_dependency_errors(metadata: dict[str, Any]) -> list[str]:
             continue
         native[name] = package
         if package.get("source") != BORING_GIT_SOURCE:
-            errors.append(f"{name} must use the exact published boring fork revision")
+            errors.append(
+                f"{name} must use the approved boring release branch "
+                "and locked revision"
+            )
         node = node_by_id.get(package["id"])
         if node is None:
             errors.append(f"{name} is missing from the resolved graph")
@@ -329,7 +327,10 @@ def check_tls_dependencies() -> None:
     print(f"- one official crates.io rustls {rustls['version']}")
     print("- one official tokio-rustls 0.26.5")
     print("- one official hpke 0.14.1 with the approved static ECH algorithms")
-    print(f"- one boring/boring-sys/tokio-boring 5.2.0 fork @ {BORING_REVISION[:12]}")
+    print(
+        "- one boring/boring-sys/tokio-boring 5.2.0 release branch "
+        f"@ {BORING_REVISION[:12]}"
+    )
     print(f"- one registry ring {ring['version']} provider")
     print(
         "- unprofiled TLS/QUIC use rustls + ring; REALITY/named profiles use BoringSSL"

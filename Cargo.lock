@@ -279,7 +279,7 @@ dependencies = [
 [[package]]
 name = "boring"
 version = "5.2.0"
-source = "git+https://github.com/OneXray/boring?rev=5ca9ba3e18b59d05326d82eef926f4ec07ced8c0#5ca9ba3e18b59d05326d82eef926f4ec07ced8c0"
+source = "git+https://github.com/OneXray/boring?branch=release#d5a5d41850886aef5b269015130ee6d6eb2129ba"
 dependencies = [
  "bitflags 2.13.2",
  "boring-sys",
@@ -293,7 +293,7 @@ dependencies = [
 [[package]]
 name = "boring-sys"
 version = "5.2.0"
-source = "git+https://github.com/OneXray/boring?rev=5ca9ba3e18b59d05326d82eef926f4ec07ced8c0#5ca9ba3e18b59d05326d82eef926f4ec07ced8c0"
+source = "git+https://github.com/OneXray/boring?branch=release#d5a5d41850886aef5b269015130ee6d6eb2129ba"
 dependencies = [
  "bindgen",
  "cmake",
@@ -1985,7 +1985,8 @@ dependencies = [
 [[package]]
 name = "shadowsocks"
 version = "1.25.0"
-source = "git+https://github.com/shadowsocks/shadowsocks-rust.git?rev=ab388c7466d21f979430e33cc9ef10e22fb05955#ab388c7466d21f979430e33cc9ef10e22fb05955"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e2065b026dbe4f47048eca384adf07f693bf901050d80abd3adb7b2422709b2d"
 dependencies = [
  "aes",
  "base64",
@@ -2284,7 +2285,7 @@ dependencies = [
 [[package]]
 name = "tokio-boring"
 version = "5.2.0"
-source = "git+https://github.com/OneXray/boring?rev=5ca9ba3e18b59d05326d82eef926f4ec07ced8c0#5ca9ba3e18b59d05326d82eef926f4ec07ced8c0"
+source = "git+https://github.com/OneXray/boring?branch=release#d5a5d41850886aef5b269015130ee6d6eb2129ba"
 dependencies = [
  "boring",
  "boring-sys",

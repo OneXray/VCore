@@ -111,7 +111,7 @@ uv run --project scripts --locked ruff check scripts
 uv run --project scripts --locked ruff format --check scripts
 ```
 
-`c-header` 在 macOS 使用 `xcrun clang/clang++`，其他平台使用 `PATH` 中的 `clang/clang++`。`tls-dependencies` 直接读取 `cargo metadata`，验证唯一的官方 crates.io rustls 0.23.45、tokio-rustls 0.26.5 和 registry ring；拒绝 rustls Git/path 覆盖，REALITY/AWS-LC/FIPS 必须关闭。boring/boring-sys/tokio-boring 5.2.0 必须来自同一个已批准的 Git revision，检查实际依赖边、REALITY/profile feature，并禁止 FIPS/RPK/PQ 实验模式和 Watfaq 来源。AWS-LC 仅允许出现在锁定官方 Shadowsocks 1.25.0 → registry shadowsocks-crypto 0.8.0 → aws-lc-rs → aws-lc-sys 链；这个例外不作为 TLS provider 使用。完整边界见 [TLS 依赖](../docs/tls-dependencies.md)。
+`c-header` 在 macOS 使用 `xcrun clang/clang++`，其他平台使用 `PATH` 中的 `clang/clang++`。`tls-dependencies` 直接读取 `cargo metadata`，验证唯一的官方 crates.io rustls 0.23.45、tokio-rustls 0.26.5 和 registry ring；拒绝 rustls Git/path 覆盖，REALITY/AWS-LC/FIPS 必须关闭。boring/boring-sys/tokio-boring 5.2.0 必须来自 `OneXray/boring` 的同一 `release` 分支和已批准的锁定 revision，拒绝其他分支、`rev` 来源及混合提交；检查实际依赖边、REALITY/profile feature，并禁止 FIPS/RPK/PQ 实验模式和 Watfaq 来源。AWS-LC 仅允许出现在官方 crates.io Shadowsocks 1.25.0 → shadowsocks-crypto 0.8.0 → aws-lc-rs → aws-lc-sys 链，拒绝 Shadowsocks Git/path/非官方 registry 来源；这个例外不作为 TLS provider 使用。完整边界见 [TLS 依赖](../docs/tls-dependencies.md)。
 
 ### TLS 指纹接线验证
 

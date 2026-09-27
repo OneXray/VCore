@@ -26,7 +26,7 @@
 
 ## 依赖与日志边界
 
-官方 Git revision 固定为 `ab388c7466d21f979430e33cc9ef10e22fb05955`，关闭默认 features，仅启用 `aead-cipher-2022`；registry `shadowsocks-crypto` 为 `0.8.0`。没有协议源码补丁或研究目录 path 依赖。
+使用官方 crates.io `shadowsocks = "=1.25.0"` 版本依赖，关闭默认 features，仅启用 `aead-cipher-2022`；registry `shadowsocks-crypto` 为 `0.8.0`。`Cargo.lock` 记录 registry 来源与包校验值，不使用 Shadowsocks Git 仓库、协议源码补丁或研究目录 path 依赖。
 
 仅允许 `shadowsocks → shadowsocks-crypto → aws-lc-rs → aws-lc-sys` 链使用 AWS-LC，来源、features 与反向依赖边由 `check tls-dependencies` 校验。该例外不用于 TLS / REALITY；其 rustls + ring 与 BoringSSL 边界见 [TLS 依赖](tls-dependencies.md)。额外 AWS-LC 消费者、FIPS 和 2022-extra features 被拒绝。
 
