@@ -2,8 +2,7 @@ name: Platform delivery
 
 on:
   workflow_dispatch:
-  push:
-    branches: [feat/platform-delivery-n10]
+  workflow_call:
 
 permissions:
   contents: read
@@ -71,15 +70,9 @@ jobs:
         run: uv run --project scripts --locked vcore-scripts build ${{ matrix.platform }} --delivery
       - name: Independently verify packaged files
         run: uv run --project scripts --locked vcore-scripts check platform-artifacts --manifest ${{ matrix.manifest }}
-      - name: Native production C ABI
+      - name: Native C ABI and Windows snapshot/startup contracts
         if: matrix.platform != 'android'
         run: uv run --project scripts --locked vcore-scripts check platform-abi --manifest ${{ matrix.manifest }}
-      - name: Native Windows snapshot contracts (no network servers)
-        if: matrix.platform == 'windows'
-        run: cargo test --locked --release --target ${{ matrix.targets }} --features ffi --lib windows::snapshot::tests
-      - name: Native unpackaged Windows host fails closed
-        if: matrix.platform == 'windows'
-        run: cargo test --locked --release --target ${{ matrix.targets }} --features ffi --test windows_session_startup
       - name: Preserve unsigned artifacts and evidence
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:

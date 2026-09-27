@@ -7,6 +7,7 @@ import json
 import os
 import platform
 import plistlib
+import shutil
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
@@ -270,6 +271,13 @@ def build_delivery(platform_name: str) -> None:
         normalized = {key.upper(): value for key, value in environment.items()}
         toolchain["msvc"] = normalized.get("VCTOOLSVERSION", "").strip()
         toolchain["windowsSdk"] = normalized.get("WINDOWSSDKVERSION", "").strip("\\ ")
+        toolchain["cmake"] = _output(["cmake", "--version"], builds.CORE_DIR)
+        toolchain["generator"] = "Ninja" if architecture == "arm64" else "Visual Studio"
+        if architecture == "arm64":
+            toolchain["clang"] = _output(
+                [normalized["VCORE_WINDOWS_ARM64_CLANG"], "--version"], builds.CORE_DIR
+            )
+            toolchain["assembly"] = "enabled"
     elif platform_name == "apple":
         toolchain["xcode"] = _output(["xcodebuild", "-version"], builds.CORE_DIR)
         for sdk in ("iphoneos", "iphonesimulator", "macosx"):
@@ -351,12 +359,15 @@ def build_delivery(platform_name: str) -> None:
 
 def check_abi(manifest: Path) -> None:
     """Compile a real C consumer; no replacement library and no protocol servers."""
+    # Commands below run from an isolated output directory, not the caller cwd.
+    manifest = manifest.resolve()
     check_delivery([manifest])
     record = json.loads(manifest.read_text(encoding="utf-8"))
     group = record["group"]
     root = builds.CORE_DIR
     work = root / "target/platform-delivery/abi" / group
     work.mkdir(parents=True, exist_ok=True)
+    (work / "result.json").unlink(missing_ok=True)
     source = root / "scripts/fixtures/platform_abi.c"
     binary = work / ("abi.exe" if os.name == "nt" else "abi")
     environment = os.environ.copy()
@@ -390,8 +401,18 @@ def check_abi(manifest: Path) -> None:
         if group != "windows-" + architecture:
             raise ValueError("ABI check cannot substitute emulation for native Windows")
         environment = builds._windows_msvc_environment(architecture)
+        search_path = next(
+            value for key, value in environment.items() if key.upper() == "PATH"
+        )
+        # CreateProcess does not use env[PATH] to resolve the executable. Resolve
+        # cl from vcvars explicitly rather than requiring it in the parent PATH.
+        compiler = shutil.which("cl", path=search_path)
+        if not compiler:
+            raise ValueError(
+                "MSVC C compiler is unavailable in the selected environment"
+            )
         command = [
-            "cl",
+            compiler,
             "/nologo",
             "/std:c11",
             "/W4",
@@ -409,6 +430,27 @@ def check_abi(manifest: Path) -> None:
         )
     subprocess.run(command, cwd=work, env=environment, check=True, timeout=120)
     subprocess.run(execute, cwd=work, env=environment, check=True, timeout=60)
+    if group.startswith("windows-"):
+        target = {"arm64": "aarch64-pc-windows-msvc", "x64": "x86_64-pc-windows-msvc"}[
+            architecture
+        ]
+        base = [
+            "cargo",
+            "test",
+            "--locked",
+            "--release",
+            "--target",
+            target,
+            "--features",
+            "ffi",
+        ]
+        for suffix in (
+            ["--lib", "windows::snapshot::tests"],
+            ["--test", "windows_session_startup"],
+        ):
+            subprocess.run(
+                base + suffix, cwd=root, env=environment, check=True, timeout=1200
+            )
     if _source(root) != record["source"]:
         raise ValueError("source changed during ABI check")
     evidence = {

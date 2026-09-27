@@ -389,6 +389,30 @@ def _windows_msvc_environment(architecture: str) -> dict[str, str]:
         key, separator, value = line.partition("=")
         if separator and key:
             env[key] = value
+    if architecture == "arm64":
+        search_path = next(value for key, value in env.items() if key.upper() == "PATH")
+        compilers = {
+            name: shutil.which(name, path=search_path)
+            for name in ("clang-cl", "clang", "ninja")
+        }
+        if not all(compilers.values()):
+            raise RuntimeError(
+                "native Windows ARM64 requires LLVM clang-cl/clang and Ninja"
+            )
+        # Visual Studio's generator does not assemble BoringSSL's preprocessed
+        # .S inputs. Keep assembly enabled using LLVM + Ninja, still MSVC ABI,
+        # the selected Windows SDK, and the same static CRT. No source patch.
+        env.update(
+            {
+                "CC_aarch64_pc_windows_msvc": compilers["clang-cl"],
+                "CXX_aarch64_pc_windows_msvc": compilers["clang-cl"],
+                "VCORE_WINDOWS_ARM64_CLANG": compilers["clang"],
+                "CMAKE_GENERATOR_aarch64_pc_windows_msvc": "Ninja",
+                "CMAKE_TOOLCHAIN_FILE_aarch64_pc_windows_msvc": str(
+                    CORE_DIR / "scripts/cmake/windows-arm64.toolchain.cmake"
+                ),
+            }
+        )
     return env
 
 

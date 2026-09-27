@@ -24,6 +24,9 @@ uv run --project scripts --locked vcore-scripts build windows
 - Apple 命令只能在 macOS 运行，输出 `dist/apple/LibVCore.xcframework`。
 - Android 命令在 macOS/Linux 运行，默认输出 `dist/android/{arm64-v8a,x86_64}/libvcore.so` 及同 ABI 的 `libc++_shared.so`；宿主必须一起打包，不能假定 Android 系统提供该 C++ runtime。
 - Windows 命令只能在已安装 Visual Studio C++ 工具的 Windows 运行；命令从系统注册表读取原生 ARM64/x64 处理器架构，通过 `vswhere` 加载对应的 MSVC 环境，验证三项 PE 的 machine type 后输出 `dist/windows/<architecture>` 下的 DLL、Provider Host、Session Host 和记录 package integration revision、架构及三项 SHA-256 的 `vcore-windows-artifacts.json`。
+- Windows ARM64 还要求 PATH 可找到 LLVM `clang-cl`/`clang` 和 Ninja；自有 CMake
+  toolchain 使用 MSVC ABI/SDK/static CRT，保持 BoringSSL 汇编启用，避免 Visual
+  Studio 生成器遗漏 `.S` 对象。x64 的现有 MSVC/NASM 构建路径不变。
 - 所有构建都使用 `Cargo.lock`，并检查产物内的 Invoke API v5/config revision 27 身份。
 - 标准 Apple、Android、Windows 构建显式包含两种客户端入站和七种代理出站（含 Hysteria2），不依赖 `ffi` / `tun` 的传递 feature 来隐式补齐；不包含 `interop-test`。Apple/Android 的自定义 `VCORE_FEATURES` 不得将测试信任注入用于交付。
 
@@ -46,7 +49,14 @@ Android NDK 优先读取 `ANDROID_NDK_HOME`，否则使用 `$ANDROID_HOME/ndk/<v
 boring-sys 两次 CMake configure 时显式 clang 包装器被 NDK 替换而触发缓存重置。
 Apple 的 module map 声明 `c++` 链接依赖；不使用模块的 C 宿主还需显式链接 `-lc++`。
 
-`.github/workflows/test.yml` 配置 macOS 的完整/精简协议 feature 检查，以及 Apple 五目标、Android 两 ABI、原生 Windows ARM64/x64 的 Release 构建和短期未签名产物归档。Android job 显式使用 NDK `28.2.13676358`，避免继承 runner 的另一默认版本；Linux runner 只作 Android 交叉构建，不意味着 VCore 支持 Linux 运行。runner 标签依据 [GitHub 官方清单](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)。工作流配置不等于已执行的 CI 或设备验收，通过记录仍见 [验收矩阵](../docs/acceptance.md)。
+`.github/workflows/test.yml` 在 PR/main/N10 开发分支执行 N9 已冻结的纯内存
+Debug/Release 与完整/精简 feature 命令，不运行历史宿主服务端套件；网络互通
+仍由隔离容器验收单独记录。平台交付复用 `platform-delivery.yml`，覆盖 Apple
+五目标、Android 两 ABI、原生 Windows ARM64/x64 Release 及未签名产物归档。
+Android job 显式使用 NDK `28.2.13676358`，不继承 runner 的另一默认版本；Linux
+runner 只作 Android 交叉构建，不意味着 VCore 支持 Linux 运行。runner 标签依据
+[GitHub 官方清单](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)。
+工作流配置不等于已执行的 CI 或设备验收，实际记录见[验收矩阵](../docs/acceptance.md)。
 
 ## 检查
 
@@ -75,11 +85,12 @@ XCFramework 的设备/模拟器/桌面 slice。`--complete` 必须同时提供 A
 Apple 的实际架构检查使用系统 `lipo`，不从 plist 自报架构推导二进制正确。
 
 `platform-abi` 在当前原生 macOS/Windows 上编译 C 消费者，最终链接 XCFramework
-或加载配套 DLL，执行 1,000 次 Invoke/Free 和旧 API 拒绝；原始结果在
+或加载配套 DLL，执行 1,000 次 Invoke/Free 和旧 API 拒绝；Windows 还在同一工具链
+环境执行现有快照和未打包 Host 契约，避免测试重新切回错误的汇编生成器。原始结果在
 `target/platform-delivery/abi/<group>/result.json`。它不创建运行时或网络监听器，
 不替代设备 VPN、完整宿主安装或 Windows Store 门禁。
 
-`.github/workflows/platform-delivery.yml` 在 N10 开发分支 push 时执行四组构建，
+`.github/workflows/platform-delivery.yml` 由 PR/main/N10 分支工作流复用四组构建，
 仅执行离线脚本检查/构建/ABI，不启动历史宿主网络测试。Unix执行完整离线脚本
 套件，Windows执行跨平台产物检查、原生快照测试和未打包Host失败关闭；不把
 仅支持Unix进程组/权限语义的旧harness测试记为Windows通过。每个检查独立步骤，

@@ -3,31 +3,15 @@ name: Tests
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, feat/platform-delivery-n10]
 
 permissions:
   contents: read
 
 jobs:
-  test:
-    runs-on: windows-2025
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
-      - name: Build default features
-        run: cargo build --locked --all-targets
-      - name: Debug tests
-        run: cargo test --locked --all-features --all-targets
-      - name: Release tests
-        run: cargo test --locked --release --all-features --all-targets
-
   client-contracts:
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -45,16 +29,21 @@ jobs:
           uv run --project scripts --locked ruff format --check scripts
           uv run --project scripts --locked vcore-scripts check c-header
           uv run --project scripts --locked vcore-scripts check tls-dependencies
-      - name: Minimal and individual protocol features
+      - name: Frozen memory-only Debug, Release, and feature contracts
         run: |
-          cargo check --locked --no-default-features --lib
-          for features in inbound-http inbound-socks5 outbound-anytls outbound-socks5 outbound-shadowsocks outbound-trojan outbound-vless inbound-http,inbound-socks5 ffi; do
-            cargo check --locked --no-default-features --features "$features" --lib
-          done
-      - name: Debug and Release runtime tests
+          uv run --project scripts --locked python - <<'PY'
+          import subprocess
+          from vcore_scripts.protocol_n9_local import commands
+          for gate in ("N9-DEBUG", "N9-RELEASE", "N9-FEATURES"):
+              selected = commands(gate)
+              if not selected:
+                  raise RuntimeError(f"empty required gate: {gate}")
+              for command in selected:
+                  print(gate, command, flush=True)
+                  subprocess.run(command, check=True)
+          PY
+      - name: Memory-only netstack tests
         run: |
-          cargo test --locked --all-features --all-targets
-          cargo test --locked --release --all-features --all-targets
           cargo test --locked --manifest-path crates/vcore-netstack/Cargo.toml --all-targets
       - name: Production and netstack clippy
         run: |
@@ -63,78 +52,4 @@ jobs:
           cargo clippy --locked --manifest-path crates/vcore-netstack/Cargo.toml --all-targets -- -D warnings
 
   platform-build:
-    name: Release ${{ matrix.name }}
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: apple
-            platform: apple
-            runner: macos-15
-            targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios,aarch64-apple-darwin,x86_64-apple-darwin
-          - name: android
-            platform: android
-            runner: ubuntu-24.04
-            targets: aarch64-linux-android,x86_64-linux-android
-          - name: windows-x64
-            platform: windows
-            runner: windows-2025
-            targets: x86_64-pc-windows-msvc
-          - name: windows-arm64
-            platform: windows
-            runner: windows-11-arm
-            targets: aarch64-pc-windows-msvc
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.targets }}
-          components: rustfmt
-      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
-        with:
-          version: "0.12.15"
-          python-version: "3.13"
-      - name: Record locked source and toolchain
-        run: |
-          git rev-parse HEAD
-          rustc --version --verbose
-          cargo fetch --locked
-      - name: Apple SDK versions
-        if: matrix.platform == 'apple'
-        run: |
-          xcodebuild -version
-          xcodebuild -showsdks
-      - name: Build Android with the pinned NDK
-        if: matrix.platform == 'android'
-        shell: bash
-        run: |
-          sdkmanager "ndk;28.2.13676358"
-          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
-          "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/clang" --version
-          uv run --project scripts --locked vcore-scripts build android
-      - name: Build native platform artifacts
-        if: matrix.platform != 'android'
-        run: uv run --project scripts --locked vcore-scripts build ${{ matrix.platform }}
-      - name: Record Unix artifact hashes
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          shasum -a 256 Cargo.lock
-          find dist -type f -exec shasum -a 256 {} +
-      - name: Record Windows artifact hashes
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          Get-FileHash Cargo.lock -Algorithm SHA256
-          Get-ChildItem dist -Recurse -File | Get-FileHash -Algorithm SHA256
-      - name: Preserve unsigned build artifacts
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
-        with:
-          name: vcore-${{ matrix.name }}-${{ github.sha }}
-          path: |
-            dist/${{ matrix.platform }}/
-            Cargo.lock
-          if-no-files-found: error
-          retention-days: 7
+    uses: ./.github/workflows/platform-delivery.yml
