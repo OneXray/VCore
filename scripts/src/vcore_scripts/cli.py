@@ -25,9 +25,15 @@ def _parser() -> argparse.ArgumentParser:
 
     build = commands.add_parser("build", help="build platform artifacts")
     platforms = build.add_subparsers(dest="platform", required=True)
-    platforms.add_parser("apple", help="build LibVCore.xcframework on macOS")
-    platforms.add_parser("android", help="build Android libvcore.so artifacts")
-    platforms.add_parser("windows", help="build packaged Windows artifacts")
+    for name, description in (
+        ("apple", "build LibVCore.xcframework on macOS"),
+        ("android", "build Android libvcore.so artifacts"),
+        ("windows", "build packaged Windows artifacts"),
+    ):
+        command = platforms.add_parser(name, help=description)
+        command.add_argument(
+            "--delivery", action="store_true", help="record N10 production artifacts"
+        )
 
     download = commands.add_parser("download", help="download official test peers")
     downloads = download.add_subparsers(dest="download", required=True)
@@ -40,6 +46,16 @@ def _parser() -> argparse.ArgumentParser:
     checks = check.add_subparsers(dest="check", required=True)
     checks.add_parser("c-header", help="compile vcore.h as C and C++")
     checks.add_parser("tls-dependencies", help="validate the locked TLS graph")
+    delivery = checks.add_parser(
+        "platform-artifacts", help="verify production artifact evidence, not devices"
+    )
+    delivery.add_argument("--manifest", type=Path, action="append", required=True)
+    delivery.add_argument("--source-dir", type=Path)
+    delivery.add_argument(
+        "--complete", action="store_true", help="require all N10.1 groups"
+    )
+    abi = checks.add_parser("platform-abi", help="link/load native production artifact")
+    abi.add_argument("--manifest", type=Path, required=True)
     reality = checks.add_parser(
         "reality-hybrid",
         help="run isolated N7.2 S03/D16 checks, not complete N7 acceptance",
@@ -139,7 +155,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         if args.command == "build":
-            if args.platform == "apple":
+            if args.delivery:
+                from .platform_delivery import build_delivery
+
+                build_delivery(args.platform)
+            elif args.platform == "apple":
                 build_apple()
             elif args.platform == "android":
                 build_android()
@@ -150,6 +170,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.command == "check":
             if args.check == "c-header":
                 check_c_header()
+            elif args.check == "platform-artifacts":
+                from .platform_delivery import check_delivery
+
+                check_delivery(
+                    args.manifest, source_dir=args.source_dir, complete=args.complete
+                )
+            elif args.check == "platform-abi":
+                from .platform_delivery import check_abi
+
+                check_abi(args.manifest.resolve())
             elif args.check == "xhttp-peers":
                 from .protocol_xhttp_peers import main as xhttp_peers
 

@@ -50,6 +50,42 @@ Apple 的 module map 声明 `c++` 链接依赖；不使用模块的 C 宿主还�
 
 ## 检查
 
+### N10 生产产物
+
+```sh
+uv run --project scripts --locked vcore-scripts build apple --delivery
+uv run --project scripts --locked vcore-scripts build android --delivery
+# 在原生 Windows ARM64 / x64 上分别执行
+uv run --project scripts --locked vcore-scripts build windows --delivery
+uv run --project scripts --locked vcore-scripts check platform-artifacts --manifest dist/apple/vcore-delivery.json
+uv run --project scripts --locked vcore-scripts check platform-abi --manifest dist/apple/vcore-delivery.json
+```
+
+`--delivery` 要求干净、已提交的 checkout、完整生产 features 和 Release profile，
+拒绝测试 feature、输出目录/目标列表和 Cargo profile/Rust flags 的隐藏覆盖。
+每组产物生成 `vcore-delivery.json`：绑定源码 commit/tree、lockfile SHA-256、
+API/schema、feature、实际工具链/SDK/NDK、主机架构及全部文件大小/摘要。
+构建前删除该组旧记录，构建后复验源码未变；失败不生成可签收记录。
+
+`platform-artifacts` 可以重复传入 `--manifest`，默认与当前仓库干净 HEAD 比较，
+`--source-dir` 只用于显式选择另一份相同候选 checkout。拒绝缺失/额外文件、重复组、
+跨 commit/lock、错误 ELF/PE/Mach-O 架构及缺失 C++ runtime；Apple 同时检查
+XCFramework 的设备/模拟器/桌面 slice。`--complete` 必须同时提供 Apple、Android、
+原生 Windows ARM64、原生 Windows x64 四组，仅代表 **N10.1**。在 macOS 上汇总，
+Apple 的实际架构检查使用系统 `lipo`，不从 plist 自报架构推导二进制正确。
+
+`platform-abi` 在当前原生 macOS/Windows 上编译 C 消费者，最终链接 XCFramework
+或加载配套 DLL，执行 1,000 次 Invoke/Free 和旧 API 拒绝；原始结果在
+`target/platform-delivery/abi/<group>/result.json`。它不创建运行时或网络监听器，
+不替代设备 VPN、完整宿主安装或 Windows Store 门禁。
+
+`.github/workflows/platform-delivery.yml` 在 N10 开发分支 push 时执行四组构建，
+仅执行离线脚本检查/构建/ABI，不启动历史宿主网络测试。未签名产物及原始记录
+保留 14 天；实际 run URL、commit 和有效期另行记录，工作流存在不算通过。
+完整阶段的独立 required 清单见 [N10](../docs/acceptance/next-protocols/N10.md)。
+
+### 通用检查
+
 ```bash
 uv run --project scripts --locked vcore-scripts check c-header
 uv run --project scripts --locked vcore-scripts check tls-dependencies
