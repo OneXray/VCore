@@ -179,9 +179,41 @@ uv run --project scripts --locked vcore-scripts check xhttp-gateway --identities
 
 有效清单退出0，stdout为JSON，`status: VALID`、`behavior_status: NOT RUN`；无效清单退出1、stderr只报告诊断，不输出JSON原文；缺少模式参数退出2。声明中不能写入PASS等运行结果。这个结果**不是126项字段或65项互通通过**，不解析条件说明或自动生成笛卡尔积。当前生产能力仍以`docs/config.yaml`为准。历史声明校验记录见[N1清单校验](../docs/acceptance/next-protocols/N1-catalogs.md)。
 
-2026-09-27 删除 WireGuard 目标及占位 feature、专用预检/候选库实验，退休 N8 与 W 对端；CLI 不再接受这些选择。N9/N10 保持原编号，尚无可签收的 required 集合时继续非零返回，不能以取消目标宣称完成。旧报告的 schema-v1/v2/v3 数量、失败和源码身份不追改，须使用其原输入检查。
+2026-09-27 删除 WireGuard 目标及占位 feature、专用预检/候选库实验，退休 N8 与 W 对端；CLI 不再接受这些选择。N9/N10 保持原编号。N9 现有独立集成门禁，N10 没有可执行 required 集合时仍非零返回。旧报告的 schema-v1/v2/v3 数量、失败和源码身份不追改，须使用其原输入检查。
 
 ### 阶段执行与原始证据检查
+
+N9 的独立入口：
+
+```sh
+uv run --project scripts --locked vcore-scripts check protocol-interop --stage N9 --list
+uv run --project scripts --locked vcore-scripts check protocol-interop --stage N9 --run-dir target/interop/runs/<fresh-run>
+uv run --project scripts --locked vcore-scripts check protocol-coverage --stage N9 --run-dir target/interop/runs/<fresh-run>
+```
+
+65 个 required 组包含七协议 49 个有序两跳、公开入口/组/DNS/测速、SS 三算法与
+官方 ssserver EIH 终结端、100 次生命周期、100×40-flow 同 Session 重建、故障
+隔离、1800 秒压力、独立连续 HY2 跳端口，以及五个本地和一个共享回归门禁。
+普通路径用 Mihomo；Trojan 域名 UDP 沿既有缺口使用 Xray。每组合真实运行两种
+外层地址族和具体/嵌套 select、方向性预算与能力拒绝；业务 `udp:false` 不禁止
+作为上游载体。EIH 不宣称任意多层身份中继，官方 ssserver 的两向 IP 分片开关
+仅用于 MTU1500 下的大 UDP 夹具。SS 资产通过官方 latest 重定向选择带标签的
+tar.xz；仅提取有界的普通 ssserver 文件，不解包链接或任意路径。
+
+长测使用 macOS 公开分配器统计，不扫描分配内容；四协议各 5 TCP +5 UDP，逐秒
+切组、逐分钟断连后显式新建客户端，不重放失败业务。Stop 自有资源当时归零、
+端口可重绑且 FD 回基线，随后静默 5 秒；空 Tokio IO driver 的进程级信号 FD
+在基线中声明，不给协议清理宽限。300 秒预热后每分钟采样，堆后10/前10中位数
+增量不超过 max(1MiB,5%)；RSS 单列，八类活对象/FD 不增长，四类有界队列记录
+单队列高水位（包括已保留发送许可）。资源 scope 只观测自有对象，不宣称枚举
+第三方内部全部任务；生产构建不启用计数。Windows/物理设备仍独立于本机结果。
+
+`protocol_n9_shared.py` 冻结九组强耦合 TLS/REALITY/JLS/ECH/Encryption/XHTTP
+回归，以及 IPv4/IPv6 × 明文/Salamander 四个各至少60秒的原生 HY2 连续窗口，
+交叉覆盖固定/范围跳跃间隔。整轮刷新官方二进制和镜像一次并固定 hash；本地
+命令只执行已核对的内存用例、构建及静态检查，不运行历史宿主服务测试。部分
+`--case` 仅作开发验证，不能签收全阶段。证据检查独立重算曲线、事件和清理，
+不拼接旧阶段结果；原始失败始终保留。
 
 ```sh
 uv run --project scripts --locked vcore-scripts check protocol-interop --stage N1 --list
@@ -228,7 +260,7 @@ Safari；官方 Safari ECH 的原始失败及适用边界见 N7 验收记录。
 
 N6 [Hysteria2](../docs/hysteria2.md) 有 36 组 required / 20 个适用字段。Mihomo 验认证/TLS/mTLS、TCP/UDP、Salamander、10 个真实带宽样本、关闭对照、公开入口及 40 轮生命周期；官方 Hysteria 验 UDP-disabled、8 组 60 秒跳端口、protect 拒绝和跳跃中 Stop。Xray 补共享 H3 adapter 的三模式回归。官方 latest 产物在本次运行内共用且核对 hash；Hysteria 的 nftables APK 仅在准备容器下载，离线装入自有 NET_ADMIN 服务容器。所有服务仍使用 host-only 网络。`--preflight` 只准备官方产物和隔离包，不代表协议通过。完整阶段必须一次运行全部门禁，再独立重算事件、带宽桶、跳跃/认证计数、字段和清理；不得拼接旧子集 PASS。
 
-统一入口具有 N1 公共基础（21 组 required）、N2 Trojan（41 组 / 18 字段）、N3 VMess（117 组 / 30 字段）、N4 VLESS（145 组 / 39 字段）、N5 XHTTP / sing-mux（416 组 / 57 字段）、N6 Hysteria2（36 组 / 20 字段）和 N7 选定 VLESS 安全能力（43 组 / 11 字段）的独立清单。`cases.json` 逐组列出断言、字段关联、对端、期限和证据类型；`limits.json` 引用可执行边界 case，Rust 测试核对真实常量。未来阶段没有可执行 required 集合时非零返回 NOT RUN。N1/N2 的历史宿主服务入口未全部迁移，不得用于新的服务端验收；全容器阶段入口是 N3–N7。阶段之间不继承 PASS。
+统一入口具有 N1 公共基础（21 组 required）、N2 Trojan（41 组 / 18 字段）、N3 VMess（117 组 / 30 字段）、N4 VLESS（145 组 / 39 字段）、N5 XHTTP / sing-mux（416 组 / 57 字段）、N6 Hysteria2（36 组 / 20 字段）、N7 选定 VLESS 安全能力（43 组 / 11 字段）和 N9 集成（65组）的独立清单。`cases.json` 逐组列出断言、字段关联、对端、期限和证据类型；`limits.json` 引用可执行边界 case，Rust 测试核对真实常量。未来阶段没有可执行 required 集合时非零返回 NOT RUN。N1/N2 的历史宿主服务入口未全部迁移，不得用于新的服务端验收；全容器阶段入口是 N3–N7、N9。阶段之间不继承 PASS。
 
 N2三种传输分别执行真实Mihomo TCP/UDP、上游/组、HTTP/模拟TUN/DNS、外层IPv6、证书/路径负例和UDP隔离；公共Invoke生命周期、协议自有资源各20轮，每轮Stop返回即检查，再静默5秒。域名UDP因Mihomo listener缺口由Xray单独补验，自定义头/路径ED由V2Ray补验；失败与对端缓冲限制保留在[N2.2记录](../docs/acceptance/next-protocols/N2-tcp.md)。`fields.json`按row ID汇总，只有完整执行、原始事件和所有必需项通过才可签收；单独运行原生子工具用于开发定位，不替代统一门禁。
 

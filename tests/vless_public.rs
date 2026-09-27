@@ -39,6 +39,14 @@ impl Case {
                 "N4-OWNED" => "N7-OWNED",
                 _ => panic!("unknown public consumer suite"),
             }
+        } else if std::env::var("VCORE_PROTOCOL_STAGE").as_deref() == Ok("N9") {
+            match suite {
+                "N4-PUBLIC" => "N9-PUBLIC",
+                "N4-BASE" => "N9-BASE",
+                "N4-LIFE" => "N9-LIFE",
+                "N4-OWNED" => "N9-OWNED",
+                _ => panic!("unknown public consumer suite"),
+            }
         } else {
             suite
         };
@@ -51,6 +59,8 @@ const DOMAIN: &str = "vcore-fixture.test";
 #[cfg(feature = "outbound-hysteria2")]
 #[path = "vless_public/hysteria2.rs"]
 mod hysteria2;
+#[path = "vless_public/integration/mod.rs"]
+mod integration;
 #[path = "vless_public/runtime.rs"]
 mod runtime;
 #[cfg(target_os = "macos")]
@@ -429,7 +439,9 @@ fn bulk(port: u16, f: &Value, ipv6: bool, domain: bool) {
     let mut bytes = [0; 6151];
     while remaining > 0 {
         let size = bytes.len().min(remaining);
-        let n = client.read(&mut bytes[..size]).unwrap();
+        let n = client.read(&mut bytes[..size]).unwrap_or_else(|error| {
+            panic!("bulk receive failed with {remaining} bytes remaining: {error}")
+        });
         assert_ne!(n, 0);
         hash.update(&bytes[..n]);
         remaining -= n;

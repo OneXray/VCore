@@ -1,8 +1,17 @@
 {
   "schema_version": 1,
   "kind": "runtime-limit-registry",
-  "scope": "N1 shared foundations through N6 protocol consumers; per-object bounds, not global admission caps",
+  "scope": "N1 shared foundations through N9 integration; per-object bounds, not global admission caps",
   "limits": [
+    {
+      "id": "shadowsocks-write-chunk",
+      "value": 16384,
+      "unit": "retained-plaintext-bytes-per-stream",
+      "owner": "limits::SHADOWSOCKS_WRITE_CHUNK",
+      "saturation": "partial write then backpressure while the bounded owned chunk drains",
+      "cancellation": "stream drop releases plaintext and codec; flush and shutdown drain the exact accepted chunk",
+      "boundary_cases": ["N9-DEBUG", "N9-RELEASE"]
+    },
     {
       "id": "xhttp-custom-header-bytes",
       "value": 8192,

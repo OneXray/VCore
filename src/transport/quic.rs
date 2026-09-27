@@ -213,6 +213,11 @@ async fn drive(
                     state.incoming.push_back(datagram.payload);
                     state.stats.received += 1;
                     state.stats.peak_incoming = state.stats.peak_incoming.max(state.incoming.len());
+                    crate::resources::observation::observe_queue(
+                        crate::resources::observation::QueueKind::QuicIncoming,
+                        state.incoming.len(),
+                        QUEUE_LIMIT,
+                    );
                     drop(state);
                     shared.reader.wake();
                 }
@@ -291,6 +296,11 @@ impl AsyncUdpSocket for DatagramSocket {
             .outgoing
             .push_back(Bytes::copy_from_slice(transmit.contents));
         state.stats.peak_outgoing = state.stats.peak_outgoing.max(state.outgoing.len());
+        crate::resources::observation::observe_queue(
+            crate::resources::observation::QueueKind::QuicOutgoing,
+            state.outgoing.len(),
+            QUEUE_LIMIT,
+        );
         drop(state);
         self.shared.changed.notify_one();
         Ok(())

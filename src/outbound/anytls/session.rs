@@ -142,8 +142,15 @@ impl PreparedSession {
             writer_receiver,
         } = self;
         let (reader, writer) = tokio::io::split(transport);
-        tracker.spawn(reader_loop(session.clone(), reader));
-        tracker.spawn(writer_loop(session, writer, writer_receiver));
+        tracker.spawn(crate::resources::observation::task(reader_loop(
+            session.clone(),
+            reader,
+        )));
+        tracker.spawn(crate::resources::observation::task(writer_loop(
+            session,
+            writer,
+            writer_receiver,
+        )));
         stream
     }
 }
@@ -300,7 +307,7 @@ impl Session {
 
         if self.peer_version.load(Ordering::Acquire) >= 2 {
             let session = self.clone();
-            tracker.spawn(async move {
+            tracker.spawn(crate::resources::observation::task(async move {
                 let result = tokio::select! {
                     biased;
                     () = session.cancellation.cancelled() => return,
@@ -318,7 +325,7 @@ impl Session {
                 if let Err(error) = result {
                     session.fail(error);
                 }
-            });
+            }));
         }
 
         open_guard.commit();

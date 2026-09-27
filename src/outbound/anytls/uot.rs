@@ -104,12 +104,12 @@ impl UotTransport {
         let cancellation = parent_cancellation.child_token();
         let (responses, receiver) = mpsc::channel(RESPONSE_QUEUE_CAPACITY);
         let reader_cancellation = cancellation.clone();
-        let reader_task = tracker.spawn(read_loop(
+        let reader_task = tracker.spawn(crate::resources::observation::task(read_loop(
             reader,
             responses,
             max_response_payload_size,
             reader_cancellation,
-        ));
+        )));
         Self {
             writer,
             responses: receiver,

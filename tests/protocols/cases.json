@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "kind": "executable-case-manifest",
-  "scope": "Frozen N1 foundations and N2-N7 consumer requirements. Declarations contain no run results; each stage requires its own complete evidence.",
+  "scope": "Frozen N1 foundations, N2-N7 consumer requirements and N9 integration. Declarations contain no run results; each stage requires its own complete evidence.",
   "cases": [
     {
       "case_id": "N1-SCHEMA",
@@ -48183,6 +48183,2641 @@
         "official-latest-peer"
       ],
       "runner": "vless-security-xhttp",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N9-DEBUG",
+      "stage": "N9",
+      "substage": "N9.4",
+      "required": true,
+      "row_ids": [],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {},
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "memory-only/build",
+      "upstream_graph": "per-gate",
+      "peer_kind": "unit",
+      "peer_config": {
+        "group": "N9-DEBUG"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-DEBUG"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup"
+      ],
+      "prerequisites": [
+        "rust-toolchain"
+      ],
+      "runner": "integration-gate",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N9-DNS-MEASURE",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {},
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "per-gate",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-DNS-MEASURE"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-DNS-MEASURE"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-gate",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N9-ENTRYPOINTS",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {},
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "per-gate",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-ENTRYPOINTS"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-ENTRYPOINTS"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-gate",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N9-FAILURES",
+      "stage": "N9",
+      "substage": "N9.2",
+      "required": true,
+      "row_ids": [],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {},
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "per-gate",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-FAILURES"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-FAILURES"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-gate",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N9-FEATURES",
+      "stage": "N9",
+      "substage": "N9.4",
+      "required": true,
+      "row_ids": [],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {},
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "memory-only/build",
+      "upstream_graph": "per-gate",
+      "peer_kind": "unit",
+      "peer_config": {
+        "group": "N9-FEATURES"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-FEATURES"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup"
+      ],
+      "prerequisites": [
+        "rust-toolchain"
+      ],
+      "runner": "integration-gate",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N9-GRAPH",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {},
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "per-gate",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-GRAPH"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-GRAPH"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-gate",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N9-HY2-HOP",
+      "stage": "N9",
+      "substage": "N9.3",
+      "required": true,
+      "row_ids": [],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {},
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "per-gate",
+      "peer_kind": "H",
+      "peer_config": {
+        "group": "N9-HY2-HOP"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-HY2-HOP"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-gate",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N9-LIFECYCLE",
+      "stage": "N9",
+      "substage": "N9.2",
+      "required": true,
+      "row_ids": [],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {},
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "per-gate",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-LIFECYCLE"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-LIFECYCLE"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-gate",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N9-PAIR-ANYTLS-ANYTLS",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "anytls",
+        "last": "anytls"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-ANYTLS-ANYTLS"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-ANYTLS-ANYTLS"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-ANYTLS-HYSTERIA2",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "anytls",
+        "last": "hysteria2"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-ANYTLS-HYSTERIA2"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-ANYTLS-HYSTERIA2"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-ANYTLS-SOCKS5",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "anytls",
+        "last": "socks5"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-ANYTLS-SOCKS5"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-ANYTLS-SOCKS5"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-ANYTLS-SS",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "anytls",
+        "last": "ss"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-ANYTLS-SS"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-ANYTLS-SS"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-ANYTLS-TROJAN",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "anytls",
+        "last": "trojan"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-ANYTLS-TROJAN"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-ANYTLS-TROJAN"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-ANYTLS-VLESS",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "anytls",
+        "last": "vless"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-ANYTLS-VLESS"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-ANYTLS-VLESS"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-ANYTLS-VMESS",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "anytls",
+        "last": "vmess"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-ANYTLS-VMESS"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-ANYTLS-VMESS"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-HYSTERIA2-ANYTLS",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "hysteria2",
+        "last": "anytls"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-HYSTERIA2-ANYTLS"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-HYSTERIA2-ANYTLS"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-HYSTERIA2-HYSTERIA2",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "hysteria2",
+        "last": "hysteria2"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-HYSTERIA2-HYSTERIA2"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-HYSTERIA2-HYSTERIA2"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-HYSTERIA2-SOCKS5",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "hysteria2",
+        "last": "socks5"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-HYSTERIA2-SOCKS5"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-HYSTERIA2-SOCKS5"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-HYSTERIA2-SS",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "hysteria2",
+        "last": "ss"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-HYSTERIA2-SS"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-HYSTERIA2-SS"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-HYSTERIA2-TROJAN",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "hysteria2",
+        "last": "trojan"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-HYSTERIA2-TROJAN"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-HYSTERIA2-TROJAN"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-HYSTERIA2-VLESS",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "hysteria2",
+        "last": "vless"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-HYSTERIA2-VLESS"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-HYSTERIA2-VLESS"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-HYSTERIA2-VMESS",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "hysteria2",
+        "last": "vmess"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-HYSTERIA2-VMESS"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-HYSTERIA2-VMESS"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-SOCKS5-ANYTLS",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "socks5",
+        "last": "anytls"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-SOCKS5-ANYTLS"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-SOCKS5-ANYTLS"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-SOCKS5-HYSTERIA2",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "socks5",
+        "last": "hysteria2"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-SOCKS5-HYSTERIA2"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-SOCKS5-HYSTERIA2"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-SOCKS5-SOCKS5",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "socks5",
+        "last": "socks5"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-SOCKS5-SOCKS5"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-SOCKS5-SOCKS5"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-SOCKS5-SS",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "socks5",
+        "last": "ss"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-SOCKS5-SS"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-SOCKS5-SS"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-SOCKS5-TROJAN",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "socks5",
+        "last": "trojan"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-SOCKS5-TROJAN"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-SOCKS5-TROJAN"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-SOCKS5-VLESS",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "socks5",
+        "last": "vless"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-SOCKS5-VLESS"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-SOCKS5-VLESS"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-SOCKS5-VMESS",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "socks5",
+        "last": "vmess"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-SOCKS5-VMESS"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-SOCKS5-VMESS"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-SS-ANYTLS",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "ss",
+        "last": "anytls"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-SS-ANYTLS"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-SS-ANYTLS"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-SS-HYSTERIA2",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "ss",
+        "last": "hysteria2"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-SS-HYSTERIA2"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-SS-HYSTERIA2"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-SS-SOCKS5",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "ss",
+        "last": "socks5"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-SS-SOCKS5"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-SS-SOCKS5"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-SS-SS",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "ss",
+        "last": "ss"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-SS-SS"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-SS-SS"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-SS-TROJAN",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "ss",
+        "last": "trojan"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-SS-TROJAN"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-SS-TROJAN"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-SS-VLESS",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "ss",
+        "last": "vless"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-SS-VLESS"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-SS-VLESS"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-SS-VMESS",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "ss",
+        "last": "vmess"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-SS-VMESS"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-SS-VMESS"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-TROJAN-ANYTLS",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "trojan",
+        "last": "anytls"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-TROJAN-ANYTLS"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-TROJAN-ANYTLS"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-TROJAN-HYSTERIA2",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "trojan",
+        "last": "hysteria2"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-TROJAN-HYSTERIA2"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-TROJAN-HYSTERIA2"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-TROJAN-SOCKS5",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "trojan",
+        "last": "socks5"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-TROJAN-SOCKS5"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-TROJAN-SOCKS5"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-TROJAN-SS",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "trojan",
+        "last": "ss"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-TROJAN-SS"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-TROJAN-SS"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-TROJAN-TROJAN",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "trojan",
+        "last": "trojan"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-TROJAN-TROJAN"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-TROJAN-TROJAN"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-TROJAN-VLESS",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "trojan",
+        "last": "vless"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-TROJAN-VLESS"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-TROJAN-VLESS"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-TROJAN-VMESS",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "trojan",
+        "last": "vmess"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-TROJAN-VMESS"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-TROJAN-VMESS"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-VLESS-ANYTLS",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "vless",
+        "last": "anytls"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-VLESS-ANYTLS"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-VLESS-ANYTLS"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-VLESS-HYSTERIA2",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "vless",
+        "last": "hysteria2"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-VLESS-HYSTERIA2"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-VLESS-HYSTERIA2"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-VLESS-SOCKS5",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "vless",
+        "last": "socks5"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-VLESS-SOCKS5"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-VLESS-SOCKS5"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-VLESS-SS",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "vless",
+        "last": "ss"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-VLESS-SS"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-VLESS-SS"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-VLESS-TROJAN",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "vless",
+        "last": "trojan"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-VLESS-TROJAN"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-VLESS-TROJAN"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-VLESS-VLESS",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "vless",
+        "last": "vless"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-VLESS-VLESS"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-VLESS-VLESS"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-VLESS-VMESS",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "vless",
+        "last": "vmess"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-VLESS-VMESS"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-VLESS-VMESS"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-VMESS-ANYTLS",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "vmess",
+        "last": "anytls"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-VMESS-ANYTLS"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-VMESS-ANYTLS"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-VMESS-HYSTERIA2",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "vmess",
+        "last": "hysteria2"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-VMESS-HYSTERIA2"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-VMESS-HYSTERIA2"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-VMESS-SOCKS5",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "vmess",
+        "last": "socks5"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-VMESS-SOCKS5"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-VMESS-SOCKS5"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-VMESS-SS",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "vmess",
+        "last": "ss"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-VMESS-SS"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-VMESS-SS"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-VMESS-TROJAN",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "vmess",
+        "last": "trojan"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-VMESS-TROJAN"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-VMESS-TROJAN"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-VMESS-VLESS",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "vmess",
+        "last": "vless"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-VMESS-VLESS"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-VMESS-VLESS"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-PAIR-VMESS-VMESS",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [
+        "C06"
+      ],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {
+        "first": "vmess",
+        "last": "vmess"
+      },
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "concrete/nested-select",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-PAIR-VMESS-VMESS"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-PAIR-VMESS-VMESS"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-pair",
+      "timeout_seconds": 300
+    },
+    {
+      "case_id": "N9-QUALITY",
+      "stage": "N9",
+      "substage": "N9.4",
+      "required": true,
+      "row_ids": [],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {},
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "memory-only/build",
+      "upstream_graph": "per-gate",
+      "peer_kind": "unit",
+      "peer_config": {
+        "group": "N9-QUALITY"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-QUALITY"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup"
+      ],
+      "prerequisites": [
+        "rust-toolchain"
+      ],
+      "runner": "integration-gate",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N9-REBUILD",
+      "stage": "N9",
+      "substage": "N9.2",
+      "required": true,
+      "row_ids": [],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {},
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "per-gate",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-REBUILD"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-REBUILD"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-gate",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N9-RELEASE",
+      "stage": "N9",
+      "substage": "N9.4",
+      "required": true,
+      "row_ids": [],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {},
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "memory-only/build",
+      "upstream_graph": "per-gate",
+      "peer_kind": "unit",
+      "peer_config": {
+        "group": "N9-RELEASE"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-RELEASE"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup"
+      ],
+      "prerequisites": [
+        "rust-toolchain"
+      ],
+      "runner": "integration-gate",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N9-SCRIPTS",
+      "stage": "N9",
+      "substage": "N9.4",
+      "required": true,
+      "row_ids": [],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {},
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "memory-only/build",
+      "upstream_graph": "per-gate",
+      "peer_kind": "unit",
+      "peer_config": {
+        "group": "N9-SCRIPTS"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-SCRIPTS"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup"
+      ],
+      "prerequisites": [
+        "rust-toolchain"
+      ],
+      "runner": "integration-gate",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N9-SHARED",
+      "stage": "N9",
+      "substage": "N9.4",
+      "required": true,
+      "row_ids": [],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {},
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "per-gate",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-SHARED"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-SHARED"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-gate",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N9-SOAK",
+      "stage": "N9",
+      "substage": "N9.3",
+      "required": true,
+      "row_ids": [],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {},
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "per-gate",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-SOAK"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-SOAK"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-gate",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N9-SS-ALGORITHMS",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {},
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "per-gate",
+      "peer_kind": "M",
+      "peer_config": {
+        "group": "N9-SS-ALGORITHMS"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-SS-ALGORITHMS"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-gate",
+      "timeout_seconds": 3600
+    },
+    {
+      "case_id": "N9-SS-EIH",
+      "stage": "N9",
+      "substage": "N9.1",
+      "required": true,
+      "row_ids": [],
+      "protocol": "integration",
+      "network": "seven-protocol-graph",
+      "security": "per-frozen-consumer",
+      "udp_codec": "per-protocol",
+      "field_values": {},
+      "outer_family": "IPv4/IPv6",
+      "inner_family": "IPv4/IPv6/domain",
+      "target_type": "isolated origin",
+      "upstream_graph": "per-gate",
+      "peer_kind": "SS",
+      "peer_config": {
+        "group": "N9-SS-EIH"
+      },
+      "gap_source": null,
+      "expected_observation": [
+        "N9-SS-EIH"
+      ],
+      "required_evidence": [
+        "command",
+        "structured-assertions",
+        "cleanup",
+        "peer-identity",
+        "isolated-origins"
+      ],
+      "prerequisites": [
+        "owned-host-only-container-network",
+        "official-latest-peer"
+      ],
+      "runner": "integration-gate",
       "timeout_seconds": 3600
     }
   ]

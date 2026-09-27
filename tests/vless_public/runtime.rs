@@ -61,14 +61,19 @@ fn public_udp_isolation() {
 #[cfg(target_os = "macos")]
 #[ignore = "isolated N4 runner"]
 fn public_entrypoints() {
-    use std::os::{fd::AsRawFd, unix::net::UnixDatagram};
     let _case = Case::start("N4-PUBLIC", "runtime::public_entrypoints");
     let f = fixture();
-    initialize(&f);
+    entrypoints(&f);
+}
+
+#[cfg(target_os = "macos")]
+pub(super) fn entrypoints(f: &Value) {
+    use std::os::{fd::AsRawFd, unix::net::UnixDatagram};
+    initialize(f);
     let port = free_port();
     let yaml = json!({"port":port,"proxies":[f["node"]],"rules":["MATCH,peer"]});
     let core = Core::start(&yaml);
-    let mut origin = Origin::new(&f, 14, false);
+    let mut origin = Origin::new(f, 14, false);
     let mut client = socket((Ipv4Addr::LOCALHOST, port).into());
     write!(
         client,
@@ -81,7 +86,7 @@ fn public_entrypoints() {
     assert!(response.starts_with(b"HTTP/1.1 200"));
     origin.marker(b'A');
     origin.marker(b'D');
-    let mut origin = Origin::new(&f, 13, false);
+    let mut origin = Origin::new(f, 13, false);
     let mut client = socket((Ipv4Addr::LOCALHOST, port).into());
     write!(
         client,
@@ -106,7 +111,7 @@ fn public_entrypoints() {
     let (host, peer) = UnixDatagram::pair().unwrap();
     host.set_nonblocking(true).unwrap();
     peer.set_read_timeout(Some(TIMEOUT)).unwrap();
-    let mut dns_origin = Origin::new(&f, 17, false);
+    let mut dns_origin = Origin::new(f, 17, false);
     let mut yaml = json!({"tun":{"enable":true},"proxies":[f["node"]],"rules":["MATCH,peer"]});
     dns(&mut yaml, &dns_origin, "peer");
     let core = Core::prepare(&yaml);
@@ -115,12 +120,12 @@ fn public_entrypoints() {
         core.0.as_deref(),
         json!({"tunFd":host.as_raw_fd(),"tunFraming":"utun"}),
     );
-    let mut udp = Origin::new(&f, 4, false);
+    let mut udp = Origin::new(f, 4, false);
     peer.send(&tun::packet(udp.target, 17, (0, 0, 0), b"tun-udp"))
         .unwrap();
     udp.udp(b"tun-udp");
     assert_eq!(&tun::receive(&peer, 17)[28..], b"tun-udp");
-    let mut origin = Origin::new(&f, 13, false);
+    let mut origin = Origin::new(f, 13, false);
     peer.send(&tun::packet(origin.target, 6, (1, 0, 2), &[]))
         .unwrap();
     let syn = tun::receive(&peer, 6);

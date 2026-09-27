@@ -3,6 +3,9 @@ use crate::{Result, VCoreError};
 /// Fairness bound for control/discard work in one poll or receive iteration.
 pub const IO_POLL_BUDGET: usize = 32;
 
+/// One retained plaintext chunk while the official SS codec is backpressured.
+pub const SHADOWSOCKS_WRITE_CHUNK: usize = 16 * 1024;
+
 /// Per-object VLESS bounds, never business-flow admission limits.
 pub const VLESS_UDP_FRAME_BYTES: usize = 65537;
 pub const VISION_CONTENT_BYTES: usize = 8192 - 21;

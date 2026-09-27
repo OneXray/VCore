@@ -92,6 +92,18 @@ ECH 与无指纹 JLS 的 gRPC 关闭参照差异明确单列；先前两轮失�
 
 2026-09-27 [WireGuard 范围撤回](acceptance/next-protocols/wireguard-retirement.md)移除尚未开放的 feature、专用 MTU/预检、候选库实验及七个字段目标，不修改已有协议数据路径或 Invoke v5/schema27。历史报告不追改；N8 取消，下一阶段为 N9 的七协议49组合/资源验收，再到 N10。范围清理不等于这些剩余阶段通过。
 
+同日 [N9 七协议集成与资源签收](acceptance/next-protocols/N9.md)完成同一最终
+输入65/65组门禁：49个有序两跳、公开入口/图/DNS测速与故障、SS三算法和
+官方ssserver单层EIH终结、100次生命周期、100轮40-flow重建、1800秒长测、
+四组连续HY2跳跃、九组81项共享原生回归全部通过。两种路径独立coverage通过，
+291/291个唯一所属容器回收；Debug/Release各261次定向执行、180项脚本、
+17项netstack及Apple五目标/Android两ABI Release构建通过。
+先经最小用例复现再修复自有SS缓冲写入/空首写刷新与HY2已完成分片ID误屏蔽，
+不修改第三方；原始失败与SS上游padding风险保留。schema27 / Invoke v5不变，
+活动资源登记73项。长测Stop91ms、自有资源归零且FD回6，后续静默通过；
+这不是全字段笛卡尔积或公网性能验证。N9本地签收后下一阶段为N10，原生Windows、
+设备、远端CI、正式宿主安装/发布均未由本轮签收。
+
 当前 source/tests 覆盖：
 
 - Invoke API v5、单实例生命周期、Debug/Release 运行时线程重入拒绝、panic 与同步清理；

@@ -80,7 +80,7 @@ impl Socks5Server {
             let socket = socket.clone();
             let registry = registry.clone();
             let child = cancellation.clone();
-            receivers.spawn(async move {
+            receivers.spawn(crate::resources::observation::task(async move {
                 // A sentinel byte rejects oversized packets, including OS
                 // truncation, without allocating from a client length field.
                 let mut buffer = vec![0; SOCKS5_UDP_PACKET_LIMIT + 1];
@@ -94,7 +94,7 @@ impl Socks5Server {
                         }
                     }
                 }
-            });
+            }));
         }
         let mut connections = JoinSet::new();
         let mut cleanup = interval_at(Instant::now() + CLEANUP_INTERVAL, CLEANUP_INTERVAL);
@@ -116,13 +116,13 @@ impl Socks5Server {
                     let config = self.config.clone();
                     let registry = registry.clone();
                     let child = cancellation.clone();
-                    connections.spawn(async move {
+                    connections.spawn(crate::resources::observation::task(async move {
                         tokio::select! {
                             biased;
                             () = child.cancelled() => {},
                             _ = handle_connection(stream, peer, socket, config, dispatcher, registry, child.clone()) => {},
                         }
-                    });
+                    }));
                 }
             }
         };

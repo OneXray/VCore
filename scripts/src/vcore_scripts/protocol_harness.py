@@ -443,7 +443,11 @@ def run_protocol_interop(
     try:
         run.update(run_identity(stage, selected, preflight_only))
         with exclusive_run(), deadline(run["suite_timeout_seconds"]):
-            if preflight_only and stage == "N7":
+            if preflight_only and stage == "N9":
+                from .protocol_n9_acceptance import preflight as n9_preflight
+
+                n9_preflight(output)
+            elif preflight_only and stage == "N7":
                 _, peers = preflight(
                     output / "binaries", {"M", "XR", "V2"}, container=True
                 )
@@ -517,6 +521,10 @@ def run_protocol_interop(
                     from .protocol_n7_acceptance import execute
 
                     execute(selected, run, output, records)
+                elif stage == "N9":
+                    from .protocol_n9_acceptance import execute
+
+                    execute(selected, run, output, records)
                 else:
                     _execute(selected, run, output, records)
     except BaseException as caught:
@@ -586,6 +594,9 @@ def run_protocol_interop(
                 else "N7 selected VLESS security consumers; static ECH only, "
                 "Container-only peers; N9/N10 and devices remain separate.\n\n"
                 if stage == "N7"
+                else "N9 seven-protocol integration; container-only peers. "
+                "Partial selections do not sign off lifecycle or soak gates.\n\n"
+                if stage == "N9"
                 else "Foundation-only evidence; "
                 "production protocol field consumers remain NOT RUN.\n\n"
             )

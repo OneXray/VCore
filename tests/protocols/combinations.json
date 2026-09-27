@@ -34,7 +34,6 @@
       "every finite field enum/default/alias",
       "every legal transport/security class",
       "each UDP codec",
-      "crossed inner/outer IP families for WireGuard",
       "strongly coupled security, download inheritance and auto branches"
     ],
     "pairwise_policy": "Only independent tuning parameters after each field's boundary/default tests; never a substitute for the categories above.",

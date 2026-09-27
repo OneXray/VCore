@@ -1168,24 +1168,26 @@ impl RunningCore {
         #[cfg(feature = "inbound-http")]
         for server in http_servers {
             let child = cancellation.clone();
-            tasks.push(tokio::spawn(server.serve(child)));
+            tasks.push(crate::resources::observation::spawn(server.serve(child)));
         }
         #[cfg(feature = "inbound-socks5")]
         for server in socks_servers {
             let child = cancellation.clone();
-            tasks.push(tokio::spawn(server.serve(child)));
+            tasks.push(crate::resources::observation::spawn(server.serve(child)));
         }
 
         #[cfg(all(feature = "tun", any(unix, windows)))]
         if let Some(tun_runtime) = tun_runtime {
             let child = cancellation.clone();
-            tasks.push(tokio::spawn(tun_runtime.run(child)));
+            tasks.push(crate::resources::observation::spawn(tun_runtime.run(child)));
         }
 
         #[cfg(any(feature = "inbound-http", feature = "inbound-socks5"))]
         if let Some(controller) = controller {
             let child = cancellation.clone();
-            tasks.push(tokio::spawn(controller.serve(child)));
+            tasks.push(crate::resources::observation::spawn(
+                controller.serve(child),
+            ));
         }
 
         #[cfg(not(any(feature = "inbound-http", feature = "inbound-socks5")))]
@@ -1193,7 +1195,9 @@ impl RunningCore {
 
         if let Some(geodata_updater) = geodata_updater {
             let child = cancellation.clone();
-            tasks.push(tokio::spawn(geodata_updater.run(child)));
+            tasks.push(crate::resources::observation::spawn(
+                geodata_updater.run(child),
+            ));
         }
 
         Ok(Self {
@@ -1317,6 +1321,71 @@ mod tests {
     use crate::platform::TunIo;
 
     struct FixedResolver;
+
+    #[tokio::test]
+    async fn n9_feature_admission_is_explicit_without_opening_sockets() {
+        let variants = [
+            ("socks5", "", cfg!(feature = "outbound-socks5")),
+            (
+                "anytls",
+                ", password: fixture",
+                cfg!(feature = "outbound-anytls"),
+            ),
+            (
+                "ss",
+                ", cipher: 2022-blake3-aes-128-gcm, password: BwcHBwcHBwcHBwcHBwcHBw==",
+                cfg!(feature = "outbound-shadowsocks"),
+            ),
+            (
+                "trojan",
+                ", password: fixture",
+                cfg!(feature = "outbound-trojan"),
+            ),
+            (
+                "vmess",
+                ", uuid: 08080808-0808-0808-0808-080808080808",
+                cfg!(feature = "outbound-vmess"),
+            ),
+            (
+                "vless",
+                ", uuid: 08080808-0808-0808-0808-080808080808",
+                cfg!(feature = "outbound-vless"),
+            ),
+            (
+                "hysteria2",
+                ", password: fixture",
+                cfg!(feature = "outbound-hysteria2"),
+            ),
+        ];
+        for (protocol, fields, enabled) in variants {
+            let _case = crate::resources::case_events::Case::new("N9-FEATURE", protocol);
+            let yaml = format!(
+                "socks-port: 1080\nproxies:\n  - {{name: peer, type: {protocol}, server: 127.0.0.1, port: 443{fields}}}\nrules: ['MATCH,peer']\n"
+            );
+            let result = match PreparedCore::prepare(
+                yaml.as_bytes(),
+                &FixedResolver,
+                ResourceLimits::default(),
+            )
+            .await
+            {
+                Ok(core) => core
+                    .build_proxy_graph(Dialer::default())
+                    .map(|_| ())
+                    .map_err(|e| e.to_string()),
+                Err(error) => Err(error.to_string()),
+            };
+            if enabled {
+                assert!(result.is_ok(), "{protocol}: {result:?}");
+            } else {
+                let error = result.unwrap_err();
+                assert!(
+                    error.contains("disabled") || error.contains("not enabled"),
+                    "{protocol}: {error}"
+                );
+            }
+        }
+    }
 
     #[async_trait]
     impl Resolver for FixedResolver {

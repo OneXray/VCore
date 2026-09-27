@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import tarfile
 import tempfile
 import unittest
 import urllib.error
@@ -18,6 +19,31 @@ class Response(io.BytesIO):
 
 
 class NativeReleaseTest(unittest.TestCase):
+    def test_ss_tar_is_bounded_named_only_and_rejects_links(self):
+        def archive(unsafe=False):
+            data = io.BytesIO()
+            with tarfile.open(fileobj=data, mode="w:xz") as bundle:
+                entry = tarfile.TarInfo("ssserver")
+                entry.size = 7
+                bundle.addfile(entry, io.BytesIO(b"fixture"))
+                entry = tarfile.TarInfo("sslocal")
+                if unsafe:
+                    entry.type, entry.linkname = tarfile.SYMTYPE, "/tmp/forbidden"
+                bundle.addfile(entry)
+            return data.getvalue()
+
+        with tempfile.TemporaryDirectory() as directory:
+            path, binary = Path(directory) / "peer.tar.xz", Path(directory) / "ssserver"
+            path.write_bytes(archive())
+            self.assertEqual(
+                native_release._extract_tar(path, binary, "ssserver"),
+                hashlib.sha256(b"fixture").hexdigest(),
+            )
+            self.assertEqual(binary.read_bytes(), b"fixture")
+            path.write_bytes(archive(True))
+            with self.assertRaises(RuntimeError):
+                native_release._extract_tar(path, binary, "ssserver")
+
     def test_foreign_binary_version_is_deferred_to_its_container(self):
         archive = io.BytesIO()
         with zipfile.ZipFile(archive, "w") as bundle:

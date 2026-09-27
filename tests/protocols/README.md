@@ -40,7 +40,7 @@ outbound protocols:
 - `cases.json`: frozen executable cases for N1 foundations (21 groups), N2
   Trojan (41 groups), N3 VMess (117 groups), N4 VLESS (145 groups), and N5
   XHTTP/sing-mux (416 groups), N6 Hysteria2 (36 groups), and N7 selected
-  VLESS security (43 groups), with assertion names, field
+  VLESS security (43 groups), and N9 integration (65 groups), with assertion names, field
   associations, official peers, input dimensions and required evidence.
 - `limits.json`: shared per-object limits and executable boundary case IDs;
   `limit_foundations` compares the registered numbers with Rust constants.
@@ -84,6 +84,7 @@ address families; therefore **126 fields does not mean 126 tests**.
 | H | Hysteria 2 for shared-state port hopping and server UDP-disabled behavior |
 | XR | Xray for XHTTP H3 and advanced VLESS branches |
 | V2 | V2Ray for legacy H2, VMess/VLESS HTTP camouflage and extended standard-WS early data |
+| SS | Official shadowsocks-rust ssserver for SS 2022 EIH multi-user termination, not arbitrary identity relay |
 
 Evaluate a field's override rule against the **actual complete mode**. For
 example a shared TLS field on an H3 leg uses XR, while the same field on an
@@ -167,6 +168,17 @@ is [N1 catalogs](../../docs/acceptance/next-protocols/N1-catalogs.md).
 
 ## Executable stage gates
 
+N9 uses `--stage N9` with the same execution/coverage commands below. Its frozen
+65 groups include 49 ordered pairs and 16 gates. The runtime gates require 100
+public lifetimes, 100 forty-flow rebuilds, and a full 1800-second pressure run;
+development subsets/short tracers cannot satisfy them. A separate native HY2
+window verifies actual multiple entry ports on one authenticated session. Current
+source/lock, official latest binary/image hashes, eight resource categories,
+queue peaks, heap/RSS/FD curves and exact assertion events are independently
+checked. The shared regression list is explicit in `protocol_n9_shared.py`.
+Neither catalog validity nor historical N1–N7 PASS signs off N9. N10 device,
+remote CI and release evidence remains separate.
+
 ```sh
 uv run --project scripts --locked vcore-scripts check protocol-interop --stage N3 --list
 uv run --project scripts --locked vcore-scripts check protocol-interop --stage N3 --preflight
@@ -174,7 +186,7 @@ uv run --project scripts --locked vcore-scripts check protocol-interop --stage N
 uv run --project scripts --locked vcore-scripts check protocol-coverage --stage N3 --run-dir target/interop/runs/<run-id>
 ```
 
-N3 through N7 are container-only stage runners; all peers, origins and upstream
+N3 through N7 and N9 are container-only stage runners; all peers, origins and upstream
 listeners follow the [isolation rule](../../docs/testing-isolation.md). Historical
 N1/N2 catalogs and reports remain available, but their server runners are not
 fully migrated and must not be rerun on the host. `--case` (repeatable) and

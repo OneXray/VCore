@@ -295,10 +295,11 @@ impl AnyTlsClient {
             // constructor/bind failure. Start only when traffic first uses
             // this node, under the same lock as the shutdown admission gate.
             state.cleanup_started = true;
-            self.tasks.spawn(cleanup_idle(
-                Arc::downgrade(self),
-                self.cancellation.clone(),
-            ));
+            self.tasks
+                .spawn(crate::resources::observation::task(cleanup_idle(
+                    Arc::downgrade(self),
+                    self.cancellation.clone(),
+                )));
         }
         Ok(())
     }

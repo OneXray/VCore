@@ -5,8 +5,10 @@ from __future__ import annotations
 import http.client
 import os
 import platform
+import re
 import stat
 import subprocess
+import tarfile
 import tempfile
 import urllib.request
 import zipfile
@@ -41,6 +43,7 @@ def download_native(
         OSError,
         ValueError,
         zipfile.BadZipFile,
+        tarfile.TarError,
         http.client.HTTPException,
         subprocess.SubprocessError,
     ):
@@ -59,6 +62,11 @@ def _download_native(
         )
         target = f"{platform.system().lower()}-{architecture}"
     assets = {
+        "SS": (
+            "shadowsocks/shadowsocks-rust",
+            "ssserver",
+            {"linux-arm64": "aarch64-unknown-linux-musl"},
+        ),
         "V2": (
             "v2fly/v2ray-core",
             "v2ray",
@@ -96,7 +104,25 @@ def _download_native(
     if kind not in assets or target not in assets[kind][2]:
         raise RuntimeError("unsupported official native peer target")
     project, name, targets = assets[kind]
-    url = f"https://github.com/{project}/releases/latest/download/{targets[target]}"
+    asset = targets[target]
+    if kind == "SS":
+        # SS assets include their tag; follow latest's HTTP redirect, not an API
+        # or a pinned version. The executable reports its own actual version.
+        request = urllib.request.Request(
+            f"https://github.com/{project}/releases/latest",
+            method="HEAD",
+            headers={"User-Agent": "VCore-interop-scripts"},
+        )
+        with urllib.request.urlopen(request, timeout=30) as response:
+            prefix = f"https://github.com/{project}/releases/tag/"
+            resolved = response.geturl()
+            if not resolved.startswith(prefix) or not re.fullmatch(
+                r"v\d+\.\d+\.\d+", resolved[len(prefix) :]
+            ):
+                raise RuntimeError("invalid official SS latest stable redirect")
+            tag = resolved[len(prefix) :]
+        asset = f"shadowsocks-{tag}.{asset}.tar.xz"
+    url = f"https://github.com/{project}/releases/latest/download/{asset}"
     directory.mkdir(parents=True, exist_ok=True)
     binary = directory / name
     with tempfile.TemporaryDirectory(prefix=".download-", dir=directory) as temporary:
@@ -113,6 +139,8 @@ def _download_native(
         if kind == "H":
             with archive.open("rb") as source, executable.open("wb") as output:
                 binary_hash = _copy_and_hash(source, output, MAX_BINARY_BYTES)
+        elif kind == "SS":
+            binary_hash = _extract_tar(archive, executable, name)
         else:
             binary_hash = _extract_zip(archive, executable, name)
         executable.chmod(0o755)
@@ -120,7 +148,11 @@ def _download_native(
         # a deferred artifact is not yet a ready/verified peer.
         version = None
         if not defer_version:
-            result = run_command([str(executable), "version"], timeout=10, limit=4096)
+            result = run_command(
+                [str(executable), "--version" if kind == "SS" else "version"],
+                timeout=10,
+                limit=4096,
+            )
             if result.returncode != 0 or not result.cleanup:
                 raise RuntimeError("official native peer version check failed")
             version = result.stdout.decode("utf-8", errors="replace").strip()
@@ -162,3 +194,36 @@ def _extract_zip(archive: Path, executable: Path, name: str) -> str:
         with bundle.open(matches[0]) as source, executable.open("wb") as output:
             binary_hash = _copy_and_hash(source, output, MAX_BINARY_BYTES)
     return binary_hash
+
+
+def _extract_tar(archive: Path, executable: Path, name: str) -> str:
+    """Stream a bounded official bundle; never extract archive paths or links."""
+    found, total, digest = 0, 0, None
+    with tarfile.open(archive, "r|xz") as bundle:
+        for index, entry in enumerate(bundle):
+            path = PurePosixPath(entry.name)
+            total += entry.size
+            if (
+                index >= 32
+                or total > MAX_BINARY_BYTES
+                or path.is_absolute()
+                or ".." in path.parts
+                or "\\" in entry.name
+                or ":" in entry.name
+                or not (entry.isfile() or entry.isdir())
+            ):
+                raise RuntimeError("unsafe official native peer archive")
+            if entry.name != name:
+                continue
+            found += 1
+            if (
+                found != 1
+                or not entry.isfile()
+                or not 0 < entry.size <= MAX_BINARY_BYTES
+            ):
+                raise RuntimeError("invalid official native peer executable")
+            with bundle.extractfile(entry) as source, executable.open("wb") as output:
+                digest = _copy_and_hash(source, output, MAX_BINARY_BYTES)
+    if found != 1:
+        raise RuntimeError("missing official native peer executable")
+    return digest

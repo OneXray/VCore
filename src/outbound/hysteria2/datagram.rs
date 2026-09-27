@@ -7,7 +7,7 @@ use crate::{
 use async_trait::async_trait;
 use bytes::{Buf, Bytes};
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::HashMap,
     io,
     sync::{
         Arc, Mutex,
@@ -267,7 +267,6 @@ struct Pending {
 struct Reassembly {
     packets: HashMap<(u32, u16), Pending>,
     bytes: usize,
-    completed: VecDeque<((u32, u16), Instant)>,
 }
 impl Reassembly {
     fn remove(&mut self, key: &(u32, u16)) -> Option<Pending> {
@@ -283,8 +282,6 @@ impl Reassembly {
             }
             keep
         });
-        self.completed
-            .retain(|((session, _), expires)| *expires > now && live(*session));
     }
     fn push(&mut self, fragment: Fragment, now: Instant, budget: usize) -> Option<Datagram> {
         if fragment.payload.len() > budget {
@@ -298,13 +295,6 @@ impl Reassembly {
             });
         }
         let key = (fragment.session, fragment.packet);
-        if self
-            .completed
-            .iter()
-            .any(|(done, expires)| *done == key && *expires > now)
-        {
-            return None;
-        }
         if self
             .packets
             .get(&key)
@@ -357,10 +347,9 @@ impl Reassembly {
         for piece in packet.pieces {
             payload.extend_from_slice(&piece.unwrap());
         }
-        if self.completed.len() == PENDING_PACKETS {
-            self.completed.pop_front();
-        }
-        self.completed.push_back((key, now + TTL));
+        // A Packet ID only identifies an unfinished assembly, not a replay
+        // nonce. Native Hysteria uses random u16 IDs; like Mihomo, release the
+        // completed ID immediately so a later legal reply is not suppressed.
         Some(Datagram {
             remote: packet.peer,
             payload: payload.into(),
@@ -394,8 +383,14 @@ pub(super) async fn receive(
                 if let Some(entry) = entries.get(&fragment.session)
                     && let Some(datagram) =
                         pending.push(fragment, Instant::now(), usize::from(entry.budget))
+                    && let Ok(permit) = entry.sender.try_reserve()
                 {
-                    let _ = entry.sender.try_send(datagram);
+                    crate::resources::observation::observe_queue(
+                        crate::resources::observation::QueueKind::Hysteria2Udp,
+                        crate::limits::HY2_UDP_QUEUE - entry.sender.capacity(),
+                        crate::limits::HY2_UDP_QUEUE,
+                    );
+                    permit.send(datagram);
                 }
             }
         }
@@ -486,13 +481,20 @@ mod tests {
                 .payload,
             [5; 100][..]
         );
-        for frame in &frames {
-            assert!(
-                state
-                    .push(decode(frame.clone()).unwrap(), now, 100)
-                    .is_none()
-            );
-        }
+        // Duplicate pieces of an unfinished packet are ignored above; once
+        // delivered, the ID may immediately identify another full datagram.
+        assert!(
+            state
+                .push(decode(frames[0].clone()).unwrap(), now, 100)
+                .is_none()
+        );
+        assert_eq!(
+            state
+                .push(decode(frames[1].clone()).unwrap(), now, 100)
+                .unwrap()
+                .payload,
+            [5; 100][..]
+        );
         state.expire(now + TTL, |_| true);
         assert!(
             state

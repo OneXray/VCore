@@ -165,9 +165,9 @@ impl HttpServer {
                     let dispatcher = self.dispatcher.clone();
                     let config = self.config.clone();
                     let child = cancellation.clone();
-                    tasks.spawn(async move {
+                    tasks.spawn(crate::resources::observation::task(async move {
                         let _ = handle_connection(stream, peer, dispatcher, config, child).await;
-                    });
+                    }));
                 }
             }
         };
