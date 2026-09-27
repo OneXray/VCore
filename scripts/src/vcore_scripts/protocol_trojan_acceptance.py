@@ -215,7 +215,6 @@ def check(run_dir, required, run, results, peers, paths):
         "feature-outbound-trojan",
         "feature-outbound-vmess",
         "feature-outbound-hysteria2",
-        "feature-outbound-wireguard",
         "feature-stream-transport",
         "feature-quic-transport",
     }

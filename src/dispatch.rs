@@ -427,6 +427,4 @@ mod tests {
 }
 mod datagram;
 pub(crate) use datagram::bounded as bound_datagram;
-pub use datagram::{
-    DatagramBudget, QUIC_MIN_PAYLOAD_BYTES, WIREGUARD_MIN_INNER_MTU, WIREGUARD_TRANSPORT_OVERHEAD,
-};
+pub use datagram::{DatagramBudget, QUIC_MIN_PAYLOAD_BYTES};

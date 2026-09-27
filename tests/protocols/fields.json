@@ -1,15 +1,14 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "kind": "planned-field-catalog",
   "baseline_date": "2026-09-22",
   "vcore_baseline": "bbe5100abcf07b1158f86cff39cd835e1f32ccf9",
-  "field_count": 133,
+  "field_count": 126,
   "scope": [
     "trojan",
     "vmess",
     "vless",
-    "hysteria2",
-    "wireguard"
+    "hysteria2"
   ],
   "status": "NOT RUN",
   "status_meaning": "Declaration of required behavior only. Neither source inspection nor presence in this catalog proves implementation or wire interoperability.",
@@ -30,11 +29,6 @@
       "source": "https://github.com/MetaCubeX/mihomo",
       "artifact_policy": "official latest binary; record actual version and hashes; never build locally"
     },
-    "W": {
-      "implementation": "WireGuard Linux kernel with wg-tools, or official wireguard-go",
-      "source": "https://www.wireguard.com/install/",
-      "artifact_policy": "record official package/source provenance, kernel/module, tools and isolated topology"
-    },
     "H": {
       "implementation": "Hysteria 2",
       "source": "https://github.com/apernet/hysteria",
@@ -52,20 +46,6 @@
     }
   },
   "peer_override_rules": [
-    {
-      "id": "wireguard-native",
-      "peer": "W",
-      "protocols": [
-        "wireguard"
-      ],
-      "when": "All wire behavior, including shared fields.",
-      "reason": "Mihomo has no WireGuard listener; do not substitute a Mihomo outbound or same-library self-pair.",
-      "sources": [
-        "M-WG",
-        "WG-PROTOCOL",
-        "WG-MAN"
-      ]
-    },
     {
       "id": "hysteria-hopping",
       "peer": "H",
@@ -213,12 +193,6 @@
     "H-SERVER": "https://github.com/HyNetworks/hysteria/blob/e1366b173ccf5706e1e4630fe8aa654a4b574085/app/cmd/server.go",
     "H-CLIENT": "https://github.com/HyNetworks/hysteria/blob/e1366b173ccf5706e1e4630fe8aa654a4b574085/app/cmd/client.go",
     "H-AUTH": "https://github.com/HyNetworks/hysteria/blob/e1366b173ccf5706e1e4630fe8aa654a4b574085/core/server/server.go",
-    "M-WG": "https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/adapter/outbound/wireguard.go",
-    "WG-PROTOCOL": "https://www.wireguard.com/protocol/",
-    "WG-MAN": "https://git.zx2c4.com/wireguard-tools/about/src/man/wg.8",
-    "G-CARGO": "https://github.com/mullvad/gotatun/blob/3e25b63e197d2754f7ca37d55faf1980e033b80a/gotatun/Cargo.toml",
-    "G-NOISE": "https://github.com/mullvad/gotatun/blob/3e25b63e197d2754f7ca37d55faf1980e033b80a/gotatun/src/noise/mod.rs",
-    "B-CARGO": "https://github.com/cloudflare/boringtun/blob/6dcc889a95ad82400932f785d874421d70308195/boringtun/Cargo.toml",
     "H-HOP-DOC": "https://v2.hysteria.network/docs/advanced/Port-Hopping/"
   },
   "fields": [
@@ -229,8 +203,7 @@
         "trojan",
         "vmess",
         "vless",
-        "hysteria2",
-        "wireguard"
+        "hysteria2"
       ],
       "contract": "必填；沿用现有 1–64 UTF-8 字节与保留名/字符规则，节点和组统一命名空间",
       "required_observation": "本地路由引用；重名/非法名拒绝；N1",
@@ -241,7 +214,6 @@
         "N3.5",
         "N4.4",
         "N6.6",
-        "N8.5",
         "N9.1"
       ],
       "responsible_stages": [
@@ -250,12 +222,10 @@
         "N3",
         "N4",
         "N6",
-        "N8",
         "N9"
       ],
       "default_peer": "M",
       "peer_override_rules": [
-        "wireguard-native",
         "hysteria-hopping",
         "hysteria-server-udp-disabled",
         "vmess-http-camouflage",
@@ -277,11 +247,10 @@
         "trojan",
         "vmess",
         "vless",
-        "hysteria2",
-        "wireguard"
+        "hysteria2"
       ],
-      "contract": "`wireguard`、`hysteria2`、`trojan`、`vmess`、`vless`",
-      "required_observation": "按 §1.1 选择真实对端；按 N2/N3/N4/N6/N8 开放",
+      "contract": "`hysteria2`、`trojan`、`vmess`、`vless`",
+      "required_observation": "按 §1.1 选择真实对端；按 N2/N3/N4/N6 开放",
       "work_packages": [
         "N1.1",
         "N1.4",
@@ -289,7 +258,6 @@
         "N3.5",
         "N4.4",
         "N6.6",
-        "N8.5",
         "N9.1"
       ],
       "responsible_stages": [
@@ -298,12 +266,10 @@
         "N3",
         "N4",
         "N6",
-        "N8",
         "N9"
       ],
       "default_peer": "M",
       "peer_override_rules": [
-        "wireguard-native",
         "hysteria-hopping",
         "hysteria-server-udp-disabled",
         "vmess-http-camouflage",
@@ -325,8 +291,7 @@
         "trojan",
         "vmess",
         "vless",
-        "hysteria2",
-        "wireguard"
+        "hysteria2"
       ],
       "contract": "必填；DNS 名、IPv4 或 IPv6，不混入端口/URL",
       "required_observation": "受控对端三类地址；prepare 解析与 IPv6/回环政策；N1",
@@ -337,7 +302,6 @@
         "N3.5",
         "N4.4",
         "N6.6",
-        "N8.5",
         "N9.1"
       ],
       "responsible_stages": [
@@ -346,12 +310,10 @@
         "N3",
         "N4",
         "N6",
-        "N8",
         "N9"
       ],
       "default_peer": "M",
       "peer_override_rules": [
-        "wireguard-native",
         "hysteria-hopping",
         "hysteria-server-udp-disabled",
         "vmess-http-camouflage",
@@ -373,8 +335,7 @@
         "trojan",
         "vmess",
         "vless",
-        "hysteria2",
-        "wireguard"
+        "hysteria2"
       ],
       "contract": "整数 1–65535；通常必填；HY2 显式 ports 时可省略，按 HY07 规则",
       "required_observation": "对端监听端口；不把 0/缺失默认为 443；N1/N6",
@@ -385,7 +346,6 @@
         "N3.5",
         "N4.4",
         "N6.6",
-        "N8.5",
         "N9.1"
       ],
       "responsible_stages": [
@@ -394,12 +354,10 @@
         "N3",
         "N4",
         "N6",
-        "N8",
         "N9"
       ],
       "default_peer": "M",
       "peer_override_rules": [
-        "wireguard-native",
         "hysteria-hopping",
         "hysteria-server-udp-disabled",
         "vmess-http-camouflage",
@@ -421,11 +379,10 @@
         "trojan",
         "vmess",
         "vless",
-        "hysteria2",
-        "wireguard"
+        "hysteria2"
       ],
       "contract": "bool，默认 false，沿用 VCore",
-      "required_observation": "控制业务 UDP；不是关闭 HY2/WG/H3 外层 UDP；每协议开关正反例；N1+协议阶段",
+      "required_observation": "控制业务 UDP；不是关闭 HY2/H3 外层 UDP；每协议开关正反例；N1+协议阶段",
       "work_packages": [
         "N1.1",
         "N1.4",
@@ -433,7 +390,6 @@
         "N3.5",
         "N4.4",
         "N6.6",
-        "N8.5",
         "N9.1"
       ],
       "responsible_stages": [
@@ -442,12 +398,10 @@
         "N3",
         "N4",
         "N6",
-        "N8",
         "N9"
       ],
       "default_peer": "M",
       "peer_override_rules": [
-        "wireguard-native",
         "hysteria-hopping",
         "hysteria-server-udp-disabled",
         "vmess-http-camouflage",
@@ -469,8 +423,7 @@
         "trojan",
         "vmess",
         "vless",
-        "hysteria2",
-        "wireguard"
+        "hysteria2"
       ],
       "contract": "可选具体节点或静态 select 组；省略使用既有物理 Dialer",
       "required_observation": "混合 DAG、单次组快照、DIRECT/REJECT、IPv6、预算/期限；N1/N9",
@@ -481,7 +434,6 @@
         "N3.5",
         "N4.4",
         "N6.6",
-        "N8.5",
         "N9.1"
       ],
       "responsible_stages": [
@@ -490,12 +442,10 @@
         "N3",
         "N4",
         "N6",
-        "N8",
         "N9"
       ],
       "default_peer": "M",
       "peer_override_rules": [
-        "wireguard-native",
         "hysteria-hopping",
         "hysteria-server-udp-disabled",
         "vmess-http-camouflage",
@@ -4240,215 +4190,7 @@
         "H-AUTH"
       ],
       "behavior_status": "NOT RUN"
-    },
-    {
-      "id": "WG01",
-      "path": "proxies[].ip",
-      "protocols": [
-        "wireguard"
-      ],
-      "contract": "IPv4 隧道源地址，可裸 IP 或 CIDR，裸值 /32；与 ipv6 至少一个；禁止空串/错族，保留 host 位",
-      "required_observation": "peer AllowedIPs 中登记客户端 /32；内层 IPv4 源地址实际正确；单栈/双栈",
-      "work_packages": [
-        "N8.1",
-        "N8.3",
-        "N8.5"
-      ],
-      "responsible_stages": [
-        "N8"
-      ],
-      "default_peer": "W",
-      "peer_override_rules": [
-        "wireguard-native"
-      ],
-      "sources": [
-        "M-WG",
-        "WG-PROTOCOL",
-        "WG-MAN",
-        "G-CARGO",
-        "G-NOISE",
-        "B-CARGO"
-      ],
-      "behavior_status": "NOT RUN"
-    },
-    {
-      "id": "WG02",
-      "path": "proxies[].ipv6",
-      "protocols": [
-        "wireguard"
-      ],
-      "contract": "IPv6 隧道源地址，可裸 IP 或 CIDR，裸值 /128；与 ip 至少一个；受 VCore IPv6 总开关约束",
-      "required_observation": "peer 登记 /128；IPv6-only/双栈；缺某族不能借 DIRECT 绕过",
-      "work_packages": [
-        "N8.1",
-        "N8.3",
-        "N8.5"
-      ],
-      "responsible_stages": [
-        "N8"
-      ],
-      "default_peer": "W",
-      "peer_override_rules": [
-        "wireguard-native"
-      ],
-      "sources": [
-        "M-WG",
-        "WG-PROTOCOL",
-        "WG-MAN",
-        "G-CARGO",
-        "G-NOISE",
-        "B-CARGO"
-      ],
-      "behavior_status": "NOT RUN"
-    },
-    {
-      "id": "WG03",
-      "path": "proxies[].private-key",
-      "protocols": [
-        "wireguard"
-      ],
-      "contract": "必填 Base64，解码严格32字节；按 WG 密钥解析，**不是 T08 的 TLS PEM**",
-      "required_observation": "官方 wg 派生公钥注册 peer；错 key/长度失败，日志不含私钥",
-      "work_packages": [
-        "N8.2",
-        "N8.5"
-      ],
-      "responsible_stages": [
-        "N8"
-      ],
-      "default_peer": "W",
-      "peer_override_rules": [
-        "wireguard-native"
-      ],
-      "sources": [
-        "M-WG",
-        "WG-PROTOCOL",
-        "WG-MAN",
-        "G-CARGO",
-        "G-NOISE",
-        "B-CARGO"
-      ],
-      "behavior_status": "NOT RUN"
-    },
-    {
-      "id": "WG04",
-      "path": "proxies[].public-key",
-      "protocols": [
-        "wireguard"
-      ],
-      "contract": "必填服务端 Base64 公钥，解码严格32字节",
-      "required_observation": "正确/错误服务端身份；错误在共享 setup deadline 内失败",
-      "work_packages": [
-        "N8.2",
-        "N8.5"
-      ],
-      "responsible_stages": [
-        "N8"
-      ],
-      "default_peer": "W",
-      "peer_override_rules": [
-        "wireguard-native"
-      ],
-      "sources": [
-        "M-WG",
-        "WG-PROTOCOL",
-        "WG-MAN",
-        "G-CARGO",
-        "G-NOISE",
-        "B-CARGO"
-      ],
-      "behavior_status": "NOT RUN"
-    },
-    {
-      "id": "WG05",
-      "path": "proxies[].pre-shared-key",
-      "protocols": [
-        "wireguard"
-      ],
-      "contract": "可选 Base64，出现时严格32字节；省略不用额外 PSK",
-      "required_observation": "正确/缺失/错误 PSK 组合；错误时目标零业务数据",
-      "work_packages": [
-        "N8.2",
-        "N8.5"
-      ],
-      "responsible_stages": [
-        "N8"
-      ],
-      "default_peer": "W",
-      "peer_override_rules": [
-        "wireguard-native"
-      ],
-      "sources": [
-        "M-WG",
-        "WG-PROTOCOL",
-        "WG-MAN",
-        "G-CARGO",
-        "G-NOISE",
-        "B-CARGO"
-      ],
-      "behavior_status": "NOT RUN"
-    },
-    {
-      "id": "WG06",
-      "path": "proxies[].mtu",
-      "protocols": [
-        "wireguard"
-      ],
-      "contract": "缺省/0=1408；非零1280–65535，再受上游数据报预算约束；有效值不足1280明确失败",
-      "required_observation": "inner IP 长度、TCP MSS、UDP边界/最大值+1；不能把它当业务 UDP payload 或依赖外层分片",
-      "work_packages": [
-        "N8.1",
-        "N8.3",
-        "N8.4",
-        "N8.5"
-      ],
-      "responsible_stages": [
-        "N8"
-      ],
-      "default_peer": "W",
-      "peer_override_rules": [
-        "wireguard-native"
-      ],
-      "sources": [
-        "M-WG",
-        "WG-PROTOCOL",
-        "WG-MAN",
-        "G-CARGO",
-        "G-NOISE",
-        "B-CARGO"
-      ],
-      "behavior_status": "NOT RUN"
-    },
-    {
-      "id": "WG07",
-      "path": "proxies[].persistent-keepalive",
-      "protocols": [
-        "wireguard"
-      ],
-      "contract": "整数秒0–65535，默认0关闭",
-      "required_observation": "0/25秒空闲行为；区分协议正常握手/确认与持久保活；Stop后无定时包",
-      "work_packages": [
-        "N8.2",
-        "N8.4",
-        "N8.5"
-      ],
-      "responsible_stages": [
-        "N8"
-      ],
-      "default_peer": "W",
-      "peer_override_rules": [
-        "wireguard-native"
-      ],
-      "sources": [
-        "M-WG",
-        "WG-PROTOCOL",
-        "WG-MAN",
-        "G-CARGO",
-        "G-NOISE",
-        "B-CARGO"
-      ],
-      "behavior_status": "NOT RUN"
     }
   ],
-  "scope_revision": "2026-09-27: selected VLESS scope; retire ShadowTLS and defer dynamic ECH. Restls remains retired; JLS retains its accepted scope. Historical failures are not relabelled."
+  "scope_revision": "2026-09-27: retire WireGuard and N8, including WG01-WG07 and the native W peer. Retain selected VLESS capabilities, Hysteria2, Trojan and VMess; N9/N10 remain separate gates. Retained IDs and historical results are unchanged."
 }

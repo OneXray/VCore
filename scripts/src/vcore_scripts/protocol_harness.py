@@ -109,7 +109,6 @@ def _features(case, run, output):
         "outbound-trojan",
         "outbound-vmess",
         "outbound-hysteria2",
-        "outbound-wireguard",
         "stream-transport",
         "quic-transport",
     ]
@@ -482,7 +481,7 @@ def run_protocol_interop(
                 (output / "peers.json").write_text(json.dumps(peers, indent=2) + "\n")
             elif preflight_only:
                 _, peers = preflight(
-                    output / "binaries", {"M", "V2", "H", "XR", "W"}, container=True
+                    output / "binaries", {"M", "V2", "H", "XR"}, container=True
                 )
                 (output / "peers.json").write_text(json.dumps(peers, indent=2) + "\n")
                 if any(
@@ -585,7 +584,7 @@ def run_protocol_interop(
                 "native H server limits and platform/device gates remain explicit.\n\n"
                 if stage == "N6"
                 else "N7 selected VLESS security consumers; static ECH only, "
-                "Container-only peers; N8/N9/N10 and devices remain separate.\n\n"
+                "Container-only peers; N9/N10 and devices remain separate.\n\n"
                 if stage == "N7"
                 else "Foundation-only evidence; "
                 "production protocol field consumers remain NOT RUN.\n\n"

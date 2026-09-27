@@ -479,7 +479,6 @@ def required_command_names():
                 "outbound-trojan",
                 "outbound-vmess",
                 "outbound-hysteria2",
-                "outbound-wireguard",
                 "stream-transport",
                 "quic-transport",
             )

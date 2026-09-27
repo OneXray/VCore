@@ -605,7 +605,6 @@ def check(run_dir, cases, run, results, peers, paths):
                 "outbound-trojan",
                 "outbound-vmess",
                 "outbound-hysteria2",
-                "outbound-wireguard",
                 "stream-transport",
                 "quic-transport",
             )

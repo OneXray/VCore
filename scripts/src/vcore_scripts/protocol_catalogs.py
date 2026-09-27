@@ -6,15 +6,15 @@ from typing import Any, TypeGuard
 from urllib.parse import urlsplit
 
 CATALOG_DIR = Path(__file__).resolve().parents[3] / "tests" / "protocols"
-PROTOCOLS = {"trojan", "vmess", "vless", "hysteria2", "wireguard"}
-PEERS = {"M", "W", "H", "XR", "V2"}
-STAGES = {f"N{index}" for index in range(11)}
+PROTOCOLS = {"trojan", "vmess", "vless", "hysteria2"}
+PEERS = {"M", "H", "XR", "V2"}
+STAGES = {f"N{index}" for index in range(11)} - {"N8"}
 WORK_PACKAGES = {
     f"N{stage}.{package}"
-    for stage, count in enumerate((0, 6, 4, 5, 4, 5, 6, 5, 5, 4, 4))
+    for stage, count in enumerate((0, 6, 4, 5, 4, 5, 6, 5, 0, 4, 4))
     for package in range(1, count + 1)
 }
-# Schema-v3 retires ShadowTLS and defers dynamic ECH; remaining IDs stay stable.
+# Schema-v4 also retires WireGuard/N8; all retained IDs stay stable.
 FIELD_IDS = {
     f"{prefix}{index:02}"
     for prefix, count in {
@@ -31,7 +31,6 @@ FIELD_IDS = {
         "S": 13,
         "M": 7,
         "HY": 8,
-        "WG": 7,
     }.items()
     for index in range(1, count + 1)
     if not (
@@ -86,7 +85,6 @@ COMBINATION_IDS = {
     "HY-SALAMANDER",
     "HY-HOPPING",
     "HY-SERVER-UDP-DISABLED",
-    "WG-SINGLE-PEER",
     "ALL-UPSTREAMS",
     "REJECT-VISION-TRANSPORT",
     "REJECT-VISION-UDP-CODEC",
@@ -105,7 +103,6 @@ COMBINATION_IDS = {
     "REJECT-UDP-DISABLED",
     "REJECT-UPSTREAM-DATAGRAM",
     "REJECT-HOP-INTERVAL",
-    "REJECT-WG-ADDRESSES",
 }
 FIELD_KEYS = {
     "id",
@@ -152,7 +149,7 @@ def _load(directory: Path, name: str, kind: str, keys: set[str]) -> dict[str, An
     if (
         not isinstance(catalog, dict)
         or type(catalog.get("schema_version")) is not int
-        or catalog["schema_version"] != 3
+        or catalog["schema_version"] != 4
         or catalog.get("kind") != kind
         or "status" not in catalog
         or not isinstance(catalog.get("sources"), dict)
@@ -289,7 +286,7 @@ def check_protocol_catalogs(directory: Path) -> None:
         _references(row["stages"], STAGES)
         if row["id"] == "ALL-UPSTREAMS" and (
             type(row.get("ordered_pairs")) is not int
-            or row["ordered_pairs"] != 64
+            or row["ordered_pairs"] != 49
             or set(row["protocols"]) != PROTOCOLS
             or not isinstance(row.get("existing_protocols"), list)
             or len(row["existing_protocols"]) != 3

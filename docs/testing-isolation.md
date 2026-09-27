@@ -4,7 +4,7 @@
 
 ## 范围
 
-- 协议服务端（Mihomo、Xray、V2Ray、Hysteria、Shadowsocks、WireGuard 等）、UDP echo / TCP / HTTP / DNS 测试原站，以及故障注入中的服务端角色，全部容器化。
+- 协议服务端（Mihomo、Xray、V2Ray、Hysteria、Shadowsocks 等）、UDP echo / TCP / HTTP / DNS 测试原站，以及故障注入中的服务端角色，全部容器化。
 - 对照客户端若提供 SOCKS/HTTP 等测试入口，该入口也放在容器中。宿主只运行待测客户端、测试驱动和只读观察工具。
 - 纯内存、编解码、离线配置或 mock 单元测试不属于外部服务端互通测试。不能把宿主网络服务改称 mock 来规避隔离。
 - 尚未完成容器化、容器不可用或平台不支持的服务端用例记为 `BLOCKED` / `NOT RUN`，不得回退到宿主启动。Linux 测试对端不代表 VCore 新增 Linux 产品支持。

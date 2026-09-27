@@ -51,14 +51,14 @@ class ProtocolCatalogTest(unittest.TestCase):
         report = json.loads(output)
         self.assertEqual(report["status"], "VALID")
         self.assertEqual(report["behavior_status"], "NOT RUN")
-        self.assertEqual(report["fields"], 133)
-        self.assertEqual(report["combination_families"], 67)
+        self.assertEqual(report["fields"], 126)
+        self.assertEqual(report["combination_families"], 65)
         self.assertEqual(errors, "")
 
     def test_field_catalog_cannot_drop_duplicate_or_replace_a_stable_id(self):
         def remove(data):
             data["fields"].pop()
-            data["field_count"] = 132
+            data["field_count"] = 125
 
         def duplicate(data):
             data["fields"][-1]["id"] = "C01"
@@ -156,12 +156,12 @@ class ProtocolCatalogTest(unittest.TestCase):
         bad_json = [
             "[]",
             '{"private-synthetic-marker":',
-            original.replace('"schema_version": 3', '"schema_version": 1'),
-            original.replace('"schema_version": 3', '"schema_version": true'),
+            original.replace('"schema_version": 4', '"schema_version": 1'),
+            original.replace('"schema_version": 4', '"schema_version": true'),
             original.replace(
-                '"field_count": 133',
+                '"field_count": 126',
                 '"private-synthetic-marker": 1, "private-synthetic-marker": 2, '
-                '"field_count": 133',
+                '"field_count": 126',
             ),
         ]
         for number, payload in enumerate(bad_json):
@@ -196,6 +196,9 @@ class ProtocolCatalogTest(unittest.TestCase):
             ("fields", "contract", " "),
             ("fields", "required_observation", ""),
             ("fields", "work_packages", ["N99.1"]),
+            ("fields", "work_packages", ["N8.1"]),
+            ("fields", "responsible_stages", ["N8"]),
+            ("fields", "default_peer", "W"),
             ("fields", "responsible_stages", ["N2"]),
             ("combinations", "protocols", ["wireguard"]),
             ("combinations", "stages", []),
@@ -293,10 +296,10 @@ class ProtocolCatalogTest(unittest.TestCase):
                     self.assertEqual(output, "")
                     self.assertIn("protocol catalog", errors)
 
-    def test_upstream_declaration_keeps_all_64_ordered_pairs(self):
+    def test_upstream_declaration_keeps_all_49_ordered_pairs(self):
         for key, value in (
-            ("ordered_pairs", 63),
-            ("ordered_pairs", 64.0),
+            ("ordered_pairs", 48),
+            ("ordered_pairs", 49.0),
             ("existing_protocols", ["socks5", "anytls"]),
             ("existing_protocols", [None, {}, "socks5"]),
             ("protocols", ["trojan"]),
@@ -326,4 +329,4 @@ class ProtocolCatalogTest(unittest.TestCase):
         with chdir(self.catalogs), redirect_stdout(output):
             code = cli.main(["check", "protocol-coverage", "--catalog-only"])
         self.assertEqual(code, 0)
-        self.assertEqual(json.loads(output.getvalue())["fields"], 133)
+        self.assertEqual(json.loads(output.getvalue())["fields"], 126)

@@ -150,8 +150,7 @@
       "row_ids": [
         "C05",
         "C06",
-        "HY06",
-        "WG06"
+        "HY06"
       ],
       "protocol": "foundation",
       "network": "supplied-io-or-loopback",
@@ -237,9 +236,7 @@
       "required": true,
       "row_ids": [
         "C03",
-        "C06",
-        "WG01",
-        "WG02"
+        "C06"
       ],
       "protocol": "foundation",
       "network": "supplied-io-or-loopback",

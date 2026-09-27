@@ -33,8 +33,7 @@ pub mod routing;
         feature = "outbound-vless",
         feature = "outbound-trojan",
         feature = "outbound-vmess",
-        feature = "outbound-hysteria2",
-        feature = "outbound-wireguard"
+        feature = "outbound-hysteria2"
     ),
     any(feature = "ffi", test)
 ))]

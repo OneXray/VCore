@@ -248,19 +248,6 @@ fn layered_directional_budgets_account_for_ip_headers_and_exact_minima() {
             .quic_payload_limit()
             .is_err()
     );
-    assert_eq!(ipv6.wireguard_inner_mtu(1408).unwrap(), 1408);
-    assert_eq!(
-        DatagramBudget::new(1312, 1312)
-            .wireguard_inner_mtu(1408)
-            .unwrap(),
-        1280
-    );
-    assert!(
-        DatagramBudget::new(1311, 1312)
-            .wireguard_inner_mtu(1408)
-            .is_err()
-    );
-    assert!(ipv6.wireguard_inner_mtu(1279).is_err());
     assert_eq!(
         DatagramBudget::new(12, 10)
             .subtract_overhead(13, usize::MAX)

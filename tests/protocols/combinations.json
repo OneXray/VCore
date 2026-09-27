@@ -1,5 +1,5 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "kind": "planned-combination-catalog",
   "baseline_date": "2026-09-22",
   "status": "NOT RUN",
@@ -46,11 +46,6 @@
       "implementation": "Mihomo",
       "source": "https://github.com/MetaCubeX/mihomo",
       "artifact_policy": "official latest binary; record actual version and hashes; never build locally"
-    },
-    "W": {
-      "implementation": "WireGuard Linux kernel with wg-tools, or official wireguard-go",
-      "source": "https://www.wireguard.com/install/",
-      "artifact_policy": "record official package/source provenance, kernel/module, tools and isolated topology"
     },
     "H": {
       "implementation": "Hysteria 2",
@@ -111,9 +106,6 @@
     "H-SERVER": "https://github.com/HyNetworks/hysteria/blob/e1366b173ccf5706e1e4630fe8aa654a4b574085/app/cmd/server.go",
     "H-CLIENT": "https://github.com/HyNetworks/hysteria/blob/e1366b173ccf5706e1e4630fe8aa654a4b574085/app/cmd/client.go",
     "H-AUTH": "https://github.com/HyNetworks/hysteria/blob/e1366b173ccf5706e1e4630fe8aa654a4b574085/core/server/server.go",
-    "WG-PROTOCOL": "https://www.wireguard.com/protocol/",
-    "WG-MAN": "https://git.zx2c4.com/wireguard-tools/about/src/man/wg.8",
-    "M-WG": "https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/adapter/outbound/wireguard.go",
     "vcore-connector": "src/outbound/connector.rs",
     "VCORE-CONTRACT": "fields.json"
   },
@@ -2257,68 +2249,13 @@
       "behavior_status": "NOT RUN"
     },
     {
-      "id": "WG-SINGLE-PEER",
-      "classification": "supported-required",
-      "protocols": [
-        "wireguard"
-      ],
-      "networks": [
-        "wireguard"
-      ],
-      "security_modes": [
-        "wireguard",
-        "wireguard-plus-psk"
-      ],
-      "udp_codecs": [
-        "wireguard-inner-udp"
-      ],
-      "business": [
-        "tcp",
-        "udp"
-      ],
-      "peers": [
-        "W"
-      ],
-      "row_ids": [
-        "C01",
-        "C02",
-        "C03",
-        "C04",
-        "C05",
-        "C06",
-        "WG01",
-        "WG02",
-        "WG03",
-        "WG04",
-        "WG05",
-        "WG06",
-        "WG07"
-      ],
-      "stages": [
-        "N0",
-        "N8"
-      ],
-      "required_observation": "Official peer handshake, active TCP and UDP, single/dual-stack and inner/outer crossed families, MTU including padding, keepalive 0/25 and genuine rekey.",
-      "sources": [
-        "WG-PROTOCOL",
-        "WG-MAN",
-        "M-WG"
-      ],
-      "behavior_status": "NOT RUN",
-      "constraints": [
-        "Do not create a host WireGuard interface or change host routes.",
-        "The independent native peer is not the selected Rust client crypto library."
-      ]
-    },
-    {
       "id": "ALL-UPSTREAMS",
       "classification": "supported-required",
       "protocols": [
         "trojan",
         "vmess",
         "vless",
-        "hysteria2",
-        "wireguard"
+        "hysteria2"
       ],
       "networks": [
         "protocol-appropriate"
@@ -2335,7 +2272,6 @@
       ],
       "peers": [
         "M",
-        "W",
         "H",
         "XR",
         "V2"
@@ -2348,7 +2284,7 @@
       "stages": [
         "N9"
       ],
-      "required_observation": "All 8×8 ordered two-hop protocol pairs including existing SOCKS5/AnyTLS/SS2022, using distinct nodes. Expand positive and minimum-budget/capability negatives; independent DIRECT/REJECT/select cases.",
+      "required_observation": "All 7×7 ordered two-hop protocol pairs including existing SOCKS5/AnyTLS/SS2022, using distinct nodes. Expand positive and minimum-budget/capability negatives; independent DIRECT/REJECT/select cases.",
       "sources": [
         "vcore-connector"
       ],
@@ -2358,7 +2294,7 @@
         "anytls",
         "ss2022"
       ],
-      "ordered_pairs": 64
+      "ordered_pairs": 49
     },
     {
       "id": "REJECT-VISION-TRANSPORT",
@@ -2709,8 +2645,7 @@
         "trojan",
         "vmess",
         "vless",
-        "hysteria2",
-        "wireguard"
+        "hysteria2"
       ],
       "when": "Business UDP requested when local udp=false.",
       "row_ids": [
@@ -2720,11 +2655,10 @@
         "N2",
         "N3",
         "N4",
-        "N6",
-        "N8"
+        "N6"
       ],
       "rejection_phase": "dispatch",
-      "required_observation": "Deny business UDP but keep required outer HY2/WG/H3 UDP transport for TCP; no alternate route.",
+      "required_observation": "Deny business UDP but keep required outer HY2/H3 UDP transport for TCP; no alternate route.",
       "sources": [
         "VCORE-CONTRACT"
       ],
@@ -2735,13 +2669,11 @@
       "classification": "rejected-by-contract",
       "protocols": [
         "hysteria2",
-        "wireguard",
         "vless"
       ],
-      "when": "Selected upstream lacks datagram support or effective payload budget is below QUIC/WireGuard requirements.",
+      "when": "Selected upstream lacks datagram support or effective payload budget is below QUIC requirements.",
       "row_ids": [
         "C06",
-        "WG06",
         "HY06",
         "T03"
       ],
@@ -2749,7 +2681,6 @@
         "N1",
         "N5",
         "N6",
-        "N8",
         "N9"
       ],
       "rejection_phase": "establish",
@@ -2779,32 +2710,7 @@
         "VCORE-CONTRACT"
       ],
       "behavior_status": "NOT RUN"
-    },
-    {
-      "id": "REJECT-WG-ADDRESSES",
-      "classification": "rejected-by-contract",
-      "protocols": [
-        "wireguard"
-      ],
-      "when": "Neither address family configured, malformed address/key, inner MTU below 1280 or missing target family.",
-      "row_ids": [
-        "WG01",
-        "WG02",
-        "WG03",
-        "WG04",
-        "WG05",
-        "WG06"
-      ],
-      "stages": [
-        "N8"
-      ],
-      "rejection_phase": "prepare-or-establish",
-      "required_observation": "Static malformed configuration fails at prepare; dynamic budget/target-family failures fail at establish, never DIRECT.",
-      "sources": [
-        "VCORE-CONTRACT"
-      ],
-      "behavior_status": "NOT RUN"
     }
   ],
-  "scope_revision": "2026-09-27: selected VLESS scope; retire ShadowTLS and defer dynamic ECH. Restls remains retired; JLS retains its accepted scope. Historical failures are not relabelled."
+  "scope_revision": "2026-09-27: retire WireGuard and N8, including WG01-WG07 and the native W peer. Retain selected VLESS capabilities, Hysteria2, Trojan and VMess; N9/N10 remain separate gates. Retained IDs and historical results are unchanged."
 }

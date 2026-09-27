@@ -50,8 +50,6 @@ outbound-trojan = ["stream-transport", "tls-fingerprint"]
 outbound-vmess = ["stream-transport", "tls-fingerprint", "dep:aes", "dep:crc32fast", "dep:md-5", "dep:ring", "dep:shake"]
 tls-fingerprint = ["dep:boring", "dep:tokio-boring"]
 outbound-hysteria2 = ["quic-transport", "dep:quinn-proto", "dep:h3", "dep:h3-quinn", "dep:blake2"]
-# Foundation-only feature; YAML registration waits for its protocol stage.
-outbound-wireguard = []
 stream-transport = ["dep:tokio-tungstenite", "dep:httparse", "dep:log"]
 quic-transport = ["dep:quinn"]
 # Enables local interoperability-only trust-root injection. Release build

@@ -2,6 +2,7 @@ use vcore::config::Config;
 
 #[test]
 fn feature_skeletons_do_not_open_unimplemented_yaml_or_measurement_protocols() {
+    // Keep the stable N1 assertion ID as a regression for the retired protocol.
     #[cfg(feature = "interop-test")]
     let mut _case = vcore::resources::case_events::Case::new(
         "N1-SCHEMA",

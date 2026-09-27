@@ -78,16 +78,15 @@ def _parser() -> argparse.ArgumentParser:
     coverage_modes.add_argument(
         "--run-dir", type=Path, help="validate a complete persisted stage run"
     )
-    coverage.add_argument("--stage", default="N1", choices=[f"N{i}" for i in range(11)])
+    stages = [f"N{i}" for i in range(11) if i != 8]
+    coverage.add_argument("--stage", default="N1", choices=stages)
     coverage.add_argument(
         "--catalog-dir", type=Path, default=CATALOG_DIR, help="directory of catalogs"
     )
     protocol = checks.add_parser(
         "protocol-interop", help="run structured stage foundations and native peers"
     )
-    protocol.add_argument(
-        "--stage", required=True, choices=[f"N{i}" for i in range(11)]
-    )
+    protocol.add_argument("--stage", required=True, choices=stages)
     protocol.add_argument("--case", dest="identifiers", action="append")
     protocol.add_argument(
         "--protocol",
@@ -98,7 +97,6 @@ def _parser() -> argparse.ArgumentParser:
             "vmess",
             "vless",
             "hysteria2",
-            "wireguard",
         ],
     )
     modes = protocol.add_mutually_exclusive_group()

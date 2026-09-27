@@ -5,8 +5,6 @@ use crate::packet::IpVersion;
 use crate::session::{Datagram, Destination};
 
 pub const QUIC_MIN_PAYLOAD_BYTES: u16 = 1200;
-pub const WIREGUARD_MIN_INNER_MTU: u16 = 1280;
-pub const WIREGUARD_TRANSPORT_OVERHEAD: u16 = 32;
 
 /// Directional payload ceilings at one datagram seam, excluding its envelope.
 /// Zero means no nonempty payload fits, not permission to remove a bound.
@@ -59,22 +57,6 @@ impl DatagramBudget {
             return Err(invalid());
         }
         Ok(payload)
-    }
-
-    /// WireGuard transport data is padded to a 16-byte boundary. Handshake
-    /// packets (148/92 bytes) also fit whenever the 1280-byte inner MTU fits.
-    pub fn wireguard_inner_mtu(self, requested: u16) -> io::Result<u16> {
-        let available = self
-            .transmit
-            .min(self.receive)
-            .saturating_sub(WIREGUARD_TRANSPORT_OVERHEAD)
-            / 16
-            * 16;
-        let mtu = available.min(requested);
-        if mtu < WIREGUARD_MIN_INNER_MTU {
-            return Err(invalid());
-        }
-        Ok(mtu)
     }
 }
 

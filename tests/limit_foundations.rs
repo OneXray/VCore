@@ -81,14 +81,6 @@ fn registry_matches_live_production_constants_and_has_owned_boundary_cases() {
             usize::from(dispatch::QUIC_MIN_PAYLOAD_BYTES),
         ),
         (
-            "wireguard-minimum",
-            usize::from(dispatch::WIREGUARD_MIN_INNER_MTU),
-        ),
-        (
-            "wireguard-overhead",
-            usize::from(dispatch::WIREGUARD_TRANSPORT_OVERHEAD),
-        ),
-        (
             "resolution-depth",
             vcore::dns::resolution::MAX_RESOLUTION_DEPTH,
         ),

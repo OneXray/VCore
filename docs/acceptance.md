@@ -22,7 +22,7 @@
 
 2026-09-25 [TLS 指纹接线](acceptance/tls-client-fingerprint.md)接入 boring 的 `chrome120` 和经典 REALITY，schema19 / Invoke v5。随后[退役自有 rustls fork](acceptance/rustls-fork-retirement.md)：普通无指纹 TLS、QUIC、WebPKI 改用官方 crates.io rustls；最新替换回归为 132 项容器检查及 Apple/Android 构建通过。旧 fork 将永久删除，以下 N0–N5 记录保留当时的依赖摘要，不保证历史版本重建，也不计为当前后端的新增能力。现行依赖见 [TLS 依赖](tls-dependencies.md)。
 
-下一版协议从独立 N0 基线开始，进度见 [N0 基线与可行性门禁](acceptance/next-protocols/N0.md)。2026-09-22/23 的新基线与接口实验不继承本页历史通过状态，也不代表新五协议或平台交付已经完成。当时的混合 REALITY fork 局部实验不等于生产能力；当前实现另见下文 N7.2。[N0-D QUIC 原生入口](acceptance/next-protocols/N0-quic-entries.md)已验证，原生半关闭失败和 N0 其余门禁仍保留。
+下一版协议从独立 N0 基线开始，进度见 [N0 基线与可行性门禁](acceptance/next-protocols/N0.md)。2026-09-22/23 的新基线与接口实验不继承本页历史通过状态，也不代表当时规划的五协议或平台交付已经完成。当时的混合 REALITY fork 局部实验不等于生产能力；当前实现另见下文 N7.2。[N0-D QUIC 原生入口](acceptance/next-protocols/N0-quic-entries.md)已验证，原生半关闭失败和 N0 其余门禁仍保留。
 
 2026-09-23 追加的 [XHTTP 关闭对齐](acceptance/next-protocols/XHTTP-close.md)修正了既有生产 H2 的三种模式：应用上传 EOF 结束整条逻辑连接，不再保留下行半关闭。独立 H3 实验与官方 Mihomo 客户端完成同一 Xray 对端的行为对照；当时 H3 尚未接入生产，后续接入见 N5。历史 request-EOF/尾包失败不改记为成功，也不再作为 XHTTP 的客户端契约。
 
@@ -34,13 +34,13 @@
 
 [N1 基础与实验依赖更新](acceptance/next-protocols/N1-foundation-dependencies.md)继续升级基础库、smoltcp、WS/HPKE实验和兼容补丁锁，记录已批准的Windows SDK配套例外。全Debug/Release、全目标Clippy、真实对端回归和Apple/Android构建通过；不抵扣完整N1、新协议、真机或Windows原生门禁。
 
-[N1 声明清单校验](acceptance/next-protocols/N1-catalogs.md)提供 `check protocol-coverage --catalog-only`，历史 schema-v1 冻结145字段/69组合ID并检查引用、归属及必要元数据；撤回 Restls 后的 schema-v2 为139字段/68组合。当前 schema-v3 再取消 ShadowTLS、后置动态 ECH，为133字段/67组合，旧 ID 不重排。有效结果为 `VALID / NOT RUN`，不是字段行为PASS；可执行case与运行结果单独签收。
+[N1 声明清单校验](acceptance/next-protocols/N1-catalogs.md)提供 `check protocol-coverage --catalog-only`，历史 schema-v1 冻结145字段/69组合ID并检查引用、归属及必要元数据；撤回 Restls 后的 schema-v2 为139字段/68组合。schema-v3 再取消 ShadowTLS、后置动态 ECH，为133字段/67组合。当前 schema-v4 删除 WireGuard 目标，为126字段/65组合，剩余 ID 不重排；取消不计为行为通过。有效结果为 `VALID / NOT RUN`，不是字段行为PASS；可执行case与运行结果单独签收。
 
 [N1.2 共享安全机制](acceptance/next-protocols/N1-security.md)增加类型化名称/ALPN/mTLS策略与不可变身份缓存隔离，并将标准TLS CloseWrite对齐Mihomo。未新增公开配置字段，独立接口测试不抵扣后续新协议字段互通。
 
 [N1.3 共享流传输](acceptance/next-protocols/N1-stream.md)提供WS/gRPC/HTTP/legacy H2与独立XUDP帧层；15项定向测试、9项官方Mihomo/V2Ray传输用例、旧协议扩展互通及Apple/Android构建通过。该记录是独立历史子包，不代表新协议YAML已开放。
 
-[N1公共基础汇总](acceptance/next-protocols/N1.md)记录定向数据报预算、受控QUIC、runtime/测量resolver、测试作用域RAII观测、独立feature和统一执行/证据门禁。最后的fork密码依赖升级已在单独分支获准发布并接入，[最终N1复验](acceptance/next-protocols/N1-x25519.md)完成21组required/139项断言、Debug/Release、原生传输、旧协议及Apple/Android构建，N1签收。WireGuard预检仍因隔离内核缺设备类型而BLOCKED，只影响依赖它的N8；新协议YAML、物理平台和发布不提前签收。
+[N1公共基础汇总](acceptance/next-protocols/N1.md)记录定向数据报预算、受控QUIC、runtime/测量resolver、测试作用域RAII观测、独立feature和统一执行/证据门禁。最后的fork密码依赖升级已在单独分支获准发布并接入，[最终N1复验](acceptance/next-protocols/N1-x25519.md)完成21组required/139项断言、Debug/Release、原生传输、旧协议及Apple/Android构建，N1签收。当时 WireGuard 预检因隔离内核缺设备类型而 BLOCKED；2026-09-27 已取消该目标及 N8，旧失败保留但不再作为活动门禁。该历史 N1 结果不提前签收新协议 YAML、物理平台或发布。
 
 [N2 Trojan](acceptance/next-protocols/N2.md)于同日完成 TCP/UDP 与 TCP/WS/gRPC 生产接线及阶段签收：41 组 required、18 个适用字段、120 轮生命周期/资源检查、独立 coverage、旧协议回归及 Apple/Android Release 构建通过。Mihomo listener 是默认对端，域名 UDP 缺口由 Xray、扩展 WS ED 由 V2Ray 单独补验并保留原失败。配置修订升至 15，Invoke v5 不变；不抵扣 N3–N10、Windows 原生、真机或发布。
 
@@ -88,7 +88,9 @@ REALITY、JLS、复用组合及 N4/N5 共享路径。新完整运行 43/43 组 r
 schema27 / Invoke v5；新增官方 Rust HPKE Adapter，不修改第三方或 boring fork。
 动态 ECH/bootstrap 后置，Restls/ShadowTLS 取消，不把取消项算 PASS。官方 Safari
 ECH 与无指纹 JLS 的 gRPC 关闭参照差异明确单列；先前两轮失败保留，不拼接成绩。
-仅签收冻结组合，不推导 N8–N10、Windows 原生、设备、远端 CI 或发布通过。
+仅签收冻结组合，不推导 N9/N10、Windows 原生、设备、远端 CI 或发布通过；N8 后续已取消。
+
+2026-09-27 [WireGuard 范围撤回](acceptance/next-protocols/wireguard-retirement.md)移除尚未开放的 feature、专用 MTU/预检、候选库实验及七个字段目标，不修改已有协议数据路径或 Invoke v5/schema27。历史报告不追改；N8 取消，下一阶段为 N9 的七协议49组合/资源验收，再到 N10。范围清理不等于这些剩余阶段通过。
 
 当前 source/tests 覆盖：
 

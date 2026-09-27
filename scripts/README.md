@@ -175,9 +175,11 @@ uv run --project scripts --locked vcore-scripts check xhttp-gateway --identities
 
 `protocol-coverage --catalog-only`只检查本仓库`tests/protocols/fields.json`和`combinations.json`声明，也可用`--catalog-dir <directory>`指定副本。不读取清单所引用的源码、研究目录或URL，不下载或启动对端。必须显式选择`--catalog-only`或下面的`--run-dir`结果模式。
 
-检查 schema-v3 的完整133字段/67组合家族ID、重复JSON键、字段/来源/对端/override引用、协议适用范围、阶段与子包归属、必要观察项/模式维度、负例拒绝阶段、原生未知项说明及64个有序上游组合声明。稳定ID的增删必须同时审查版本化清单及验证器契约，不能靠改自报数量绕过漏项。来源只接受无凭据/查询参数的HTTPS链接或无 `..` 的相对路径，不检查其内容或网络可用性。
+检查 schema-v4 的完整126字段/65组合家族ID、重复JSON键、字段/来源/对端/override引用、协议适用范围、阶段与子包归属、必要观察项/模式维度、负例拒绝阶段、原生未知项说明及49个有序上游组合声明。稳定ID的增删必须同时审查版本化清单及验证器契约，不能靠改自报数量绕过漏项。来源只接受无凭据/查询参数的HTTPS链接或无 `..` 的相对路径，不检查其内容或网络可用性。
 
-有效清单退出0，stdout为JSON，`status: VALID`、`behavior_status: NOT RUN`；无效清单退出1、stderr只报告诊断，不输出JSON原文；缺少模式参数退出2。声明中不能写入PASS等运行结果。这个结果**不是133项字段或67项互通通过**，不解析条件说明或自动生成笛卡尔积。当前生产能力仍以`docs/config.yaml`为准。历史声明校验记录见[N1清单校验](../docs/acceptance/next-protocols/N1-catalogs.md)。
+有效清单退出0，stdout为JSON，`status: VALID`、`behavior_status: NOT RUN`；无效清单退出1、stderr只报告诊断，不输出JSON原文；缺少模式参数退出2。声明中不能写入PASS等运行结果。这个结果**不是126项字段或65项互通通过**，不解析条件说明或自动生成笛卡尔积。当前生产能力仍以`docs/config.yaml`为准。历史声明校验记录见[N1清单校验](../docs/acceptance/next-protocols/N1-catalogs.md)。
+
+2026-09-27 删除 WireGuard 目标及占位 feature、专用预检/候选库实验，退休 N8 与 W 对端；CLI 不再接受这些选择。N9/N10 保持原编号，尚无可签收的 required 集合时继续非零返回，不能以取消目标宣称完成。旧报告的 schema-v1/v2/v3 数量、失败和源码身份不追改，须使用其原输入检查。
 
 ### 阶段执行与原始证据检查
 

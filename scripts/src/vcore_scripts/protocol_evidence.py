@@ -148,7 +148,7 @@ def load_manifest(path: Path = CATALOG_DIR / "cases.json") -> list[dict]:
             or not set(case["row_ids"]) <= FIELD_IDS
         ):
             raise ValueError("invalid required flag or field references")
-        if case["peer_kind"] not in {"M", "W", "H", "XR", "V2", "unit"}:
+        if case["peer_kind"] not in {"M", "H", "XR", "V2", "unit"}:
             raise ValueError("unknown peer kind")
         for key in ["expected_observation", "required_evidence", "prerequisites"]:
             items = case[key]
@@ -432,7 +432,6 @@ def check_run(
         "feature-outbound-trojan",
         "feature-outbound-vmess",
         "feature-outbound-hysteria2",
-        "feature-outbound-wireguard",
         "feature-stream-transport",
         "feature-quic-transport",
     }

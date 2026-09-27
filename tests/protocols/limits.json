@@ -417,28 +417,6 @@
       ]
     },
     {
-      "id": "wireguard-minimum",
-      "value": 1280,
-      "unit": "bytes",
-      "owner": "dispatch::WIREGUARD_MIN_INNER_MTU",
-      "saturation": "reject insufficient inner MTU after overhead and padding alignment",
-      "cancellation": "budget seam only; protocol ownership waits for N8",
-      "boundary_cases": [
-        "N1-DATAGRAM"
-      ]
-    },
-    {
-      "id": "wireguard-overhead",
-      "value": 32,
-      "unit": "bytes",
-      "owner": "dispatch::WIREGUARD_TRANSPORT_OVERHEAD",
-      "saturation": "subtract header/tag before 16-byte alignment",
-      "cancellation": "budget seam only",
-      "boundary_cases": [
-        "N1-DATAGRAM"
-      ]
-    },
-    {
       "id": "resolution-depth",
       "value": 32,
       "unit": "nested-lookups",

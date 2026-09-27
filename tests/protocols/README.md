@@ -1,7 +1,7 @@
 # Next-protocol coverage catalogs
 
 These catalogs declare the accepted development targets for Trojan, VMess,
-VLESS, Hysteria2 and single-peer WireGuard. They are **not** the current
+VLESS and Hysteria2. They are **not** the current
 production support list and contain **no successful interoperability results**.
 Current supported configuration remains documented in `docs/config.yaml`.
 
@@ -15,8 +15,9 @@ outbound protocols:
   REALITY group selection and a Rust HPKE/ECH offer. Its optional negative
   compile feature is intentionally not part of a successful build.
 - [Datagram experiment and commands](../../docs/acceptance/next-protocols/N0-datagram.md):
-  Quinn packet/congestion injection, WG packet/timer APIs and existing Dialer
-  protection rejection.
+  Quinn packet/congestion injection and existing Dialer protection rejection.
+  Historical WG packet/timer results remain in the report; those probes and their
+  candidate dependencies were retired when WireGuard left scope.
 - [N0 baseline and remaining gates](../../docs/acceptance/next-protocols/N0.md).
 - [Controlled QUIC native peers](spikes/hysteria2/README.md): HY2 authentication,
   one-state hopping and Xray XHTTP/H3; separate half-close failures remain
@@ -27,7 +28,7 @@ outbound protocols:
 
 ## Files and schema
 
-- `fields.json`: 133 stable field IDs, full `proxies[]` paths, protocol
+- `fields.json`: 126 stable field IDs, full `proxies[]` paths, protocol
   applicability, exact input/default/conditional contract, required observations,
   work packages and responsible stages. XHTTP and download paths include their
   `xhttp-opts.` prefix. Values and defaults are currently normative prose in
@@ -44,9 +45,13 @@ outbound protocols:
 - `limits.json`: shared per-object limits and executable boundary case IDs;
   `limit_foundations` compares the registered numbers with Rust constants.
 
-Fields and combinations use `schema_version: 3`; cases and limits retain
+Fields and combinations use `schema_version: 4`; cases and limits retain
 `schema_version: 1`. Restls, ShadowTLS and dynamic ECH fields were explicitly
-retired by the accepted scope decision; retained IDs are not renumbered.
+retired by accepted scope decisions. Schema-v4 also removes WireGuard's seven
+fields and two dedicated families, including the W peer, and retires N8.
+Retained IDs and historical result files are not renumbered or relabelled.
+Next is N9 integration (49 ordered two-hop pairs), then N10 platform delivery;
+neither stage is accepted by this scope change.
 IDs are stable; revise a requirement with a
 reviewable reason rather than deleting a failing ID. Sources are public upstream
 URLs or repository-relative paths. The catalogs are self-contained: future
@@ -56,7 +61,7 @@ coverage tooling must not read an external design document or source checkout.
 
 | Key | Meaning |
 | --- | --- |
-| `id` | Stable field identifier; unique across all 133 rows |
+| `id` | Stable field identifier; unique across all 126 rows |
 | `path` | Full YAML path; identical paths may have different protocol contracts |
 | `protocols` | Consumers that must independently discharge the requirement |
 | `contract` | Accepted values, default/absence semantics and conditional rules |
@@ -69,14 +74,13 @@ coverage tooling must not read an external design document or source checkout.
 
 Common N9 integration and N10 platform gates apply after consumer acceptance.
 One shared-field row can require cases on several protocols, networks and
-address families; therefore **133 fields does not mean 133 tests**.
+address families; therefore **126 fields does not mean 126 tests**.
 
 ## Peer selection
 
 | ID | Official decoder |
 | --- | --- |
 | M | Mihomo native listener, the default |
-| W | Linux WireGuard with wg-tools, or official wireguard-go |
 | H | Hysteria 2 for shared-state port hopping and server UDP-disabled behavior |
 | XR | Xray for XHTTP H3 and advanced VLESS branches |
 | V2 | V2Ray for legacy H2, VMess/VLESS HTTP camouflage and extended standard-WS early data |
@@ -88,8 +92,7 @@ real native XHTTP session table, not unrelated listeners.
 
 Source revisions provide reproducible research provenance; they do not pin test
 binaries. Resolve official latest artifacts for each run and record actual
-versions and hashes. WireGuard uses its official supported installation route
-and additionally records kernel/module/tools provenance. A Mihomo failure is
+versions and hashes. A Mihomo failure is
 never erased by running another peer. Add a native exception only with a
 documented capability gap and retain the original result.
 
@@ -150,9 +153,9 @@ From the VCore repository root:
 uv run --project scripts --locked vcore-scripts check protocol-coverage --catalog-only
 ```
 
-This explicit mode checks the complete schema-v3 ID sets (133 fields, 67 mode
+This explicit mode checks the complete schema-v4 ID sets (126 fields, 65 mode
 families), references, ownership, native-peer declarations and required metadata.
-It also preserves the declared 64 ordered upstream pairs. A valid result is
+It also preserves the declared 49 ordered upstream pairs. A valid result is
 `VALID` with behavior status `NOT RUN`, never protocol acceptance. Invalid inputs
 exit nonzero; duplicate JSON keys and embedded declaration-level PASS statuses
 are rejected. `--catalog-dir` selects a copy for inspection; the default is
@@ -240,7 +243,7 @@ Mihomo extended regression, feature smokes and offline harness failure tests.
 `row_ids` associate a foundation with future consumers; a group-level PASS does
 not sign off all modes or values of that field. Native stream probes use synthetic
 VLESS framing to reach official decoders, not newly registered production YAML.
-QUIC fixtures prove controlled packet IO, not completed Hysteria2 or WireGuard.
+QUIC fixtures prove controlled packet IO, not completed protocol consumers.
 
 Rust writes BEGIN/PASS/FAIL JSONL only when `VCORE_CASE_EVENTS` names the owned
 run's evidence file. Drop during unwinding emits FAIL; resource cases attach

@@ -111,7 +111,6 @@ class RunEvidenceTest(unittest.TestCase):
             "feature-outbound-trojan",
             "feature-outbound-vmess",
             "feature-outbound-hysteria2",
-            "feature-outbound-wireguard",
             "feature-stream-transport",
             "feature-quic-transport",
         ]
