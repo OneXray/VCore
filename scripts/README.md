@@ -49,12 +49,16 @@ Android NDK 优先读取 `ANDROID_NDK_HOME`，否则使用 `$ANDROID_HOME/ndk/<v
 boring-sys 两次 CMake configure 时显式 clang 包装器被 NDK 替换而触发缓存重置。
 Apple 的 module map 声明 `c++` 链接依赖；不使用模块的 C 宿主还需显式链接 `-lc++`。
 
-`.github/workflows/test.yml` 在 PR/main/N10 开发分支执行 N9 已冻结的纯内存
+`.github/workflows/test.yml` 在 PR/main 及现有平台交付开发分支执行已冻结的纯内存
 Debug/Release 与完整/精简 feature 命令，不运行历史宿主服务端套件；网络互通
-仍由隔离容器验收单独记录。三个冻结集合并行执行且全部必需；feature 作业前置
+仍由隔离容器验收单独记录。三个并行作业使用正式用途名称 `Core tests (Debug)`、
+`Core tests (Release)`、`Quality and features`，均为必需检查；内部 N9 验收 ID 与
+命令集合保持不变。feature 作业前置
 无观察的生产 lib/bins clippy，以及开启 `interop-test` 的观察型 harness clippy。
-平台交付复用 `platform-delivery.yml`，覆盖 Apple
-五目标、Android 两 ABI、原生 Windows ARM64/x64 Release 及未签名产物归档。
+平台交付复用 `platform-delivery.yml`，使用 `Release builds / Apple`、
+`Release builds / Android`、`Release builds / Windows x64` 和
+`Release builds / Windows ARM64` 命名，覆盖 Apple 五目标、Android 两 ABI、
+原生 Windows ARM64/x64 Release 及未签名产物归档。
 Android job 显式使用 NDK `28.2.13676358`，不继承 runner 的另一默认版本；Linux
 runner 只作 Android 交叉构建，不意味着 VCore 支持 Linux 运行。runner 标签依据
 [GitHub 官方清单](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)。
@@ -92,12 +96,13 @@ Apple 的实际架构检查使用系统 `lipo`，不从 plist 自报架构推导
 `target/platform-delivery/abi/<group>/result.json`。它不创建运行时或网络监听器，
 不替代设备 VPN、完整宿主安装或 Windows Store 门禁。
 
-`.github/workflows/platform-delivery.yml` 由 PR/main/N10 分支工作流复用四组构建，
+`.github/workflows/platform-delivery.yml`（`Release builds`）由测试工作流复用四组构建，
 仅执行离线脚本检查/构建/ABI，不启动历史宿主网络测试。Unix执行完整离线脚本
 套件，Windows执行跨平台产物检查、原生快照测试和未打包Host失败关闭；不把
 仅支持Unix进程组/权限语义的旧harness测试记为Windows通过。每个检查独立步骤，
 避免PowerShell后续命令成功掩盖前序失败。未签名产物及原始记录
-保留 14 天；实际 run URL、commit 和有效期另行记录，工作流存在不算通过。
+使用 `vcore-<platform>-<commit>` 命名并保留 14 天；平台标识为 `apple`、`android`、
+`windows-x64`、`windows-arm64`。实际 run URL、commit 和有效期另行记录，工作流存在不算通过。
 完整阶段的独立 required 清单见 [N10](../docs/acceptance/next-protocols/N10.md)。
 
 ### 通用检查

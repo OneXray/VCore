@@ -10,13 +10,19 @@ permissions:
 
 jobs:
   client-contracts:
-    name: client-contracts / ${{ matrix.gate }}
+    name: ${{ matrix.name }}
     runs-on: macos-15
     timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        gate: [N9-DEBUG, N9-RELEASE, N9-FEATURES]
+        include:
+          - name: Core tests (Debug)
+            gate: N9-DEBUG
+          - name: Core tests (Release)
+            gate: N9-RELEASE
+          - name: Quality and features
+            gate: N9-FEATURES
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -42,7 +48,7 @@ jobs:
           cargo clippy --locked --all-features --lib --bins -- -D warnings
           cargo clippy --locked --features ffi,interop-test --test mihomo_interop -- -D warnings
           cargo clippy --locked --manifest-path crates/vcore-netstack/Cargo.toml --all-targets -- -D warnings
-      - name: Frozen memory-only ${{ matrix.gate }} contract
+      - name: Run ${{ matrix.name }}
         env:
           VCORE_CI_GATE: ${{ matrix.gate }}
         run: |
@@ -64,4 +70,5 @@ jobs:
           cargo test --locked --manifest-path crates/vcore-netstack/Cargo.toml --all-targets
 
   platform-build:
+    name: Release builds
     uses: ./.github/workflows/platform-delivery.yml
