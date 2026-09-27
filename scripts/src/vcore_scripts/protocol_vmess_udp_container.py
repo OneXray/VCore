@@ -13,9 +13,9 @@ from pathlib import Path
 from .builds import CORE_DIR
 from .mihomo_release import download_mihomo
 from .protocol_containers import ContainerLab, command
+from .protocol_fixtures import certificates
 from .protocol_inputs import redact, source_identity
 from .protocol_peers import run_command
-from .protocol_streams import certificates
 from .protocol_vmess import peer_config
 from .protocol_vmess_udp_ab import options, warning_summary
 

@@ -52,49 +52,11 @@ Windows L3 接口及其 Session Host netstack 使用 1400 MTU，因此按 IPv6 U
 
 XUDP现在只拥有已认证流上的帧编码；VLESS响应头由VLESS包装层处理。元数据仍最多512字节，单payload仍受调用方预算和u16 wire上限约束，不新增全局会话额度。
 
-## Trojan 出站
+## 协议局部预算
 
-Trojan 原生 UDP 每关联仅持有一个流和最多 8455 字节待解析数据（不等于动态缓冲的分配容量），payload 上限 8192 字节并与调用方预算取交集。没有独立 UDP socket、后台读取泵、历史会话列表或连接池；gRPC 驱动由节点 TaskTracker 拥有并同步 join。取消部分发送使关联失效，取消读取保留部分帧；非法帧关闭，合法但超调用方预算的整包丢弃。详见 [Trojan](trojan.md)。
-
-## VMess 出站
-
-VMess AEAD 的 TCP 写分片最多 4 KiB，UDP 完整 body 最多 15,000 字节，wire 解析最多 16 KiB。packetaddr 从 body 中另扣 IPv4 7 / IPv6 19 字节地址开销；XUDP 独立元数据最多 512 字节，收发与调用方预算分别取交集。没有协议内 UDP socket 或连接池；gRPC/H2 driver 由节点跟踪并同步 join，半帧发送取消立即关闭 IO，增量读取保留状态。16 位加密帧计数耗尽前关闭，不能重复 nonce。完整语义见 [VMess](vmess.md)。
-
-## VLESS 出站
-
-VLESS gRPC 按节点拥有物理池，每条连接一个有界 H2 驱动、每个调用一个有原期限的等待 future，不新增固定业务流/握手数量上限。仅空闲缓存最多保留 4 条连接，退役不影响活动流；逻辑流关闭只取消自己。PING 为每物理连接串行单个在途请求（ACK 期限 15 秒），Stop 取消并 join 所有驱动，不能用 Drop 代替停止屏障。
-
-raw/packetaddr 每关联一个已建流，接收 wire 上限 65,537 字节；packetaddr 从 u16 body 上限另扣 IPv4 7 / IPv6 19 字节。发送取消关闭 IO，接收取消保留解析状态；每 32 个超调用方预算包让出执行权。首次发送与响应头沿用原建链期限；无独立 UDP socket、系统解析或全局额度。XUDP 保持共享帧层，具体关闭与目标语义见 [VLESS](vless.md)。
-
-Vision 每次接受的内容最多 8,171 字节，发送队列最多一帧；外层单 TLS 记录最多 18 KiB，内层 hello 分类保留最多 64 KiB，超限关闭外层或停止内层分类。接收 padding 按 1 KiB 暂存逐段丢弃，每 poll 最多 32 步。读写 direct 切换分别保留 TLS 明文/裸流边界和 flush 顺序；Stop 不留下后台读取泵。局部常量在 `tests/protocols/limits.json` 绑定生产值及定向验收。
-
-### XHTTP / sing-mux
-
-XHTTP 自定义头最多 100 项 / 8 KiB，生成后的请求最多 128 项 / 16 KiB。POST 配置上限为 16 MiB，但实际按固定上传块处理，不能按该上限为每条连接预分配。每节点池最多保留 64 个空闲 transport；H1 每条候选最多保留 4 个可复用上传 socket，取消的下载 GET 不回池。退役只停止新分配，不关闭已取得 lease 的逻辑流；主、下载腿分别持有池与安全策略。
-
-packet-up 的聚合驱动最多保留一个待发送批次和一个在途批次，每批 64 KiB 且不超过采样的 POST 上限；HTTP 线编码另受自身预算约束。缓冲满时给写侧背压，flush 只确认已获 POST 响应的字节。每逻辑连接一个节点所有的计时器/上传任务，Drop 取消、Stop 同步 join；shutdown 跳过正常聚合等待但不绕过一秒待决上传关闭上限。
-
-H3 每连接接收窗口 128 KiB、每流 64 KiB、发送窗口 64 KiB，最多接收 8 条单向协议控制流，拒绝对端主动双向流；禁用 QUIC DATAGRAM 与 PMTUD。外层数据报请求预算 1400 字节，实际可用值与上游取交集，低于 1200 字节在发送前拒绝。默认保活 10 秒，空闲超时 300 秒。关闭先保留至多 1 秒 QUIC 关闭交换，再取消并 join Quinn 内部任务，最后关闭受控数据报，不以 Drop 充当屏障。
-
-sing-mux 空闲会话缓存最多 16 条；smux 写队列 16 项、每写块 16 KiB，每逻辑流接收队列 4 项、每帧最多 u16 长度。关闭通知使用合并唤醒，不增加无界控制队列。yamux 使用官方库与自有驱动：命令队列 16 项，每物理连接接收窗口预算 16 MiB，每次写切块 16 KiB。单条 yamux 物理连接累计分配 64 个流后停止新分配，已有流继续，空闲即回收；新请求使用新连接，不构成全节点业务上限。这避免“逻辑 lease 已释放但库尚未处理 reset”时触发官方库的整连接 TooManyStreams 关闭。h2mux 默认空闲 PING 30 秒、ACK 等待 15 秒。
-
-sing-mux padding 只包装最初 16 次写入；解析头固定 4 字节，数据分段读取、padding 用 1 KiB scratch 丢弃。单流取消释放自己的 IO，节点 Stop 取消全部协议驱动并同步等待；public runtime Stop 与 owned outbound Stop 分别验收。字段与线格式见 [XHTTP 与 sing-mux](xhttp.md)。
-
-### Hysteria2
-
-节点拥有认证 QUIC 会话及 HTTP/3 控制驱动；业务 TCP 流、UDP 关联不拥有共享连接取消令牌。物理路径由共享 Dialer/DatagramTransport 创建，不由 Quinn 内部 bind。每流接收窗口 256 KiB，每连接收/发窗口各 1 MiB，DATAGRAM 收/发队列各 256 KiB；最多接收 8 条单向控制流，不接受服务端主动双向流。PMTUD 关闭，QUIC 最大 payload 1400 字节并与上游有效预算取交集；空闲超时 30 秒、保活 10 秒。认证头总预算 16 KiB，认证密码最长 8192 字节；TCP 响应消息最多 2048 字节、padding 最多 4096 字节。
-
-每个业务 UDP payload 最多 4096 字节，另受调用方预算及至多 255 个分片限制。每关联接收队列最多 32 包；每 QUIC 会话最多 64 个待重组包、256 KiB 累计分片负载，5 秒 TTL，完成去重记录最多 64 项。未知关联不创建状态，重复/不一致/超限包只丢弃当前包；重组资源随关联失效或会话取消释放。不设活动业务关联数量上限。
-
-Salamander 每物理包增加 8 字节，混淆后的实际字节计入发送 pacer。端口跳跃每次经过新的受保护 socket，一秒过渡期内公平轮询新旧接收路径、只走新路径发送，当前与过渡路径同时最多两个；同一认证连接使用冻结的上游选择，新 socket 的独立 10 秒期限不能延长初始认证期限。Stop 取消并 join 两条路径、QUIC 所有任务和认证控制/收包驱动；关闭交换最多 1 秒，不依赖 Drop 实现同步屏障。本地阶段证据见 [N6](acceptance/next-protocols/N6.md)。
-
-## HTTP 代理入站
-
-HTTP 代理入站不是 TUN 转发缓冲区的使用者：请求 / 响应各使用 8 KiB 预读与复制缓冲区，头部 32 KiB / 100 字段、chunk 行 1 KiB、trailer 8 KiB / 100 字段。正文不整体缓存，不设全局业务连接准入数；先绑定后启动，Stop 取消并等待所有入站连接任务。读头、正文空闲和临时响应数量边界见 [HTTP 代理入站](http-proxy.md)。
-
-## SOCKS5 代理入站
-
-TCP 每方向复制缓冲区 4 KiB，握手 10 秒。UDP 控制连接拥有授权、单关联 16 包队列及 relay；全局接收不等待建链或发送。空闲 30 秒、每 10 秒清理，满队列与非法包不刷新时间。UDP wire 上限 65,507 字节，回包负载保守预留最大头部为 65,245 字节，出站继续逐层核算预算；不复用 TUN MTU。Stop 等待全部任务退出，无全局关联数准入。完整语义见 [SOCKS5 入站](socks5-proxy.md)。
+协议专用上限与关闭语义只维护在[入站](inbounds.md)、[出站](outbounds.md)、
+[VLESS](vless.md)和[XHTTP/sing-mux](xhttp.md)。`tests/protocols/limits.json`
+绑定实际常量与越界用例，不是第二套运行时配置或可配置业务准入数。
 
 ## UDP
 
@@ -116,7 +78,7 @@ TCP 每方向复制缓冲区 4 KiB，握手 10 秒。UDP 控制连接拥有授�
 
 `quic-transport` 只把已有 `DatagramTransport` 适配成 Quinn 的受控 UDP 接口，没有内部 bind、DNS 或 DIRECT 回落。每个连接双向各最多32个排队数据报，另允许一个正在发送的包；TX满返回WouldBlock，RX满暂停读取。接收等待不会持有发送队列锁；Pending发送不会重复提交。单逻辑peer/物理peer映射和来源校验独立保留，不接受未请求的目标、GSO或源地址覆盖。物理 socket 仍只能来自 Dialer。
 
-QUIC双向可用payload至少1,200字节；endpoint必须显式把QUIC MTU限制在有效预算内。WireGuard公共计算接点扣除32字节数据包开销和16字节padding对齐，最终inner MTU至少1,280字节；这不是WireGuard协议已实现。IPv4/IPv6路径MTU分别先扣除28/48字节IP+UDP头，边界和单字节不足均有定向测试。
+QUIC双向可用payload至少1,200字节；endpoint必须显式把QUIC MTU限制在有效预算内。IPv4/IPv6路径MTU分别先扣除28/48字节IP+UDP头，边界和单字节不足均有定向测试。
 
 QUIC owner.stop先取消并等待驱动，再关闭并释放上游；上游close最多1秒。Driver Drop仅为取消/abort兜底，不能作为同步Stop验收。队列容量是单连接局部界限，不是全局QUIC连接准入数。
 
@@ -172,9 +134,9 @@ Apple 目标通过 `TASK_VM_INFO` 尽力记录当前 physical footprint、进程
 
 日志必须有界且脱敏，不记录目标、DNS question、UUID、凭据、密钥、负载或完整配置。
 
-仅`cfg(test)`/`interop-test`启用的`ResourceProbe`按测试作用域记录RAII当前值/峰值；子任务显式继承作用域，不使用进程全局reset或更换生产allocator。当前接入物理TCP/UDP、共享流/QUIC驱动与session、数据报association、DNS池/等待者及既有运行时活动guard。`Reassembly`是预留类别，后续协议拥有重组对象时再登记；没有所有者的零值不证明未来协议已无泄漏。
+仅`cfg(test)`/`interop-test`启用的`ResourceProbe`按测试作用域记录RAII当前值/峰值；子任务显式继承作用域，不使用进程全局reset或更换生产allocator。当前接入物理TCP/UDP、共享流/QUIC驱动与session、数据报association、DNS池/等待者及既有运行时活动guard。Hysteria2 的待完成分片通过 `Reassembly` 登记，交付后释放 Packet ID 和重组资源；零计数必须与实际执行过的重组路径一起解释。
 
-生产`ObservedIo`中的观测guard为空类型，不分配共享计数器。同步Stop、5秒静默窗口和真实对端由断言及结构化事件证明，不根据日志中的PASS文字判断。`tests/protocols/limits.json`登记N1公共限额及继承的`ResourceLimits`，`limit_foundations`直接与Rust常量核对；它不是第二套运行时配置。
+生产`ObservedIo`中的观测guard为空类型，不分配共享计数器。同步Stop、5秒静默窗口和真实对端由断言及结构化事件证明，不根据日志中的PASS文字判断。`tests/protocols/limits.json`登记公共限额及继承的`ResourceLimits`，`limit_foundations`直接与Rust常量核对；它不是第二套运行时配置。
 
 ## 变更要求
 

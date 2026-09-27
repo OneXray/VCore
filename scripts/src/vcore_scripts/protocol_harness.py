@@ -415,6 +415,11 @@ def run_protocol_interop(
                 f"{case['case_id']}\t{case['substage']}\t{case['peer_kind']}\t{case['protocol']}"
             )
         return None
+    if stage in {"N1", "N2"}:
+        raise RuntimeError(
+            "legacy server orchestration is not fully containerized; "
+            "use check core or a current container suite"
+        )
     check_protocol_catalogs(CATALOG_DIR)
     root = CORE_DIR / "target/interop/runs"
     root.mkdir(parents=True, exist_ok=True)
@@ -428,6 +433,17 @@ def run_protocol_interop(
             )
         output.mkdir(parents=True, exist_ok=False)
     print(f"Protocol evidence: {output.relative_to(CORE_DIR.resolve())}", flush=True)
+    (output / "manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "kind": "executable-case-manifest",
+                "cases": load_manifest(),
+            },
+            indent=2,
+        )
+        + "\n"
+    )
     run = {
         "schema_version": 1,
         "stage": stage,

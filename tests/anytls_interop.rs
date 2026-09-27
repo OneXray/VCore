@@ -1,9 +1,6 @@
-//! Opt-in interoperability coverage against the local `anytls-go` reference
-//! server.
-//!
-//! Set `ANYTLS_GO_DIR` to an explicit checkout, then run
-//! `bash tests/run_anytls_interop.sh`. The test is ignored by default
-//! and only compiles with `interop-test`. Its certificate verifier intentionally
+//! Legacy AnyTLS session-count assertions retained for container migration.
+//! Compile only until all server roles are isolated; see tests/README.md.
+//! This fixture only compiles with `interop-test`. Its verifier intentionally
 //! trusts the reference server's dynamically generated self-signed certificate,
 //! but still verifies the TLS handshake signature. This verifier lives only in
 //! this integration-test binary and cannot enter the VCore release library.
@@ -324,7 +321,7 @@ async fn run_interop() -> io::Result<()> {
         .map_err(|_| {
             io::Error::new(
                 io::ErrorKind::InvalidInput,
-                "ANYTLS_INTEROP_ADDRESS is missing; run tests/run_anytls_interop.sh",
+                "ANYTLS_INTEROP_ADDRESS is missing; legacy fixture; see tests/README.md",
             )
         })?
         .parse::<SocketAddr>()
@@ -332,7 +329,7 @@ async fn run_interop() -> io::Result<()> {
     let password = std::env::var("ANYTLS_INTEROP_PASSWORD").map_err(|_| {
         io::Error::new(
             io::ErrorKind::InvalidInput,
-            "ANYTLS_INTEROP_PASSWORD is missing; run tests/run_anytls_interop.sh",
+            "ANYTLS_INTEROP_PASSWORD is missing; legacy fixture; see tests/README.md",
         )
     })?;
 
@@ -390,7 +387,7 @@ async fn run_interop() -> io::Result<()> {
 }
 
 #[tokio::test]
-#[ignore = "requires the local anytls-go reference server; run tests/run_anytls_interop.sh"]
+#[ignore = "requires the local anytls-go reference server; legacy fixture; see tests/README.md"]
 async fn anytls_go_tcp_uot_v2_reuse_and_shutdown() {
     tokio::time::timeout(Duration::from_secs(45), run_interop())
         .await

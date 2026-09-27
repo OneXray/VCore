@@ -1,6 +1,6 @@
 //! Opt-in interoperability coverage against an installed Xray-core binary.
 //!
-//! Run with `bash tests/run_xray_interop.sh`.
+//! Compile-only legacy fixture pending full container migration; see tests/README.md.
 //! The REALITY phase uses a local ECDSA-only TLS 1.3 camouflage target and all
 //! proxied echo targets are local, so the test does not depend on public nodes.
 
@@ -790,7 +790,7 @@ async fn run_interop() -> io::Result<()> {
         .map_err(|_| {
             io::Error::new(
                 io::ErrorKind::InvalidInput,
-                "XRAY_INTEROP_ADDRESS is missing; run tests/run_xray_interop.sh",
+                "XRAY_INTEROP_ADDRESS is missing; legacy fixture; see tests/README.md",
             )
         })?
         .parse::<SocketAddr>()
@@ -798,7 +798,7 @@ async fn run_interop() -> io::Result<()> {
     let mode = env::var("XRAY_INTEROP_MODE").map_err(|_| {
         io::Error::new(
             io::ErrorKind::InvalidInput,
-            "XRAY_INTEROP_MODE is missing; run tests/run_xray_interop.sh",
+            "XRAY_INTEROP_MODE is missing; legacy fixture; see tests/README.md",
         )
     })?;
     if !matches!(mode.as_str(), "auto" | "packet-up" | "stream-one") {
@@ -826,7 +826,7 @@ async fn run_interop() -> io::Result<()> {
     let security = env::var("XRAY_INTEROP_SECURITY").map_err(|_| {
         io::Error::new(
             io::ErrorKind::InvalidInput,
-            "XRAY_INTEROP_SECURITY is missing; run tests/run_xray_interop.sh",
+            "XRAY_INTEROP_SECURITY is missing; legacy fixture; see tests/README.md",
         )
     })?;
 

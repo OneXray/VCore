@@ -18,11 +18,11 @@ jobs:
       matrix:
         include:
           - name: Core tests (Debug)
-            gate: N9-DEBUG
+            profile: debug
           - name: Core tests (Release)
-            gate: N9-RELEASE
+            profile: release
           - name: Quality and features
-            gate: N9-FEATURES
+            profile: features
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -33,7 +33,7 @@ jobs:
           version: "0.12.15"
           python-version: "3.13"
       - name: Formatting, scripts, and dependency contract
-        if: matrix.gate == 'N9-FEATURES'
+        if: matrix.profile == 'features'
         run: |
           cargo fmt --all -- --check
           uv run --project scripts --locked python -m unittest discover -s scripts/tests
@@ -42,30 +42,16 @@ jobs:
           uv run --project scripts --locked vcore-scripts check c-header
           uv run --project scripts --locked vcore-scripts check tls-dependencies
       - name: Production, instrumented harness, and netstack clippy
-        if: matrix.gate == 'N9-FEATURES'
+        if: matrix.profile == 'features'
         run: |
           cargo clippy --locked --features ffi --lib --bins -- -D warnings
           cargo clippy --locked --all-features --lib --bins -- -D warnings
           cargo clippy --locked --features ffi,interop-test --test mihomo_interop -- -D warnings
           cargo clippy --locked --manifest-path crates/vcore-netstack/Cargo.toml --all-targets -- -D warnings
       - name: Run ${{ matrix.name }}
-        env:
-          VCORE_CI_GATE: ${{ matrix.gate }}
-        run: |
-          uv run --project scripts --locked python - <<'PY'
-          import os
-          import subprocess
-          from vcore_scripts.protocol_n9_local import commands
-          gate = os.environ["VCORE_CI_GATE"]
-          selected = commands(gate)
-          if not selected:
-              raise RuntimeError(f"empty required gate: {gate}")
-          for command in selected:
-              print(gate, command, flush=True)
-              subprocess.run(command, check=True)
-          PY
+        run: uv run --project scripts --locked vcore-scripts check core --profile ${{ matrix.profile }}
       - name: Memory-only netstack tests
-        if: matrix.gate == 'N9-FEATURES'
+        if: matrix.profile == 'features'
         run: |
           cargo test --locked --manifest-path crates/vcore-netstack/Cargo.toml --all-targets
 

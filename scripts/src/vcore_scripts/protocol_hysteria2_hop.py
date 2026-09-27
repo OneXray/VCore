@@ -15,10 +15,10 @@ from pathlib import Path
 from .builds import CORE_DIR
 from .protocol_containers import NETWORK, ContainerLab, ContainerPeer, command
 from .protocol_evidence import read_events
+from .protocol_fixtures import certificates
 from .protocol_hysteria2_catalog import events_pass
 from .protocol_inputs import redact, source_identity
 from .protocol_peers import run_command
-from .protocol_streams import certificates
 
 
 def guest(peer, *argv, timeout=30):

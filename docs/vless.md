@@ -1,6 +1,7 @@
 # VLESS 出站
 
-`outbound-vless` 使用共享 Dialer、上游图及 TLS/REALITY/JLS；协议不创建独立 socket 或系统 DNS。Invoke v5 不变，当前配置修订为 27。[N4 基础/传输/Vision](acceptance/next-protocols/N4.md)和 [N5 XHTTP/sing-mux](acceptance/next-protocols/N5.md)是此前阶段的本地证据；新 TLS 指纹、物理平台与发布结果单独记录。本文定义选定 VLESS 能力集，不承诺覆盖上游所有扩展。
+`outbound-vless` 使用共享 Dialer、上游图及 TLS/REALITY/JLS，不创建独立 socket 或系统 DNS。
+本文定义选定能力集，不承诺上游所有扩展；字段与版本以 [config.yaml](config.yaml) 为准。
 
 ## 配置与传输
 
@@ -22,22 +23,92 @@
 `reality-opts.support-x25519mlkem768` 为非 null 布尔值，默认 false。true 强制真实混合
 TLS 密钥交换，服务端选择经典组时失败；可用于主连接和 XHTTP 独立下载连接。
 仅 `chrome` 或未命名 profile 兼容，模板及下载继承约束见 [TLS 指纹](tls-client-fingerprint.md)。
-独立子包证据不替代 N7 的当前组合与资源门禁。
 
 ## JLS
 
-附加安全方式 [JLS](jls.md) 使用配对的 `jls-opts.username/password`，适用于主连接
-和 XHTTP H1/H2 独立下载连接。同腿与 REALITY/证书策略/mTLS 互斥，也不能用于
-Vision 或 H3；它保持完整 TLS 1.3 认证与记录保护。下载继承/替换/清除、凭据上限
-和不恢复规则见该文档；新增静态 ECH 为另一个互斥安全模式，不叠加在 JLS 上。
+共享凭据身份认证仍使用完整原生 TLS 1.3，不是 skip 或失败后裸流回退。
+
+### 配置
+
+- 对象出现即启用，两项必须都是非空字符串，各 1–65,535 个 UTF-8 字节，不 trim。
+  主连接不接受空对象；未知字段、null、错型、缺项及超限在 IO 前拒绝。
+- 必须 `tls: true`。同一腿不能混用 REALITY、标准证书策略或客户端证书；
+  ECH、其他安全封装、Vision 和 HTTP/3 也不属于此组合。
+- `servername`、有序 ALPN、传输必需 ALPN 与已支持的七值/四模板
+  `client-fingerprint` 沿用共享配置，不增加全局默认或别名。
+- `download-settings.jls-opts` 缺省继承整个身份；非空对象必须完整替换两项，
+  `{}` 清除，不能按叶继承另一个身份的密码。其他下载字段独立覆盖。
+- 切换下载安全模式须显式清除旧身份及冲突证书策略；设置新对象不会自动删除旧对象。
+  两腿仍必须汇入同一个原生 XHTTP handler 的会话表。
+
+### 认证与所有权
+
+锁定的自有 boring JLS hook 认证实际 ClientHello/ServerHello，由原生 TLS
+完成 transcript、CertificateVerify、Finished 和记录保护。共享凭据替代 WebPKI
+身份，但不会跳过握手签名或 Finished。普通 TLS 证书、错误凭据、篡改握手、
+TLS 1.2 和 HRR 都不能满足 JLS；失败不发伪装 HTTP 探测、不重发业务、不回退 DIRECT。
+模板保留 TLS 1.2 的声明下限，实际成功协商始终必须 TLS 1.3。
+
+每条腿的连接器身份不可变；不启用 TLS 恢复、PSK 或 early data。自有凭据副本
+使用清零容器，原生临时材料按握手/失败清理；不宣称擦除所有配置 String 副本。
+连接器只包装既有 Dialer/上游交付的受控 IO，不创建 resolver、socket、后台任务
+或额外连接池。建链期限、取消、ALPN 检查和同步 Stop 继承现有运行时。
+
+JLS 继续承载 TLS 记录，CloseWrite 沿用共享 TLS 有界关闭；XHTTP 保持整流关闭。
+Encryption 位于外层传输内，身份彼此独立，不能由单层成功推断组合验收。
 
 ## 静态 ECH
 
-标准 TLS 可配置 `ech-opts: {enable: true, config: "<Base64 ECHConfigList>"}`，
-主连接和 XHTTP 独立下载连接均可使用。实际 TLS 1.3，强制 ECH accepted；
-错误配置或服务端拒绝时失败，不自动重拨、不明文回落。下载对象继承/整体替换/
-显式清除、mTLS 和 TLS 后端差异见 [ECH](ech.md)。动态 HTTPS RR/bootstrap、
-ShadowTLS、Restls 不在本版支持范围，相关配置严格拒绝。
+仅显式静态 ECHConfigList；保护内层 ClientHello 名称，不隐藏 IP、外层名称或流量形态。
+无动态 HTTPS RR/bootstrap、公共 DNS 后备或自动更新。
+
+### 配置
+
+```yaml
+ech-opts:
+  enable: true
+  config: "<服务端提供的标准 Base64 ECHConfigList>"
+```
+
+- 仅标准 TLS，内层 `servername` 必须是 DNS 名，实际只协商 TLS 1.3。
+  同腿不能与 REALITY、JLS 或 Vision 混用；可与 VLESS Encryption、证书策略、
+  mTLS 和既有传输组合。命名指纹仍只用于 TCP TLS，H3 仍拒绝命名指纹。
+- `enable` 默认 false。启用必须同时提供非空 `config`；不查询 HTTPS RR，
+  不接收 `query-server-name`，没有公共 DNS 后备或自动更新配置。
+- `config` 是标准带填充 Base64，不是 URL、文件路径或 PEM。解码后的完整
+  ECHConfigList 最多 65,537 字节，仍受整份配置 256 KiB 上限限制。
+- 支持 ECH 版本 `0xfe0d`、X25519/HKDF-SHA256，以及 AES-128-GCM、
+  AES-256-GCM、ChaCha20-Poly1305。预检选取第一个双方后端均支持的条目，
+  保留其原始编码；未知版本或不兼容条目可跳过，无兼容条目、畸形长度、非法
+  public_name 或不支持的必需扩展在 IO 前失败。不能依赖 BoringSSL 静默忽略。
+- `{}` / `{enable: false}` 清除 ECH。关闭时不允许携带非空 config，以免
+  用户认为给出的隐私配置已经生效。null、未知字段、错型均拒绝；诊断不回显配置。
+
+`xhttp-opts.download-settings.ech-opts` 缺省继承整个主腿对象；出现时整对象替换，
+不逐字段合并，替换密钥须同时写 `enable: true`。显式 `{}` 可仅清除下载腿 ECH。
+切换到 REALITY/JLS/明文必须显式清除继承的 ECH，以及其他冲突的证书身份。
+两腿仍须汇聚到同一原生 XHTTP handler；各自独立建立和认证外层安全连接。
+
+### 后端与失败边界
+
+无指纹 TCP TLS 与 H3 使用官方 rustls + ring，通过公开 HPKE trait 接入官方
+`hpke`；命名指纹使用锁定的自有 boring fork 既有 ECH 接口。本次不修改
+第三方 TLS 实现，不恢复 rustls fork，也不扩展 Shadowsocks 的 AWS-LC 例外。
+
+两后端都必须真正接受 ECH 才交出业务连接。rustls QUIC 的 ECH 拒绝作为原生
+握手错误传播，H3 在握手完成前不发送 HTTP 请求；TCP 另检查 accepted 状态。
+不把 GREASE 当真实 ECH，不自动采用 retry config，不重拨、不回放业务，也不
+降级为未加密 ClientHello 的成功连接。错误或轮换后的旧密钥需要宿主更新配置。
+
+静态 ECH 连接禁用 TLS 会话恢复和 0-RTT；XHTTP/gRPC 的已认证物理连接仍可在
+原节点内复用。不同节点、主/下载腿、配置替换和后续运行实例不会共享 TLS 票据。
+本层只包装调用方提供的 IO，不创建 resolver、socket、后台任务或全局缓存。
+
+正常 ECH 接受后沿用内层证书名称、pin 和 mTLS 策略。拒绝分支不返回业务成功，
+也不能发送客户端证书。boring 使用原生 outer-name override，按外层名称和默认
+WebPKI 验证拒绝连接，不沿用内层 pin/skip。rustls 的公共 verifier 没有独立的
+ECH-rejection 回调：沿用配置的证书策略后仍由原生状态机强制失败；不获取或使用
+retry config。该拒绝证书路径不宣称与 Mihomo 完全相同，但不放宽业务成功门槛。
 
 ## Encryption
 
@@ -65,9 +136,7 @@ Vision 在独立的 Encryption 记录边界切换：先排空已认证明文，�
 已有外层 TLS 保留，random 模式保留记录头 CTR，不重置计数器。
 进入 direct 后，native/xorpub 继承底层 CloseWrite 并保留读取方向；random 对齐
 Mihomo 不可替换的 XorConn，仍整流关闭。未进入 direct 时三种外观均整流关闭。
-历史完整子包见 [N7.1](acceptance/next-protocols/N7-encryption.md)；当前保留安全层的
-组合由 [N7 本地阶段验收](acceptance/next-protocols/N7.md)重新签收。未列举的组合、
-Windows 原生和设备结果不从这些成绩推断。
+验收只覆盖实际列举的组合，不由单层成功推断整个组合或设备通过。
 
 ## Vision
 
@@ -101,6 +170,15 @@ VLESS 响应头允许延迟到业务响应前；TCP 不等待它才允许发送�
 
 ## 验证边界
 
-所有服务端、原站、DNS 和对照入口均遵守[容器隔离规则](testing-isolation.md)。`protocol_vless` 是增量开发入口，不是完整阶段门禁；ignored 测试未实际执行不计通过。XHTTP/sing-mux 由 N5 独立运行签收，不继承 N4 结果；HTTPUpgrade/fast-open + 新 sing-mux 未在 N5 单独展开。[N7](acceptance/next-protocols/N7.md)另以同一冻结输入签收静态 ECH、保留的 Encryption/混合 REALITY/JLS 组合与 N4/N5 共享回归；仅覆盖报告明确列举的组合，不代表完整上游 VLESS 生态或设备通过。
+所有服务端、原站、DNS 和对照入口遵守[隔离规则](testing-isolation.md)。
+ignored 未执行不计通过；精确组合与源/对端身份在当次报告记录，不拼接旧成绩。
+HTTPUpgrade/fast-open 与 sing-mux 的未列举组合不从单层结果推导。
+
+静态 ECH 的 H3 使用 Xray，packetaddr/sing-mux 使用明确标注的 XHTTP → Mihomo 解码。
+HTTP/H2/扩展 WS 可用 Xray TLS 网关 → V2Ray transport；需 UDP/Encryption 时另由
+Mihomo 解码。网关使用官方 XRAY_BUF_SPLICE=disable，避免下行 raw splice 绕过 TLS；
+不代表 V2Ray 直接支持 ECH。无指纹 JLS/gRPC 及 Safari ECH/gRPC 的官方对照缺口采用
+明确标注的 Chrome 关闭参照；VCore 原配置的数据面单独验证，不声称同配置差分。
+动态 ECH、ShadowTLS、Restls 不支持，配置严格拒绝。
 
 WS + REALITY（普通 WS、HTTPUpgrade、fast-open）的数据及认证使用真实 Mihomo listener；关闭验证采用明确标注的分层参照。当前 Mihomo WS 客户端分支未接入 REALITY，不能作为同组合对照，因此使用标准 TLS 的同种传输客户端关闭基线，并独立验证 REALITY。不得将该结果写成 Mihomo WS + REALITY 客户端互通或同组合差分通过。

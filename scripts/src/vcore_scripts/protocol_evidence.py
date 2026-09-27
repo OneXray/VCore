@@ -89,10 +89,38 @@ def read_json(path: Path):
     )
 
 
-def load_manifest(path: Path = CATALOG_DIR / "cases.json") -> list[dict]:
-    data = read_json(path)
+def executable_cases() -> list[dict]:
+    """Single source: retained foundation fixtures plus current protocol catalogs."""
+    from .protocol_hysteria2_catalog import definitions as hysteria2
+    from .protocol_n7_catalog import definitions as security
+    from .protocol_n9_catalog import definitions as integration
+    from .protocol_vless_acceptance import definitions as vless
+    from .protocol_vmess_acceptance import definitions as vmess
+    from .protocol_xhttp_acceptance import definitions as xhttp
+
+    foundation = read_json(CATALOG_DIR / "foundation-cases.json")["cases"]
+    return foundation + [
+        case
+        for define in (vmess, vless, xhttp, hysteria2, security, integration)
+        for case in define()
+    ]
+
+
+def load_manifest(path: Path | None = None) -> list[dict]:
+    expected = executable_cases()
+    data = (
+        read_json(path)
+        if path is not None
+        else {
+            "schema_version": 1,
+            "kind": "executable-case-manifest",
+            "cases": expected,
+        }
+    )
     if (
-        data.get("schema_version") != 1
+        not isinstance(data, dict)
+        or type(data.get("schema_version")) is not int
+        or data.get("schema_version") != 1
         or data.get("kind") != "executable-case-manifest"
     ):
         raise ValueError("unsupported executable case manifest")
@@ -176,30 +204,8 @@ def load_manifest(path: Path = CATALOG_DIR / "cases.json") -> list[dict]:
         case["case_id"] for case in cases if case["stage"] == "N2" and case["required"]
     } != REQUIRED_IDS:
         raise ValueError("N2 required set was removed, renamed or downgraded")
-    from .protocol_vmess_acceptance import definitions
-
-    if [case for case in cases if case["stage"] == "N3"] != definitions():
-        raise ValueError("N3 frozen required cases or metadata changed")
-    from .protocol_vless_acceptance import definitions as vless_definitions
-
-    if [case for case in cases if case["stage"] == "N4"] != vless_definitions():
-        raise ValueError("N4 frozen required cases or metadata changed")
-    from .protocol_xhttp_acceptance import definitions as xhttp_definitions
-
-    if [case for case in cases if case["stage"] == "N5"] != xhttp_definitions():
-        raise ValueError("N5 frozen required cases or metadata changed")
-    from .protocol_hysteria2_catalog import definitions as hysteria2_definitions
-
-    if [case for case in cases if case["stage"] == "N6"] != hysteria2_definitions():
-        raise ValueError("N6 frozen required cases or metadata changed")
-    from .protocol_n7_catalog import definitions as n7_definitions
-
-    if [case for case in cases if case["stage"] == "N7"] != n7_definitions():
-        raise ValueError("N7 frozen required cases or metadata changed")
-    from .protocol_n9_catalog import definitions as n9_definitions
-
-    if [case for case in cases if case["stage"] == "N9"] != n9_definitions():
-        raise ValueError("N9 frozen required cases or metadata changed")
+    if cases != expected:
+        raise ValueError("manifest differs from the current executable catalog")
     return cases
 
 
@@ -365,11 +371,11 @@ def artifact(run_dir: Path, relative: str, digest: str) -> Path:
     return path
 
 
-def check_run(
-    run_dir: Path, stage: str, manifest: Path = CATALOG_DIR / "cases.json"
-) -> None:
+def check_run(run_dir: Path, stage: str, manifest: Path | None = None) -> None:
+    if manifest is None and (run_dir / "manifest.json").is_file():
+        manifest = run_dir / "manifest.json"
     cases = load_manifest(manifest)
-    check_limit_references(cases, manifest.parent / "limits.json")
+    check_limit_references(cases)
     required = select_cases(cases, stage=stage)
     run = read_json(run_dir / "run.json")
     result = read_json(run_dir / "cases.json")

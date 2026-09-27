@@ -2,8 +2,8 @@
 
 from pathlib import Path
 
+from .protocol_fixtures import certificates
 from .protocol_peers import run_command
-from .protocol_streams import certificates
 
 
 def client_identities(directory: Path):

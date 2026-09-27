@@ -163,7 +163,7 @@ DNS 和普通 UDP 响应使用不同队列，但共享 netstack UDP 入站接收
 
 Running Session上下文仅弱引用本session的RuntimeDns，使用上文nameserver/policy与出口；未绑定、DNS关闭、上游不可达或session已停止时明确失败，不调用系统resolver兜底。IP字面量仍执行端口/地址族政策。解析共享同一次建链期限，Stop取消当前及后续查询；在进入可能等待自身的singleflight之前拒绝同名递归依赖，嵌套依赖深度最多32层。不会因为DNS经代理出口就无条件禁止整个图。
 
-独立`measureDelay`使用测量生命周期的受控bootstrap resolver，仅在IP-only边界解析域名；不创建Running Session、RuntimeDns或DNS监听服务，也不改变现有endpoint准备流程。N1通过通用IP-only connector验证最终节点和`dialer-proxy`上游的域名解析/期限/取消。该公共接点继续供 packetaddr 等必须 IP 的消费者使用；通用机制测试不替代各协议的实际数据闭环。
+独立`measureDelay`使用测量生命周期的受控bootstrap resolver，仅在IP-only边界解析域名；不创建Running Session、RuntimeDns或DNS监听服务，也不改变现有endpoint准备流程。通用 IP-only connector 覆盖最终节点和 `dialer-proxy` 上游的受控解析、期限与取消。该公共接点继续供 packetaddr 等必须 IP 的消费者使用；通用机制测试不替代各协议的实际数据闭环。
 
 ## 不支持
 

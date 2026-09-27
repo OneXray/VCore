@@ -50,18 +50,8 @@ jobs:
         with:
           version: "0.12.15"
           python-version: "3.13"
-      - name: Offline Unix harness contracts
-        if: runner.os != 'Windows'
-        run: uv run --project scripts --locked python -m unittest discover -s scripts/tests
-      - name: Cross-platform artifact contracts
-        if: runner.os == 'Windows'
+      - name: Platform artifact contracts
         run: uv run --project scripts --locked python -m unittest discover -s scripts/tests -p test_platform_delivery.py
-      - name: Script lint
-        run: uv run --project scripts --locked ruff check scripts
-      - name: Script formatting
-        run: uv run --project scripts --locked ruff format --check scripts
-      - name: Rust formatting
-        run: cargo fmt --all -- --check
       - name: Locked source
         run: cargo fetch --locked
       - name: Android toolchain

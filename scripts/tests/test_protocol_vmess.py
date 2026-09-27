@@ -32,17 +32,6 @@ def pair(suite, name):
 
 
 class VmessEvidenceTest(unittest.TestCase):
-    def test_archived_host_diagnostics_fail_before_any_output_or_peer(self):
-        from vcore_scripts.protocol_vmess_close import run as close
-        from vcore_scripts.protocol_vmess_udp_diagnostic import run as udp
-
-        with tempfile.TemporaryDirectory() as root:
-            output = Path(root) / "must-not-exist"
-            for run in (close, udp):
-                with self.assertRaisesRegex(RuntimeError, "BLOCKED"):
-                    run(output)
-                self.assertFalse(output.exists())
-
     def test_required_manifest_cannot_drop_or_downgrade_behavior(self):
         original = load_manifest()
         index = next(i for i, case in enumerate(original) if case["stage"] == "N3")

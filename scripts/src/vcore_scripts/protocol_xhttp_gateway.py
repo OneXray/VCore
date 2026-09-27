@@ -24,9 +24,9 @@ from .mihomo_isolation import exclusive_run
 from .mihomo_release import download_mihomo
 from .native_release import PeerArtifact, download_native
 from .protocol_containers import ContainerLab, command, listing
+from .protocol_fixtures import certificate_chain
 from .protocol_inputs import redact, source_identity
 from .protocol_peers import run_command
-from .protocol_trojan import certificate_chain
 from .protocol_vless_security import client_identities
 from .protocol_xhttp_peers import client_config, exercise, peer_config, socks
 

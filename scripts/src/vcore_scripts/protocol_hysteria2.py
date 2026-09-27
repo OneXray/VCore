@@ -16,11 +16,10 @@ from .builds import CORE_DIR
 from .mihomo_release import download_mihomo
 from .protocol_containers import ContainerLab, command
 from .protocol_evidence import read_events
+from .protocol_fixtures import certificate_chain, certificates
 from .protocol_hysteria2_catalog import events_pass
 from .protocol_inputs import redact, source_identity
 from .protocol_peers import run_command
-from .protocol_streams import certificates
-from .protocol_trojan import certificate_chain
 from .protocol_vless_security import client_identities
 
 

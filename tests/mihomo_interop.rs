@@ -1,5 +1,5 @@
 //! Actual process interop through public YAML + Invoke, not a test-only dispatcher.
-//! Run `bash tests/run_mihomo_interop.sh`; use loopback or an owned host-only network.
+//! Compile-only legacy fixture pending full container migration; see tests/README.md.
 #![cfg(all(
     feature = "ffi",
     feature = "inbound-http",
@@ -332,13 +332,13 @@ fn probe(proxy: SocketAddr, authenticated: bool, mode: Mode) {
 
 fn port(variable: &str) -> u16 {
     env::var(variable)
-        .expect("run tests/run_mihomo_interop.sh")
+        .expect("legacy fixture; see tests/README.md")
         .parse()
         .unwrap()
 }
 
 #[test]
-#[ignore = "requires managed mihomo processes; run tests/run_mihomo_interop.sh"]
+#[ignore = "requires managed mihomo processes; legacy fixture; see tests/README.md"]
 fn public_client_inbounds_interoperate_with_mihomo_in_both_directions() {
     #[cfg(feature = "interop-test")]
     let mut _case = vcore::resources::case_events::Case::new(

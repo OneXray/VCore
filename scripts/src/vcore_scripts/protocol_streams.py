@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import contextlib
-import hashlib
 import json
 import socket
 import socketserver
@@ -15,6 +14,7 @@ from pathlib import Path
 
 from .builds import CORE_DIR
 from .mihomo_isolation import reserve_port
+from .protocol_fixtures import certificates
 from .protocol_peers import OwnedProcess, run_command
 from .protocol_preflight import preflight
 
@@ -101,45 +101,6 @@ def origin():
             thread.join(timeout=20)
             if thread.is_alive():
                 raise RuntimeError("origin cleanup failed")
-
-
-def certificates(directory: Path):
-    cert, key = directory / "cert.pem", directory / "key.pem"
-    generated = run_command(
-        [
-            "openssl",
-            "req",
-            "-x509",
-            "-newkey",
-            "rsa:2048",
-            "-nodes",
-            "-days",
-            "2",
-            "-subj",
-            "/CN=localhost",
-            "-addext",
-            "subjectAltName=DNS:localhost",
-            "-keyout",
-            str(key),
-            "-out",
-            str(cert),
-        ],
-        timeout=20,
-        limit=65536,
-    )
-    der = run_command(
-        ["openssl", "x509", "-in", str(cert), "-outform", "DER"],
-        timeout=10,
-        limit=65536,
-    )
-    if (
-        generated.returncode != 0
-        or der.returncode != 0
-        or not generated.cleanup
-        or not der.cleanup
-    ):
-        raise RuntimeError("synthetic certificate generation failed")
-    return cert, key, hashlib.sha256(der.stdout).hexdigest()
 
 
 def peer_config(kind, mode, port, cert, key):

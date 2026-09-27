@@ -8,7 +8,7 @@ VCore — независимое клиентское прокси-ядро на
 
 ## Возможности
 
-- Исходящие подключения: [VLESS TCP/WS/gRPC/HTTP/H2/XHTTP, TLS/REALITY и Vision](../docs/vless.md), SOCKS5 CONNECT/UDP ASSOCIATE, AnyTLS TCP/UoT, Shadowsocks 2022, [Trojan TCP/UDP через TLS/WS/gRPC](../docs/trojan.md), [VMess AEAD через TCP/WS/gRPC/HTTP/H2](../docs/vmess.md), [Hysteria2 TCP/UDP, управление скоростью, Salamander и смена портов](../docs/hysteria2.md) и DIRECT.
+- Исходящие подключения: [VLESS TCP/WS/gRPC/HTTP/H2/XHTTP, TLS/REALITY и Vision](../docs/vless.md), SOCKS5 CONNECT/UDP ASSOCIATE, AnyTLS TCP/UoT, Shadowsocks 2022, [Trojan TCP/UDP через TLS/WS/gRPC](../docs/outbounds.md#trojan), [VMess AEAD через TCP/WS/gRPC/HTTP/H2](../docs/outbounds.md#vmess-aead), [Hysteria2 TCP/UDP, управление скоростью, Salamander и смена портов](../docs/outbounds.md#hysteria2) и DIRECT.
 - Цепочки прокси: `dialer-proxy` образует ориентированный ациклический граф произвольной длины. Если узел A указывает на B, физический путь имеет вид `client -> B -> A -> target`.
 - Группы прокси: статические группы `select` сохраняют порядок участников; участниками могут быть конкретные узлы, вложенные группы, `DIRECT` и `REJECT`. Выбор текущей session можно менять через Controller. `dialer-proxy` принимает узел или группу; DIRECT в группе верхнего уровня подключается к заранее разрешённому серверу текущего узла.
 - Маршрутизация: последовательно применяются `DOMAIN`, `DOMAIN-SUFFIX`, `DOMAIN-KEYWORD`, `GEOSITE`, `GEOIP`, `IP-CIDR`, `IP-CIDR6`, `DST-PORT`, `NETWORK` и завершающее правило `MATCH`.
@@ -17,7 +17,7 @@ VCore — независимое клиентское прокси-ядро на
 - Listeners: HTTP CONNECT/forward с аутентификацией и маршрутизацией каждого запроса, потоковыми телами, Keep-Alive и Upgrade; SOCKS5 CONNECT и UDP ASSOCIATE с авторизацией через TCP. По умолчанию доступ локальный без аутентификации; для LAN требуется общая пара имени пользователя и пароля.
 - GeoData: VCore управляет `geosite.dat` и `geoip.dat` в `dataDir/geodata`, загружает их по запросу и может обновлять через цепочку прокси.
 - Измерение задержки: `measureDelay` принимает за вызов 1–5 конфигураций node-only, использует до пяти частных worker и сохраняет порядок входных данных в результатах.
-- TLS: независимый pin сертификата и четыре необязательных [шаблона ClientHello](../docs/tls-client-fingerprint.md); [VLESS JLS](../docs/jls.md) сохраняет полную аутентификацию TLS. [Статический ECH](../docs/ech.md) использует явную конфигурацию основного и download-соединения VLESS, без динамических DNS-запросов или отката при ошибке.
+- TLS: независимый pin сертификата и четыре необязательных [шаблона ClientHello](../docs/tls-client-fingerprint.md); [VLESS JLS](../docs/vless.md#jls) сохраняет полную аутентификацию TLS. [Статический ECH](../docs/vless.md#静态-ech) использует явную конфигурацию основного и download-соединения VLESS, без динамических DNS-запросов или отката при ошибке.
 
 ## Конфигурация
 
@@ -108,27 +108,11 @@ TCP sessions, обычные UDP associations, half-open connections, outbound h
 
 ## Документация
 
-- [Оглавление документации](../docs/README.md)
-- [Контракт конфигурации](../docs/config.yaml)
+- [Documentation index](../docs/README.md)
+- [Configuration](../docs/config.yaml)
 - [Invoke API](../docs/invoke-api.md)
-- [HTTP proxy inbound](../docs/http-proxy.md)
-- [SOCKS5 proxy inbound](../docs/socks5-proxy.md)
-- [AnyTLS outbound](../docs/anytls.md)
-- [Trojan outbound](../docs/trojan.md)
-- [VMess AEAD outbound](../docs/vmess.md)
-- [VLESS и Vision outbound](../docs/vless.md)
-- [Hysteria2 outbound](../docs/hysteria2.md)
-- [Клиентский протокол REALITY V1](../docs/reality-wire-protocol.md)
-- [TLS fingerprint и политика сертификатов](../docs/tls-client-fingerprint.md)
-- [Зависимости TLS и требования к выпуску](../docs/tls-dependencies.md)
-- [Runtime Controller](../docs/controller-api.md)
-- [ICMP и DNS в TUN](../docs/tun-icmp-dns.md)
-- [Правила и assets GeoData](../docs/geodata.md)
-- [Платформенный слой TUN](../docs/tun-platform.md)
-- [Граница платформы Windows VPN](../docs/windows-vpn.md)
-- [Runtime сессии Windows](../docs/windows-session-runtime.md)
-- [Политика ресурсов runtime](../docs/runtime-resource-policy.md)
-- [Матрица приёмки](../docs/acceptance.md)
+- [Build and test](../scripts/README.md)
+- [Acceptance boundaries](../docs/acceptance.md)
 
 ## Пример
 
@@ -138,7 +122,7 @@ TCP sessions, обычные UDP associations, half-open connections, outbound h
 
 ```bash
 cargo fmt --all -- --check
-cargo test --all-features --all-targets
+uv run --project scripts --locked vcore-scripts check core --profile debug
 cargo clippy --locked --all-features --lib --bins -- -D warnings
 cargo test --manifest-path crates/vcore-netstack/Cargo.toml --all-targets
 cargo clippy --manifest-path crates/vcore-netstack/Cargo.toml --all-targets -- -D warnings

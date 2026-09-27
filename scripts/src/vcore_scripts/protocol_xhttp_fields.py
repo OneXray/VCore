@@ -18,10 +18,9 @@ from .mihomo_release import download_mihomo
 from .native_release import download_native
 from .protocol_containers import ContainerLab, command
 from .protocol_evidence import idle_resources, read_events
+from .protocol_fixtures import certificate_chain, certificates
 from .protocol_inputs import redact, source_identity
 from .protocol_peers import run_command
-from .protocol_streams import certificates
-from .protocol_trojan import certificate_chain
 from .protocol_vless_container import CLIENT_FINGERPRINTS
 from .protocol_vless_peers import (
     configuration as vless_configuration,

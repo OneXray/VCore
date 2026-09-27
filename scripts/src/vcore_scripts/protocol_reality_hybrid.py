@@ -16,9 +16,9 @@ from .mihomo_isolation import exclusive_run
 from .mihomo_release import download_mihomo
 from .protocol_containers import ContainerLab, command
 from .protocol_evidence import read_events
+from .protocol_fixtures import certificates
 from .protocol_inputs import redact, same_source, source_identity
 from .protocol_peers import run_command
-from .protocol_streams import certificates
 from .protocol_vless_peers import configuration
 from .protocol_vless_public import events_pass
 

@@ -8,7 +8,7 @@ VCore 是独立且不绑定特定宿主应用的 Rust 客户端代理 core。它
 
 ## 能力
 
-- Outbound：[VLESS TCP/WS/gRPC/HTTP/H2/XHTTP、TLS/REALITY 与 Vision](../docs/vless.md)、SOCKS5 CONNECT/UDP ASSOCIATE、AnyTLS TCP/UoT、Shadowsocks 2022、[Trojan TCP/UDP（TLS/WS/gRPC）](../docs/trojan.md)、[VMess AEAD（TCP/WS/gRPC/HTTP/H2）](../docs/vmess.md)、[Hysteria2 TCP/UDP、带宽、Salamander 与端口跳跃](../docs/hysteria2.md)、DIRECT。
+- Outbound：[VLESS TCP/WS/gRPC/HTTP/H2/XHTTP、TLS/REALITY 与 Vision](../docs/vless.md)、SOCKS5 CONNECT/UDP ASSOCIATE、AnyTLS TCP/UoT、Shadowsocks 2022、[Trojan TCP/UDP（TLS/WS/gRPC）](../docs/outbounds.md#trojan)、[VMess AEAD（TCP/WS/gRPC/HTTP/H2）](../docs/outbounds.md#vmess-aead)、[Hysteria2 TCP/UDP、带宽、Salamander 与端口跳跃](../docs/outbounds.md#hysteria2)、DIRECT。
 - 代理链：`dialer-proxy` 组成任意长度的有向无环图；节点 A 指向 B 时，物理路径为 `client -> B -> A -> target`。
 - 代理组：静态 `select` 组保留有序成员，可包含具体节点、嵌套组、`DIRECT` 与 `REJECT`；当前 session 的选择可通过 Controller 实时修改。`dialer-proxy` 可引用节点或组；上游组的 DIRECT 连接当前节点预解析的服务器。
 - 路由：顺序执行 `DOMAIN`、`DOMAIN-SUFFIX`、`DOMAIN-KEYWORD`、`GEOSITE`、`GEOIP`、`IP-CIDR`、`IP-CIDR6`、`DST-PORT`、`NETWORK` 和最终 `MATCH`。
@@ -17,7 +17,7 @@ VCore 是独立且不绑定特定宿主应用的 Rust 客户端代理 core。它
 - Listener：HTTP CONNECT/forward，逐请求认证与选路，支持流式正文、Keep-Alive 和 Upgrade；SOCKS5 CONNECT 与 TCP 授权的 UDP ASSOCIATE。默认本机免认证，局域网共享强制使用一组共用账号密码。
 - GeoData：VCore 管理 `dataDir/geodata` 下的 `geosite.dat` 和 `geoip.dat`，按需求加载并可通过代理链后台更新。
 - 测速：`measureDelay` 单次接收 1–5 份 node-only 配置，使用最多五个私有 worker，结果保持输入顺序。
-- TLS：独立证书 pin 与四种可选 [ClientHello 模板](../docs/tls-client-fingerprint.md)；[VLESS JLS](../docs/jls.md)保留完整原生 TLS 认证。[静态 ECH](../docs/ech.md)接受显式的 VLESS 主/下载腿配置，不执行动态 DNS 查询或失败回落。
+- TLS：独立证书 pin 与四种可选 [ClientHello 模板](../docs/tls-client-fingerprint.md)；[VLESS JLS](../docs/vless.md#jls)保留完整原生 TLS 认证。[静态 ECH](../docs/vless.md#静态-ech)接受显式的 VLESS 主/下载腿配置，不执行动态 DNS 查询或失败回落。
 
 ## 配置
 
@@ -88,47 +88,16 @@ Windows 不使用 fd 模拟层。Provider 只拥有 `VpnChannel`、buffer、rout
 
 ## 资源边界
 
-当前 TUN profile 保留局部结构边界，不按业务 flow 总数做固定 admission：
-
-```text
-raw packet / MTU                 1,500 bytes
-packet queue                     256
-ordinary event / UDP response    128
-DNS ingress / DNS response       128 / 128
-TCP buffer                       32 KiB per direction
-rustls / XHTTP buffer            64 KiB
-DNS typed cache                  256 entries
-DNS opaque cache                 64 entries / 256 KiB
-GeoData allocation capacity      8 MiB
-```
-
-Windows 按 `StartWithMainTransport` 要求宣告 1,400 字节 L3 MTU；1,500 字节仍是跨平台解析上限。
-
-TCP session、普通 UDP association、half-open、outbound handshake 和 active DNS transport 按需创建；bounded queue、每流 buffer、wire/parser size、timeout、idle cleanup 和 cache 继续提供结构安全。iOS 35/45 MiB 仅为 best-effort 优化观测，不改变生命周期结果。
+使用局部队列、缓冲、解析上限、期限与所有者取消，不设置全局业务流准入数量。
+共享上限见[资源策略](../docs/runtime-resource-policy.md)，专用预算见协议契约；内存遥测不改变生命周期结果。
 
 ## 文档
 
-- [文档索引](../docs/README.md)
-- [配置协议](../docs/config.yaml)
+- [Documentation index](../docs/README.md)
+- [Configuration](../docs/config.yaml)
 - [Invoke API](../docs/invoke-api.md)
-- [HTTP 代理入站](../docs/http-proxy.md)
-- [SOCKS5 代理入站](../docs/socks5-proxy.md)
-- [AnyTLS 出站](../docs/anytls.md)
-- [Trojan 出站](../docs/trojan.md)
-- [VMess AEAD 出站](../docs/vmess.md)
-- [VLESS 与 Vision 出站](../docs/vless.md)
-- [Hysteria2 出站](../docs/hysteria2.md)
-- [REALITY V1 客户端协议](../docs/reality-wire-protocol.md)
-- [TLS 指纹与证书策略](../docs/tls-client-fingerprint.md)
-- [TLS 依赖与发布要求](../docs/tls-dependencies.md)
-- [运行时 Controller](../docs/controller-api.md)
-- [TUN ICMP 与 DNS](../docs/tun-icmp-dns.md)
-- [GeoData 规则与资产](../docs/geodata.md)
-- [TUN 平台层](../docs/tun-platform.md)
-- [Windows VPN 平台边界](../docs/windows-vpn.md)
-- [Windows 会话运行时](../docs/windows-session-runtime.md)
-- [运行时资源策略](../docs/runtime-resource-policy.md)
-- [验收矩阵](../docs/acceptance.md)
+- [Build and test](../scripts/README.md)
+- [Acceptance boundaries](../docs/acceptance.md)
 
 ## 示例
 
@@ -138,7 +107,7 @@ TCP session、普通 UDP association、half-open、outbound handshake 和 active
 
 ```bash
 cargo fmt --all -- --check
-cargo test --all-features --all-targets
+uv run --project scripts --locked vcore-scripts check core --profile debug
 cargo clippy --locked --all-features --lib --bins -- -D warnings
 cargo test --manifest-path crates/vcore-netstack/Cargo.toml --all-targets
 cargo clippy --manifest-path crates/vcore-netstack/Cargo.toml --all-targets -- -D warnings

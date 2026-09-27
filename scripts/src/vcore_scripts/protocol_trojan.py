@@ -3,20 +3,19 @@
 from __future__ import annotations
 
 import contextlib
-import hashlib
 import json
 import os
-import sys
 import tempfile
 from pathlib import Path
 
 from .builds import CORE_DIR
-from .mihomo_isolation import exclusive_run, reserve_port
+from .mihomo_isolation import reserve_port
 from .protocol_evidence import idle_resources, read_events
+from .protocol_fixtures import certificate_chain, certificates
+from .protocol_fixtures import trojan_peer_config as peer_config
 from .protocol_inputs import redact, source_identity
 from .protocol_peers import OwnedProcess, run_command
 from .protocol_preflight import preflight
-from .protocol_streams import certificates
 
 CASES = {
     "N2-M-TCP": ("M", "tcp", "public_trojan_native_base"),
@@ -118,140 +117,6 @@ def native_events_pass(events, test):
         and event.get("suite") in suites
         for event in events
     )
-
-
-def peer_config(kind, mode, port, password, cert, key):
-    host = "::1" if mode.endswith("-ipv6") else "127.0.0.1"
-    mode = mode.removesuffix("-ipv6").removesuffix("-ca")
-    if kind == "M":
-        listener = {
-            "name": "n2",
-            "type": "trojan",
-            "listen": host,
-            "port": port,
-            "users": [{"username": "fixture", "password": password}],
-            "certificate": str(cert),
-            "private-key": str(key),
-        }
-        if mode.startswith("ws"):
-            listener["ws-path"] = "cover.example/n2-ws"
-        if mode.startswith("grpc"):
-            listener["grpc-service-name"] = "n2-grpc"
-        if mode == "ws-alpn":
-            listener["grpc-service-name"] = "unrelated-service"
-        return {
-            "mode": "rule",
-            "log-level": "silent",
-            "ipv6": True,
-            "hosts": {"vcore-fixture.test": "127.0.0.1"},
-            "listeners": [listener],
-            "rules": ["MATCH,DIRECT"],
-        }
-    stream = {
-        "network": "tcp",
-        "security": "tls",
-        "tlsSettings": {
-            "certificates": [{"certificateFile": str(cert), "keyFile": str(key)}]
-        },
-    }
-    if mode.startswith("ws"):
-        stream.update(network="ws", wsSettings={"path": "/n2-ws/"})
-        stream["tlsSettings"]["alpn"] = ["http/1.1"]
-        if kind == "V2":
-            stream["wsSettings"].update(
-                maxEarlyData=2048,
-                earlyDataHeaderName="x-vcore-ed" if mode == "ws-header" else "",
-            )
-    if mode == "grpc":
-        stream.update(network="grpc", grpcSettings={"serviceName": "n2-grpc"})
-        stream["tlsSettings"]["alpn"] = ["h2"]
-    return {
-        "log": {"loglevel": "none"},
-        "dns": {"hosts": {"vcore-fixture.test": "127.0.0.1"}},
-        "inbounds": [
-            {
-                "listen": "127.0.0.1",
-                "port": port,
-                "protocol": "trojan",
-                "settings": {"clients": [{"password": password}]},
-                "streamSettings": stream,
-            }
-        ],
-        "outbounds": [{"protocol": "freedom", "settings": {"domainStrategy": "UseIP"}}],
-    }
-
-
-def certificate_chain(directory):
-    """Owned synthetic CA + leaf; root pin still verifies the leaf name."""
-    root = directory / "root.pem"
-    root_key = directory / "root-key.pem"
-    key = directory / "key.pem"
-    csr = directory / "leaf.csr"
-    cert = directory / "cert.pem"
-    extensions = directory / "extensions.cnf"
-    extensions.write_text(
-        "basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:localhost\n"
-    )
-    commands = [
-        [
-            "openssl",
-            "req",
-            "-x509",
-            "-newkey",
-            "rsa:2048",
-            "-nodes",
-            "-days",
-            "2",
-            "-subj",
-            "/CN=n2-root",
-            "-addext",
-            "basicConstraints=critical,CA:TRUE",
-            "-keyout",
-            str(root_key),
-            "-out",
-            str(root),
-        ],
-        [
-            "openssl",
-            "req",
-            "-new",
-            "-newkey",
-            "rsa:2048",
-            "-nodes",
-            "-subj",
-            "/CN=localhost",
-            "-keyout",
-            str(key),
-            "-out",
-            str(csr),
-        ],
-        [
-            "openssl",
-            "x509",
-            "-req",
-            "-in",
-            str(csr),
-            "-CA",
-            str(root),
-            "-CAkey",
-            str(root_key),
-            "-set_serial",
-            "2",
-            "-days",
-            "2",
-            "-extfile",
-            str(extensions),
-            "-out",
-            str(cert),
-        ],
-        ["openssl", "x509", "-in", str(root), "-outform", "DER"],
-    ]
-    for command in commands:
-        result = run_command(command, timeout=20, limit=65536)
-        if result.returncode or not result.cleanup:
-            raise RuntimeError("synthetic chain generation failed")
-    cert.write_bytes(cert.read_bytes() + root.read_bytes())
-    return cert, key, hashlib.sha256(result.stdout).hexdigest()
 
 
 def run(output: Path, selected=None, *, artifacts=None):
@@ -476,8 +341,3 @@ def run(output: Path, selected=None, *, artifacts=None):
         )
     finally:
         (output / "trojan-results.json").write_text(json.dumps(report, indent=2) + "\n")
-
-
-if __name__ == "__main__":
-    with exclusive_run():
-        sys.exit(run(Path(sys.argv[1]).resolve(), sys.argv[2:] or None))

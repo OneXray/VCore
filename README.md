@@ -8,7 +8,7 @@ VCore is a standalone, host-agnostic Rust client proxy core. It provides proxy g
 
 ## Features
 
-- Outbounds: [VLESS TCP/WS/gRPC/HTTP/H2/XHTTP, TLS/REALITY and Vision](docs/vless.md), SOCKS5 CONNECT/UDP ASSOCIATE, AnyTLS TCP/UoT, Shadowsocks 2022, [Trojan TCP/UDP over TLS/WS/gRPC](docs/trojan.md), [VMess AEAD over TCP/WS/gRPC/HTTP/H2](docs/vmess.md), [Hysteria2 TCP/UDP, bandwidth, Salamander and port hopping](docs/hysteria2.md), and DIRECT. SS supports three standard 2022 algorithms and AES identity chains; see its [upstream risks and acceptance boundaries](docs/shadowsocks.md).
+- Outbounds: [VLESS TCP/WS/gRPC/HTTP/H2/XHTTP, TLS/REALITY and Vision](docs/vless.md), SOCKS5 CONNECT/UDP ASSOCIATE, AnyTLS TCP/UoT, Shadowsocks 2022, [Trojan TCP/UDP over TLS/WS/gRPC](docs/outbounds.md#trojan), [VMess AEAD over TCP/WS/gRPC/HTTP/H2](docs/outbounds.md#vmess-aead), [Hysteria2 TCP/UDP, bandwidth, Salamander and port hopping](docs/outbounds.md#hysteria2), and DIRECT. SS supports three standard 2022 algorithms and AES identity chains; see its [upstream risks and acceptance boundaries](docs/outbounds.md#shadowsocks-2022).
 - Proxy chains: `dialer-proxy` forms a directed acyclic graph of arbitrary length. If node A points to B, the physical path is `client -> B -> A -> target`.
 - Proxy groups: static `select` groups keep ordered members, including concrete nodes, nested groups, `DIRECT`, and `REJECT`; their current-session selection can be changed live through the Controller. `dialer-proxy` may reference nodes or groups; DIRECT in an upstream group connects the current node's prepared server.
 - Routing: ordered `DOMAIN`, `DOMAIN-SUFFIX`, `DOMAIN-KEYWORD`, `GEOSITE`, `GEOIP`, `IP-CIDR`, `IP-CIDR6`, `DST-PORT`, `NETWORK`, and final `MATCH` rules.
@@ -17,7 +17,7 @@ VCore is a standalone, host-agnostic Rust client proxy core. It provides proxy g
 - Listeners: HTTP CONNECT/forward with per-request authentication/routing, streaming bodies, Keep-Alive and Upgrade; SOCKS5 CONNECT and TCP-authorized UDP ASSOCIATE. Local access is unauthenticated by default; opt-in LAN sharing requires one shared username/password.
 - GeoData: VCore manages `geosite.dat` and `geoip.dat` under `dataDir/geodata`, loads them on demand, and can update them through a proxy chain.
 - Delay measurement: `measureDelay` accepts 1–5 node-only configurations per call, uses up to five private workers, and preserves input order in its results.
-- TLS: independent certificate pins and four opt-in ClientHello templates (Chrome120/133, Firefox120, Safari16.0) over TCP TLS/REALITY/JLS; see [public names, scope and limitations](docs/tls-client-fingerprint.md). [VLESS JLS](docs/jls.md) uses separate shared credentials with complete native TLS authentication. [Static ECH](docs/ech.md) uses explicit VLESS main/download-leg configuration with no dynamic DNS lookup or fallback.
+- TLS: independent certificate pins and four opt-in ClientHello templates (Chrome120/133, Firefox120, Safari16.0) over TCP TLS/REALITY/JLS; see [public names, scope and limitations](docs/tls-client-fingerprint.md). [VLESS JLS](docs/vless.md#jls) uses separate shared credentials with complete native TLS authentication. [Static ECH](docs/vless.md#静态-ech) uses explicit VLESS main/download-leg configuration with no dynamic DNS lookup or fallback.
 
 ## Configuration
 
@@ -88,48 +88,15 @@ Windows does not use an fd emulation layer. The Provider owns only `VpnChannel`,
 
 ## Resource Bounds
 
-The current TUN profile keeps local structural bounds rather than a fixed admission limit on the total number of business flows:
-
-```text
-raw packet / MTU                 1,500 bytes
-packet queue                     256
-ordinary event / UDP response    128
-DNS ingress / DNS response       128 / 128
-TCP buffer                       32 KiB per direction
-rustls / XHTTP buffer            64 KiB
-DNS typed cache                  256 entries
-DNS opaque cache                 64 entries / 256 KiB
-GeoData allocation capacity      8 MiB
-```
-
-Windows advertises a 1,400-byte L3 MTU as required by `StartWithMainTransport` and caps TUN UDP responses at 1,352 bytes; 1,500 bytes remain the cross-platform parser ceiling.
-
-TCP sessions, ordinary UDP associations, half-open connections, outbound handshakes, and active DNS transports are created on demand. Bounded queues, per-flow buffers, wire/parser limits, timeouts, idle cleanup, and caches provide structural safety. The iOS 35/45 MiB targets are best-effort observations and do not change lifecycle results.
+Safety is enforced through per-object queues, buffers, parser limits, deadlines and owned cancellation, not a global business-flow quota. See the [resource policy](docs/runtime-resource-policy.md) for shared limits and protocol-specific contracts for local budgets. Memory telemetry does not change lifecycle results.
 
 ## Documentation
 
 - [Documentation index](docs/README.md)
-- [Configuration contract](docs/config.yaml)
+- [Configuration](docs/config.yaml)
 - [Invoke API](docs/invoke-api.md)
-- [HTTP proxy inbound](docs/http-proxy.md)
-- [SOCKS5 proxy inbound](docs/socks5-proxy.md)
-- [AnyTLS outbound](docs/anytls.md)
-- [Trojan outbound](docs/trojan.md)
-- [VMess AEAD outbound](docs/vmess.md)
-- [VLESS and Vision outbound](docs/vless.md)
-- [Hysteria2 outbound](docs/hysteria2.md)
-- [Shadowsocks 2022 outbound and limitations](docs/shadowsocks.md)
-- [REALITY V1 client protocol](docs/reality-wire-protocol.md)
-- [TLS profiles and certificate policy](docs/tls-client-fingerprint.md)
-- [TLS dependency and release requirements](docs/tls-dependencies.md)
-- [Runtime Controller](docs/controller-api.md)
-- [TUN ICMP and DNS](docs/tun-icmp-dns.md)
-- [GeoData rules and assets](docs/geodata.md)
-- [TUN platform layer](docs/tun-platform.md)
-- [Windows VPN platform boundary](docs/windows-vpn.md)
-- [Windows session runtime](docs/windows-session-runtime.md)
-- [Runtime resource policy](docs/runtime-resource-policy.md)
-- [Acceptance matrix](docs/acceptance.md)
+- [Build and test](scripts/README.md)
+- [Acceptance boundaries](docs/acceptance.md)
 
 ## Example
 
@@ -139,7 +106,7 @@ TCP sessions, ordinary UDP associations, half-open connections, outbound handsha
 
 ```bash
 cargo fmt --all -- --check
-cargo test --all-features --all-targets
+uv run --project scripts --locked vcore-scripts check core --profile debug
 cargo clippy --locked --all-features --lib --bins -- -D warnings
 cargo test --manifest-path crates/vcore-netstack/Cargo.toml --all-targets
 cargo clippy --manifest-path crates/vcore-netstack/Cargo.toml --all-targets -- -D warnings

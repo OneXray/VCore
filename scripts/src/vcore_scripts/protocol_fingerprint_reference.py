@@ -22,9 +22,9 @@ from .builds import CORE_DIR
 from .mihomo_isolation import exclusive_run
 from .mihomo_release import download_mihomo
 from .protocol_containers import ContainerLab, command, listing
+from .protocol_fixtures import certificates
 from .protocol_inputs import redact, source_identity
 from .protocol_peers import run_command
-from .protocol_streams import certificates
 from .tls_client_hello import is_grease, parse_client_hello, validate_capture
 
 PROFILES = ("chrome", "chrome120", "firefox", "firefox120", "safari", "safari16")

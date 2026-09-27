@@ -8,7 +8,6 @@ from pathlib import Path
 
 from .builds import build_android, build_apple, build_windows
 from .checks import check_c_header, check_tls_dependencies
-from .mihomo import run_mihomo_interop
 from .mihomo_release import SUPPORTED_TARGETS, download_mihomo
 from .protocol_catalogs import CATALOG_DIR, check_protocol_catalogs
 from .protocol_evidence import check_run
@@ -32,7 +31,9 @@ def _parser() -> argparse.ArgumentParser:
     ):
         command = platforms.add_parser(name, help=description)
         command.add_argument(
-            "--delivery", action="store_true", help="record N10 production artifacts"
+            "--delivery",
+            action="store_true",
+            help="record production artifact identity",
         )
 
     download = commands.add_parser("download", help="download official test peers")
@@ -44,6 +45,13 @@ def _parser() -> argparse.ArgumentParser:
 
     check = commands.add_parser("check", help="run repository checks")
     checks = check.add_subparsers(dest="check", required=True)
+    core = checks.add_parser(
+        "core", help="run memory-only tests or feature/build checks"
+    )
+    core.add_argument(
+        "--profile", choices=("debug", "release", "features"), default="debug"
+    )
+    core.add_argument("--list", dest="list_only", action="store_true")
     checks.add_parser("c-header", help="compile vcore.h as C and C++")
     checks.add_parser("tls-dependencies", help="validate the locked TLS graph")
     delivery = checks.add_parser(
@@ -52,7 +60,9 @@ def _parser() -> argparse.ArgumentParser:
     delivery.add_argument("--manifest", type=Path, action="append", required=True)
     delivery.add_argument("--source-dir", type=Path)
     delivery.add_argument(
-        "--complete", action="store_true", help="require all N10.1 groups"
+        "--complete",
+        action="store_true",
+        help="require every production platform group",
     )
     abi = checks.add_parser("platform-abi", help="link/load native production artifact")
     abi.add_argument("--manifest", type=Path, required=True)
@@ -83,7 +93,7 @@ def _parser() -> argparse.ArgumentParser:
         help="small identity probes with native QUIC certificate-error observation",
     )
     coverage = checks.add_parser(
-        "protocol-coverage", help="validate planned protocol coverage declarations"
+        "protocol-coverage", help="validate executable catalogs or persisted evidence"
     )
     coverage_modes = coverage.add_mutually_exclusive_group(required=True)
     coverage_modes.add_argument(
@@ -94,15 +104,33 @@ def _parser() -> argparse.ArgumentParser:
     coverage_modes.add_argument(
         "--run-dir", type=Path, help="validate a complete persisted stage run"
     )
-    stages = [f"N{i}" for i in range(11) if i != 8]
-    coverage.add_argument("--stage", default="N1", choices=stages)
+    suites = {
+        "foundations": "N1",
+        "trojan": "N2",
+        "vmess": "N3",
+        "vless": "N4",
+        "xhttp": "N5",
+        "hysteria2": "N6",
+        "security": "N7",
+        "integration": "N9",
+    }
+    stages = list(suites.values())
+    coverage_selection = coverage.add_mutually_exclusive_group()
+    coverage_selection.add_argument("--suite", choices=suites, default=None)
+    coverage_selection.add_argument("--stage", choices=stages, help=argparse.SUPPRESS)
+    coverage.set_defaults(suites=suites)
     coverage.add_argument(
-        "--catalog-dir", type=Path, default=CATALOG_DIR, help="directory of catalogs"
+        "--manifest",
+        type=Path,
+        help="explicit frozen executable manifest for evidence checks",
     )
     protocol = checks.add_parser(
         "protocol-interop", help="run structured stage foundations and native peers"
     )
-    protocol.add_argument("--stage", required=True, choices=stages)
+    selection = protocol.add_mutually_exclusive_group(required=True)
+    selection.add_argument("--suite", choices=suites, help="capability suite to run")
+    selection.add_argument("--stage", choices=stages, help=argparse.SUPPRESS)
+    protocol.set_defaults(suites=suites)
     protocol.add_argument("--case", dest="identifiers", action="append")
     protocol.add_argument(
         "--protocol",
@@ -121,26 +149,6 @@ def _parser() -> argparse.ArgumentParser:
     protocol.add_argument(
         "--run-dir", type=Path, help="fresh child directory of target/interop/runs"
     )
-    mihomo = checks.add_parser(
-        "mihomo-interop", help="run local protocol interoperability against mihomo"
-    )
-    mihomo.add_argument(
-        "--container",
-        action="store_true",
-        help="download Linux ARM64 peers for Apple Container as well as native peers",
-    )
-    mihomo.add_argument(
-        "--extended",
-        action="store_true",
-        help="include repeated cross-protocol two-hop gates",
-    )
-    mihomo.add_argument(
-        "--soak-seconds",
-        type=int,
-        default=0,
-        help="requires --extended; full soak acceptance needs 1800 wall-clock seconds",
-    )
-
     demo = commands.add_parser("demo", help="run opt-in interoperability demos")
     demos = demo.add_subparsers(dest="demo", required=True)
     tun2socks = demos.add_parser(
@@ -168,7 +176,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.command == "download":
             download_mihomo(args.target)
         elif args.command == "check":
-            if args.check == "c-header":
+            if args.check == "core":
+                from .core_checks import run
+
+                run(args.profile, list_only=args.list_only)
+            elif args.check == "c-header":
                 check_c_header()
             elif args.check == "platform-artifacts":
                 from .platform_delivery import check_delivery
@@ -190,27 +202,21 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return xhttp_gateway(args.run_dir, identities_only=args.identities_only)
             elif args.check == "protocol-coverage":
                 if args.catalog_only:
-                    check_protocol_catalogs(args.catalog_dir)
+                    check_protocol_catalogs(CATALOG_DIR)
                 else:
                     check_run(
                         args.run_dir.resolve(),
-                        args.stage,
-                        args.catalog_dir / "cases.json",
+                        args.suites[args.suite] if args.suite else (args.stage or "N1"),
+                        args.manifest,
                     )
             elif args.check == "protocol-interop":
                 run_protocol_interop(
-                    stage=args.stage,
+                    stage=args.suites[args.suite] if args.suite else args.stage,
                     identifiers=args.identifiers,
                     protocol=args.protocol,
                     list_only=args.list_only,
                     preflight_only=args.preflight_only,
                     run_dir=args.run_dir,
-                )
-            elif args.check == "mihomo-interop":
-                run_mihomo_interop(
-                    extended=args.extended,
-                    soak_seconds=args.soak_seconds,
-                    container=args.container,
                 )
             elif args.check == "reality-hybrid":
                 from .protocol_reality_hybrid import main as run_reality_hybrid

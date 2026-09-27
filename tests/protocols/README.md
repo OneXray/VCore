@@ -1,274 +1,33 @@
-# Next-protocol coverage catalogs
+# 协议验证输入
 
-These catalogs declare the accepted development targets for Trojan, VMess,
-VLESS and Hysteria2. They are **not** the current
-production support list and contain **no successful interoperability results**.
-Current supported configuration remains documented in `docs/config.yaml`.
+生产字段只以 [config.yaml](../../docs/config.yaml) 和协议契约为准。
+本目录保留真实执行需要的输入，不维护开发阶段规划、候选库实验或重复 JSON 清单。
 
-## N0 interface experiments
-
-The independent workspaces under `spikes/` keep candidate dependencies out of
-the production workspace and lockfile. They test feasibility, not completed
-outbound protocols:
-
-- [Security experiment](spikes/security/README.md): TLS record boundaries,
-  REALITY group selection and a Rust HPKE/ECH offer. Its optional negative
-  compile feature is intentionally not part of a successful build.
-- [Datagram experiment and commands](../../docs/acceptance/next-protocols/N0-datagram.md):
-  Quinn packet/congestion injection and existing Dialer protection rejection.
-  Historical WG packet/timer results remain in the report; those probes and their
-  candidate dependencies were retired when WireGuard left scope.
-- [N0 baseline and remaining gates](../../docs/acceptance/next-protocols/N0.md).
-- [Controlled QUIC native peers](spikes/hysteria2/README.md): HY2 authentication,
-  one-state hopping and Xray XHTTP/H3; separate half-close failures remain
-  explicit limitations, not completed production protocol fields.
-- [Supplied-stream experiment](spikes/stream/README.md): TLS, ordinary WS and
-  gRPC public IO wrapping, owned cancellation, official Mihomo interoperability
-  and client-close differential. No production transport or YAML additions.
-
-## Files and schema
-
-- `fields.json`: 126 stable field IDs, full `proxies[]` paths, protocol
-  applicability, exact input/default/conditional contract, required observations,
-  work packages and responsible stages. XHTTP and download paths include their
-  `xhttp-opts.` prefix. Values and defaults are currently normative prose in
-  `contract`, not an alternative production parser.
-- `combinations.json`: explicit required mode families, contract-rejection
-  families, and native-peer compatibility questions. A family is **not one
-  executable case** and its array dimensions are not permission to generate
-  unsupported Cartesian products.
-- `cases.json`: frozen executable cases for N1 foundations (21 groups), N2
-  Trojan (41 groups), N3 VMess (117 groups), N4 VLESS (145 groups), and N5
-  XHTTP/sing-mux (416 groups), N6 Hysteria2 (36 groups), and N7 selected
-  VLESS security (43 groups), and N9 integration (65 groups), with assertion names, field
-  associations, official peers, input dimensions and required evidence.
-- `limits.json`: shared per-object limits and executable boundary case IDs;
-  `limit_foundations` compares the registered numbers with Rust constants.
-
-Fields and combinations use `schema_version: 4`; cases and limits retain
-`schema_version: 1`. Restls, ShadowTLS and dynamic ECH fields were explicitly
-retired by accepted scope decisions. Schema-v4 also removes WireGuard's seven
-fields and two dedicated families, including the W peer, and retires N8.
-Retained IDs and historical result files are not renumbered or relabelled.
-Next is N9 integration (49 ordered two-hop pairs), then N10 platform delivery;
-neither stage is accepted by this scope change.
-IDs are stable; revise a requirement with a
-reviewable reason rather than deleting a failing ID. Sources are public upstream
-URLs or repository-relative paths. The catalogs are self-contained: future
-coverage tooling must not read an external design document or source checkout.
-
-`fields.json` has these per-field keys:
-
-| Key | Meaning |
-| --- | --- |
-| `id` | Stable field identifier; unique across all 126 rows |
-| `path` | Full YAML path; identical paths may have different protocol contracts |
-| `protocols` | Consumers that must independently discharge the requirement |
-| `contract` | Accepted values, default/absence semantics and conditional rules |
-| `required_observation` | Behavior to prove, not an observed result |
-| `work_packages`, `responsible_stages` | Implementation and consumer acceptance ownership |
-| `default_peer` | Default official decoder, subject to matching override rules |
-| `peer_override_rules` | References to mode-specific native-peer exceptions |
-| `sources` | Provenance references, not test evidence |
-| `behavior_status` | Initially `NOT RUN`; no imported historical passes |
-
-Common N9 integration and N10 platform gates apply after consumer acceptance.
-One shared-field row can require cases on several protocols, networks and
-address families; therefore **126 fields does not mean 126 tests**.
-
-## Peer selection
-
-| ID | Official decoder |
-| --- | --- |
-| M | Mihomo native listener, the default |
-| H | Hysteria 2 for shared-state port hopping and server UDP-disabled behavior |
-| XR | Xray for XHTTP H3 and advanced VLESS branches |
-| V2 | V2Ray for legacy H2, VMess/VLESS HTTP camouflage and extended standard-WS early data |
-| SS | Official shadowsocks-rust ssserver for SS 2022 EIH multi-user termination, not arbitrary identity relay |
-
-Evaluate a field's override rule against the **actual complete mode**. For
-example a shared TLS field on an H3 leg uses XR, while the same field on an
-ordinary Mihomo-compatible TLS leg retains M. Download legs must reach one
-real native XHTTP session table, not unrelated listeners.
-
-Source revisions provide reproducible research provenance; they do not pin test
-binaries. Resolve official latest artifacts for each run and record actual
-versions and hashes. A Mihomo failure is
-never erased by running another peer. Add a native exception only with a
-documented capability gap and retain the original result.
-
-## Combination classification and precedence
-
-1. Apply `rejected-by-contract` rules first. Their `rejection_phase` distinguishes
-   static prepare errors from legitimate configurations whose requested traffic
-   fails at dispatch/establishment, such as local `udp: false`.
-2. Expand `supported-required` families into concrete legal cases. The label
-   means required target with an identified native route, **not implemented or
-   already interoperable**. Every value, alias and boundary still needs its own
-   assertion.
-3. Keep `required-but-peer-unproven` obligations separate. Their `blocked_on`
-   explains what N0 must prove before the consumer can be signed off. The field
-   target remains in scope. A candidate source implementation is not a wire
-   proof; do not silently replace XUDP/packetaddr with raw UDP.
-
-All initial `behavior_status` values are `NOT RUN`. No catalog entry is a
-fabricated test, placeholder PASS, server fixture or production option. The
-harness attaches real case IDs, native configurations, expected observations,
-command/version identities, results and cleanup evidence in a separate run directory.
-Catalog validation alone cannot satisfy protocol acceptance.
-
-## N0 native questions and consumer evidence
-
-This research list is not a substitute for current consumer results. See the
-[N3 VMess report](../../docs/acceptance/next-protocols/N3.md) for the tested input,
-exact transport/codec coverage and peer limits; future VLESS combinations do not
-inherit VMess acceptance.
-
-- V2Ray recognizes CommandMux, but the N0 research found different New/Keep
-  target handling. N3 verifies its missing transports with separate associations
-  for each target type; same-association target changes and source isolation use
-  Mihomo. Do not claim V2Ray multi-target equivalence from those results.
-- N3 proves VMess packetaddr against native decoders, including controlled
-  domain resolution and actual peer buffer limits. The existence of V2Ray's
-  magic-destination wrapper alone still proves no other protocol combination.
-- No packetaddr magic-destination decoder was identified in the researched
-  Xray source. N5 explicitly layers official Xray XHTTP over a separate Mihomo
-  VLESS decoder for packetaddr and sing-mux; this does not claim direct Xray
-  decoder support. H3 client identity checks use the approved xcaddy-built Caddy
-  gateway, with both legs reaching the same native Xray XHTTP handler.
-- A working H3 handshake does not demonstrate all XHTTP leaf extensions,
-  sing-mux, or independent download-leg inheritance/security combinations.
-- Advanced wrappers on native-only transports and cross-security/cross-version
-  XHTTP legs need precise legal compositions and a deployable shared handler.
-  Rejection rules still take precedence, particularly H3's standard-TLS rule.
-
-Remaining unresolved entries are explicit development gates, not scope reductions.
-No third-party source patch, custom protocol server, weakened TLS audit, or
-unprotected socket is authorized by the catalogs.
-
-## Declaration validation
-
-From the VCore repository root:
+- foundation-cases.json：尚未替代的基础/Trojan 稳定证据标识与断言。旧服务端编排
+  未全容器化，不作为可执行宿主入口；本地基础测试使用 check core。
+- 其他可执行用例由 scripts/src/vcore_scripts 下各协议 catalog/definitions 生成，
+  protocol_evidence.load_manifest 统一校验。N 前缀是稳定证据 ID，不是产品能力版本。
+- limits.json：局部资源上限及边界 case；Rust 测试对照真实常量。
+- encryption-crypto.json 与 encryption-vectors：独立官方 Go 原语生成的密码向量，
+  被生产模块的确定性测试直接使用。
+- stream_probe.rs：旧基础消费者仍有引用，保留编译；不是四个已删除的独立 spike。
 
 ```sh
 uv run --project scripts --locked vcore-scripts check protocol-coverage --catalog-only
+uv run --project scripts --locked vcore-scripts check protocol-interop --suite vless --list
+uv run --project scripts --locked vcore-scripts check protocol-interop --suite vless
+uv run --project scripts --locked vcore-scripts check protocol-coverage --suite vless --run-dir target/interop/runs/<run-id>
 ```
 
-This explicit mode checks the complete schema-v4 ID sets (126 fields, 65 mode
-families), references, ownership, native-peer declarations and required metadata.
-It also preserves the declared 49 ordered upstream pairs. A valid result is
-`VALID` with behavior status `NOT RUN`, never protocol acceptance. Invalid inputs
-exit nonzero; duplicate JSON keys and embedded declaration-level PASS statuses
-are rejected. `--catalog-dir` selects a copy for inspection; the default is
-repository-local and independent of the caller's working directory.
+catalog-only 仅 VALID / NOT RUN。运行记录的原始事件、命令/退出、源/锁文件/对端身份、
+hash、所有者清理和资源快照共同决定结果；空、部分、重复、改源、超时、CFG-only 或
+未清理都不能 PASS。保留完整通过与原始失败，不拼接旧报告。case 子集不签收整套。
 
-This declaration mode does not read source references, contact peers, evaluate
-the prose contracts or expand family dimensions. Its historical executed record
-is [N1 catalogs](../../docs/acceptance/next-protocols/N1-catalogs.md).
+Mihomo 是默认 listener；缺口由官方 Xray、V2Ray、Hysteria、ssserver 补验。
+共享字段按实际整个模式选择对端，XHTTP 两腿须到同一原生会话表；分层网关不是单端
+原生支持。对端最新下载策略与命令见 [scripts](../../scripts/README.md)；
+所有服务端遵守[隔离规则](../../docs/testing-isolation.md)。
 
-## Executable stage gates
-
-N9 uses `--stage N9` with the same execution/coverage commands below. Its frozen
-65 groups include 49 ordered pairs and 16 gates. The runtime gates require 100
-public lifetimes, 100 forty-flow rebuilds, and a full 1800-second pressure run;
-development subsets/short tracers cannot satisfy them. A separate native HY2
-window verifies actual multiple entry ports on one authenticated session. Current
-source/lock, official latest binary/image hashes, eight resource categories,
-queue peaks, heap/RSS/FD curves and exact assertion events are independently
-checked. The shared regression list is explicit in `protocol_n9_shared.py`.
-Neither catalog validity nor historical N1–N7 PASS signs off N9. N10 device,
-remote CI and release evidence remains separate.
-
-```sh
-uv run --project scripts --locked vcore-scripts check protocol-interop --stage N3 --list
-uv run --project scripts --locked vcore-scripts check protocol-interop --stage N3 --preflight
-uv run --project scripts --locked vcore-scripts check protocol-interop --stage N3
-uv run --project scripts --locked vcore-scripts check protocol-coverage --stage N3 --run-dir target/interop/runs/<run-id>
-```
-
-N3 through N7 and N9 are container-only stage runners; all peers, origins and upstream
-listeners follow the [isolation rule](../../docs/testing-isolation.md). Historical
-N1/N2 catalogs and reports remain available, but their server runners are not
-fully migrated and must not be rerun on the host. `--case` (repeatable) and
-`--protocol` select subsets for development, not full-stage acceptance. Empty,
-unknown or contradictory selections fail. N3/N4 preflight downloads fresh official
-M/V2 artifacts, checks versions inside owned containers, and verifies readiness
-and cleanup without declaring business acceptance.
-
-N3 has 109 native wire/public-consumer cases and eight local gates: configuration,
-codecs, cancellation, regression, Release, features, offline scripts, and quality
-including Apple/Android builds. Its 30 applicable field rows require the full
-structured report, not the catalog's VALID status.
-
-Replace `--stage N3` with `--stage N4` for VLESS: 136 native wire/public
-consumer cases and nine local gates (configuration, codecs, transports, Vision,
-regression, Release, features, scripts, and quality/builds), covering 39 applicable
-field rows. Ordinary TLS and REALITY Vision must each prove inner TLS 1.3
-direct-mode bytes; inner TLS 1.2/non-TLS remain separate controls. Four transport
-families each run 20 public lifecycle and 20 owned-resource cycles. Eighteen
-close cases compare the real Mihomo client against the same isolated native peer.
-Three WS + REALITY cases (standard WS and normal/fast-open HTTPUpgrade) have
-separately labeled layered close checks: VCore still connects
-to the REALITY listener, while the Mihomo reference uses a standard-TLS WS
-listener because its WS client does not implement REALITY. This is not a
-same-combination differential result; base/negative cases independently exercise
-the real WS + REALITY listener.
-Existing XHTTP three-mode and split-download regressions are included; N5 new
-XHTTP branches and N7 advanced security remain separate, unclaimed gates.
-
-Replace `--stage N3` with `--stage N5` for XHTTP/sing-mux: 406 native/public
-cases, seven local gates, and three security groups covering 57 field rows.
-The security groups contain 112 identity/inheritance cases; do not add their
-internal count to the 416 required groups. HTTP versions, modes, ordinary
-security, finite request enums, explicit download legs, and three mux wire
-protocols have frozen consumers. Independent tuning uses pairwise coverage,
-not an unconstrained Cartesian product. Thirty-five close cases use the same
-mode's official Mihomo reference. Six representative topologies each run 20
-public lifecycle and 20 owned-resource cycles, checking idle resources at Stop
-return and at least five seconds of subsequent quiet. Independent upload and
-download handshake cancellation is observed separately before and after Stop.
-The N5 preflight downloads current M/XR/V2 binaries and builds the approved
-Caddy gateway, checking versions inside owned containers without business
-traffic. Selected advanced VLESS security is independently accepted in N7.
-
-N7 freezes 43 required groups and 11 applicable field rows: retained Encryption,
-hybrid REALITY and JLS, plus static ECH on the main and XHTTP download legs.
-Seven local gates cover Debug/Release, regression, features, quality, harness
-integrity and Apple/Android production builds. Native groups explicitly list
-standard/named-profile ECH, H3, mux, six Encryption profiles, retained security
-and N4/N5 shared regressions. This is a reviewed covering set, not an arbitrary
-Cartesian product. Dynamic ECH/host bootstrap and ShadowTLS are not N7 targets;
-the delivery claim is **selected VLESS capabilities**, not full upstream VLESS.
-
-Native-only legacy transports use an official Xray ECH TLS gateway followed by
-the official V2Ray HTTP/H2/extended-WS handler; packetaddr/mux/Encryption use the
-existing separate Mihomo VLESS decoder. The gateway disables Xray freedom raw
-splice through its upstream environment switch so responses stay inside TLS.
-It is not direct V2Ray ECH support. All layers remain isolated containers.
-Run `--stage N7`, then independently check the same run with
-`protocol-coverage --stage N7 --run-dir ...`; selected subsets do not sign off
-the stage, and historical subpackage passes are not substituted for this run.
-
-N1's historical 21 required groups include configuration/limit/TLS/stream/XUDP/datagram/
-QUIC/resolution/resource assertions, nine native stream cases, the existing
-Mihomo extended regression, feature smokes and offline harness failure tests.
-`row_ids` associate a foundation with future consumers; a group-level PASS does
-not sign off all modes or values of that field. Native stream probes use synthetic
-VLESS framing to reach official decoders, not newly registered production YAML.
-QUIC fixtures prove controlled packet IO, not completed protocol consumers.
-
-Rust writes BEGIN/PASS/FAIL JSONL only when `VCORE_CASE_EVENTS` names the owned
-run's evidence file. Drop during unwinding emits FAIL; resource cases attach
-baseline/peak/Stop/quiet snapshots. Python requires exact assertion sets, successful
-commands and joined peers. Reports retain hashes of raw structured events, not
-console PASS counts. Coverage rejects missing/duplicate/unknown results, CFG-only,
-nonidle resources, failures, blocked/not-run cases and incomplete cleanup, and
-recomputes results from the original hashed artifacts.
-
-Each execution creates a fresh `target/interop/runs/<run-id>/`; its run identity
-includes source/dirty-patch/lock hashes and toolchain/SDK/build identity. Temporary
-synthetic credentials are removed. No external checkout or document is a runtime
-input. Detailed CLI, process ownership and evidence semantics are in
-[scripts](../../scripts/README.md); durable stage results live under
-`docs/acceptance/next-protocols/` and distinguish foundations, protocol consumers,
-platform cross-builds and physical/remote acceptance.
+integration 保留七协议有序两跳、100 次生命周期、100 轮 40-flow 重建、1800 秒持续
+流量和实际 HY2 跳跃。短测不代替长测，编译不代替物理设备；[验收边界](../../docs/acceptance.md)
+单独列出对端限制、参照差异和未完成发布条件。

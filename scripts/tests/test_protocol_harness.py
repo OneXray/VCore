@@ -121,7 +121,7 @@ class ProtocolHarnessTest(unittest.TestCase):
                     "run_identity",
                     return_value=identity
                     | {
-                        "stage": "N1",
+                        "stage": "N3",
                         "mode": "execute",
                         "suite_timeout_seconds": 30,
                         "commands": [],
@@ -142,8 +142,9 @@ class ProtocolHarnessTest(unittest.TestCase):
                 patch.object(protocol_harness, "check_protocol_catalogs")
             )
             stack.enter_context(
-                patch.object(
-                    protocol_harness, "_execute", side_effect=KeyboardInterrupt
+                patch(
+                    "vcore_scripts.protocol_vmess_acceptance.execute",
+                    side_effect=KeyboardInterrupt,
                 )
             )
             output = root / "target/interop/runs/fixture"
@@ -152,7 +153,7 @@ class ProtocolHarnessTest(unittest.TestCase):
                 self.assertRaises(RuntimeError),
             ):
                 protocol_harness.run_protocol_interop(
-                    stage="N1", identifiers=["N1-QUIC"], run_dir=output
+                    stage="N3", identifiers=["N3-CFG"], run_dir=output
                 )
             self.assertEqual(
                 json.loads((output / "cases.json").read_text())[0]["status"], "NOT RUN"

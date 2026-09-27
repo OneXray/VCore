@@ -16,10 +16,10 @@ from .mihomo_isolation import exclusive_run
 from .mihomo_release import download_mihomo
 from .native_release import download_native
 from .protocol_containers import ContainerLab, command, frozen_image
+from .protocol_fixtures import certificates
 from .protocol_inputs import redact, sha256, source_identity
 from .protocol_n9_catalog import PAIRS
 from .protocol_peers import run_command
-from .protocol_streams import certificates
 
 
 def peer_configuration(protocol, server, origin, directory, *, certificate=None):
@@ -199,7 +199,7 @@ def run(
                         peer.release()
                         peer.wait_tcp(23999)
                     if last_kind == "trojan":
-                        from .protocol_trojan import peer_config
+                        from .protocol_fixtures import trojan_peer_config as peer_config
 
                         directory = root / "domain"
                         directory.mkdir()

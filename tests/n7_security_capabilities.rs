@@ -1,78 +1,12 @@
-//! N7 prerequisite probes against the exact production TLS dependency revision.
-//! Only bounded in-memory ClientHello capture: no peer, socket, or production
-//! configuration is created. A passing boundary probe is not interoperability.
+//! Public configuration must produce the required REALITY shares on both legs.
+//! Pure memory IO; no protocol peer or host listener.
 #![cfg(all(feature = "tls-fingerprint", feature = "outbound-vless"))]
 
-use boring::ssl::{
-    ClientFingerprint, ErrorCode, FingerprintConnector, RealityClientConfig, Ssl, SslConnector,
-    SslMethod, SslStream,
-};
-use foreign_types::ForeignTypeRef;
-use std::io::{self, Read, Write};
 use tokio::io::AsyncReadExt;
 
 const X25519: u16 = 29;
 const X25519_MLKEM768: u16 = 4588;
 const HELLO_LIMIT: usize = 65_536;
-
-#[derive(Default)]
-struct Capture(Vec<u8>);
-
-impl Read for Capture {
-    fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
-        Err(io::ErrorKind::WouldBlock.into())
-    }
-}
-
-impl Write for Capture {
-    fn write(&mut self, input: &[u8]) -> io::Result<usize> {
-        if input.len() > HELLO_LIMIT.saturating_sub(self.0.len()) {
-            return Err(io::Error::other("ClientHello capture limit exceeded"));
-        }
-        self.0.extend_from_slice(input);
-        Ok(input.len())
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
-
-fn client(reality: bool) -> Ssl {
-    client_with_hybrid(reality, false)
-}
-
-fn client_with_hybrid(reality: bool, hybrid: bool) -> Ssl {
-    let builder = SslConnector::builder(SslMethod::tls()).unwrap();
-    let connector = FingerprintConnector::new(builder, ClientFingerprint::Chrome133).unwrap();
-    let mut ssl = connector
-        .configure(b"\x02h2")
-        .unwrap()
-        .into_ssl("n7-capability.invalid")
-        .unwrap();
-    if reality {
-        // RFC 7748 public test vector. No real identity or secret is recorded.
-        let public = [
-            0xde, 0x9e, 0xdb, 0x7d, 0x7b, 0x7d, 0xc1, 0xb4, 0xd3, 0x5b, 0x61, 0xc2, 0xec, 0xe4,
-            0x35, 0x37, 0x3f, 0x83, 0x43, 0xc8, 0x5b, 0x78, 0x67, 0x4d, 0xad, 0xfc, 0x7e, 0x14,
-            0x6f, 0x88, 0x2b, 0x4f,
-        ];
-        let config = RealityClientConfig::new(public, &[], [26, 7, 11]).unwrap();
-        let config = if hybrid {
-            config.require_x25519mlkem768()
-        } else {
-            config
-        };
-        ssl.set_reality_client(&config).unwrap();
-    }
-    ssl
-}
-
-fn capture(ssl: Ssl) -> (ErrorCode, Vec<u8>) {
-    let mut stream = SslStream::new(ssl, Capture::default()).unwrap();
-    let code = stream.connect().unwrap_err().code();
-    (code, stream.get_ref().0.clone())
-}
 
 fn word(bytes: &[u8], at: usize) -> usize {
     u16::from_be_bytes(bytes[at..at + 2].try_into().unwrap()).into()
@@ -124,55 +58,6 @@ fn key_shares(records: &[u8]) -> Vec<(u16, usize)> {
         at = next;
     }
     shares.expect("missing key_share extension")
-}
-
-#[test]
-fn ordinary_chrome133_offers_a_real_hybrid_key_share() {
-    let (code, wire) = capture(client(false));
-    assert_eq!(code, ErrorCode::WANT_READ);
-    let shares = key_shares(&wire);
-    assert_eq!(shares, [(X25519_MLKEM768, 1216), (X25519, 32)]);
-    println!("ordinary TLS: group/length={shares:?}; peer acceptance NOT RUN");
-}
-
-#[test]
-fn current_classic_reality_removes_the_hybrid_share() {
-    let (code, wire) = capture(client(true));
-    assert_eq!(code, ErrorCode::WANT_READ);
-    let shares = key_shares(&wire);
-    assert_eq!(shares, [(X25519, 32)]);
-    println!("classic REALITY: group/length={shares:?}; explicit hybrid remains opt-in");
-}
-
-#[test]
-fn current_reality_rejects_public_key_share_override_before_io() {
-    let mut ssl = client(true);
-    ssl.set_curves_list("X25519MLKEM768:X25519").unwrap();
-    let shares = [X25519_MLKEM768, X25519];
-    // Public BoringSSL setter. The SSL lives throughout the call; the setter
-    // copies the supplied group array. No private native state is accessed.
-    unsafe {
-        assert_eq!(
-            boring_sys::SSL_set1_client_key_shares(ssl.as_ptr(), shares.as_ptr(), shares.len()),
-            1
-        );
-    }
-    let (code, wire) = capture(ssl);
-    assert_eq!(code, ErrorCode::SSL);
-    assert!(wire.is_empty());
-    println!("REALITY + reintroduced hybrid share: native rejection, emitted bytes=0");
-}
-
-/// The original prerequisite failure remains in the N7 progress record.
-/// Exercise the new opt-in API without weakening the classic default.
-#[test]
-fn n7_requires_hybrid_reality_in_the_actual_client_hello() {
-    let (code, wire) = capture(client_with_hybrid(true, true));
-    assert_eq!(code, ErrorCode::WANT_READ);
-    assert!(
-        key_shares(&wire).contains(&(X25519_MLKEM768, 1216)),
-        "explicit hybrid REALITY must retain the required X25519MLKEM768 share"
-    );
 }
 
 #[tokio::test]

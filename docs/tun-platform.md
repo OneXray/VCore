@@ -52,7 +52,7 @@ Windows 使用 `Windows.Networking.Vpn` 回调，不使用文件描述符或适�
 - 数据帧为 `u16` 长度加 `1..=1500` 字节数据。写端最多合并 8 个已经就绪的帧，读端使用 64 KiB 缓冲区并逐帧校验；
 - EOF、截断、超限、任务异常和进程退出都会停止当前会话。
 
-完整契约见 [Windows VPN 平台边界](windows-vpn.md) 和 [Windows 会话运行时](windows-session-runtime.md)。
+完整契约见 [Windows VPN 平台边界](windows-vpn.md) 和 [Windows 会话运行时](windows-vpn.md)。
 
 ## MTU 与结构上限
 

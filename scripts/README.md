@@ -1,461 +1,135 @@
-# VCore Scripts
+# 构建与验证
 
-本目录是由 `uv` 管理的 Python 工程，统一提供 VCore 平台构建、静态检查和可选互操作 demo。所有命令都从 VCore 仓库根目录执行：
+所有命令从 VCore 根目录运行，或为 `--project` 显式指定本仓库 scripts。
+Python 工程由 uv/uv.lock 管理，运行时只用标准库；不推断相邻研究仓库。
 
-```bash
-uv sync --project scripts --locked
-uv run --project scripts --locked vcore-scripts --help
+## 日常检查
+
+```sh
+uv run --project scripts --locked vcore-scripts check core --profile debug
+uv run --project scripts --locked vcore-scripts check core --profile release
+uv run --project scripts --locked vcore-scripts check core --profile features
+uv run --project scripts --locked python -m unittest discover -s scripts/tests
+cargo fmt --all -- --check
+uv run --project scripts --locked ruff check scripts
+uv run --project scripts --locked ruff format --check scripts
+uv run --project scripts --locked vcore-scripts check c-header
+uv run --project scripts --locked vcore-scripts check tls-dependencies
 ```
 
-运行时只使用 Python 标准库；`ruff` 是由 `uv.lock` 固定的开发依赖。
+`check core --list` 只显示命令。Debug/Release 只执行明确的纯内存/配置/安全回归；
+features 检查精简构建、准入和完整生产构建，全目标只编译 `--no-run`。
+每条真正执行的 Cargo 测试须有非空成功结果，失败、超时或未 join 均非零退出。
+**不要执行无过滤的 cargo test --all-features --all-targets**：部分历史 fixture 含宿主监听器。
 
-所有后续服务端测试遵守[服务端测试隔离规则](../docs/testing-isolation.md)：协议对端、测试原站和对照客户端的服务入口均在隔离容器中运行。以下历史入口未完成全链路容器化时只能作为历史说明，不能直接运行或回退到宿主服务端；旧 `--container` 不自动代表原站也已隔离。
+额外生产/测试代码静态检查与 netstack：
 
-Mihomo 下载产物统一放在 VCore 仓库内、被 Git 忽略的 `target/interop/`。测试脚本不推断项目外目录布局；历史专用入口需要外部源码目录或配置文件时，必须显式传入。旧 Xray 二进制仍通过 `XRAY_BIN` 或标准 `PATH` 定位。
+```sh
+cargo clippy --locked --features ffi --lib --bins -- -D warnings
+cargo clippy --locked --all-features --all-targets -- -D warnings
+cargo test --locked --manifest-path crates/vcore-netstack/Cargo.toml --all-targets
+cargo clippy --locked --manifest-path crates/vcore-netstack/Cargo.toml --all-targets -- -D warnings
+```
 
-## 平台构建
+C header 检查只编译 C/C++；TLS 检查审查 resolved graph、provider、来源及批准 revision，
+不是网络互通。边界见 [TLS 依赖](../docs/tls-dependencies.md)。
 
-```bash
+## 容器互通
+
+```sh
+uv run --project scripts --locked vcore-scripts check protocol-interop --suite integration --list
+uv run --project scripts --locked vcore-scripts check protocol-interop --suite integration --preflight
+uv run --project scripts --locked vcore-scripts check protocol-interop --suite integration
+uv run --project scripts --locked vcore-scripts check protocol-coverage --suite integration --run-dir target/interop/runs/<run-id>
+uv run --project scripts --locked vcore-scripts check protocol-coverage --catalog-only
+```
+
+可执行容器 suite：vmess、vless、xhttp、hysteria2、security、integration。
+`--case` 可重复、`--protocol` 可筛选；子集只证明实际执行的项目，不能签收整套。
+foundations/trojan 保留历史用例标识和断言，其旧服务端编排尚未全容器化，不能执行；
+需要 Trojan 互通时用 integration 中的真实容器路径。内部 N 前缀是稳定证据 ID，
+不表示当前开发阶段，也不重编号已有原始结果。
+
+执行清单从 Python 的协议定义生成；不再提交重复 cases.json 或规划字段/组合表。
+`--catalog-only` 只检查可执行清单与上限引用，输出 VALID / NOT RUN，不冒充通过。
+`limits.json` 仍与 Rust 常量和边界断言校验。原始事件、命令/退出码、源/锁文件、
+对端身份、artifact hash、资源与清理证据独立复核；缺失/重复/部分结果不能 PASS。
+
+每轮新建 target/interop/runs 子目录；不得运行中修改源码。合成凭据/私有日志放临时
+目录并清理，不进入报告。Stop 时和后续静默窗口分别采样；短 tracer 不代替完整长测。
+容器不可用即 BLOCKED，不能退回宿主。完整规则见[测试隔离](../docs/testing-isolation.md)。
+
+### 对端下载
+
+```sh
+uv run --project scripts --locked vcore-scripts download mihomo
+uv run --project scripts --locked vcore-scripts download mihomo --target linux-arm64
+```
+
+使用官方 latest 下载链接；Mihomo 从 latest/download/version.txt 取得资产名所需版本，
+再通过二进制 -v 确认实际版本。不查 API、不固定旧版、不本地编译或静默复用旧缓存。
+同轮对端使用同一 release；下载/解压大小与超时有界，失败终止。产物在 target/interop，
+版本、URL、压缩包/二进制 SHA-256 和容器镜像 digest 随结果记录；本地摘要不是官方签名。
+
+所有协议端、原站、DNS、提供入口的对照客户端在本轮独占容器中；仅清理本轮所有者，
+不全局 stop/prune。默认 Mihomo，明确缺口由官方 Xray/V2Ray/Hysteria/ssserver 补验。
+唯一源码构建例外是获准的 xcaddy/Caddy H3/mTLS 网关，仍导入容器、不修改第三方。
+
+### 定向安全验证
+
+```sh
+uv run --project scripts --locked python -m vcore_scripts.protocol_fingerprint_shape target/interop/runs/<fresh-run>
+uv run --project scripts --locked python -m vcore_scripts.protocol_fingerprint target/interop/runs/<fresh-run> --client-fingerprint chrome
+uv run --project scripts --locked python -m vcore_scripts.protocol_fingerprint_reference --list
+uv run --project scripts --locked python -m vcore_scripts.protocol_fingerprint_reference --run-dir target/interop/runs/<fresh-run>
+uv run --project scripts --locked python -m vcore_scripts.protocol_fingerprint_reference --check-run target/interop/runs/<reference-run>
+uv run --project scripts --locked python -m vcore_scripts.protocol_jls target/interop/runs/<fresh-run>
+uv run --project scripts --locked python -m vcore_scripts.protocol_encryption target/interop/runs/<fresh-run>
+uv run --project scripts --locked vcore-scripts check reality-hybrid --run-dir target/interop/runs/<fresh-run>
+```
+
+shape 和公开 TLS 配置测试使用纯内存 IO；reference 是独立官方基线，不是 VCore 业务
+通过。模板、wire、主/下载身份、恢复/过期与真正容器数据面各有独立断言；不从别名、
+另一个模板或 fork 接口探针推导通过。更多参数读对应 --help，不复制阶段计划。
+
+## 平台构建与产物
+
+```sh
 uv run --project scripts --locked vcore-scripts build apple
 uv run --project scripts --locked vcore-scripts build android
 uv run --project scripts --locked vcore-scripts build windows
-```
-
-- Apple 命令只能在 macOS 运行，输出 `dist/apple/LibVCore.xcframework`。
-- Android 命令在 macOS/Linux 运行，默认输出 `dist/android/{arm64-v8a,x86_64}/libvcore.so` 及同 ABI 的 `libc++_shared.so`；宿主必须一起打包，不能假定 Android 系统提供该 C++ runtime。
-- Windows 命令只能在已安装 Visual Studio C++ 工具的 Windows 运行；命令从系统注册表读取原生 ARM64/x64 处理器架构，通过 `vswhere` 加载对应的 MSVC 环境，验证三项 PE 的 machine type 后输出 `dist/windows/<architecture>` 下的 DLL、Provider Host、Session Host 和记录 package integration revision、架构及三项 SHA-256 的 `vcore-windows-artifacts.json`。
-- Windows ARM64 还要求 PATH 可找到 LLVM `clang-cl`/`clang` 和 Ninja；自有 CMake
-  toolchain 使用 MSVC ABI/SDK/static CRT，保持 BoringSSL 汇编启用，避免 Visual
-  Studio 生成器遗漏 `.S` 对象。x64 的现有 MSVC/NASM 构建路径不变。
-- 所有构建都使用 `Cargo.lock`，并检查产物内的 Invoke API v5/config revision 27 身份。
-- 标准 Apple、Android、Windows 构建显式包含两种客户端入站和七种代理出站（含 Hysteria2），不依赖 `ffi` / `tun` 的传递 feature 来隐式补齐；不包含 `interop-test`。Apple/Android 的自定义 `VCORE_FEATURES` 不得将测试信任注入用于交付。
-
-Apple/Android 继续接受现有环境变量：
-
-| 变量 | 默认值 |
-| --- | --- |
-| `VCORE_BUILD_PROFILE` | `release`，也可为 `debug` |
-| `VCORE_FEATURES` | `ffi,tun,inbound-http,inbound-socks5,outbound-anytls,outbound-socks5,outbound-shadowsocks,outbound-trojan,outbound-vmess,outbound-vless,outbound-hysteria2` |
-| `VCORE_APPLE_DIST_DIR` | `dist/apple` |
-| `VCORE_IOS_DEPLOYMENT_TARGET` | `13.0` |
-| `VCORE_MACOS_DEPLOYMENT_TARGET` | `10.15` |
-| `VCORE_ANDROID_NDK_VERSION` | `28.2.13676358` |
-| `VCORE_ANDROID_API` | `24` |
-| `VCORE_ANDROID_TARGETS` | `aarch64-linux-android x86_64-linux-android` |
-| `VCORE_ANDROID_OUTPUT_DIR` | `dist/android` |
-
-Android NDK 优先读取 `ANDROID_NDK_HOME`，否则使用 `$ANDROID_HOME/ndk/<version>`。
-本仓库的 `scripts/cmake/android.toolchain.cmake` 将 ABI/API 交给该 NDK 管理，避免
-boring-sys 两次 CMake configure 时显式 clang 包装器被 NDK 替换而触发缓存重置。
-Apple 的 module map 声明 `c++` 链接依赖；不使用模块的 C 宿主还需显式链接 `-lc++`。
-
-`.github/workflows/test.yml` 在 PR/main 及现有平台交付开发分支执行已冻结的纯内存
-Debug/Release 与完整/精简 feature 命令，不运行历史宿主服务端套件；网络互通
-仍由隔离容器验收单独记录。三个并行作业使用正式用途名称 `Core tests (Debug)`、
-`Core tests (Release)`、`Quality and features`，均为必需检查；内部 N9 验收 ID 与
-命令集合保持不变。feature 作业前置
-无观察的生产 lib/bins clippy，以及开启 `interop-test` 的观察型 harness clippy。
-平台交付复用 `platform-delivery.yml`，使用 `Release builds / Apple`、
-`Release builds / Android`、`Release builds / Windows x64` 和
-`Release builds / Windows ARM64` 命名，覆盖 Apple 五目标、Android 两 ABI、
-原生 Windows ARM64/x64 Release 及未签名产物归档。
-Android job 显式使用 NDK `28.2.13676358`，不继承 runner 的另一默认版本；Linux
-runner 只作 Android 交叉构建，不意味着 VCore 支持 Linux 运行。runner 标签依据
-[GitHub 官方清单](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)。
-工作流配置不等于已执行的 CI 或设备验收，实际记录见[验收矩阵](../docs/acceptance.md)。
-
-## 检查
-
-### N10 生产产物
-
-```sh
+# 正式候选要求干净、已提交的 checkout：
 uv run --project scripts --locked vcore-scripts build apple --delivery
-uv run --project scripts --locked vcore-scripts build android --delivery
-# 在原生 Windows ARM64 / x64 上分别执行
-uv run --project scripts --locked vcore-scripts build windows --delivery
 uv run --project scripts --locked vcore-scripts check platform-artifacts --manifest dist/apple/vcore-delivery.json
 uv run --project scripts --locked vcore-scripts check platform-abi --manifest dist/apple/vcore-delivery.json
 ```
 
-`--delivery` 要求干净、已提交的 checkout、完整生产 features 和 Release profile，
-拒绝测试 feature、输出目录/目标列表和 Cargo profile/Rust flags 的隐藏覆盖。
-每组产物生成 `vcore-delivery.json`：绑定源码 commit/tree、lockfile SHA-256、
-API/schema、feature、实际工具链/SDK/NDK、主机架构及全部文件大小/摘要。
-构建前删除该组旧记录，构建后复验源码未变；失败不生成可签收记录。
-
-`platform-artifacts` 可以重复传入 `--manifest`，默认与当前仓库干净 HEAD 比较，
-`--source-dir` 只用于显式选择另一份相同候选 checkout。拒绝缺失/额外文件、重复组、
-跨 commit/lock、错误 ELF/PE/Mach-O 架构及缺失 C++ runtime；Apple 同时检查
-XCFramework 的设备/模拟器/桌面 slice。`--complete` 必须同时提供 Apple、Android、
-原生 Windows ARM64、原生 Windows x64 四组，仅代表 **N10.1**。在 macOS 上汇总，
-Apple 的实际架构检查使用系统 `lipo`，不从 plist 自报架构推导二进制正确。
-
-`platform-abi` 在当前原生 macOS/Windows 上编译 C 消费者，最终链接 XCFramework
-或加载配套 DLL，执行 1,000 次 Invoke/Free 和旧 API 拒绝；Windows 还在同一工具链
-环境执行现有快照和未打包 Host 契约，避免测试重新切回错误的汇编生成器。原始结果在
-`target/platform-delivery/abi/<group>/result.json`。它不创建运行时或网络监听器，
-不替代设备 VPN、完整宿主安装或 Windows Store 门禁。
-
-`.github/workflows/platform-delivery.yml`（`Release builds`）由测试工作流复用四组构建，
-仅执行离线脚本检查/构建/ABI，不启动历史宿主网络测试。Unix执行完整离线脚本
-套件，Windows执行跨平台产物检查、原生快照测试和未打包Host失败关闭；不把
-仅支持Unix进程组/权限语义的旧harness测试记为Windows通过。每个检查独立步骤，
-避免PowerShell后续命令成功掩盖前序失败。未签名产物及原始记录
-使用 `vcore-<platform>-<commit>` 命名并保留 14 天；平台标识为 `apple`、`android`、
-`windows-x64`、`windows-arm64`。实际 run URL、commit 和有效期另行记录，工作流存在不算通过。
-完整阶段的独立 required 清单见 [N10](../docs/acceptance/next-protocols/N10.md)。
-
-### 通用检查
-
-```bash
-uv run --project scripts --locked vcore-scripts check c-header
-uv run --project scripts --locked vcore-scripts check tls-dependencies
-uv run --project scripts --locked vcore-scripts check protocol-coverage --catalog-only
-uv run --project scripts --locked python -m unittest discover -s scripts/tests
-uv run --project scripts --locked ruff check scripts
-uv run --project scripts --locked ruff format --check scripts
-```
-
-`c-header` 在 macOS 使用 `xcrun clang/clang++`，其他平台使用 `PATH` 中的 `clang/clang++`。`tls-dependencies` 直接读取 `cargo metadata`，验证唯一的官方 crates.io rustls 0.23.45、tokio-rustls 0.26.5 和 registry ring；拒绝 rustls Git/path 覆盖，REALITY/AWS-LC/FIPS 必须关闭。boring/boring-sys/tokio-boring 5.2.0 必须来自 `OneXray/boring` 的同一 `release` 分支和已批准的锁定 revision，拒绝其他分支、`rev` 来源及混合提交；检查实际依赖边、REALITY/profile feature，并禁止 FIPS/RPK/PQ 实验模式和 Watfaq 来源。AWS-LC 仅允许出现在官方 crates.io Shadowsocks 1.25.0 → shadowsocks-crypto 0.8.0 → aws-lc-rs → aws-lc-sys 链，拒绝 Shadowsocks Git/path/非官方 registry 来源；这个例外不作为 TLS provider 使用。完整边界见 [TLS 依赖](../docs/tls-dependencies.md)。
-
-### TLS 指纹接线验证
-
-```sh
-cargo test --locked --all-features --lib security::
-cargo test --locked --all-features --lib config::
-uv run --project scripts --locked python -m vcore_scripts.protocol_fingerprint target/interop/runs/<fresh-run>
-```
-
-`protocol_fingerprint` 复用容器化 VLESS 公共配置/数据面消费者，默认设置 `chrome120`，可用 `--client-fingerprint` 选择七个公开值。覆盖 AnyTLS、Trojan、VMess、VLESS TLS/REALITY、Vision、XHTTP、mTLS 和负例。不给 case ID 时执行 CF5 默认矩阵：`transports/` 46 项，再执行 `xhttp/` 11 项，汇总到 `fingerprint-results.json`。可在输出目录后给出 case ID 定向运行，定向结果保留 `vless-results.json` 布局。各子报告保留官方 latest 二进制、版本/hash、实际流量、来源身份和容器清理结果；不使用仓库外源码或宿主原站。关闭对照使用同名 Mihomo profile；只有 REALITY 的 `none` 对照因 Mihomo 依赖 uTLS 而用 `chrome`，该项仅比较关闭行为、不声称模板相同。平台发布仍有独立门禁。
-
-默认矩阵包含 gRPC TLS 和 Vision REALITY 各 20 轮公共启停、20 轮资源归零检查，
-每轮 Stop 当时检查，再静默 5 秒；阶段源码在一轮运行中不得修改。
-XHTTP 补充项覆盖 H1/H2 × 三模式、下载腿继承/异模板/关闭/错误 pin，以及 H2 命名指纹上传 +
-H3 关闭指纹下载。最后一项使用获准的官方 latest xcaddy/Caddy 构建，导入隔离容器，
-H2/H3 TLS/mTLS 经同一个原生 Xray h2c handler，再由 Mihomo 解码 VLESS；不自制协议服务端。
-原冻结清单 900 秒漏计上述扩大后的整套覆盖，CF5 单模板总预算修订为 3600 秒并记录实际耗时；
-各单项超时、数据断言、20 轮及静默时间不变，不将超出旧预算的运行追记为旧门禁通过。
-
-实际 VCore ClientHello 与独立参考比较、TLS1.2/1.3 的真实恢复/过期，以及真实节点工厂的
-下载腿票据/mTLS 隔离另有纯内存门禁（不打开宿主监听器）：
-
-```sh
-uv run --project scripts --locked python -m vcore_scripts.protocol_fingerprint_shape target/interop/runs/<fresh-run>
-cargo test --locked --all-features --lib fingerprint_leg_tests
-```
-
-精选指纹的 `selected-v1` 增量基线使用独立入口：
-
-```sh
-uv run --project scripts --locked python -m vcore_scripts.protocol_fingerprint_reference --list
-uv run --project scripts --locked python -m vcore_scripts.protocol_fingerprint_reference --run-dir target/interop/runs/<fresh-run>
-uv run --project scripts --locked python -m vcore_scripts.protocol_fingerprint_reference --check-run target/interop/runs/<reference-run>
-uv run --project scripts --locked python -m vcore_scripts.protocol_fingerprint --help
-```
-
-基线入口每轮下载官方 latest Mihomo，在隔离容器中记录 116 组参考 ClientHello（包含
-16 组 OpenSSL TLS-only 握手）。原始记录、来源、清理和结构检查均通过才返回
-`BASELINE VERIFIED`；这不是 VCore 业务互通结果。`--case` 可重复用于定向采样，
-部分选择不能签收 CF0。比较规则与后续冻结门禁见 [selected-v1](../tests/fingerprints/README.md)。
-业务驱动的 `--client-fingerprint` 接受 `none/chrome/chrome120/firefox/firefox120/safari/safari16`。
-七值映射四模板；未支持名称不会借用旧模板。单次运行仅签收选中的 profile 和 case，
-不从别名或其他模板的 PASS 推导当前模板通过。
-
-### 协议声明清单
-
-JLS 的独立 VCore 消费者入口（不代表整个 N7.4 / N7 签收）：
-
-无指纹 gRPC 的关闭对照单独标记 `jls-grpc-chrome-baseline`：官方 Mihomo
-v1.19.31 的普通 JLS 连接状态未被 gRPC ALPN 读取器识别，使用其可工作的 Chrome
-指纹路径测量关闭语义；VCore 待测节点仍保持无指纹。原始失败和差异保留于 JLS
-验收记录，不能当作完全同配置对照。其他 JLS 组合不套用此例外。
-
-```sh
-cargo test --locked --all-features --test n7_jls_config
-uv run --project scripts --locked python -m vcore_scripts.protocol_jls target/interop/runs/<fresh-run>
-uv run --project scripts --locked python -m vcore_scripts.protocol_jls target/interop/runs/<fresh-run> --client-fingerprint chrome
-```
-
-固定 51 组：TCP/WS/HTTPUpgrade/gRPC、XHTTP H1/H2 三模式及下载腿，完整数据与
-Mihomo 同模式关闭对照、两腿认证负例、多用户下载替换、代理组/入口/IPv6/UDP隔离，
-gRPC 和 XHTTP 下载各 20 轮公共及 20 轮自有资源检查。可追加 case ID 定向执行，
-部分选择不签收整组。对端每次重新下载 official latest；源身份变化或清理失败不可 PASS。
-其余安全组合、HTTP/H2 外层、平台与物理设备仍按各自记录，不借用 fork probe 结果。
-
-N7.1 的 Encryption 增量入口（不等于完整阶段门禁）：
-
-```sh
-uv run --project scripts --locked python -m vcore_scripts.protocol_encryption target/interop/runs/<fresh-run>
-uv run --project scripts --locked python -m vcore_scripts.protocol_encryption target/interop/runs/<fresh-run> --chacha
-uv run --project scripts --locked python -m vcore_scripts.protocol_encryption target/interop/runs/<fresh-run> --expiry
-uv run --project scripts --locked python -m vcore_scripts.protocol_encryption_public target/interop/runs/<fresh-run> random-0rtt-mixed
-```
-
-三外观 × 两 RTT × X25519 / ML-KEM / 混合 key 链，共 18 项；可追加 case ID
-做定向验证。每项执行四轮 IPv4/IPv6 双向各 10 MiB，再检查独立节点、错误 key、
-服务端握手/票据/长度密文篡改。0-RTT 项还检查实际短 flight、对端重放拒绝、
-独立 handler 拒绝旧票据，以及下一次显式连接的完整握手和新票据恢复；不重试业务。
-协议对端与原站位于两个独占容器；源码变化或清理失败均不能 PASS。
-只记录计数、版本/hash 和状态；重放样本只在进程内有界暂存、不保存到报告。
-wire 入口不抵扣公共运行时、UDP、Vision 或外层传输；`protocol_encryption_public`
-另测这些实际消费者（包括真正 TLS 1.3 direct 后的 Mihomo 关闭差分）。
-各增量入口不独立代表平台或完整 N7.1 签收。
-
-N7.2 的独立混合 REALITY 子包入口（不替代完整 N7 门禁）：
-
-```sh
-uv run --project scripts --locked vcore-scripts check reality-hybrid --run-dir target/interop/runs/<fresh-run>
-```
-
-冻结 54 组：原生/Chrome133、12 类传输、XHTTP H1/H2 同 handler 双腿、混合/经典独立
-选择、错误身份/经典降级/HRR/普通证书/TLS1.2、公开入口/组/IPv6、Vision direct 和
-四个代表拓扑各 20 轮公共/自有资源检查。`--case` 可重复，只用于定位，不签收完整子包。
-官方 latest Mihomo、原站、cover/透明观察器和上游入口都位于独占容器；记录实际
-ClientHello share 的组号/长度及 ServerHello 选组，不保存随机数/密钥或原始 hello。
-新目录记录 `reality-results.json`、结构化断言、观察与摘要；源码变化、失败或清理不全
-不能记 PASS。字段/后端子包、其余 N7 高级安全及平台/设备/发布分别验收。
-
-N5 前置原生能力诊断（不是阶段签收）另有以下入口，输出目录必须是本仓库 `target/interop/runs/` 下尚不存在的直接子目录：
-
-```sh
-uv run --project scripts --locked vcore-scripts check xhttp-peers --run-dir target/interop/runs/<fresh-run>
-uv run --project scripts --locked vcore-scripts check xhttp-peers --identities-only --run-dir target/interop/runs/<fresh-identity-run>
-uv run --project scripts --locked vcore-scripts check xhttp-gateway --run-dir target/interop/runs/<fresh-gateway-run>
-uv run --project scripts --locked vcore-scripts check xhttp-gateway --identities-only --run-dir target/interop/runs/<fresh-gateway-identities>
-```
-
-官方 Mihomo 客户端、Mihomo/Xray 服务端与原站均隔离容器化，guest MTU 显式 1500、不修改宿主或共享网络。普通探针区分 Xray 直接解码与 Xray XHTTP → 原生 Mihomo VLESS 分层解码；身份探针独立检查下载腿缺失/过期/错误 CA 证书。已确认的原生能力缺口保留 FAIL 并非零退出，详见 [N5 前置记录](../docs/acceptance/next-protocols/N5-progress.md)。69 字节探针不替代完整字段、负例、资源或 VCore 消费者验收。
-
-`xhttp-gateway` 使用[明确批准的 xcaddy 构建例外](../docs/testing-isolation.md)：PATH 需有 Go 和官方最新稳定 xcaddy（可用 `go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest` 安装），每次通过官方 latest 重定向确认稳定版本，再 `xcaddy build latest` 编译 linux/arm64。生成源码/锁、构建日志/hash 和容器内版本留在该次目录；不查 API、不加插件、不改第三方、不改宿主 HOME。Mihomo/Xray 仍下载官方 latest 资产。网关仅终结 H3/mTLS 并以 h2c 转发到同一个原生 Xray XHTTP handler，不是两个 listener 模拟共享会话。
-
-普通网关探针包含双向 10 MiB、server-first、整连接关闭、TCP/XUDP echo 和两腿身份负例。`--identities-only` 只运行小流量对照并读回原生 QUIC 证书错误码，另核对原站零连接；详细 trace 留在临时容器，不在大流量用例启用。认证生效与客户端及时返回错误是两个维度，超时仍 FAIL / 非零退出，不能把网关诊断当成 N5 验收入口。
-
-`protocol-coverage --catalog-only`只检查本仓库`tests/protocols/fields.json`和`combinations.json`声明，也可用`--catalog-dir <directory>`指定副本。不读取清单所引用的源码、研究目录或URL，不下载或启动对端。必须显式选择`--catalog-only`或下面的`--run-dir`结果模式。
-
-检查 schema-v4 的完整126字段/65组合家族ID、重复JSON键、字段/来源/对端/override引用、协议适用范围、阶段与子包归属、必要观察项/模式维度、负例拒绝阶段、原生未知项说明及49个有序上游组合声明。稳定ID的增删必须同时审查版本化清单及验证器契约，不能靠改自报数量绕过漏项。来源只接受无凭据/查询参数的HTTPS链接或无 `..` 的相对路径，不检查其内容或网络可用性。
-
-有效清单退出0，stdout为JSON，`status: VALID`、`behavior_status: NOT RUN`；无效清单退出1、stderr只报告诊断，不输出JSON原文；缺少模式参数退出2。声明中不能写入PASS等运行结果。这个结果**不是126项字段或65项互通通过**，不解析条件说明或自动生成笛卡尔积。当前生产能力仍以`docs/config.yaml`为准。历史声明校验记录见[N1清单校验](../docs/acceptance/next-protocols/N1-catalogs.md)。
-
-2026-09-27 删除 WireGuard 目标及占位 feature、专用预检/候选库实验，退休 N8 与 W 对端；CLI 不再接受这些选择。N9/N10 保持原编号。N9 现有独立集成门禁，N10 没有可执行 required 集合时仍非零返回。旧报告的 schema-v1/v2/v3 数量、失败和源码身份不追改，须使用其原输入检查。
-
-### 阶段执行与原始证据检查
-
-N9 的独立入口：
-
-```sh
-uv run --project scripts --locked vcore-scripts check protocol-interop --stage N9 --list
-uv run --project scripts --locked vcore-scripts check protocol-interop --stage N9 --run-dir target/interop/runs/<fresh-run>
-uv run --project scripts --locked vcore-scripts check protocol-coverage --stage N9 --run-dir target/interop/runs/<fresh-run>
-```
-
-65 个 required 组包含七协议 49 个有序两跳、公开入口/组/DNS/测速、SS 三算法与
-官方 ssserver EIH 终结端、100 次生命周期、100×40-flow 同 Session 重建、故障
-隔离、1800 秒压力、独立连续 HY2 跳端口，以及五个本地和一个共享回归门禁。
-普通路径用 Mihomo；Trojan 域名 UDP 沿既有缺口使用 Xray。每组合真实运行两种
-外层地址族和具体/嵌套 select、方向性预算与能力拒绝；业务 `udp:false` 不禁止
-作为上游载体。EIH 不宣称任意多层身份中继，官方 ssserver 的两向 IP 分片开关
-仅用于 MTU1500 下的大 UDP 夹具。SS 资产通过官方 latest 重定向选择带标签的
-tar.xz；仅提取有界的普通 ssserver 文件，不解包链接或任意路径。
-
-长测使用 macOS 公开分配器统计，不扫描分配内容；四协议各 5 TCP +5 UDP，逐秒
-切组、逐分钟断连后显式新建客户端，不重放失败业务。Stop 自有资源当时归零、
-端口可重绑且 FD 回基线，随后静默 5 秒；空 Tokio IO driver 的进程级信号 FD
-在基线中声明，不给协议清理宽限。300 秒预热后每分钟采样，堆后10/前10中位数
-增量不超过 max(1MiB,5%)；RSS 单列，八类活对象/FD 不增长，四类有界队列记录
-单队列高水位（包括已保留发送许可）。资源 scope 只观测自有对象，不宣称枚举
-第三方内部全部任务；生产构建不启用计数。Windows/物理设备仍独立于本机结果。
-
-`protocol_n9_shared.py` 冻结九组强耦合 TLS/REALITY/JLS/ECH/Encryption/XHTTP
-回归，以及 IPv4/IPv6 × 明文/Salamander 四个各至少60秒的原生 HY2 连续窗口，
-交叉覆盖固定/范围跳跃间隔。整轮刷新官方二进制和镜像一次并固定 hash；本地
-命令只执行已核对的内存用例、构建及静态检查，不运行历史宿主服务测试。部分
-`--case` 仅作开发验证，不能签收全阶段。证据检查独立重算曲线、事件和清理，
-不拼接旧阶段结果；原始失败始终保留。
-
-```sh
-uv run --project scripts --locked vcore-scripts check protocol-interop --stage N1 --list
-uv run --project scripts --locked vcore-scripts check protocol-interop --stage N1 --case N1-QUIC
-uv run --project scripts --locked vcore-scripts check protocol-interop --stage N1 --protocol foundation --list
-uv run --project scripts --locked vcore-scripts check protocol-interop --stage N1 --preflight
-uv run --project scripts --locked vcore-scripts check protocol-interop --stage N1
-uv run --project scripts --locked vcore-scripts check protocol-coverage --stage N1 --run-dir target/interop/runs/<run-id>
-uv run --project scripts --locked vcore-scripts check protocol-interop --stage N2
-uv run --project scripts --locked vcore-scripts check protocol-coverage --stage N2 --run-dir target/interop/runs/<run-id>
-uv run --project scripts --locked vcore-scripts check protocol-interop --stage N3 --list
-uv run --project scripts --locked vcore-scripts check protocol-interop --stage N3 --preflight
-uv run --project scripts --locked vcore-scripts check protocol-interop --stage N3
-uv run --project scripts --locked vcore-scripts check protocol-coverage --stage N3 --run-dir target/interop/runs/<run-id>
-uv run --project scripts --locked vcore-scripts check protocol-interop --stage N4 --list
-uv run --project scripts --locked vcore-scripts check protocol-interop --stage N4 --preflight
-uv run --project scripts --locked vcore-scripts check protocol-interop --stage N4
-uv run --project scripts --locked vcore-scripts check protocol-coverage --stage N4 --run-dir target/interop/runs/<run-id>
-uv run --project scripts --locked vcore-scripts check protocol-interop --stage N5 --list
-uv run --project scripts --locked vcore-scripts check protocol-interop --stage N5 --preflight
-uv run --project scripts --locked vcore-scripts check protocol-interop --stage N5
-uv run --project scripts --locked vcore-scripts check protocol-coverage --stage N5 --run-dir target/interop/runs/<run-id>
-uv run --project scripts --locked vcore-scripts check protocol-interop --stage N6 --list
-uv run --project scripts --locked vcore-scripts check protocol-interop --stage N6
-uv run --project scripts --locked vcore-scripts check protocol-coverage --stage N6 --run-dir target/interop/runs/<run-id>
-uv run --project scripts --locked vcore-scripts check protocol-interop --stage N7 --list
-uv run --project scripts --locked vcore-scripts check protocol-interop --stage N7
-uv run --project scripts --locked vcore-scripts check protocol-coverage --stage N7 --run-dir target/interop/runs/<run-id>
-```
-
-N7 冻结 43 组 required / 11 个字段，签收“选定 VLESS 能力集”，不是完整上游扩展。
-保留 Encryption、混合 REALITY、JLS，新增主/下载腿静态 ECH；动态 ECH/宿主
-bootstrap 后置，ShadowTLS 不开放，Restls 不恢复。七组本地门禁与原生组合分开，
-必须同一冻结源码完整执行，不能拼接历史子包结果。普通传输优先 Mihomo，H3 用
-Xray；原生 HTTP/H2/扩展 WS 的 ECH 使用 Xray TLS → V2Ray transport → Mihomo
-VLESS 分层验证，不宣称 V2Ray 自身支持 ECH。该测试网关仅使用官方
-`XRAY_BUF_SPLICE=disable` 开关保证下行保留 TLS 封装，不修改第三方源码。
-四种命名模板、六类 Encryption、主/下载腿替换/清除、mux、资源与 N4/N5 回归
-均按冻结清单显式展开；不声称所有维度的笛卡尔积已验收。
-官方对端与 `python:3-alpine` 每轮分别刷新一次，再以实际摘要冻结供整轮复用；
-镜像刷新日志和跨组摘要也参与独立检查，失败不回落旧缓存，下轮重新刷新。
-Safari ECH 的 gRPC 关闭参照明确采用 Chrome + 同一 ECH listener，DUT 保持
-Safari；官方 Safari ECH 的原始失败及适用边界见 N7 验收记录。
-
-N6 [Hysteria2](../docs/hysteria2.md) 有 36 组 required / 20 个适用字段。Mihomo 验认证/TLS/mTLS、TCP/UDP、Salamander、10 个真实带宽样本、关闭对照、公开入口及 40 轮生命周期；官方 Hysteria 验 UDP-disabled、8 组 60 秒跳端口、protect 拒绝和跳跃中 Stop。Xray 补共享 H3 adapter 的三模式回归。官方 latest 产物在本次运行内共用且核对 hash；Hysteria 的 nftables APK 仅在准备容器下载，离线装入自有 NET_ADMIN 服务容器。所有服务仍使用 host-only 网络。`--preflight` 只准备官方产物和隔离包，不代表协议通过。完整阶段必须一次运行全部门禁，再独立重算事件、带宽桶、跳跃/认证计数、字段和清理；不得拼接旧子集 PASS。
-
-统一入口具有 N1 公共基础（21 组 required）、N2 Trojan（41 组 / 18 字段）、N3 VMess（117 组 / 30 字段）、N4 VLESS（145 组 / 39 字段）、N5 XHTTP / sing-mux（416 组 / 57 字段）、N6 Hysteria2（36 组 / 20 字段）、N7 选定 VLESS 安全能力（43 组 / 11 字段）和 N9 集成（65组）的独立清单。`cases.json` 逐组列出断言、字段关联、对端、期限和证据类型；`limits.json` 引用可执行边界 case，Rust 测试核对真实常量。未来阶段没有可执行 required 集合时非零返回 NOT RUN。N1/N2 的历史宿主服务入口未全部迁移，不得用于新的服务端验收；全容器阶段入口是 N3–N7、N9。阶段之间不继承 PASS。
-
-N2三种传输分别执行真实Mihomo TCP/UDP、上游/组、HTTP/模拟TUN/DNS、外层IPv6、证书/路径负例和UDP隔离；公共Invoke生命周期、协议自有资源各20轮，每轮Stop返回即检查，再静默5秒。域名UDP因Mihomo listener缺口由Xray单独补验，自定义头/路径ED由V2Ray补验；失败与对端缓冲限制保留在[N2.2记录](../docs/acceptance/next-protocols/N2-tcp.md)。`fields.json`按row ID汇总，只有完整执行、原始事件和所有必需项通过才可签收；单独运行原生子工具用于开发定位，不替代统一门禁。
-
-N3 公开 VMess 配置见 [VMess](../docs/vmess.md)。统一入口执行 AEAD/身份/重放、五种传输明文/TLS、三种 UDP 编码、HTTP/SOCKS/模拟 TUN、受控 DNS、外层 IPv6、上游/嵌套组、证书/ALPN/路径负例和来源隔离；TCP 与 gRPC 各执行 20 轮公共生命周期及 20 轮协议自有资源检查。Stop 返回即检查，再静默 5 秒。另包含 Debug/Release、独立/default feature、共享 XUDP/TLS/Trojan 回归、Apple 五目标和 Android 两 ABI 的生产构建。服务器、原站、上游入口均在独占 host-only 容器中；Mihomo 验 TCP/WS/gRPC，V2Ray 仅补 HTTP/H2/扩展 WS ED 缺口。
-
-开发定位可单独调用原生子工具，并在目录参数后指定一个或多个 case ID；未指定时执行全部 wire/public case，但不包含统一入口的其他门禁，不能据此签收 N3：
-
-```sh
-uv run --project scripts --locked python -m vcore_scripts.protocol_vmess target/interop/runs/<new-native-run>
-```
-
-正常完整性与关闭行为分开验证，不再把所有非 XHTTP 传输的 EOF 后尾包作为统一门槛。旧 `protocol_vmess_close`、`protocol_vmess_udp_diagnostic` 宿主诊断入口已关闭并返回 BLOCKED；历史观察仍见 [N3 关闭行为记录](../docs/acceptance/next-protocols/N3-close-blocker.md)，不追改失败结果。
-
-N4 配置见 [VLESS](../docs/vless.md)。136 组原生/公开消费者与 9 组本地门禁分别覆盖普通 TCP、WS/HTTPUpgrade、gRPC 调度/PING/节点池、HTTP/H2、标准 TLS/mTLS、经典 REALITY、Vision 及既有 XHTTP 双腿回归。Mihomo listener 优先，V2Ray 只补 HTTP/H2/扩展 WS ED；关闭对照客户端也运行在容器内。TCP、gRPC、Vision TLS/REALITY 各执行 20 轮公共生命周期及 20 轮自有资源检查，共 160 轮。Vision 有真实内层 TLS 1.3 direct 双向字节证据，TLS 1.2/非 TLS 为独立控制；不能用普通 HTTP 成功代替 direct。
-
-关闭验证中 18 组使用相同组合的 Mihomo 客户端对照。WS + REALITY 的普通 WS、HTTPUpgrade 与 fast-open 三组单独标记为分层参照：VCore 仍连接真实 REALITY listener，Mihomo 客户端使用标准 TLS 的同种传输 listener 来提供关闭基线，因为其 WS 客户端分支尚未接入 REALITY。这不代表同组合差分通过；REALITY 认证及这些组合的正常数据由独立用例验证，原始对照失败保留。离线门禁另外对照原始组合清单，防止可执行清单遗漏已纳入的传输/安全类别。
-
-N4 包含 Debug/Release、独立/default/生产 feature、共享 VMess/Trojan/TLS 回归及 Apple/Android 生产构建。开发定位可使用下列入口，只执行选中的原生/公开用例，不代替完整阶段：
-
-```sh
-uv run --project scripts --locked python -m vcore_scripts.protocol_vless_container \
-  target/interop/runs/<new-native-run> N4-TCP-TLS-BASE
-```
-
-`protocol_vless` 提供按传输模式筛选的便捷入口，复用同一容器夹具。N4 不签收 N5 的 XHTTP 新功能，也不签收 N7 的高级安全；后续仅签收选定 VLESS 能力集。
-
-N5 的冻结清单为 416 组 required / 57 个字段（X01–X29、D01–D15/D27–D32、M01–M07）。七个本地门禁、406 个原生/公开路径及三个安全组分别记录；安全组内部为 112 项身份与双腿行为检查，不把组数与内部断言相加计算覆盖率。有限枚举逐项、耦合 HTTP 版本/安全/mode/下载分支显式覆盖；独立调节项按 pairwise 组合，不宣称无约束笛卡尔积。
-
-H1/H2 以官方 Mihomo 为主；H3 用 Xray，V2Ray 补 HTTP/H2/自定义 ED 外层。非 Mihomo 传输需要 packetaddr/sing-mux 时明确接入独立 Mihomo decoder；H3 客户端身份由获准的最新 xcaddy/Caddy 网关验证，仍只有一个后端 XHTTP 会话 handler。SOCKS 首跳与最终 listener 分开容器，保留 Mihomo 回环保护。六个代表拓扑各执行 20 轮公共启停及 20 轮自有资源检查，共 240 轮，Stop 当时归零再静默 5 秒。关闭用官方 Mihomo 同模式客户端差分，不要求 EOF 后尾包。
-
-N5 包含 Debug/Release、默认/独立/生产 feature、既有协议回归、资源常量登记、Apple 五目标及 Android 两 ABI 构建。`--preflight` 只下载并在自有隔离容器内读取 M/XR/V2/Caddy 版本与哈希，不做业务，不签收 required case。阶段主入口每次重新取得官方 latest；二进制身份固定用于同轮全部 case，配置/密钥随临时容器夹具清理。N5 单独开发入口仍可用于定位，但部分选择、缺失结构化事件或原始报告均不能通过完整 coverage。
-
-N3 UDP 同参数客户端对照现已全链路容器化，仍是独立诊断，不是阶段门禁：
-
-```sh
-uv run --project scripts --locked python -m vcore_scripts.protocol_vmess_udp_ab \
-  target/interop/runs/<new-udp-ab-run> --rounds 2 --packets 100 --sizes 1 64 512 1200
-```
-
-需要已运行的 Apple Container 及带 `purpose=vcore-mihomo-interop` 标签的同名 host-only 网络。每轮重新下载官方最新 Linux ARM64 Mihomo，刷新官方 `python:3-alpine` 镜像并记录 digest；每个传输使用独立的服务端、官方对照客户端和 UDP 原站三个容器，不发布宿主端口。所有 IPv4/IPv6/域名原站均来自容器，虚拟 IPv6 不代表物理链路。默认三编码 × 13 body 配置 × 三地址类型 × TCP/WS/gRPC 明文/TLS，2轮、每大小100包；省略 `--sizes` 或使用 `--include-boundary` 时追加实际负载边界：raw/XUDP 15000字节，packetaddr 从15000中扣除7/19字节地址头（域名按可解析为IPv6的预算保守计算）。服务端回环保护和默认 socket 行为不变，send/原站观测/reply 各1秒、不重试业务包。
-
-原站在容器内自主 echo，经单独的只读 TCP 观察流传回实际收到的字节供测试比对；宿主不负责 UDP 回包。旧的宿主 `--collision-probe` / `--socket-probe` 入口明确返回 BLOCKED（非零），不能用于启动宿主原站。wire/public 已迁移到同一容器工具，旧 close/UDP 差分不再可执行。历史结论与未归因失败见 [UDP 客户端差分](../docs/acceptance/next-protocols/N3-udp-client-differential.md)。
-
-官方对照客户端的 SOCKS UDP 入口按来源 tuple 缓存关联；测试驱动为每个独立用例保留独立 UDP 来源 socket，直到该传输组结束才释放，避免快速复用端口继承其他用例的目标/编码。`--nat-reuse-probe` 在全容器服务拓扑中专门复现该机制：旧原站收到新用例报文、新原站未收到、独立来源对照通过；预期复现记为 REPRODUCED 并返回非零，不计入正常互通 PASS。历史未记录入口来源端口的失败不据此全部追认原因。
-
-`--case` 可重复，`--protocol` 与其取交集；未知、重复、矛盾或空选择拒绝。`--list` 只列清单，不下载/启动。N3/N4 `--preflight` 只检查所选清单的 M/V2：新下载、实际容器版本/hash、隔离网络、原站/服务端就绪和清理，不执行业务，不算 required PASS。历史 N1/N2 预检 M/W/H/XR/V2 的方式不用于新的服务端验收；未来协议的环境缺口不阻塞 N3/N4。版本命令就绪不能证明具体协议模式已通过。
-
-每次创建`target/interop/runs/`下的新目录；`--run-dir`只能指定其下尚不存在的目录。记录`run.json`、`peers.json`、`cases.json`、`resources.jsonl`、脱敏日志和`summary.md`，并为原始事件/报告记录SHA-256。输入身份包括父提交、源码树（含未提交新文件）/diff/lock摘要、工具链、SDK、API/schema、features。执行期间源码变化不得签收；部分选择和预检不能通过完整阶段coverage。
-
-coverage重新校验必需case、结构化Rust断言、原生探针/目标回包、原始peer身份、离线脚本结果、命令退出/清理、资源基线/峰值/Stop/静默窗口和artifact内容摘要。不从stdout的PASS文字猜测通过；缺失/重复/未知case、CFG-only、FAIL/BLOCKED/NOT RUN、超时、清理失败均非零。原生Mihomo还执行注入调用方异常后的真实进程join和端口重绑，离线测试用真实SIGINT检查子进程回收且不停止无关进程。
-
-对端均重新下载官方latest，不查GitHub API、不从源码编译、不退回缓存；同轮M宿主/容器固定同一release。V2/XR下载官方zip，H下载官方可执行文件。版本/hash只是产物身份，不是官方签名验证。合成密钥/配置/私有日志留在本轮临时目录并清理，不进入保留报告。下载、解压、子进程输出、单case和整套执行均有界；失败报告保留，重新运行另建目录，不自动重试业务包。
-
-## Windows tun2socks demo
-
-后续协议互通统一使用下节的 mihomo harness。已有 Xray / anytls-go 脚本及本节的 Windows demo 保留为历史、显式专用入口，不作为新一轮协议互通的默认对端。
-
-```powershell
-uv run --project scripts --locked vcore-scripts demo windows-tun2socks C:\path\to\xray-config.json --xray-source C:\path\to\Xray-core
-```
-
-该命令仍是显式互操作验收：它临时构建 `--xray-source` 指定的 checkout，使用已安装的 `VCore.UwpDemo.Dev` 示例 package，并在结束时停止测试 VPN 和删除临时文件。不再读取约定的兄弟目录或用户主目录配置；源配置不会被修改。历史 anytls-go 入口同样要求显式设置 `ANYTLS_GO_DIR`。真实配置、凭据和临时访问日志不得提交。
-
-## mihomo 协议互通
-
-使用独立 mihomo 进程验证公开 YAML → Invoke prepare/start → 实际数据路径。HTTP forward、分块上传、CONNECT 预读和 WebSocket Upgrade 各自验证以下两条路径，共 8 个场景：
-
-1. VCore HTTP 入站 → VCore SOCKS5 出站 → mihomo → 本机 origin。
-2. mihomo HTTP 入站 → mihomo HTTP 出站 → VCore CONNECT → 本机 origin。
-
-SOCKS5 另覆盖 CONNECT / UDP ASSOCIATE × IPv4 / IPv6 × 两个方向，共 8 个场景：VCore SOCKS5 入站 → VCore SOCKS5 出站 → mihomo，以及 mihomo SOCKS5 入站 → mihomo SOCKS5 出站 → VCore SOCKS5 入站。UDP 控制连接、端口学习与真实远端回包一并验证。
-
-AnyTLS 使用同一 mihomo 的独立 TLS listener：跳过常规验证、叶 pin、叶 pin + skip + 有序 ALPN 三种公开配置各覆盖 TCP/UoT × IPv4/IPv6 和独立 `measureDelay`，另检查默认不可信证书与错误 pin 的拒绝，共 17 项。证书由 PATH 中的 OpenSSL/LibreSSL 临时生成（RSA 2048，仅测试），因此需要可用的 `openssl` 命令；密钥和证书放在临时 mihomo dataDir，结束即清理。VCore 不开启测试信任注入或 `listeners` 配置。
-
-SS 使用三个独立 2022 listener 和合成 PSK，检查 TCP/UDP × IPv4/IPv6/域名及服务器先发，随后检查具体 SOCKS5 上游和嵌套组 / DIRECT 路径。域名仅使用 mihomo 测试 hosts 映射，不访问外网。SS 对端与首跳在不同进程，保留 mihomo 回环保护。
-
-该 mihomo 服务端不暴露 EIH 用户配置；`tests/mihomo/eih.rs` 的受控中继独立校验并剥离 AES 的 1/2 层身份头，业务密文仍交给 mihomo，明确区别于原生 EIH 服务端。错误身份/密钥/算法有 TCP/UDP 负例。另通过公开 Invoke 验证各算法的活动 TCP/UDP Stop、绑定失败回滚和独立测速，macOS 记录清理前后的 `/dev/fd` 数量；这些不替代完整压力与物理设备验收。
-
-```bash
-# 可先单独下载当前宿主平台的官方最新稳定版：
-uv run --project scripts --locked vcore-scripts download mihomo
-# 互通入口也会自动下载官方最新稳定版：
-uv run --project scripts --locked vcore-scripts check mihomo-interop
-# 等价的 shell 入口：
-bash tests/run_mihomo_interop.sh
-# 跨协议组合、Controller 切组、合成 utun 和重复生命周期：
-uv run --project scripts --locked vcore-scripts check mihomo-interop --extended
-# 30 分钟持续测试（单次通过不等于完整阶段签收，见下方限制）：
-uv run --project scripts --locked vcore-scripts check mihomo-interop --extended --soak-seconds 1800
-# macOS 推荐：上游和末端对端使用 Apple Container 独立 Linux VM：
-uv run --project scripts --locked vcore-scripts check mihomo-interop \
-  --container --extended --soak-seconds 1800
-```
-
-对端只使用 [MetaCubeX/mihomo 官方 Releases](https://github.com/MetaCubeX/mihomo/releases/latest) 的预编译包，不调用 Go 编译或读取研究 checkout。每次下载命令或互通运行都从固定的 [latest/download/version.txt](https://github.com/MetaCubeX/mihomo/releases/latest/download/version.txt) 下载小型版本文件，仅用于拼接官方带版本号的资产文件名；不调用 GitHub API、不固定版本。单次互通的原生与容器对端使用同一次解析的下载地址，避免下载期间发布新版本导致混用。实际运行版本由各自二进制的 `-v` 输出确认。
-
-每次通过 HTTPS 重新下载并解压到仓库内的 `target/interop/mihomo/<release>/<平台>/`，不以已有文件跳过下载。限制下载大小、解压大小和等待时间，完成后原子替换程序；下载或解压失败直接终止，不使用旧缓存或源码编译兜底。输出压缩包和程序的 SHA-256 供验收留证，但不将本地计算的摘要称为官方摘要校验。宿主支持 macOS / Windows / Linux 的 ARM64 与 x86_64 产物选择，Linux 下载支持仅用于测试对端，不改变 VCore 的平台支持范围。
-
-`download mihomo --target linux-arm64` 可单独准备容器程序；省略 `--target` 自动识别宿主。旧 `--binary`、`--container-binary` 和 `VCORE_MIHOMO_BIN` 不再用于选择对端，容器模式改用 `--container`。下载需要网络；普通 Python 单元测试使用离线夹具，不下载程序或启动对端。
-
-验收时记录实际 release tag、官方 asset URL、压缩包 SHA-256 和 harness 输出的程序版本 / SHA-256，不能只依赖版本字符串。最新版会变化，每次验收单独留证；旧的本地编译版本、hash 和历史通过结果仍保留为当时证据，不转记为官方最新版的验证。下载包不加入 VCore 的生产依赖。
-
-默认模式四个对端仅开放本机回环，使用临时测试凭据、配置和 dataDir；origin 使用 IPv4/IPv6 回环，不启用系统 TUN，不改变系统代理或现有 mihomo 服务。容器模式的边界见下节。就绪期限 10 秒、socket I/O 与 Invoke 清理看门狗 5 秒、测试进程总期限 `300 + soak-seconds` 秒；退出或测试失败时停止并等待全部对端，必要时在 5 秒后强制结束，再移除本次临时目录。Invoke Stop 返回后检查 VCore TCP/UDP 端口可重绑。
-
-`--extended` 增加 VLESS/XHTTP stream-one/REALITY 对端，需要 OpenSSL 3 的 TLS 1.3/X25519 服务端能力；可用 `OPENSSL_BIN` 指定路径，或从常见 Homebrew 路径及 PATH 查找。伪装站点绑定回环（容器模式绑定专用 host-only bridge），证书和密钥由夹具生成，不启用测试信任注入。SOCKS5、AnyTLS、SS（AES-128 代表算法）、VLESS 的两跳 TCP/UDP 组合重复 8 轮，另检查真实 Controller 切组、HTTP-only 宿主生命周期、具体链 / DIRECT 测速快照与批量结果顺序，以及 100 次活动 Stop/失败回滚/独立测速。Apple 主机使用 UnixDatagram 对模拟 utun 帧入口，不创建系统接口，不能计为物理 TUN 验收。自建 mihomo 的带认证 Controller 只负责用例间清理自身连接，不接触已有服务。
-
-macOS 扩展入口另在同一 Running Session 中执行 100 次 32-flow 断连重建（120 秒看门狗），读取系统公开 `malloc_zone_statistics` 的在用堆字节数，并记录 RSS / FD 与 Stop 后状态。此采样不读取或输出分配内容、不改分配器；用于区分活对象增长和驻留内存现象，仍需人工审查趋势，不能仅凭进程退出成功判定没有泄漏。
-
-`--soak-seconds` 必须与 `--extended` 一起使用，范围 0–7200；非零时持续保持 16 TCP + 16 UDP flow，每秒切组、每分钟断开自建对端的连接并显式建立新客户端，逐包校验来源与负载，记录 RSS/FD/延迟。短于 1800 秒的运行只验证夹具，不能替代长测。当前资源采样仅在 macOS 主机执行；测试内含节流，输出的负载速率不是最大吞吐基准。
-
-测试隔离：入口使用跨进程非阻塞锁，另一套 harness 在启动服务前失败；Python 同时预留回环 TCP/UDP 的 IPv4、IPv6 端口，IPv4-only 对端启动后保留 IPv6 guard。Rust 测试客户端、origin 和 EIH 中继也持有另一地址族的 UDP guard，直到对应 socket 释放。所有 IPv6 guard 为 v6-only，不启用地址复用，不关闭 IPv6 测试；仅在流量启动前有界重选占用端口，不重试业务包。32 个活动 flow 的进程 FD 比原夹具增加 32，来自 UDP 客户端/origin 的测试 guard，结束后仍必须回到空闲基线。第三方源码及 VCore 生产 socket 创建策略不因该隔离改动而改变。
-
-历史失败与当前门槛：2026-09-17 的首次 1800 秒长测约 8 分半后出现 UDP 来源异常。该 macOS 环境独立复现了 IPv6 双栈 UDP 自动端口与 IPv4 socket 同号、回包进入无关 IPv4 socket 的现象；并行短测也出现 UDP 超时，但未保留完整 socket 映射，不能把两次失败都断言为已逐跳证明的同一原因。端口隔离后一次完整 30 分钟通过，FD 回到 6；随后加入的 100 次快速重建检查两次 FAIL，第二次在第 11 轮同时捕获 mihomo 的回环拒绝日志和自建进程 UDP 映射：AnyTLS 的来源端口与同一 mihomo 的另一个 UDP 出口端口同号，触发按来源端口匹配的保护。保护测试端点不能约束所有内部自动端口，清理用例间连接也不能排除同轮活动流之间的同号端口。首次快速重建的回包超时未获得同等根因证据，单独保留。
-
-UDP 失败时，macOS 夹具在退出前用有界 `lsof` 采样，仅检查本测试进程和 Python 入口提供的自建本机对端 PID，不读取负载、不检查无关进程；容器进程不伪装成 macOS PID，失败时另读取本次容器日志。来源校验、mihomo 回环保护及所有原始失败记录保留，不重试业务包来规避失败。
-
-默认 Cargo 测试会将外部互通标记 ignored，必须显式执行 harness 才算有外部对端证据。2026-09-17 的 Apple Container 组合/资源验收结果见下节及 [验收矩阵](../docs/acceptance.md)；VLESS 的其他模式、设备和安装包结果不能从当前夹具推导，也不把旧对端或同库回环结果改写为 mihomo 结果。
-
-### Apple Container 对端
-
-需要已安装并运行的 Apple `container`（历史实际使用 1.4.1，macOS 27 / arm64）。先准备一次专用 host-only 网络和固定摘要的基础镜像；mihomo Linux ARM64 程序由脚本从官方最新稳定版下载。若同名网络已存在，先检查其 `mode=hostOnly` 和 `purpose=vcore-mihomo-interop` 标签，不覆盖其他网络：
-
-```bash
-container network inspect vcore-mihomo-interop
-# 仅在该网络不存在时创建：
-container network create --internal --label purpose=vcore-mihomo-interop vcore-mihomo-interop
-container image pull --arch arm64 docker.io/library/alpine@sha256:fd791d74b68913cbb027c6546007b3f0d3bc45125f797758156952bc2d6daf40
-uv run --project scripts --locked vcore-scripts download mihomo --target linux-arm64
-uv run --project scripts --locked vcore-scripts check mihomo-interop --container --extended
-```
-
-下述历史验收使用的本地编译源码 revision 为 `ab405bad5beeeac8b003bb01f60f134f6df54471`，Go 1.27.1、未添加 build tags，Linux 程序 SHA-256 为 `eb35562be501dd6cd9e1f8bdf3ba43162bf6abb6a3946cd1f1ec0511462feab2`，不是当前官方下载产物的 hash。当前 `--container` 自动获取同一官方 release 的原生与 Linux ARM64 程序；缺少基础镜像、网络或下载/解压失败时终止，不降级到本机、不回退旧版本。
-
-- 首跳与末跳分别在两个 Linux VM 中，每个 1 CPU / 256 MiB；只读根和夹具挂载，临时可写 dataDir。直接访问隔离网络 IP，不发布宿主端口，不配置系统 DNS/PF、代理或 TUN，不关闭 mihomo 回环保护。
-- origin 和 REALITY 伪装站点只绑定该 host-only bridge 的地址，保留 IPv4 / IPv6 数据校验；启动时发现实际地址，不硬编码 DHCP 或 SLAAC 地址。排除尚处于 DAD、重复或失效状态的 IPv6 地址，再验证可绑定及两个容器可达，全部发生在业务测试前。域名 origin 和末端节点分别映射，避免把容器回环当成宿主。
-- 反向 HTTP/SOCKS5 入站测试仍使用两个原生 mihomo 进程，VCore 保持仅回环监听和原有认证。这不是四个对端全容器化，也不是 LAN 共享或物理 IPv6 验收。
-- 每次分配唯一容器名；成功、断言失败、超时或启动失败均只清理本次已创建且带标签的容器及临时目录。保留专用网络、缓存镜像和仓库内下载产物，不执行全局 stop/prune。
-
-网络行为依据 [Apple Container 1.4.1 networking](https://github.com/apple/container/blob/1.4.1/docs/networking.md)。虚拟网络通过只证明该受控环境，不等于已经修复 macOS 同内核碰撞或第三方实现。
-
-本次完整入口通过全部基础/扩展检查、100 次快速 32-flow 重建和 1800 秒长测：1,734 次切组、29 次断连重建、420,476,672 字节校验，FD 为 6 → 195 → 6。RSS 活动起始 / 峰值 / 结束 / Stop 后为 19,248 / 21,984 / 19,184 / 18,896 KiB；多次 `heap --noContent` 采样的存活分配约 2,109–2,127 个、4.90–4.91 MB，未随 RSS 同步累积。堆诊断会扰动延迟（最大 wave 441 ms），节流负载速率不是吞吐基准；32-flow 初次 / 末次建连为 204 / 153 ms。容器、原生对端与临时配置清理完成，专用网络及镜像缓存保留。最初适配中的固定回环断言、IPv6 地址未就绪，以及此前所有本机失败均保留，不用最终通过覆盖历史。
+- Apple 在 macOS 构建，输出 dist/apple/LibVCore.xcframework，包含 iOS、模拟器、macOS。
+  最终链接 libc++；module map 已声明，直接 C 链接需 -lc++。
+- Android 在 macOS/Linux 构建，输出 dist/android 下两 ABI 的 libvcore.so 及配套
+  libc++_shared.so，宿主一起打包。NDK 优先 ANDROID_NDK_HOME，否则 ANDROID_HOME/ndk。
+- Windows 在原生 ARM64/x64、Visual Studio C++ 环境构建，输出配套 DLL/Provider Host/
+  Session Host 及架构/摘要。ARM64 需要 clang-cl/clang、Ninja；保持 BoringSSL 汇编启用。
+  契约见 [Windows VPN](../docs/windows-vpn.md)。
+
+Apple/Android 可设置 VCORE_BUILD_PROFILE、VCORE_FEATURES、VCORE_APPLE_DIST_DIR、
+VCORE_IOS_DEPLOYMENT_TARGET、VCORE_MACOS_DEPLOYMENT_TARGET、VCORE_ANDROID_NDK_VERSION、
+VCORE_ANDROID_API、VCORE_ANDROID_TARGETS、VCORE_ANDROID_OUTPUT_DIR。默认值查看 builds.py；
+交付禁用隐藏覆盖、测试 feature、非 Release profile，标准 feature 集合显式包含所有支持协议。
+
+--delivery 绑定 commit/tree、lockfile、API/schema、features、toolchain/SDK/NDK、架构及
+全部文件大小/hash；开始前清旧记录，失败不签收。platform-artifacts 拒绝缺失/额外文件、
+错架构/身份及缺 C++ runtime；可重复 --manifest，--complete 要求 Apple、Android、
+原生 Windows ARM64/x64，仍只证明构建。--source-dir 须显式指定同一候选 checkout。
+platform-abi 在原生 macOS/Windows 链接/加载并执行 C ABI；Windows 另验 snapshot/
+未打包失败关闭，不创建业务运行时，不证明设备 VPN 或正式安装。
+
+## CI 与证据
+
+Tests 工作流只跑 core Debug/Release、quality/features 和 memory-only netstack；
+通用 Python、格式检查只在 quality 执行一次。Release builds 复用 Apple、Android、
+Windows ARM64/x64 构建，每个平台保留产物路径/架构/ABI 检查和未签名 artifacts。
+CI 配置存在不等于已运行或通过；原始 run URL、commit、artifact 有效期随当次记录。
+
+真实设备、正式宿主、签名安装和商店发布单独签收，见[验收边界](../docs/acceptance.md)。
+旧 Windows tun2socks demo 是显式平台人工验收工具，不是允许在宿主运行协议服务端的例外。

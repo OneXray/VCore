@@ -29,10 +29,10 @@ geo-update-interval: 24
 # 按首个冒号分隔，用户名 / 密码各 1–255 UTF-8 字节，HTTP/SOCKS5 共用。
 # 共享或非空认证要求 port 或 socks-port 启用。
 # HTTP 逐请求认证、选路，支持流式正文 / 分块、Keep-Alive、CONNECT 与 Upgrade。
-# 共享只适合可信网络，Basic 不加密链路；详细边界见 docs/http-proxy.md。
+# 共享只适合可信网络，Basic 不加密链路；详细边界见 docs/inbounds.md#http。
 port: 1080
 # SOCKS5 CONNECT / UDP ASSOCIATE；省略或 0 关闭，非零时 TCP/UDP 同端口。
-# UDP 必须属于有效的 TCP 控制连接，源 IP/端口校验和资源上限见 socks5-proxy.md。
+# UDP 必须属于有效的 TCP 控制连接，源 IP/端口校验和资源上限见 inbounds.md#socks5。
 socks-port: 1081
 allow-lan: false
 authentication:
@@ -123,15 +123,15 @@ sniffer:
 #   非空 ALPS 服务端设置暂拒绝；边界见 docs/tls-client-fingerprint.md。
 # - jls-opts.username/password 必须成对非空，各 1–65535 UTF-8 字节，要求 tls: true；
 #   与同腿 REALITY/证书策略/mTLS、Vision/H3 互斥。下载对象缺省继承、整体替换、
-#   {} 清除，主腿空对象拒绝。保持完整 TLS1.3 认证，无恢复；详见 jls.md。
-# - 静态 ech-opts 只用于标准 TLS，详见下方示意与 docs/ech.md。
+#   {} 清除，主腿空对象拒绝。保持完整 TLS1.3 认证，无恢复；详见 vless.md#jls。
+# - 静态 ech-opts 只用于标准 TLS，详见下方示意与 docs/vless.md#静态-ech。
 #   不接受动态 query-server-name、shadow-tls-opts 或已移除的 restls-opts。
 #
 # 下方 vless-edge 通过 upstream-select 当前选择的 socks-hop 建链：
 # 客户端 -> socks-hop -> vless-edge -> 目标。
 proxies:
   # Hysteria2：固定 QUIC/TLS1.3，外层总是需要 UDP；业务 UDP 默认关闭。
-  # 完整字段/预算及开发验收边界见 hysteria2.md。标准 TLS 证书策略与其他协议共用。
+  # 完整字段/预算及开发验收边界见 outbounds.md#hysteria2。标准 TLS 证书策略与其他协议共用。
   - name: hysteria2-edge
     type: hysteria2
     server: hysteria2.example.com
@@ -161,7 +161,7 @@ proxies:
   # ws-opts/grpc-opts 与下面 Trojan 的结构相同；HTTP/H2 选项见示例注释。
   # UDP 默认 false；packet-encoding 默认为空（raw），或 xudp/packetaddr。
   # raw transport 固定首包目标；packetaddr 域名由受控 VCore DNS 解析为 IP。
-  # TCP/WS 保留下载侧；gRPC/HTTP/H2 上传 EOF 关闭逻辑流，详见 vmess.md。
+  # TCP/WS 保留下载侧；gRPC/HTTP/H2 上传 EOF 关闭逻辑流，详见 outbounds.md#vmess-aead。
   - name: vmess-edge
     type: vmess
     server: vmess.example.com
@@ -218,7 +218,7 @@ proxies:
     # network: grpc
     # grpc-opts:
     #   grpc-service-name: edge # 必填；普通名映射 /edge/Tun；/ 开头使用完整路径
-    # ws-opts / grpc-opts 仅可用于对应 network；本阶段不提供 gRPC 连接池。
+    # ws-opts / grpc-opts 仅可用于对应 network；不提供 gRPC 连接池。
 
   - name: vless-edge
     type: vless
@@ -286,7 +286,7 @@ proxies:
   # 标准 TLS 的可选静态 ECH；主腿与 download-settings 使用相同字段。
   # 启用时 config 必填标准 Base64 ECHConfigList，不能只填写 enable。
   # 实际只协商 TLS1.3，servername 必须是 DNS 名；不查询 DNS 或自动明文回落。
-  # {} 清除；不能与同腿 REALITY/JLS、Vision 混用，详细契约见 docs/ech.md。
+  # {} 清除；不能与同腿 REALITY/JLS、Vision 混用，详细契约见 docs/vless.md#静态-ech。
   # ech-opts:
   #   enable: true
   #   config: "<server-provided Base64 ECHConfigList>"
@@ -305,7 +305,7 @@ proxies:
   # sni 省略时使用 server。TLS 1.3/1.2 默认 WebPKI，alpn 省略/[] 时不发送。
   # skip-cert-verify 不能覆盖 fingerprint；pin 是证书 SHA-256，不是客户端伪造指纹。
   # 叶 pin 直接决定信任；非叶 pin 作为根继续验证链和名称。所有策略均验证握手签名。
-  # 不支持 REALITY、fp、ECH、mTLS 或 session/padding 调参字段，详见 anytls.md。
+  # 不支持 REALITY、fp、ECH、mTLS 或 session/padding 调参字段，详见 outbounds.md#anytls。
   # TCP 使用 AnyTLS session；udp: true 使用 UoT v2 datagram mode。
   - name: anytls-edge
     type: anytls
@@ -324,7 +324,7 @@ proxies:
   # 2022-blake3-chacha20-poly1305。
   # AES password 可用 iPSK1:...:iPSKn:uPSK 身份链，其他算法仅单一 Base64 PSK。
   # 以下仅为公开测试 key，不可用于真实服务。UDP 默认 false。
-  # 上游 padding 风险和验收边界见 shadowsocks.md；
+  # 上游 padding 风险和验收边界见 outbounds.md#shadowsocks-2022；
   # 完整互通尚未签收。dialer-proxy 可引用具体节点或 select 组。
   - name: ss-edge
     type: ss

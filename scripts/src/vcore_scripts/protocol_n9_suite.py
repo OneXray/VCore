@@ -17,11 +17,11 @@ from .mihomo_isolation import exclusive_run
 from .mihomo_release import download_mihomo
 from .native_release import download_native
 from .protocol_containers import ContainerLab, command, frozen_image
+from .protocol_fixtures import certificates
 from .protocol_inputs import redact, sha256, source_identity
 from .protocol_n9_catalog import PROTOCOLS
 from .protocol_n9_native import peer_configuration, rust_command
 from .protocol_peers import run_command
-from .protocol_streams import certificates
 
 CONSUMERS = {
     "N9-ENTRYPOINTS": "entrypoints",

@@ -49,41 +49,6 @@ class VlessEvidenceTest(unittest.TestCase):
                     run(output, cases, client_fingerprint=profile)
                 self.assertFalse(output.exists())
 
-    def test_every_planned_n4_transport_security_class_has_a_native_consumer(self):
-        catalog = json.loads(
-            (CORE_DIR / "tests/protocols/combinations.json").read_text()
-        )
-        aliases = {"ws-custom-ed": "ws-header", "ws-path-ed": "ws-path"}
-        suffixes = {"plain": "", "tls": "-tls", "reality-classic": "-reality"}
-        for family in catalog["combinations"]:
-            if (
-                "N4" not in family["stages"]
-                or "vless" not in family["protocols"]
-                or family["classification"] == "rejected-by-contract"
-            ):
-                continue
-            if family["id"].startswith("VL-VISION-"):
-                modes = [family["id"].removeprefix("VL-").lower()]
-            elif family["id"] == "VL-TLS-IDENTITY":
-                modes = [network + "-mtls" for network in family["networks"]]
-            else:
-                networks = (
-                    ["upgrade", "upgrade-fast"]
-                    if family["id"] == "VL-WS-HTTPUPGRADE"
-                    else [
-                        aliases.get(network, network) for network in family["networks"]
-                    ]
-                )
-                modes = [
-                    network + suffixes[security]
-                    for network in networks
-                    for security in family["security_modes"]
-                ]
-            for mode in modes:
-                self.assertIn(
-                    f"N4-{mode.upper()}-BASE", REQUIRED_IDS, (family["id"], mode)
-                )
-
     def test_official_ws_reference_preserves_vcore_default_and_explicit_ed_locations(
         self,
     ):

@@ -1,6 +1,6 @@
 # TLS 证书与客户端指纹
 
-自配置修订版 20 起，区分两个独立字段：
+两个字段相互独立：
 
 | 字段 | 含义 | 接受值 |
 | --- | --- | --- |
@@ -38,13 +38,16 @@ client-fingerprint: chrome
 
 ## 后端与认证
 
+- 默认验证公开信任链、名称及有效期。叶证书 pin 匹配时以叶证书为显式信任依据，
+  不再要求公共根、名称或有效期；匹配非叶证书时将其作为信任锚，仍验证叶链、名称和有效期。
+  skip 只跳过常规验证，不能覆盖不匹配的 pin；所有策略仍验证握手签名。
 - 未启用指纹的标准 TLS 和 QUIC 使用 crates.io 官方 rustls + ring，不依赖 rustls fork。
-- 命名指纹的标准 TLS，以及所有 REALITY/JLS，使用锁定提交的自有 boring fork。
+- 命名指纹的标准 TLS，以及所有 REALITY/JLS，使用 release 分支并由 lockfile 锁定的自有 boring fork。
 - 普通 TLS 两条路径共用同一个 WebPKI 证书验证器和发布信任根；叶 pin、非叶信任锚、
   独立验证名、skip 优先级不变。TLS 握手签名仍由各自后端强制验证。
 - VLESS mTLS 继续使用配对的内联 PEM，密钥匹配在使用 IO 前检查；profile 不修改身份。
 - REALITY 仅允许自身临时证书认证，不能混用 pin/skip/mTLS 或降级到普通站点证书。
-- [JLS](jls.md) 使用共享凭据身份和完整原生 TLS1.3，不启用恢复或 PKI 回退；profile 不改变身份。
+- [JLS](vless.md#jls) 使用共享凭据身份和完整原生 TLS1.3，不启用恢复或 PKI 回退；profile 不改变身份。
 - 连接器只包装 Dialer/上游交付的 IO，不解析 DNS、不创建 socket、不绕过平台 protect。
 
 ## 四模板边界
@@ -69,7 +72,7 @@ ALPS 仅在实际提供 h2 时发送，不复制 Mihomo 某些 WS 调用中的�
 classic REALITY 移除 Chrome133 的 ML-KEM group/share，并绑定实际 X25519 私钥；
 Firefox 的额外经典 share 不产生第二份 REALITY 身份。REALITY 仍拒绝 HRR、恢复和 0-RTT。
 
-配置修订版 22 增加 `reality-opts.support-x25519mlkem768`：默认 false，true 要求实际
+`reality-opts.support-x25519mlkem768`：默认 false，true 要求实际
 发送且协商 X25519MLKEM768（4588），经典选组即失败，不重试或降级。只兼容 `chrome`
 或关闭命名指纹；后者使用原生混合-only offer，不自动切到 chrome。Chrome120、Firefox120、
 Safari16.0 在配置期拒绝该组合。下载腿继承/整体替换 REALITY 后，再独立验证最终 profile。
@@ -79,7 +82,7 @@ Firefox 的 FFDHE、delegated credentials、record size limit 及 Safari 的模�
 cipher 声明不开放新的配置能力；不能真实完成的对端选择明确失败，不静默换模板。
 
 模板不模拟浏览器 HTTP/2 SETTINGS、QUIC 参数，也不会自动启用实际 ECH。
-VLESS 可另行显式配置[静态 ECH](ech.md)：四模板均可使用，届时强制 TLS1.3、
+VLESS 可另行显式配置[静态 ECH](vless.md#静态-ech)：四模板均可使用，届时强制 TLS1.3、
 加入真实 ECH 并关闭恢复；不再声称与未启用 ECH 的历史浏览器模板逐字节相同。
 当前 HTTP 驱动不导入 TLS ALPS 中的应用设置，因此**非空 ALPS 响应明确失败**；
 未协商或协商空设置可用。Brotli/Zlib 解压输出和原生证书消息上限均为 128 KiB；

@@ -22,9 +22,9 @@ from .mihomo_release import download_mihomo
 from .native_release import download_native
 from .protocol_containers import ContainerLab, command, listing
 from .protocol_evidence import read_events
+from .protocol_fixtures import certificate_chain
 from .protocol_inputs import redact, source_identity
 from .protocol_peers import run_command
-from .protocol_trojan import certificate_chain
 from .protocol_vless_security import client_identities
 from .protocol_xhttp_fields import events_pass
 from .protocol_xhttp_gateway import gateway_config, sanitized_gateway_log

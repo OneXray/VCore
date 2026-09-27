@@ -1,13 +1,6 @@
-# Selected client-fingerprint acceptance (selected-v1)
+# ClientHello 独立参考
 
-`selected-v1.json` freezes seven public names, four template identities, required
-gate IDs, commands, time limits and assertions. It is a **declaration, not a test
-result**. Commands run from the named repository; they never infer an adjacent
-checkout. Replace `{fresh-run}` with a new directory directly under
-`target/interop/runs/` and `{reference-run}` with the captured run. Future gates
-marked `planned_entrypoint` remain NOT RUN until their implementation exists;
-zero selected tests and partial runs cannot pass a stage. The additional coverage
-requirements are binding, not optional work outside the declared gates.
+保留官方 Mihomo/uTLS 原始 ClientHello golden；开发阶段计划不再作为测试输入。
 
 ## Independent wire baseline
 
@@ -49,7 +42,7 @@ Sources: [Mihomo TLS connection path](https://github.com/MetaCubeX/mihomo/blob/a
 [ECH GREASE](https://github.com/MetaCubeX/utls/blob/f7d52c22f3a8d2f510ad1470f75cb6c3fe26aa37/u_ech.go),
 [padding](https://github.com/MetaCubeX/utls/blob/f7d52c22f3a8d2f510ad1470f75cb6c3fe26aa37/u_tls_extensions.go).
 
-## Intentional VCore differences and future gates
+## Intentional VCore differences
 
 VCore retains a TLS1.2 floor, transport-owned ALPN, h2-only ALPS advertisement,
 nonempty ALPS rejection and its bounded ordinary-TLS session cache. Safari's
@@ -58,22 +51,4 @@ when ALPN is only HTTP/1.1, which VCore deliberately does not do. Warm/resumed
 hellos have separate expectations; PSK is not ignored by the comparator. These
 policies do not authorize dropping unrelated cipher suites, shares or extensions.
 
-The signed-off [local CF4 stage](../../docs/acceptance/client-fingerprint-selected/CF4.md)
-integrates the seven names after native four-template and REALITY library verification,
-then verifies 43 independent container cases. This does not pass CF5 transport or platform gates.
-CF1–CF3 and the CF4 fork-local slice now have [local library records](../../docs/acceptance/client-fingerprint-selected/library-progress.md);
-the CF4 fork revision `e81c6837` was published and pinned at that stage. CF5 pins
-the authorized follow-up `67581195` with a read-only native ticket-lifetime getter.
-CF2/CF3 library entrypoints exist, but this does not execute or pass any VCore business gate.
-CF5 has executable memory-wire and download-leg isolation gates, plus the 46 + 11
-container cases per template. Its transport deadline is now 3600 seconds: the
-original 900-second declaration omitted the expanded full suite, including four
-20-round quiet-period gates. Per-case deadlines and assertions are unchanged;
-the old deadline is not retroactively passed. The H2/H3 split uses the approved
-Caddy gateway and one native Xray handler, since Xray cannot listen on TCP and
-QUIC simultaneously from an ALPN list. See the [CF5 record](../../docs/acceptance/client-fingerprint-selected/CF5.md)
-for actual results, failures and remaining gates, not merely available entrypoints.
-CF5 adds all transport, security, lifecycle, build and packaging gates. Declaration
-files, library tests, public proxy data, cross-builds and physical devices are
-separate evidence classes. See the [CF0 record](../../docs/acceptance/client-fingerprint-selected/CF0.md)
-and [current TLS contract](../../docs/tls-client-fingerprint.md).
+当前身份、后端和恢复边界见 [TLS 契约](../../docs/tls-client-fingerprint.md)；实际运行结果按 [验收边界](../../docs/acceptance.md)记录。
