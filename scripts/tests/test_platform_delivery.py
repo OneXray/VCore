@@ -49,6 +49,9 @@ class PlatformDeliveryTest(unittest.TestCase):
 
             with (
                 patch.dict(os.environ, {"ANDROID_NDK_HOME": str(ndk)}, clear=True),
+                # Windows resolves home from environment variables that this
+                # hermetic fixture clears; do not depend on a runner profile.
+                patch.object(Path, "home", return_value=root),
                 patch.object(builds, "CORE_DIR", root),
                 patch.object(builds, "build_android", side_effect=build),
                 patch.object(builds, "_android_toolchain", return_value=ndk),
