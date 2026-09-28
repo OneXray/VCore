@@ -1323,7 +1323,7 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 #[cfg(test)]
 mod tests {
-    use std::{io::Write as _, net::Ipv4Addr};
+    use std::net::Ipv4Addr;
 
     use tempfile::tempdir;
 

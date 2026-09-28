@@ -1,0 +1,831 @@
+{
+  "schema_version": 1,
+  "kind": "runtime-limit-registry",
+  "scope": "FOUNDATIONS shared foundations through INTEGRATION integration; per-object bounds, not global admission caps",
+  "limits": [
+    {
+      "id": "shadowsocks-write-chunk",
+      "value": 16384,
+      "unit": "retained-plaintext-bytes-per-stream",
+      "owner": "limits::SHADOWSOCKS_WRITE_CHUNK",
+      "saturation": "partial write then backpressure while the bounded owned chunk drains",
+      "cancellation": "stream drop releases plaintext and codec; flush and shutdown drain the exact accepted chunk",
+      "boundary_cases": ["INTEGRATION-DEBUG", "INTEGRATION-RELEASE"]
+    },
+    {
+      "id": "xhttp-custom-header-bytes",
+      "value": 8192,
+      "unit": "bytes",
+      "owner": "limits::XHTTP_CUSTOM_HEADER_BYTES",
+      "saturation": "reject aggregate custom header overflow before IO",
+      "cancellation": "reject before creating runtime IO or tasks",
+      "boundary_cases": [
+        "XHTTP-CFG"
+      ]
+    },
+    {
+      "id": "xhttp-custom-headers",
+      "value": 100,
+      "unit": "headers",
+      "owner": "limits::XHTTP_CUSTOM_HEADERS",
+      "saturation": "reject custom header count overflow before IO",
+      "cancellation": "reject before creating runtime IO or tasks",
+      "boundary_cases": [
+        "XHTTP-CFG"
+      ]
+    },
+    {
+      "id": "xhttp-padding",
+      "value": 4096,
+      "unit": "bytes",
+      "owner": "limits::XHTTP_PADDING_BYTES",
+      "saturation": "reject configured padding overflow before IO",
+      "cancellation": "reject before creating runtime IO or tasks",
+      "boundary_cases": [
+        "XHTTP-CFG"
+      ]
+    },
+    {
+      "id": "xhttp-post",
+      "value": 16777216,
+      "unit": "bytes",
+      "owner": "limits::XHTTP_POST_BYTES",
+      "saturation": "reject post size overflow before IO; bound retained upload",
+      "cancellation": "reject before creating runtime IO or tasks",
+      "boundary_cases": [
+        "XHTTP-CFG"
+      ]
+    },
+    {
+      "id": "xhttp-packet-batch",
+      "value": 65536,
+      "unit": "bytes-per-batch",
+      "owner": "limits::XHTTP_PACKET_BATCH_BYTES",
+      "saturation": "backpressure one filling batch and one in-flight batch; never allocate the configured POST maximum",
+      "cancellation": "logical drop cancels the timer/upload; node Stop joins the owned driver",
+      "boundary_cases": [
+        "XHTTP-UNIT"
+      ]
+    },
+    {
+      "id": "xhttp-request-bytes",
+      "value": 16384,
+      "unit": "bytes",
+      "owner": "limits::XHTTP_REQUEST_BYTES",
+      "saturation": "reject oversized constructed request including generated metadata",
+      "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
+      "boundary_cases": [
+        "XHTTP-UNIT"
+      ]
+    },
+    {
+      "id": "xhttp-request-headers",
+      "value": 128,
+      "unit": "headers",
+      "owner": "limits::XHTTP_REQUEST_HEADERS",
+      "saturation": "reject excess constructed headers including payload chunks",
+      "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
+      "boundary_cases": [
+        "XHTTP-UNIT"
+      ]
+    },
+    {
+      "id": "xhttp-idle-entries",
+      "value": 64,
+      "unit": "entries",
+      "owner": "limits::XHTTP_IDLE_ENTRIES",
+      "saturation": "retire excess idle transports without imposing active business quota",
+      "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
+      "boundary_cases": [
+        "XHTTP-UNIT"
+      ]
+    },
+    {
+      "id": "xhttp-idle-h1",
+      "value": 4,
+      "unit": "connections-per-entry",
+      "owner": "limits::XHTTP_IDLE_H1_CONNECTIONS",
+      "saturation": "retire excess idle H1 connections; active requests keep ownership",
+      "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
+      "boundary_cases": [
+        "XHTTP-UNIT"
+      ]
+    },
+    {
+      "id": "xhttp-body-queue",
+      "value": 2,
+      "unit": "chunks",
+      "owner": "limits::XHTTP_BODY_QUEUE",
+      "saturation": "backpressure owned H1 commands and body chunks",
+      "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
+      "boundary_cases": [
+        "XHTTP-UNIT"
+      ]
+    },
+    {
+      "id": "xhttp-body-chunk",
+      "value": 16384,
+      "unit": "bytes",
+      "owner": "limits::XHTTP_BODY_CHUNK",
+      "saturation": "split streaming writes; a packet-up body uses the separately bounded xhttp-packet-batch limit",
+      "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
+      "boundary_cases": [
+        "XHTTP-UNIT"
+      ]
+    },
+    {
+      "id": "xhttp-h3-uni-streams",
+      "value": 8,
+      "unit": "streams-per-connection",
+      "owner": "limits::XHTTP_H3_UNI_STREAMS",
+      "saturation": "QUIC flow control bounds remote control streams",
+      "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
+      "boundary_cases": [
+        "XHTTP-UNIT"
+      ]
+    },
+    {
+      "id": "xhttp-h3-stream-window",
+      "value": 65536,
+      "unit": "bytes",
+      "owner": "limits::XHTTP_H3_STREAM_WINDOW",
+      "saturation": "QUIC receive flow control backpressures peer per stream",
+      "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
+      "boundary_cases": [
+        "XHTTP-UNIT"
+      ]
+    },
+    {
+      "id": "xhttp-h3-connection-window",
+      "value": 131072,
+      "unit": "bytes",
+      "owner": "limits::XHTTP_H3_CONNECTION_WINDOW",
+      "saturation": "QUIC aggregate receive flow control",
+      "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
+      "boundary_cases": [
+        "XHTTP-UNIT"
+      ]
+    },
+    {
+      "id": "xhttp-h3-send-window",
+      "value": 65536,
+      "unit": "bytes",
+      "owner": "limits::XHTTP_H3_SEND_WINDOW",
+      "saturation": "QUIC send window backpressures pending writes",
+      "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
+      "boundary_cases": [
+        "XHTTP-UNIT"
+      ]
+    },
+    {
+      "id": "sing-mux-idle",
+      "value": 16,
+      "unit": "connections",
+      "owner": "limits::SING_MUX_IDLE_CONNECTIONS",
+      "saturation": "retire excess idle connections; no active business quota",
+      "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
+      "boundary_cases": [
+        "XHTTP-UNIT"
+      ]
+    },
+    {
+      "id": "sing-mux-command-queue",
+      "value": 16,
+      "unit": "commands",
+      "owner": "limits::SING_MUX_COMMAND_QUEUE",
+      "saturation": "backpressure smux frames and yamux opens",
+      "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
+      "boundary_cases": [
+        "XHTTP-UNIT"
+      ]
+    },
+    {
+      "id": "sing-mux-chunk",
+      "value": 16384,
+      "unit": "bytes",
+      "owner": "limits::SING_MUX_CHUNK",
+      "saturation": "split frame writes at retained chunk boundary",
+      "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
+      "boundary_cases": [
+        "XHTTP-UNIT"
+      ]
+    },
+    {
+      "id": "smux-receive-queue",
+      "value": 4,
+      "unit": "frames-per-stream",
+      "owner": "limits::SMUX_RECEIVE_QUEUE",
+      "saturation": "backpressure reader; each wire frame is bounded by its u16 length",
+      "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
+      "boundary_cases": [
+        "XHTTP-UNIT"
+      ]
+    },
+    {
+      "id": "yamux-admissions",
+      "value": 64,
+      "unit": "lifetime-streams-per-physical-connection",
+      "owner": "limits::YAMUX_CONNECTION_ADMISSIONS",
+      "saturation": "retire before library stream saturation; new transport serves new streams while old streams remain live",
+      "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
+      "boundary_cases": [
+        "XHTTP-UNIT"
+      ]
+    },
+    {
+      "id": "yamux-window",
+      "value": 16777216,
+      "unit": "bytes",
+      "owner": "limits::YAMUX_CONNECTION_WINDOW",
+      "saturation": "library receive credit window bounds physical connection retention",
+      "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
+      "boundary_cases": [
+        "XHTTP-UNIT"
+      ]
+    },
+    {
+      "id": "trojan-udp-payload",
+      "value": 8192,
+      "unit": "bytes",
+      "owner": "outbound::trojan::MAX_DATAGRAM_PAYLOAD",
+      "saturation": "reject oversize send before write; invalid receive closes the stream; bounded caller-budget drops never truncate",
+      "cancellation": "drop partial receive buffer and poison any partially written frame on cancelled send",
+      "boundary_cases": [
+        "TROJAN-CODEC",
+        "TROJAN-M-TCP-UDP-ISOLATION",
+        "TROJAN-M-WS-UDP-ISOLATION",
+        "TROJAN-M-GRPC-UDP-ISOLATION"
+      ]
+    },
+    {
+      "id": "config-bytes",
+      "value": 262144,
+      "unit": "bytes",
+      "owner": "config::MAX_CONFIG_BYTES",
+      "saturation": "reject oversized YAML",
+      "cancellation": "parse owns no background work",
+      "boundary_cases": [
+        "FOUNDATIONS-SCHEMA"
+      ]
+    },
+    {
+      "id": "establish-timeout",
+      "value": 10000,
+      "unit": "milliseconds",
+      "owner": "outbound::DEFAULT_ESTABLISH_TIMEOUT",
+      "saturation": "fail entire setup at absolute deadline",
+      "cancellation": "drop pending setup at cancellation",
+      "boundary_cases": [
+        "FOUNDATIONS-RESOLUTION",
+        "FOUNDATIONS-STREAM"
+      ]
+    },
+    {
+      "id": "tls-buffer",
+      "value": 65536,
+      "unit": "bytes",
+      "owner": "ResourceLimits::tls_buffer_limit",
+      "saturation": "backpressure TLS records",
+      "cancellation": "drop owned IO on Stop",
+      "boundary_cases": [
+        "FOUNDATIONS-SECURITY"
+      ]
+    },
+    {
+      "id": "tls-close",
+      "value": 5000,
+      "unit": "milliseconds",
+      "owner": "security::CLOSE_NOTIFY_TIMEOUT",
+      "saturation": "fail bounded close_notify flush",
+      "cancellation": "cancel flush and release IO",
+      "boundary_cases": [
+        "FOUNDATIONS-SECURITY"
+      ]
+    },
+    {
+      "id": "tls-resumption",
+      "value": 4,
+      "unit": "sessions",
+      "owner": "security::TLS_RESUMPTION_SESSION_BUDGET",
+      "saturation": "evict retained sessions within isolated identity cache",
+      "cancellation": "drop cache owner",
+      "boundary_cases": [
+        "FOUNDATIONS-SECURITY"
+      ]
+    },
+    {
+      "id": "stream-chunk",
+      "value": 16384,
+      "unit": "bytes",
+      "owner": "transport::STREAM_CHUNK_BYTES",
+      "saturation": "split writes at chunk boundary",
+      "cancellation": "drop queued chunk on cancellation",
+      "boundary_cases": [
+        "FOUNDATIONS-STREAM"
+      ]
+    },
+    {
+      "id": "stream-buffer",
+      "value": 65536,
+      "unit": "bytes",
+      "owner": "transport::STREAM_BUFFER_BYTES",
+      "saturation": "backpressure writes; reject oversized WS/gRPC message",
+      "cancellation": "Stop owns driver join",
+      "boundary_cases": [
+        "FOUNDATIONS-STREAM"
+      ]
+    },
+    {
+      "id": "http-head",
+      "value": 16384,
+      "unit": "bytes",
+      "owner": "transport::HTTP_HEAD_BYTES",
+      "saturation": "reject oversized HTTP header",
+      "cancellation": "drop parser and supplied IO",
+      "boundary_cases": [
+        "FOUNDATIONS-STREAM"
+      ]
+    },
+    {
+      "id": "http-headers",
+      "value": 100,
+      "unit": "headers",
+      "owner": "transport::HTTP_HEADER_COUNT",
+      "saturation": "reject excess fields",
+      "cancellation": "drop parser and supplied IO",
+      "boundary_cases": [
+        "FOUNDATIONS-STREAM"
+      ]
+    },
+    {
+      "id": "ws-early-data",
+      "value": 2048,
+      "unit": "bytes",
+      "owner": "transport::MAX_EARLY_DATA_BYTES",
+      "saturation": "reject invalid option, put excess initial bytes in data frames",
+      "cancellation": "no separate task",
+      "boundary_cases": [
+        "FOUNDATIONS-STREAM"
+      ]
+    },
+    {
+      "id": "xudp-metadata",
+      "value": 512,
+      "unit": "bytes",
+      "owner": "xudp::MAX_METADATA_LENGTH",
+      "saturation": "reject oversized metadata before body allocation",
+      "cancellation": "drop persistent partial frame on association close",
+      "boundary_cases": [
+        "FOUNDATIONS-XUDP"
+      ]
+    },
+    {
+      "id": "io-poll",
+      "value": 32,
+      "unit": "iterations",
+      "owner": "limits::IO_POLL_BUDGET",
+      "saturation": "yield before processing another control/discard burst",
+      "cancellation": "cooperative cancellation between polls",
+      "boundary_cases": [
+        "FOUNDATIONS-STREAM",
+        "FOUNDATIONS-DATAGRAM"
+      ]
+    },
+    {
+      "id": "quic-queue",
+      "value": 32,
+      "unit": "datagrams-per-direction",
+      "owner": "transport::quic::QUEUE_LIMIT",
+      "saturation": "WouldBlock TX; pause RX, plus one in-flight send",
+      "cancellation": "cancel and join owner; clear queues",
+      "boundary_cases": [
+        "FOUNDATIONS-QUIC"
+      ]
+    },
+    {
+      "id": "quic-close",
+      "value": 1000,
+      "unit": "milliseconds",
+      "owner": "transport::quic::CLOSE_TIMEOUT",
+      "saturation": "time out upstream close",
+      "cancellation": "drop transport after bounded close and join task",
+      "boundary_cases": [
+        "FOUNDATIONS-QUIC"
+      ]
+    },
+    {
+      "id": "quic-minimum",
+      "value": 1200,
+      "unit": "bytes",
+      "owner": "dispatch::QUIC_MIN_PAYLOAD_BYTES",
+      "saturation": "reject insufficient directional path budget before QUIC",
+      "cancellation": "no QUIC task created on rejection",
+      "boundary_cases": [
+        "FOUNDATIONS-QUIC",
+        "FOUNDATIONS-DATAGRAM"
+      ]
+    },
+    {
+      "id": "resolution-depth",
+      "value": 32,
+      "unit": "nested-lookups",
+      "owner": "dns::resolution::MAX_RESOLUTION_DEPTH",
+      "saturation": "reject dependency recursion/depth, no system fallback",
+      "cancellation": "shared deadline and runtime cancellation",
+      "boundary_cases": [
+        "FOUNDATIONS-RESOLUTION"
+      ]
+    },
+    {
+      "id": "packet-queue",
+      "value": 256,
+      "unit": "items",
+      "owner": "ResourceLimits::packet_queue_capacity",
+      "saturation": "retain existing per-object queue/cache/buffer policy in docs/runtime-resource-policy.md",
+      "cancellation": "existing runtime-owned cancellation and Stop barrier",
+      "boundary_cases": [
+        "FOUNDATIONS-REGRESSION"
+      ]
+    },
+    {
+      "id": "event-queue",
+      "value": 128,
+      "unit": "items",
+      "owner": "ResourceLimits::event_queue_capacity",
+      "saturation": "retain existing per-object queue/cache/buffer policy in docs/runtime-resource-policy.md",
+      "cancellation": "existing runtime-owned cancellation and Stop barrier",
+      "boundary_cases": [
+        "FOUNDATIONS-REGRESSION"
+      ]
+    },
+    {
+      "id": "udp-payload",
+      "value": 65535,
+      "unit": "bytes",
+      "owner": "ResourceLimits::max_datagram_size",
+      "saturation": "retain existing per-object queue/cache/buffer policy in docs/runtime-resource-policy.md",
+      "cancellation": "existing runtime-owned cancellation and Stop barrier",
+      "boundary_cases": [
+        "FOUNDATIONS-REGRESSION"
+      ]
+    },
+    {
+      "id": "tun-packet",
+      "value": 1500,
+      "unit": "bytes",
+      "owner": "ResourceLimits::tun_max_datagram_size",
+      "saturation": "retain existing per-object queue/cache/buffer policy in docs/runtime-resource-policy.md",
+      "cancellation": "existing runtime-owned cancellation and Stop barrier",
+      "boundary_cases": [
+        "FOUNDATIONS-REGRESSION"
+      ]
+    },
+    {
+      "id": "tcp-buffer",
+      "value": 32768,
+      "unit": "bytes",
+      "owner": "ResourceLimits::tcp_buffer_per_direction",
+      "saturation": "retain existing per-object queue/cache/buffer policy in docs/runtime-resource-policy.md",
+      "cancellation": "existing runtime-owned cancellation and Stop barrier",
+      "boundary_cases": [
+        "FOUNDATIONS-REGRESSION"
+      ]
+    },
+    {
+      "id": "dns-cache",
+      "value": 256,
+      "unit": "entries",
+      "owner": "ResourceLimits::dns_address_cache_entries",
+      "saturation": "retain existing per-object queue/cache/buffer policy in docs/runtime-resource-policy.md",
+      "cancellation": "existing runtime-owned cancellation and Stop barrier",
+      "boundary_cases": [
+        "FOUNDATIONS-REGRESSION"
+      ]
+    },
+    {
+      "id": "dns-hints",
+      "value": 256,
+      "unit": "entries",
+      "owner": "ResourceLimits::dns_redir_host_entries",
+      "saturation": "retain existing per-object queue/cache/buffer policy in docs/runtime-resource-policy.md",
+      "cancellation": "existing runtime-owned cancellation and Stop barrier",
+      "boundary_cases": [
+        "FOUNDATIONS-REGRESSION"
+      ]
+    },
+    {
+      "id": "tun-dns-ingress",
+      "value": 128,
+      "unit": "items",
+      "owner": "ResourceLimits::tun_dns_ingress_queue_capacity",
+      "saturation": "retain existing per-object queue/cache/buffer policy in docs/runtime-resource-policy.md",
+      "cancellation": "existing runtime-owned cancellation and Stop barrier",
+      "boundary_cases": [
+        "FOUNDATIONS-REGRESSION"
+      ]
+    },
+    {
+      "id": "tun-dns-response",
+      "value": 128,
+      "unit": "items",
+      "owner": "ResourceLimits::tun_dns_response_queue_capacity",
+      "saturation": "retain existing per-object queue/cache/buffer policy in docs/runtime-resource-policy.md",
+      "cancellation": "existing runtime-owned cancellation and Stop barrier",
+      "boundary_cases": [
+        "FOUNDATIONS-REGRESSION"
+      ]
+    },
+    {
+      "id": "xhttp-send",
+      "value": 65536,
+      "unit": "bytes",
+      "owner": "ResourceLimits::xhttp_send_buffer_size",
+      "saturation": "retain existing per-object queue/cache/buffer policy in docs/runtime-resource-policy.md",
+      "cancellation": "existing runtime-owned cancellation and Stop barrier",
+      "boundary_cases": [
+        "FOUNDATIONS-REGRESSION"
+      ]
+    },
+    {
+      "id": "xhttp-upload",
+      "value": 65536,
+      "unit": "bytes",
+      "owner": "ResourceLimits::xhttp_upload_chunk_size",
+      "saturation": "retain existing per-object queue/cache/buffer policy in docs/runtime-resource-policy.md",
+      "cancellation": "existing runtime-owned cancellation and Stop barrier",
+      "boundary_cases": [
+        "FOUNDATIONS-REGRESSION"
+      ]
+    },
+    {
+      "id": "vmess-body-wire",
+      "value": 16384,
+      "unit": "bytes",
+      "owner": "outbound::vmess::MAX_BODY_WIRE",
+      "saturation": "reject malformed or oversized chunk before payload allocation",
+      "cancellation": "drop owned stream; never reuse nonce after a partial send",
+      "boundary_cases": [
+        "VMESS-CODEC",
+        "VMESS-RELEASE"
+      ]
+    },
+    {
+      "id": "vmess-write-chunk",
+      "value": 4096,
+      "unit": "bytes",
+      "owner": "outbound::vmess::WRITE_CHUNK",
+      "saturation": "bounded TCP segmentation with backpressure",
+      "cancellation": "cancel owned stream and join driver",
+      "boundary_cases": [
+        "VMESS-CODEC",
+        "VMESS-PUBLIC-TCP-PLAIN-BASE"
+      ]
+    },
+    {
+      "id": "vmess-datagram",
+      "value": 15000,
+      "unit": "bytes",
+      "owner": "outbound::vmess::MAX_PACKET_BYTES",
+      "saturation": "reject max+1 without partial delivery; intersect the caller budget",
+      "cancellation": "close association and release upstream IO",
+      "boundary_cases": [
+        "VMESS-CODEC",
+        "VMESS-PUBLIC-TCP-UDP-ISOLATION"
+      ]
+    },
+    {
+      "id": "vless-udp-frame",
+      "value": 65537,
+      "unit": "bytes",
+      "owner": "limits::VLESS_UDP_FRAME_BYTES",
+      "saturation": "reject length beyond u16 payload and prefix",
+      "cancellation": "drop owned buffers and join cancelled node drivers",
+      "boundary_cases": [
+        "VLESS-CODEC"
+      ]
+    },
+    {
+      "id": "vision-content",
+      "value": 8171,
+      "unit": "bytes",
+      "owner": "limits::VISION_CONTENT_BYTES",
+      "saturation": "split writes; retain one bounded frame",
+      "cancellation": "drop owned buffers and join cancelled node drivers",
+      "boundary_cases": [
+        "VLESS-VISION"
+      ]
+    },
+    {
+      "id": "vision-tls-record",
+      "value": 18432,
+      "unit": "bytes",
+      "owner": "limits::VISION_TLS_RECORD_BYTES",
+      "saturation": "fail malformed outer TLS; stop inner classification",
+      "cancellation": "drop owned buffers and join cancelled node drivers",
+      "boundary_cases": [
+        "VLESS-VISION"
+      ]
+    },
+    {
+      "id": "vision-hello",
+      "value": 65536,
+      "unit": "bytes",
+      "owner": "limits::VISION_HELLO_BYTES",
+      "saturation": "disable inner hello classification at cap",
+      "cancellation": "drop owned buffers and join cancelled node drivers",
+      "boundary_cases": [
+        "VLESS-VISION"
+      ]
+    },
+    {
+      "id": "grpc-idle",
+      "value": 4,
+      "unit": "connections",
+      "owner": "limits::GRPC_IDLE_CONNECTIONS",
+      "saturation": "retire excess idle; no active business cap",
+      "cancellation": "drop owned buffers and join cancelled node drivers",
+      "boundary_cases": [
+        "VLESS-TRANSPORT"
+      ]
+    },
+    {
+      "id": "grpc-ping-timeout",
+      "value": 15,
+      "unit": "seconds",
+      "owner": "limits::GRPC_PING_TIMEOUT_SECONDS",
+      "saturation": "close a physical transport if its PING is unanswered",
+      "cancellation": "drop owned buffers and join cancelled node drivers",
+      "boundary_cases": [
+        "VLESS-TRANSPORT"
+      ]
+    },
+    {
+      "id": "hy2-udp-payload",
+      "value": 4096,
+      "unit": "bytes",
+      "owner": "limits::HY2_UDP_PAYLOAD",
+      "saturation": "reject max+1 before sending a business fragment",
+      "cancellation": "owned logical close or physical session Stop releases retained state and joins drivers",
+      "boundary_cases": [
+        "HYSTERIA2-UNIT",
+        "HYSTERIA2-OWNED"
+      ]
+    },
+    {
+      "id": "hy2-udp-queue",
+      "value": 32,
+      "unit": "packets-per-association",
+      "owner": "limits::HY2_UDP_QUEUE",
+      "saturation": "drop full inbound queue without blocking sibling associations",
+      "cancellation": "owned logical close or physical session Stop releases retained state and joins drivers",
+      "boundary_cases": [
+        "HYSTERIA2-UNIT",
+        "HYSTERIA2-OWNED"
+      ]
+    },
+    {
+      "id": "hy2-pending-packets",
+      "value": 64,
+      "unit": "partial-packets-per-connection",
+      "owner": "limits::HY2_PENDING_PACKETS",
+      "saturation": "drop excess partial packets; retain bounded completion tombstones",
+      "cancellation": "owned logical close or physical session Stop releases retained state and joins drivers",
+      "boundary_cases": [
+        "HYSTERIA2-UNIT",
+        "HYSTERIA2-OWNED"
+      ]
+    },
+    {
+      "id": "hy2-pending-bytes",
+      "value": 262144,
+      "unit": "bytes-per-connection",
+      "owner": "limits::HY2_PENDING_BYTES",
+      "saturation": "reject fragment retaining overflow",
+      "cancellation": "owned logical close or physical session Stop releases retained state and joins drivers",
+      "boundary_cases": [
+        "HYSTERIA2-UNIT",
+        "HYSTERIA2-OWNED"
+      ]
+    },
+    {
+      "id": "hy2-fragment-ttl",
+      "value": 5,
+      "unit": "seconds",
+      "owner": "limits::HY2_FRAGMENT_TTL_SECONDS",
+      "saturation": "expire missing fragments on the owned cleanup timer",
+      "cancellation": "owned logical close or physical session Stop releases retained state and joins drivers",
+      "boundary_cases": [
+        "HYSTERIA2-UNIT",
+        "HYSTERIA2-OWNED"
+      ]
+    },
+    {
+      "id": "hy2-path-retire",
+      "value": 1,
+      "unit": "seconds",
+      "owner": "limits::HY2_PATH_RETIRE_SECONDS",
+      "saturation": "cancel and join the old path before another hop",
+      "cancellation": "owned logical close or physical session Stop releases retained state and joins drivers",
+      "boundary_cases": [
+        "HYSTERIA2-UNIT",
+        "HYSTERIA2-OWNED"
+      ]
+    },
+    {
+      "id": "hy2-quic-payload",
+      "value": 1400,
+      "unit": "bytes",
+      "owner": "limits::HY2_QUIC_PAYLOAD",
+      "saturation": "intersect controlled path payload budget including obfs overhead",
+      "cancellation": "owned logical close or physical session Stop releases retained state and joins drivers",
+      "boundary_cases": [
+        "HYSTERIA2-UNIT",
+        "HYSTERIA2-OWNED"
+      ]
+    },
+    {
+      "id": "hy2-uni-streams",
+      "value": 8,
+      "unit": "streams-per-connection",
+      "owner": "limits::HY2_UNI_STREAMS",
+      "saturation": "QUIC flow control bounds remote control streams",
+      "cancellation": "owned logical close or physical session Stop releases retained state and joins drivers",
+      "boundary_cases": [
+        "HYSTERIA2-UNIT",
+        "HYSTERIA2-OWNED"
+      ]
+    },
+    {
+      "id": "hy2-stream-window",
+      "value": 262144,
+      "unit": "bytes",
+      "owner": "limits::HY2_STREAM_WINDOW",
+      "saturation": "QUIC receive flow control",
+      "cancellation": "owned logical close or physical session Stop releases retained state and joins drivers",
+      "boundary_cases": [
+        "HYSTERIA2-UNIT",
+        "HYSTERIA2-OWNED"
+      ]
+    },
+    {
+      "id": "hy2-connection-window",
+      "value": 1048576,
+      "unit": "bytes",
+      "owner": "limits::HY2_CONNECTION_WINDOW",
+      "saturation": "QUIC aggregate send and receive flow control",
+      "cancellation": "owned logical close or physical session Stop releases retained state and joins drivers",
+      "boundary_cases": [
+        "HYSTERIA2-UNIT",
+        "HYSTERIA2-OWNED"
+      ]
+    },
+    {
+      "id": "hy2-datagram-buffer",
+      "value": 262144,
+      "unit": "bytes-per-direction",
+      "owner": "limits::HY2_DATAGRAM_BUFFER",
+      "saturation": "QUIC bounds retained datagram queues",
+      "cancellation": "owned logical close or physical session Stop releases retained state and joins drivers",
+      "boundary_cases": [
+        "HYSTERIA2-UNIT",
+        "HYSTERIA2-OWNED"
+      ]
+    },
+    {
+      "id": "hy2-auth-headers",
+      "value": 16384,
+      "unit": "bytes",
+      "owner": "limits::HY2_AUTH_HEADERS",
+      "saturation": "reject excess HTTP3 response headers",
+      "cancellation": "owned logical close or physical session Stop releases retained state and joins drivers",
+      "boundary_cases": [
+        "HYSTERIA2-UNIT",
+        "HYSTERIA2-OWNED"
+      ]
+    },
+    {
+      "id": "hy2-response-message",
+      "value": 2048,
+      "unit": "bytes",
+      "owner": "limits::HY2_RESPONSE_MESSAGE",
+      "saturation": "reject oversized TCP response message before allocation",
+      "cancellation": "owned logical close or physical session Stop releases retained state and joins drivers",
+      "boundary_cases": [
+        "HYSTERIA2-UNIT",
+        "HYSTERIA2-OWNED"
+      ]
+    },
+    {
+      "id": "hy2-response-padding",
+      "value": 4096,
+      "unit": "bytes",
+      "owner": "limits::HY2_RESPONSE_PADDING",
+      "saturation": "reject oversized TCP response padding before allocation",
+      "cancellation": "owned logical close or physical session Stop releases retained state and joins drivers",
+      "boundary_cases": [
+        "HYSTERIA2-UNIT",
+        "HYSTERIA2-OWNED"
+      ]
+    }
+  ]
+}

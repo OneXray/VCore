@@ -42,7 +42,7 @@ use crate::{
     },
     dialer::{Dialer, ResolvedEndpoint, Resolver},
     dispatch::{Dispatcher, observe_handshakes_with_stats, observe_sessions_with_stats},
-    dns::runtime::RuntimeDns,
+    dns::{resolution::ResolutionContext, runtime::RuntimeDns},
     geodata::{
         GeoDataManager, GeoDataRegistration, GeoRequirements, service::GeoDataUpdateService,
     },
@@ -59,13 +59,21 @@ use crate::{
 use crate::outbound::ShadowsocksOutbound;
 #[cfg(feature = "outbound-socks5")]
 use crate::outbound::Socks5Outbound;
+#[cfg(feature = "outbound-trojan")]
+use crate::outbound::trojan::TrojanOutbound;
 #[cfg(feature = "outbound-anytls")]
 use crate::outbound::{AnyTlsOutbound, server_destination};
 #[cfg(feature = "outbound-vless")]
 use crate::outbound::{VlessOutbound, VlessResourceLimits};
 #[cfg(feature = "outbound-anytls")]
 use crate::security::StandardTlsClient;
-#[cfg(any(feature = "outbound-anytls", feature = "outbound-vless"))]
+#[cfg(any(
+    feature = "outbound-anytls",
+    feature = "outbound-vless",
+    feature = "outbound-trojan",
+    feature = "outbound-vmess",
+    feature = "outbound-hysteria2"
+))]
 use crate::security::{SecurityContext, TLS_RESUMPTION_SESSION_BUDGET};
 
 /// Parsed configuration plus the bootstrap-resolved physical proxy roots.
@@ -139,6 +147,7 @@ struct BuiltRuntimeParts {
 }
 
 struct BuiltProxyGraph {
+    resolution: ResolutionContext,
     nodes: Vec<Arc<dyn OutboundConnector>>,
     lifecycle_order: Vec<BuiltRouteTarget>,
     selections: Vec<Arc<AtomicUsize>>,
@@ -164,6 +173,7 @@ impl BuiltProxyGraph {
     }
 
     fn begin_shutdown(&self) {
+        self.resolution.close();
         for target in self.lifecycle_order.iter().rev() {
             if let BuiltRouteTarget::Proxy(connector) = target {
                 connector.begin_shutdown();
@@ -302,8 +312,11 @@ impl PreparedCore {
         let dialer = dialer.with_ipv6(self.config.ipv6);
         let handshake_stats = RuntimeResourceStats::new("runtime_handshake_observation");
         let proxy_graph = self.build_proxy_graph(dialer.clone())?;
-        let proxy_dispatchers =
-            self.wrap_proxy_dispatchers(proxy_graph.connectors(), &handshake_stats)?;
+        let proxy_dispatchers = self.wrap_proxy_dispatchers(
+            proxy_graph.connectors(),
+            &handshake_stats,
+            &proxy_graph.resolution,
+        )?;
         let direct_raw: Arc<dyn Dispatcher> = Arc::new(DirectOutbound::new(dialer));
         let direct = observe_handshakes_with_stats(direct_raw, handshake_stats.clone());
         let proxy_groups = ProxyGroups::with_selections(
@@ -330,6 +343,7 @@ impl PreparedCore {
                 redir_host_entries,
             ))
         });
+        proxy_graph.resolution.bind_runtime(dns.as_ref())?;
         let geodata_rules = RuleSet::compile(vec![crate::config::RuleSpec {
             kind: crate::config::RuleKind::Match,
             action: crate::config::RuleAction::Route(self.config.default_route_target),
@@ -384,6 +398,7 @@ impl PreparedCore {
             &self.endpoints,
             self.limits,
             dialer,
+            ResolutionContext::runtime(self.config.ipv6),
         )
     }
 
@@ -391,11 +406,13 @@ impl PreparedCore {
         &self,
         connectors: &[Arc<dyn OutboundConnector>],
         handshake_stats: &RuntimeResourceStats,
+        resolution: &ResolutionContext,
     ) -> io::Result<Vec<Arc<dyn Dispatcher>>> {
         let mut dispatchers = Vec::with_capacity(connectors.len());
         for (proxy, connector) in self.config.proxies.iter().zip(connectors) {
             let mut dispatcher: Arc<dyn Dispatcher> = Arc::new(
-                ConnectorDispatcher::with_udp_capability(connector.clone(), proxy.udp),
+                ConnectorDispatcher::with_udp_capability(connector.clone(), proxy.udp)
+                    .with_resolution(resolution.clone()),
             );
             dispatcher = observe_handshakes_with_stats(dispatcher, handshake_stats.clone());
             dispatchers.push(dispatcher);
@@ -524,12 +541,21 @@ impl PreparedMeasurement {
     }
 
     pub(crate) fn into_runtime(self, dialer: Dialer) -> io::Result<MeasurementRuntime> {
+        self.into_runtime_with_resolver(dialer, Arc::new(crate::dialer::SystemResolver))
+    }
+
+    pub(crate) fn into_runtime_with_resolver(
+        self,
+        dialer: Dialer,
+        resolver: Arc<dyn Resolver>,
+    ) -> io::Result<MeasurementRuntime> {
         let proxy_graph = build_proxy_graph(
             &self.config.proxies,
             &[],
             &self.endpoints,
             self.limits,
             dialer,
+            ResolutionContext::measurement(resolver, true),
         )?;
         let connector = proxy_graph
             .get(self.config.default_proxy.index())
@@ -540,7 +566,9 @@ impl PreparedMeasurement {
                     "default proxy is missing from the measurement graph",
                 )
             })?;
-        let dispatcher: Arc<dyn Dispatcher> = Arc::new(ConnectorDispatcher::new(connector));
+        let dispatcher: Arc<dyn Dispatcher> = Arc::new(
+            ConnectorDispatcher::new(connector).with_resolution(proxy_graph.resolution.clone()),
+        );
         let handshake_stats = RuntimeResourceStats::new("measurement_handshake_observation");
         let dispatcher = observe_handshakes_with_stats(dispatcher, handshake_stats);
         let session_stats = RuntimeResourceStats::new("measurement_session_observation");
@@ -557,6 +585,7 @@ fn build_proxy_graph(
     endpoints: &[PreparedProxyEndpoints],
     limits: ResourceLimits,
     dialer: Dialer,
+    resolution: ResolutionContext,
 ) -> io::Result<BuiltProxyGraph> {
     if endpoints.len() != proxies.len() {
         return Err(io::Error::new(
@@ -566,17 +595,36 @@ fn build_proxy_graph(
     }
     let order = proxy_graph_order(proxies, groups)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
-    #[cfg(any(feature = "outbound-anytls", feature = "outbound-vless"))]
+    #[cfg(any(
+        feature = "outbound-anytls",
+        feature = "outbound-vless",
+        feature = "outbound-trojan",
+        feature = "outbound-vmess",
+        feature = "outbound-hysteria2"
+    ))]
     let (security_client_count, standard_tls_count) = security_counts(proxies);
-    #[cfg(any(feature = "outbound-anytls", feature = "outbound-vless"))]
+    #[cfg(any(
+        feature = "outbound-anytls",
+        feature = "outbound-vless",
+        feature = "outbound-trojan",
+        feature = "outbound-vmess",
+        feature = "outbound-hysteria2"
+    ))]
     let security_context = (security_client_count != 0).then(SecurityContext::new);
-    #[cfg(any(feature = "outbound-anytls", feature = "outbound-vless"))]
+    #[cfg(any(
+        feature = "outbound-anytls",
+        feature = "outbound-vless",
+        feature = "outbound-trojan",
+        feature = "outbound-vmess",
+        feature = "outbound-hysteria2"
+    ))]
     let resumption_sessions = standard_tls_resumption_sessions(standard_tls_count);
 
     // Declared before the temporary registries: even on partial construction
     // failure they drop first, then this guard releases the DAG in reverse
     // dependency order without recursive destruction of configuration-sized chains.
     let mut graph = BuiltProxyGraph {
+        resolution,
         nodes: Vec::new(),
         lifecycle_order: Vec::with_capacity(order.len()),
         selections: groups
@@ -633,6 +681,70 @@ fn build_proxy_graph(
             &dialer,
         )?;
         let connector: Arc<dyn OutboundConnector> = match &proxy.protocol {
+            ProxyProtocol::Hysteria2(config) => {
+                #[cfg(feature = "outbound-hysteria2")]
+                {
+                    Arc::new(
+                        crate::outbound::hysteria2::Hysteria2Outbound::with_shared_security(
+                            config,
+                            upstream,
+                            security_context.as_ref().expect("TLS context"),
+                            resumption_sessions,
+                            limits.tls_buffer_limit,
+                        )?,
+                    )
+                }
+                #[cfg(not(feature = "outbound-hysteria2"))]
+                {
+                    let _ = config;
+                    return Err(io::Error::new(
+                        io::ErrorKind::Unsupported,
+                        "Hysteria2 support is disabled in this build",
+                    ));
+                }
+            }
+            ProxyProtocol::Vmess(config) => {
+                #[cfg(feature = "outbound-vmess")]
+                {
+                    Arc::new(crate::outbound::vmess::VmessOutbound::with_shared_security(
+                        config,
+                        upstream,
+                        security_context.as_ref().expect("VMess security context"),
+                        resumption_sessions,
+                        limits.tls_buffer_limit,
+                    )?)
+                }
+                #[cfg(not(feature = "outbound-vmess"))]
+                {
+                    let _ = (config, upstream);
+                    return Err(io::Error::new(
+                        io::ErrorKind::Unsupported,
+                        "VMess outbound support is disabled at build time",
+                    ));
+                }
+            }
+            ProxyProtocol::Trojan(config) => {
+                #[cfg(feature = "outbound-trojan")]
+                {
+                    Arc::new(TrojanOutbound::with_shared_security(
+                        config,
+                        upstream,
+                        security_context
+                            .as_ref()
+                            .expect("Trojan graph has security material"),
+                        resumption_sessions,
+                        limits.tls_buffer_limit,
+                    )?)
+                }
+                #[cfg(not(feature = "outbound-trojan"))]
+                {
+                    let _ = (config, upstream);
+                    return Err(io::Error::new(
+                        io::ErrorKind::Unsupported,
+                        "Trojan outbound support is disabled at build time",
+                    ));
+                }
+            }
             ProxyProtocol::Shadowsocks(config) => {
                 #[cfg(feature = "outbound-shadowsocks")]
                 {
@@ -651,9 +763,7 @@ fn build_proxy_graph(
                 #[cfg(feature = "outbound-vless")]
                 {
                     let download_upstream = config
-                        .xhttp
-                        .download
-                        .as_ref()
+                        .download()
                         .map(|_| {
                             build_upstream_path(
                                 proxy.dialer_proxy,
@@ -814,10 +924,13 @@ async fn prepare_proxy_endpoints(
             let upload_address = proxy.address();
             let upload_port = proxy.port();
             let download = match &proxy.protocol {
-                ProxyProtocol::Vless(config) => config.xhttp.download.as_deref(),
+                ProxyProtocol::Vless(config) => config.download(),
                 ProxyProtocol::Socks5(_)
+                | ProxyProtocol::Trojan(_)
+                | ProxyProtocol::Vmess(_)
                 | ProxyProtocol::AnyTls(_)
-                | ProxyProtocol::Shadowsocks(_) => None,
+                | ProxyProtocol::Shadowsocks(_)
+                | ProxyProtocol::Hysteria2(_) => None,
             };
 
             let (upload, download) = match download {
@@ -876,13 +989,19 @@ fn restrict_endpoint_addresses(
     Ok(endpoint)
 }
 
-#[cfg(any(feature = "outbound-anytls", feature = "outbound-vless"))]
+#[cfg(any(
+    feature = "outbound-anytls",
+    feature = "outbound-vless",
+    feature = "outbound-trojan",
+    feature = "outbound-vmess",
+    feature = "outbound-hysteria2"
+))]
 fn security_counts(proxies: &[ProxyConfig]) -> (usize, usize) {
     proxies.iter().fold(
         (0, 0),
         |(client_count, standard_count), proxy| match &proxy.protocol {
             ProxyProtocol::Vless(config) => {
-                let download = config.xhttp.download.as_deref();
+                let download = config.download();
                 (
                     client_count + 1 + usize::from(download.is_some()),
                     standard_count
@@ -898,7 +1017,13 @@ fn security_counts(proxies: &[ProxyConfig]) -> (usize, usize) {
                         }),
                 )
             }
-            ProxyProtocol::AnyTls(_) => (client_count + 1, standard_count + 1),
+            ProxyProtocol::AnyTls(_) | ProxyProtocol::Trojan(_) | ProxyProtocol::Hysteria2(_) => {
+                (client_count + 1, standard_count + 1)
+            }
+            ProxyProtocol::Vmess(config) => (
+                client_count + 1,
+                standard_count + usize::from(config.tls.is_some()),
+            ),
             ProxyProtocol::Socks5(_) | ProxyProtocol::Shadowsocks(_) => {
                 (client_count, standard_count)
             }
@@ -906,7 +1031,13 @@ fn security_counts(proxies: &[ProxyConfig]) -> (usize, usize) {
     )
 }
 
-#[cfg(any(feature = "outbound-anytls", feature = "outbound-vless"))]
+#[cfg(any(
+    feature = "outbound-anytls",
+    feature = "outbound-vless",
+    feature = "outbound-trojan",
+    feature = "outbound-vmess",
+    feature = "outbound-hysteria2"
+))]
 fn standard_tls_resumption_sessions(standard_tls_count: usize) -> usize {
     if standard_tls_count == 0 || standard_tls_count > TLS_RESUMPTION_SESSION_BUDGET {
         0
@@ -1037,24 +1168,26 @@ impl RunningCore {
         #[cfg(feature = "inbound-http")]
         for server in http_servers {
             let child = cancellation.clone();
-            tasks.push(tokio::spawn(server.serve(child)));
+            tasks.push(crate::resources::observation::spawn(server.serve(child)));
         }
         #[cfg(feature = "inbound-socks5")]
         for server in socks_servers {
             let child = cancellation.clone();
-            tasks.push(tokio::spawn(server.serve(child)));
+            tasks.push(crate::resources::observation::spawn(server.serve(child)));
         }
 
         #[cfg(all(feature = "tun", any(unix, windows)))]
         if let Some(tun_runtime) = tun_runtime {
             let child = cancellation.clone();
-            tasks.push(tokio::spawn(tun_runtime.run(child)));
+            tasks.push(crate::resources::observation::spawn(tun_runtime.run(child)));
         }
 
         #[cfg(any(feature = "inbound-http", feature = "inbound-socks5"))]
         if let Some(controller) = controller {
             let child = cancellation.clone();
-            tasks.push(tokio::spawn(controller.serve(child)));
+            tasks.push(crate::resources::observation::spawn(
+                controller.serve(child),
+            ));
         }
 
         #[cfg(not(any(feature = "inbound-http", feature = "inbound-socks5")))]
@@ -1062,7 +1195,9 @@ impl RunningCore {
 
         if let Some(geodata_updater) = geodata_updater {
             let child = cancellation.clone();
-            tasks.push(tokio::spawn(geodata_updater.run(child)));
+            tasks.push(crate::resources::observation::spawn(
+                geodata_updater.run(child),
+            ));
         }
 
         Ok(Self {
@@ -1186,6 +1321,71 @@ mod tests {
     use crate::platform::TunIo;
 
     struct FixedResolver;
+
+    #[tokio::test]
+    async fn integration_feature_admission_is_explicit_without_opening_sockets() {
+        let variants = [
+            ("socks5", "", cfg!(feature = "outbound-socks5")),
+            (
+                "anytls",
+                ", password: fixture",
+                cfg!(feature = "outbound-anytls"),
+            ),
+            (
+                "ss",
+                ", cipher: 2022-blake3-aes-128-gcm, password: BwcHBwcHBwcHBwcHBwcHBw==",
+                cfg!(feature = "outbound-shadowsocks"),
+            ),
+            (
+                "trojan",
+                ", password: fixture",
+                cfg!(feature = "outbound-trojan"),
+            ),
+            (
+                "vmess",
+                ", uuid: 08080808-0808-0808-0808-080808080808",
+                cfg!(feature = "outbound-vmess"),
+            ),
+            (
+                "vless",
+                ", uuid: 08080808-0808-0808-0808-080808080808",
+                cfg!(feature = "outbound-vless"),
+            ),
+            (
+                "hysteria2",
+                ", password: fixture",
+                cfg!(feature = "outbound-hysteria2"),
+            ),
+        ];
+        for (protocol, fields, enabled) in variants {
+            let _case = crate::resources::case_events::Case::new("INTEGRATION-FEATURE", protocol);
+            let yaml = format!(
+                "socks-port: 1080\nproxies:\n  - {{name: peer, type: {protocol}, server: 127.0.0.1, port: 443{fields}}}\nrules: ['MATCH,peer']\n"
+            );
+            let result = match PreparedCore::prepare(
+                yaml.as_bytes(),
+                &FixedResolver,
+                ResourceLimits::default(),
+            )
+            .await
+            {
+                Ok(core) => core
+                    .build_proxy_graph(Dialer::default())
+                    .map(|_| ())
+                    .map_err(|e| e.to_string()),
+                Err(error) => Err(error.to_string()),
+            };
+            if enabled {
+                assert!(result.is_ok(), "{protocol}: {result:?}");
+            } else {
+                let error = result.unwrap_err();
+                assert!(
+                    error.contains("disabled") || error.contains("not enabled"),
+                    "{protocol}: {error}"
+                );
+            }
+        }
+    }
 
     #[async_trait]
     impl Resolver for FixedResolver {
@@ -1785,9 +1985,12 @@ rules:
             };
             config.security =
                 crate::config::SecurityConfig::Reality(crate::config::RealityConfig {
+                    support_x25519mlkem768: false,
+                    client_fingerprint: None,
                     server_name: "example.com".to_owned(),
                     public_key: [7; 32],
                     short_id: vec![1, 2, 3, 4],
+                    alpn: vec![b"h2".to_vec()],
                 });
             mixed_security.push(reality);
         }
@@ -2121,11 +2324,11 @@ rules:
     #[cfg(all(feature = "tun", any(unix, windows)))]
     fn test_checksum(bytes: &[u8]) -> u16 {
         let mut sum = 0_u32;
-        let mut chunks = bytes.chunks_exact(2);
-        for chunk in &mut chunks {
-            sum += u32::from(u16::from_be_bytes([chunk[0], chunk[1]]));
+        let (chunks, remainder) = bytes.as_chunks::<2>();
+        for chunk in chunks {
+            sum += u32::from(u16::from_be_bytes(*chunk));
         }
-        if let Some(byte) = chunks.remainder().first() {
+        if let Some(byte) = remainder.first() {
             sum += u32::from(*byte) << 8;
         }
         while sum >> 16 != 0 {

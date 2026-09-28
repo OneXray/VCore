@@ -181,7 +181,7 @@ if (response != nullptr) {
 
 VCore 会校验 YAML、发布 `vcore-session-v2:` 内容寻址 Session Snapshot，并把 token、解析后的顶层 IPv6 开关、四个地址和 policy 写入最大 4 KiB 的 profile custom configuration。调用方不要自行创建另一个 `VpnPlugInProfile` 或维护第二份 Snapshot。
 
-需要让 Session Host 同会话监督 package-local 进程时，可以额外提交 `sessionBackend.processes`；每项只有 `executableRelativePath` 和 `arguments`。第一版不管理端口、UDP、readiness 或进程业务配置，完整契约见 [Windows 会话运行时](../../docs/windows-session-runtime.md)。本 demo 不携带 backend。
+需要让 Session Host 同会话监督 package-local 进程时，可以额外提交 `sessionBackend.processes`；每项只有 `executableRelativePath` 和 `arguments`。第一版不管理端口、UDP、readiness 或进程业务配置，完整契约见 [Windows 会话运行时](../../docs/windows-vpn.md)。本 demo 不携带 backend。
 
 ## Manifest 契约
 
@@ -253,6 +253,6 @@ broker 负责 JSON bridge、命令串行化和结果回传。UWP UI 不接触 YA
 详细内部契约见：
 
 - [`../../docs/windows-vpn.md`](../../docs/windows-vpn.md)
-- [`../../docs/windows-session-runtime.md`](../../docs/windows-session-runtime.md)
+- [`../../docs/windows-vpn.md`](../../docs/windows-vpn.md)
 - [`../../docs/invoke-api.md`](../../docs/invoke-api.md)
 - [`../../docs/acceptance.md`](../../docs/acceptance.md)

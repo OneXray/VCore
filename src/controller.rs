@@ -78,7 +78,7 @@ impl RuntimeController {
                     let traffic = self.traffic.clone();
                     let proxy_groups = self.proxy_groups.clone();
                     let child = cancellation.clone();
-                    tasks.spawn(async move {
+                    tasks.spawn(crate::resources::observation::task(async move {
                         if let Err(error) = handle_connection(
                             stream,
                             peer,
@@ -94,7 +94,7 @@ impl RuntimeController {
                                 "controller request failed"
                             );
                         }
-                    });
+                    }));
                 }
             }
         }

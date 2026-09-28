@@ -15,7 +15,7 @@ from contextlib import ExitStack
 from pathlib import Path
 
 from .builds import CORE_DIR
-from .mihomo_isolation import exclusive_run, reserve_port
+from .mihomo_isolation import reserve_port
 
 
 def _stop_peer(peer: subprocess.Popen) -> None:
@@ -39,32 +39,6 @@ def _wait_ready(peer, port: int, host: str = "127.0.0.1") -> None:
         except OSError:
             time.sleep(0.05)
     raise RuntimeError("mihomo did not become ready within 10 seconds")
-
-
-def run_mihomo_interop(
-    binary: Path | None = None,
-    *,
-    extended: bool = False,
-    soak_seconds: int = 0,
-    container_binary: Path | None = None,
-) -> None:
-    if not 0 <= soak_seconds <= 7200 or (soak_seconds and not extended):
-        raise ValueError("soak seconds must be 0..7200 and require --extended")
-    binary = (
-        binary
-        or Path(os.environ.get("VCORE_MIHOMO_BIN", CORE_DIR / "references/mihomo-test"))
-    ).resolve()
-    if not binary.is_file():
-        raise RuntimeError(
-            "mihomo binary is missing; build the reference or pass --binary (NOT RUN)"
-        )
-    with exclusive_run():
-        _run_mihomo_interop(
-            binary,
-            extended=extended,
-            soak_seconds=soak_seconds,
-            container_binary=container_binary,
-        )
 
 
 def _run_mihomo_interop(
@@ -320,25 +294,44 @@ def _run_mihomo_interop(
         if containers:
             environment.update(containers.environment())
         try:
-            subprocess.run(
-                [
-                    "cargo",
-                    "test",
-                    "--locked",
-                    "--features",
-                    "ffi",
-                    "--test",
-                    "mihomo_interop",
-                    "--",
-                    "--ignored",
-                    "--nocapture",
-                    "--test-threads=1",
-                ],
-                cwd=CORE_DIR,
-                env=environment,
-                check=True,
-                timeout=300 + soak_seconds,
-            )
+            command = [
+                "cargo",
+                "test",
+                "--locked",
+                "--features",
+                "ffi,interop-test" if os.environ.get("VCORE_CASE_EVENTS") else "ffi",
+                "--test",
+                "mihomo_interop",
+                "public_client_inbounds_interoperate_with_mihomo_in_both_directions",
+                "--",
+                "--exact",
+                "--ignored",
+                "--nocapture",
+                "--test-threads=1",
+            ]
+            if os.environ.get("VCORE_CASE_EVENTS"):
+                from .protocol_peers import run_command
+
+                completed = run_command(
+                    command,
+                    cwd=CORE_DIR,
+                    env=environment,
+                    timeout=300 + soak_seconds,
+                    limit=4 * 1024 * 1024,
+                )
+                print(completed.stdout.decode("utf-8", errors="replace"), flush=True)
+                if completed.returncode != 0 or not completed.cleanup:
+                    raise subprocess.CalledProcessError(
+                        completed.returncode or 1, command
+                    )
+            else:
+                subprocess.run(
+                    command,
+                    cwd=CORE_DIR,
+                    env=environment,
+                    check=True,
+                    timeout=300 + soak_seconds,
+                )
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             for index in range(len(configs)):
                 print(f"Generated fixture peer {index} diagnostics (last 4096 bytes):")

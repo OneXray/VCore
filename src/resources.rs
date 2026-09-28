@@ -1,3 +1,7 @@
+#[cfg(any(test, feature = "interop-test"))]
+pub mod case_events;
+pub mod observation;
+
 use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
@@ -71,6 +75,7 @@ pub(crate) enum ResourceQueue {
 pub(crate) struct ResourceActivityGuard {
     stats: RuntimeResourceStats,
     activity: ResourceActivity,
+    _observation: observation::Guard,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -127,6 +132,14 @@ impl RuntimeResourceStats {
         ResourceActivityGuard {
             stats: self.clone(),
             activity,
+            _observation: observation::track(match activity {
+                ResourceActivity::DnsRequest | ResourceActivity::Singleflight => {
+                    observation::ResourceKind::Waiter
+                }
+                ResourceActivity::TcpSession => observation::ResourceKind::Session,
+                ResourceActivity::UdpAssociation => observation::ResourceKind::Association,
+                ResourceActivity::Handshake => observation::ResourceKind::Handshake,
+            }),
         }
     }
 

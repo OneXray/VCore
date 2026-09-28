@@ -1,6 +1,6 @@
 # Project Overview
 
-VCore is a standalone Rust proxy core. The current public contract is Invoke API v5 with internal schema revision 14. Runtime configuration uses the strict schema documented in `docs/config.yaml` and is passed inline as `configYaml` / `configYamls`; YAML contains neither `configVersion` nor `default-proxy`. Public lifecycle state is runtime-local and single-instance.
+VCore is a standalone Rust proxy core. The current public contract is Invoke API v5 with internal schema revision 27. Runtime configuration uses the strict schema documented in `docs/config.yaml` and is passed inline as `configYaml` / `configYamls`; YAML contains neither `configVersion` nor `default-proxy`. Public lifecycle state is runtime-local and single-instance.
 
 Apple and Android use host-owned TUN fds through the Unix `rust-tun` adapter. Windows uses `windows-rs` / `Windows.Networking.Vpn`; the packaged ARM64 foreground, AppContainer provider, per-session full-trust runtime, lifecycle, pressure, and packet-channel gates pass on Windows 11. Windows 10, native x64, physical IPv6, WACK, and Store publishing remain release gates. Linux remains unsupported.
 
@@ -12,15 +12,17 @@ Read the relevant document completely before changing that area:
 
 - FFI, lifecycle, Android protect, or config delivery: `docs/invoke-api.md` and `src/ffi/`.
 - YAML, proxy graph, proxy groups, DNS, rules, or sniffer: `docs/config.yaml`, `docs/tun-icmp-dns.md`, and `src/config/`.
-- HTTP/SOCKS5 inbound, authentication, or client listener policy: `docs/http-proxy.md`, `docs/socks5-proxy.md`, and `src/inbound/`.
-- AnyTLS: `docs/anytls.md`.
-- Shadowsocks 2022 and its narrowly scoped AWS-LC dependency exception: `docs/shadowsocks.md`.
+- HTTP/SOCKS5 inbound, authentication, or listeners: `docs/inbounds.md` and `src/inbound/`.
+- SOCKS5, AnyTLS, Trojan, VMess, Hysteria2 or SS 2022: `docs/outbounds.md`.
+- VLESS, Vision, Encryption, JLS or static ECH: `docs/vless.md`.
+- XHTTP request fields, download legs, H1/H2/H3 or sing-mux: `docs/xhttp.md`.
 - Runtime Controller, proxy-group selection, or TUN traffic metrics: `docs/controller-api.md` and `src/controller.rs`.
 - GeoData: `docs/geodata.md`.
-- REALITY or the GitHub rustls fork: `docs/reality-wire-protocol.md` and `docs/rustls-reality-release.md`.
+- TLS profiles, certificate policy or TLS dependencies: `docs/tls-client-fingerprint.md` and `docs/tls-dependencies.md`; REALITY also requires `docs/reality-wire-protocol.md`.
 - Unix TUN fd ownership or packet I/O: `docs/tun-platform.md`.
-- Windows VPN/TUN, outbound binding, AppContainer packet buffers, or package lifecycle: `docs/windows-vpn.md`, `docs/windows-session-runtime.md`, and `docs/tun-platform.md`.
-- Build, validation, or interoperability tooling: `scripts/README.md` and the unified `vcore-scripts` interface.
+- Windows VPN/TUN, outbound binding, AppContainer packet buffers, or package lifecycle: `docs/windows-vpn.md` and `docs/tun-platform.md`.
+- Build, validation, or interoperability tooling: `scripts/README.md`, `tests/README.md`, and the unified `vcore-scripts` interface.
+- Server-side tests: `docs/testing-isolation.md`. All new server peers and network origins must run in isolated containers; never fall back to native host servers.
 - Claims that something passed: `docs/acceptance.md`. Record only commands and environments actually executed; host tests and cross-builds do not prove physical-device data paths.
 
 # Architecture Boundaries
@@ -46,6 +48,7 @@ Read the relevant document completely before changing that area:
 8. When copying or modifying third-party source, record the upstream project and preserve all applicable license terms. Audit linked dependencies against the resolved release graph. Do not describe independent rewrites, protocol interoperability, or architectural references as derived source without evidence; Credits provide context and attribution, not a substitute for release license review.
 9. Keep every public surface—code, documentation, tests, examples, commits, issues, pull requests, reviews, CI output, and releases—limited to VCore and public dependencies. Keep private downstream repository or product identities, links, implementation details, status, artifacts, and roadmaps outside this repository and its GitHub surfaces. Before publishing, search the staged diff and proposed GitHub text for downstream identifiers.
 10. Make changes on a separate branch, never directly on `main`.
+11. Use the official latest stable third-party dependencies, including test-only experiments. Check current non-prerelease, non-yanked releases when selecting or upgrading them; reference projects' old pins are not a version policy. Keep lockfiles for reproducible validation, refresh affected dependency audits, and rerun applicable tests. If freshness conflicts with the approved fork/provider or a platform's compatible dependency set, report the conflict and obtain an explicit exception or scope decision instead of silently retaining an old version or changing the security architecture.
 
 # Validation
 
@@ -53,7 +56,9 @@ Choose the smallest relevant set, then expand for shared contracts:
 
 ```shell
 cargo fmt --all -- --check
-cargo test --all-features --all-targets
+uv run --project scripts --locked vcore-scripts check core --profile debug
+# All-target compilation only; network peers must be containerized.
+cargo test --locked --all-features --all-targets --no-run
 cargo clippy --locked --all-features --lib --bins -- -D warnings
 cargo test --manifest-path crates/vcore-netstack/Cargo.toml --all-targets
 cargo clippy --manifest-path crates/vcore-netstack/Cargo.toml --all-targets -- -D warnings
@@ -62,8 +67,6 @@ uv run --project scripts --locked vcore-scripts check tls-dependencies
 uv run --project scripts --locked python -m unittest discover -s scripts/tests
 uv run --project scripts --locked ruff check scripts
 uv run --project scripts --locked ruff format --check scripts
-sh -n tests/run_xray_interop.sh tests/run_anytls_interop.sh
-sh -n tests/run_mihomo_interop.sh
 git diff --check
 ```
 

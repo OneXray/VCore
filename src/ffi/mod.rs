@@ -981,10 +981,10 @@ impl CoreController {
         let spawned = thread::Builder::new()
             .name(format!("vcore-runtime-{instance_id}"))
             .stack_size(1024 * 1024)
-            .spawn(move || {
+            .spawn(crate::resources::observation::inherit_thread(move || {
                 let _runtime_thread = RuntimeThreadGuard::enter();
                 run_engine(context, prepared.core, tun, dialer, stop_rx, startup_tx)
-            });
+            }));
         let runtime_thread = match spawned {
             Ok(thread) => thread,
             Err(error) => {

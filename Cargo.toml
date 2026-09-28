@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/vcore-netstack"]
+members = ["crates/vcore-blake3-raw", "crates/vcore-netstack"]
 resolver = "3"
 
 [package]
@@ -23,6 +23,11 @@ name = "vcore-windows-session-host"
 path = "src/bin/windows_session_host.rs"
 required-features = ["ffi"]
 
+[[example]]
+name = "protocol-stream-probe"
+path = "tests/protocols/stream_probe.rs"
+required-features = ["interop-test", "stream-transport"]
+
 [features]
 default = [
     "inbound-http",
@@ -30,14 +35,23 @@ default = [
     "outbound-anytls",
     "outbound-socks5",
     "outbound-shadowsocks",
+    "outbound-trojan",
+    "outbound-vmess",
     "outbound-vless",
+    "outbound-hysteria2",
 ]
 inbound-http = []
 inbound-socks5 = []
-outbound-anytls = ["dep:md-5"]
+outbound-anytls = ["dep:md-5", "tls-fingerprint"]
 outbound-socks5 = []
 outbound-shadowsocks = ["dep:shadowsocks", "dep:log"]
-outbound-vless = ["rustls/reality"]
+outbound-vless = ["tls-fingerprint", "boring/reality", "boring/jls", "boring/mlkem", "dep:blake3", "dep:hpke", "dep:zeroize", "dep:vcore-blake3-raw", "stream-transport", "quic-transport", "dep:hyper", "dep:hyper-util", "dep:h3", "dep:h3-quinn", "dep:yamux", "tokio-util/compat"]
+outbound-trojan = ["stream-transport", "tls-fingerprint"]
+outbound-vmess = ["stream-transport", "tls-fingerprint", "dep:aes", "dep:crc32fast", "dep:md-5", "dep:ring", "dep:shake"]
+tls-fingerprint = ["dep:boring", "dep:tokio-boring"]
+outbound-hysteria2 = ["quic-transport", "dep:quinn-proto", "dep:h3", "dep:h3-quinn", "dep:blake2"]
+stream-transport = ["dep:tokio-tungstenite", "dep:httparse", "dep:log"]
+quic-transport = ["dep:quinn"]
 # Enables local interoperability-only trust-root injection. Release build
 # scripts must not enable this feature.
 interop-test = ["outbound-anytls", "outbound-vless"]
@@ -50,41 +64,64 @@ tun = [
     "outbound-anytls",
     "outbound-socks5",
     "outbound-shadowsocks",
+    "outbound-trojan",
+    "outbound-vmess",
     "outbound-vless",
+    "outbound-hysteria2",
 ]
 
 [dependencies]
+aes = { version = "0.9.3", optional = true, features = ["zeroize"] }
 arc-swap = "1"
 async-trait = "0.1"
-base64 = "0.22"
+base64 = "0.23"
+blake2 = { version = "=0.11.0", optional = true }
+blake3 = { version = "=1.8.7", optional = true }
+boring = { git = "https://github.com/OneXray/boring", branch = "release", version = "=5.2.0", features = ["client-fingerprint"], optional = true }
 bytes = "1"
-futures-util = "0.3"
-h2 = "0.4"
+crc32fast = { version = "1.5.2", optional = true }
+futures-util = { version = "0.3", features = ["sink"] }
+h2 = "0.4.19"
+h3 = { version = "=0.0.8", default-features = false, optional = true }
+h3-quinn = { version = "=0.0.10", default-features = false, optional = true }
+hpke = { version = "=0.14.1", default-features = false, features = ["alloc", "aes", "chacha", "x25519"], optional = true }
 http = "1"
+hyper = { version = "=1.11.1", default-features = false, features = ["client", "http1"], optional = true }
+hyper-util = { version = "=0.1.20", default-features = false, features = ["tokio"], optional = true }
+httparse = { version = "1.10", optional = true }
 idna = "1.1"
 libc = "0.2"
 # Upstream SS trace/debug logs include key material and traffic destinations.
 # Keep the log facade compiled out when SS is linked; VCore uses tracing.
 log = { version = "0.4", optional = true, features = ["max_level_off", "release_max_level_off"] }
-md-5 = { version = "0.10", optional = true }
-rand = "0.9"
+md-5 = { version = "0.11", optional = true }
+quinn = { version = "=0.11.12", default-features = false, features = ["runtime-tokio", "rustls-ring"], optional = true }
+quinn-proto = { version = "=0.11.18", default-features = false, features = ["rustls-ring"], optional = true }
+rand = "0.10"
+ring = { version = "0.17.14", optional = true }
 regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "dfa-search", "syntax", "unicode"] }
-rustls = { version = "=0.23.43", default-features = false, features = ["ring", "std", "tls12"] }
+rustls = { version = "=0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml_ng = "0.10"
-sha2 = "0.10"
-shadowsocks = { git = "https://github.com/shadowsocks/shadowsocks-rust.git", rev = "ab388c7466d21f979430e33cc9ef10e22fb05955", optional = true, default-features = false, features = ["aead-cipher-2022"] }
+sha2 = "0.11"
+shake = { version = "0.1.0", optional = true }
+shadowsocks = { version = "=1.25.0", optional = true, default-features = false, features = ["aead-cipher-2022"] }
 socket2 = { version = "0.6", features = ["all"] }
 thiserror = "2"
 tokio = { version = "1", features = ["io-util", "macros", "net", "rt", "sync", "time"] }
-tokio-rustls = { version = "=0.26.4", default-features = false, features = ["ring", "tls12"] }
+tokio-boring = { git = "https://github.com/OneXray/boring", branch = "release", version = "=5.2.0", optional = true }
+tokio-rustls = { version = "=0.26.5", default-features = false, features = ["ring", "tls12"] }
+tokio-tungstenite = { version = "=0.30.0", default-features = false, features = ["handshake"], optional = true }
 tokio-util = { version = "0.7", features = ["rt"] }
 tracing = "0.1"
 url = "2"
 uuid = { version = "1", features = ["serde"] }
 vcore-netstack = { path = "crates/vcore-netstack", optional = true }
+vcore-blake3-raw = { path = "crates/vcore-blake3-raw", optional = true }
 webpki-roots = "1"
+yamux = { version = "=0.14.1", optional = true }
+zeroize = { version = "=1.9.0", optional = true }
 
 [target.'cfg(any(target_os = "ios", target_os = "macos"))'.dependencies]
 oslog = { version = "0.2", default-features = false }
@@ -118,18 +155,21 @@ windows = { version = "=0.62.2", optional = true, features = [
     "Win32_System_WinRT",
     "Win32_UI_Shell",
 ] }
+# Keep the companion types required by the latest windows SDK. The separately
+# released 0.100.x crates are not type-compatible with windows 0.62.2.
 windows-collections = { version = "=0.3.2", optional = true }
 windows-core = { version = "=0.62.2", optional = true }
 
 [dev-dependencies]
+# Native peer controls for bounded in-memory ALPS tests; same published fork.
+boring-sys = { git = "https://github.com/OneXray/boring", branch = "release", version = "=5.2.0" }
+foreign-types = "=0.5.0"
+tokio = { version = "1", features = ["test-util"] }
 # Independent EIH relay fixture only; production crypto remains the official SS crate.
 aes = "0.9"
 blake3 = "1"
-rcgen = { version = "=0.14.8", default-features = false, features = ["crypto", "ring"] }
+rcgen = { version = "=0.14.10", default-features = false, features = ["crypto", "ring"] }
 tempfile = "3"
-
-[patch.crates-io]
-rustls = { git = "https://github.com/OneVCore/rustls", branch = "vcore/reality-0.23" }
 
 [profile.release]
 codegen-units = 1

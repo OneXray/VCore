@@ -478,7 +478,6 @@ mod tests {
     };
 
     use async_trait::async_trait;
-    use tokio::io::AsyncReadExt as _;
 
     use crate::{
         dispatch::{DatagramTransport, DispatchError},

@@ -1,5 +1,5 @@
 //! Actual process interop through public YAML + Invoke, not a test-only dispatcher.
-//! Run `bash tests/run_mihomo_interop.sh`; use loopback or an owned host-only network.
+//! Compile-only legacy fixture pending full container migration; see tests/README.md.
 #![cfg(all(
     feature = "ffi",
     feature = "inbound-http",
@@ -58,6 +58,9 @@ mod soak;
 mod sockets;
 #[path = "mihomo/ss_lifecycle.rs"]
 mod ss_lifecycle;
+#[cfg(feature = "outbound-trojan")]
+#[path = "mihomo/trojan.rs"]
+mod trojan;
 use sockets::GuardedUdpSocket as UdpSocket;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 #[path = "mihomo/tun.rs"]
@@ -329,14 +332,19 @@ fn probe(proxy: SocketAddr, authenticated: bool, mode: Mode) {
 
 fn port(variable: &str) -> u16 {
     env::var(variable)
-        .expect("run tests/run_mihomo_interop.sh")
+        .expect("legacy fixture; see tests/README.md")
         .parse()
         .unwrap()
 }
 
 #[test]
-#[ignore = "requires managed mihomo processes; run tests/run_mihomo_interop.sh"]
+#[ignore = "requires managed mihomo processes; legacy fixture; see tests/README.md"]
 fn public_client_inbounds_interoperate_with_mihomo_in_both_directions() {
+    #[cfg(feature = "interop-test")]
+    let mut _case = vcore::resources::case_events::Case::new(
+        "FOUNDATIONS-REGRESSION",
+        "public_client_inbounds_interoperate_with_mihomo_in_both_directions",
+    );
     let upstream = port("VCORE_MIHOMO_UPSTREAM");
     let upstream_host = peer_ip(0);
     let downstream = port("VCORE_MIHOMO_DOWNSTREAM");

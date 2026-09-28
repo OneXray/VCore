@@ -105,18 +105,24 @@ impl OutboundConnector for ShadowsocksOutbound {
         let inner = self
             .upstream
             .open_datagram(
-                request.with_max_response_payload_size(wire_maximum),
+                request.with_envelope(
+                    datagram::request_header(&self.config).saturating_add(259 + 900),
+                    usize::from(datagram::MAX_RESPONSE_HEADER),
+                ),
                 context,
             )
             .await?;
-        Ok(Box::new(datagram::SsDatagram::new(
-            inner,
-            server,
-            self.context.clone(),
-            &self.config,
-            maximum,
-            wire_maximum,
-        )))
+        Ok(crate::dispatch::bound_datagram(
+            Box::new(datagram::SsDatagram::new(
+                inner,
+                server,
+                self.context.clone(),
+                &self.config,
+                maximum,
+                wire_maximum,
+            )),
+            request.budget(),
+        ))
     }
 }
 

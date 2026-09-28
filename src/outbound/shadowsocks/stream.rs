@@ -10,17 +10,19 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 // Keep each codec call bounded, including the target header on the first
 // write. The upstream first-write wrapper expects that entire frame to fit
 // within the SS 2022 u16 payload limit. Larger caller buffers use partial writes.
-const WRITE_CHUNK: usize = 16 * 1024;
+use crate::limits::SHADOWSOCKS_WRITE_CHUNK as WRITE_CHUNK;
 
 enum Start {
     Fresh,
     EmptyPending,
+    EmptyFlushing,
     Started,
 }
 
 pub(super) struct SsStream {
     inner: ProxyClientStream<BoxStream>,
     start: Start,
+    pending: Option<Vec<u8>>,
 }
 
 impl SsStream {
@@ -28,12 +30,37 @@ impl SsStream {
         Self {
             inner,
             start: Start::Fresh,
+            pending: None,
         }
     }
     fn finish_empty(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         if matches!(self.start, Start::EmptyPending) {
             ready!(Pin::new(&mut self.inner).poll_write(cx, &[])).map_err(super::safe_io)?;
+            self.start = Start::EmptyFlushing;
+        }
+        if matches!(self.start, Start::EmptyFlushing) {
+            // A buffered carrier may accept the target header without sending
+            // it. The internally generated read-first handshake owns its flush;
+            // no application write is available to make it reach the server.
+            ready!(Pin::new(&mut self.inner).poll_flush(cx)).map_err(super::safe_io)?;
             self.start = Start::Started;
+        }
+        Poll::Ready(Ok(()))
+    }
+
+    fn finish_write(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        if let Some(bytes) = &self.pending {
+            // The official codec retains its encrypted frame on Pending but
+            // reports the retry buffer's length. Keep that input stable even
+            // when a caller (including Tokio copy) tops up its own buffer.
+            let written =
+                ready!(Pin::new(&mut self.inner).poll_write(cx, bytes)).map_err(super::safe_io)?;
+            if written != bytes.len() {
+                return Poll::Ready(Err(io::Error::other(
+                    "Shadowsocks buffered write was incomplete",
+                )));
+            }
+            self.pending = None;
         }
         Poll::Ready(Ok(()))
     }
@@ -54,6 +81,11 @@ impl AsyncRead for SsStream {
             self.start = Start::EmptyPending;
         }
         ready!(self.finish_empty(cx))?;
+        // Progress buffered output while waiting for a response, but do not
+        // block reads on a full write side: both directions may be backpressured.
+        if let Poll::Ready(result) = self.finish_write(cx) {
+            result?;
+        }
         Pin::new(&mut self.inner)
             .poll_read(cx, buf)
             .map_err(super::safe_io)
@@ -67,16 +99,24 @@ impl AsyncWrite for SsStream {
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
         ready!(self.finish_empty(cx))?;
+        ready!(self.finish_write(cx))?;
         // Mark before polling: a concurrent read must not replace an in-flight
         // first payload with an empty write while upstream reports Pending.
         self.start = Start::Started;
         let buf = &buf[..buf.len().min(WRITE_CHUNK)];
-        Pin::new(&mut self.inner)
-            .poll_write(cx, buf)
-            .map_err(super::safe_io)
+        match Pin::new(&mut self.inner).poll_write(cx, buf) {
+            Poll::Pending => {
+                // Accept exactly this bounded chunk into owned storage now;
+                // subsequent writes/flush/shutdown resume the same codec call.
+                self.pending = Some(buf.to_vec());
+                Poll::Ready(Ok(buf.len()))
+            }
+            Poll::Ready(result) => Poll::Ready(result.map_err(super::safe_io)),
+        }
     }
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         ready!(self.finish_empty(cx))?;
+        ready!(self.finish_write(cx))?;
         Pin::new(&mut self.inner)
             .poll_flush(cx)
             .map_err(super::safe_io)
@@ -88,6 +128,7 @@ impl AsyncWrite for SsStream {
             self.start = Start::EmptyPending;
         }
         ready!(self.finish_empty(cx))?;
+        ready!(self.finish_write(cx))?;
         Pin::new(&mut self.inner)
             .poll_shutdown(cx)
             .map_err(super::safe_io)

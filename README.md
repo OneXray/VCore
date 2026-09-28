@@ -4,11 +4,11 @@
   English · <a href="./readme/README.zh_CN.md">简体中文</a> · <a href="./readme/README.ru.md">Русский</a>
 </p>
 
-VCore is a standalone, host-agnostic Rust client proxy core. It provides proxy graphs, static `select` proxy groups, DNS, routing rules, GeoData, HTTP/SOCKS5 listeners, a TUN data plane, and a loopback Controller through strict YAML configuration and Invoke API v5. The internal configuration schema revision is 14; the revision appears only in the `version` response and `buildIdentity`, not in YAML.
+VCore is a standalone, host-agnostic Rust client proxy core. It provides proxy graphs, static `select` proxy groups, DNS, routing rules, GeoData, HTTP/SOCKS5 listeners, a TUN data plane, and a loopback Controller through strict YAML configuration and Invoke API v5. The internal configuration schema revision is 27; the revision appears only in the `version` response and `buildIdentity`, not in YAML.
 
 ## Features
 
-- Outbounds: VLESS + XHTTP + TLS/REALITY, SOCKS5 CONNECT/UDP ASSOCIATE, AnyTLS TCP/UoT, Shadowsocks 2022, and DIRECT. SS supports three standard 2022 algorithms and AES identity chains; see its [upstream risks and acceptance boundaries](docs/shadowsocks.md).
+- Outbounds: [VLESS TCP/WS/gRPC/HTTP/H2/XHTTP, TLS/REALITY and Vision](docs/vless.md), SOCKS5 CONNECT/UDP ASSOCIATE, AnyTLS TCP/UoT, Shadowsocks 2022, [Trojan TCP/UDP over TLS/WS/gRPC](docs/outbounds.md#trojan), [VMess AEAD over TCP/WS/gRPC/HTTP/H2](docs/outbounds.md#vmess-aead), [Hysteria2 TCP/UDP, bandwidth, Salamander and port hopping](docs/outbounds.md#hysteria2), and DIRECT. SS supports three standard 2022 algorithms and AES identity chains; see its [upstream risks and acceptance boundaries](docs/outbounds.md#shadowsocks-2022).
 - Proxy chains: `dialer-proxy` forms a directed acyclic graph of arbitrary length. If node A points to B, the physical path is `client -> B -> A -> target`.
 - Proxy groups: static `select` groups keep ordered members, including concrete nodes, nested groups, `DIRECT`, and `REJECT`; their current-session selection can be changed live through the Controller. `dialer-proxy` may reference nodes or groups; DIRECT in an upstream group connects the current node's prepared server.
 - Routing: ordered `DOMAIN`, `DOMAIN-SUFFIX`, `DOMAIN-KEYWORD`, `GEOSITE`, `GEOIP`, `IP-CIDR`, `IP-CIDR6`, `DST-PORT`, `NETWORK`, and final `MATCH` rules.
@@ -17,6 +17,7 @@ VCore is a standalone, host-agnostic Rust client proxy core. It provides proxy g
 - Listeners: HTTP CONNECT/forward with per-request authentication/routing, streaming bodies, Keep-Alive and Upgrade; SOCKS5 CONNECT and TCP-authorized UDP ASSOCIATE. Local access is unauthenticated by default; opt-in LAN sharing requires one shared username/password.
 - GeoData: VCore manages `geosite.dat` and `geoip.dat` under `dataDir/geodata`, loads them on demand, and can update them through a proxy chain.
 - Delay measurement: `measureDelay` accepts 1–5 node-only configurations per call, uses up to five private workers, and preserves input order in its results.
+- TLS: independent certificate pins and four opt-in ClientHello templates (Chrome120/133, Firefox120, Safari16.0) over TCP TLS/REALITY/JLS; see [public names, scope and limitations](docs/tls-client-fingerprint.md). [VLESS JLS](docs/vless.md#jls) uses separate shared credentials with complete native TLS authentication. [Static ECH](docs/vless.md#静态-ech) uses explicit VLESS main/download-leg configuration with no dynamic DNS lookup or fallback.
 
 ## Configuration
 
@@ -72,6 +73,8 @@ Authorization: Bearer <secret>
 
 `GET /traffic` is a one-time `up/down/upTotal/downTotal` TUN snapshot. The group endpoints expose and change the selected direct member of static `select` groups; a successful change affects only new physical TCP, UDP, and DNS transports in the current session. It does not migrate existing connections, UDP associations, DNS state, or pooled TCP transports, and it never performs automatic failover. A Controller that manages groups requires one Bearer secret for all routes and may run without TUN. See [`docs/controller-api.md`](docs/controller-api.md).
 
+An authenticated Hysteria2 session keeps its upstream selection during port hopping. A replacement socket for that same QUIC session does not resample the group; only a new authenticated session does.
+
 ## Platforms
 
 | Platform | Data plane | Status |
@@ -85,43 +88,15 @@ Windows does not use an fd emulation layer. The Provider owns only `VpnChannel`,
 
 ## Resource Bounds
 
-The current TUN profile keeps local structural bounds rather than a fixed admission limit on the total number of business flows:
-
-```text
-raw packet / MTU                 1,500 bytes
-packet queue                     256
-ordinary event / UDP response    128
-DNS ingress / DNS response       128 / 128
-TCP buffer                       32 KiB per direction
-TLS / XHTTP buffer               64 KiB
-DNS typed cache                  256 entries
-DNS opaque cache                 64 entries / 256 KiB
-GeoData allocation capacity      8 MiB
-```
-
-Windows advertises a 1,400-byte L3 MTU as required by `StartWithMainTransport` and caps TUN UDP responses at 1,352 bytes; 1,500 bytes remain the cross-platform parser ceiling.
-
-TCP sessions, ordinary UDP associations, half-open connections, outbound handshakes, and active DNS transports are created on demand. Bounded queues, per-flow buffers, wire/parser limits, timeouts, idle cleanup, and caches provide structural safety. The iOS 35/45 MiB targets are best-effort observations and do not change lifecycle results.
+Safety is enforced through per-object queues, buffers, parser limits, deadlines and owned cancellation, not a global business-flow quota. See the [resource policy](docs/runtime-resource-policy.md) for shared limits and protocol-specific contracts for local budgets. Memory telemetry does not change lifecycle results.
 
 ## Documentation
 
 - [Documentation index](docs/README.md)
-- [Configuration contract](docs/config.yaml)
+- [Configuration](docs/config.yaml)
 - [Invoke API](docs/invoke-api.md)
-- [HTTP proxy inbound](docs/http-proxy.md)
-- [SOCKS5 proxy inbound](docs/socks5-proxy.md)
-- [AnyTLS outbound](docs/anytls.md)
-- [Shadowsocks 2022 outbound and limitations](docs/shadowsocks.md)
-- [REALITY V1 client protocol](docs/reality-wire-protocol.md)
-- [rustls REALITY dependency and release requirements](docs/rustls-reality-release.md)
-- [Runtime Controller](docs/controller-api.md)
-- [TUN ICMP and DNS](docs/tun-icmp-dns.md)
-- [GeoData rules and assets](docs/geodata.md)
-- [TUN platform layer](docs/tun-platform.md)
-- [Windows VPN platform boundary](docs/windows-vpn.md)
-- [Windows session runtime](docs/windows-session-runtime.md)
-- [Runtime resource policy](docs/runtime-resource-policy.md)
-- [Acceptance matrix](docs/acceptance.md)
+- [Build and test](scripts/README.md)
+- [Acceptance boundaries](docs/acceptance.md)
 
 ## Example
 
@@ -131,7 +106,7 @@ TCP sessions, ordinary UDP associations, half-open connections, outbound handsha
 
 ```bash
 cargo fmt --all -- --check
-cargo test --all-features --all-targets
+uv run --project scripts --locked vcore-scripts check core --profile debug
 cargo clippy --locked --all-features --lib --bins -- -D warnings
 cargo test --manifest-path crates/vcore-netstack/Cargo.toml --all-targets
 cargo clippy --manifest-path crates/vcore-netstack/Cargo.toml --all-targets -- -D warnings
@@ -159,7 +134,8 @@ VCore's dependencies, maintained forks, public API/protocol references, architec
 - [smoltcp](https://github.com/smoltcp-rs/smoltcp), [clash-rs](https://github.com/Watfaq/clash-rs), and [netstack-smoltcp](https://github.com/automesh-network/netstack-smoltcp): userspace IP stacks and TUN netstacks.
 - [windows-rs](https://github.com/microsoft/windows-rs), [UWP VPN Plugin Sample](https://github.com/microsoft/UwpVpnPluginSample), [wireguard-uwp-rs](https://github.com/luqmana/wireguard-uwp-rs), [Maple](https://github.com/YtFlow/Maple), and [YtFlowCore](https://github.com/YtFlow/YtFlowCore): Windows VPN, WinRT activation, and packet flow.
 - [Xray-core](https://github.com/XTLS/Xray-core), [Mihomo](https://github.com/MetaCubeX/mihomo), and [Leaf](https://github.com/eycorsican/leaf): proxy protocols, routing, TUN architecture, and interoperability references.
-- [rustls](https://github.com/rustls/rustls): the TLS dependency and upstream of the maintained VCore REALITY fork.
+- [rustls](https://github.com/rustls/rustls): unprofiled TLS/QUIC and shared WebPKI certificate policy.
+- [boring](https://github.com/cloudflare/boring) and [BoringSSL](https://boringssl.googlesource.com/boringssl/): upstreams of the maintained fork for named ClientHello profiles and classic / opt-in hybrid REALITY.
 - [shadowsocks-rust](https://github.com/shadowsocks/shadowsocks-rust): the unmodified SS 2022 protocol dependency and source of the derived UDP replay window; see the [MIT notices in the source header](src/outbound/shadowsocks/packet_window.rs).
 
 ## License

@@ -19,6 +19,19 @@ use tokio::time::Instant;
 // Largest response: XChaCha nonce, IDs/type/time/length, optional padding,
 // maximum SOCKS address and AEAD tag. The payload is separately bounded.
 pub(super) const MAX_RESPONSE_HEADER: u16 = 24 + 16 + 1 + 8 + 8 + 2 + 900 + 259 + 16;
+// The official library pads empty UDP only. For nonempty payloads, directional
+// headers differ by the response's client-session ID; AES EIH is request-only.
+pub(super) fn request_header(config: &ServerConfig) -> usize {
+    nonce_size(config) + 43 + config.identity_keys().len().saturating_mul(16)
+}
+
+fn nonce_size(config: &ServerConfig) -> usize {
+    if config.method() == shadowsocks::crypto::CipherKind::AEAD2022_BLAKE3_CHACHA20_POLY1305 {
+        24
+    } else {
+        0
+    }
+}
 const SESSION_RETENTION: Duration = Duration::from_secs(60);
 
 struct ServerSession {
@@ -38,6 +51,8 @@ pub(super) struct SsDatagram {
     wire_maximum: usize,
     buffer: Vec<u8>,
     closed: bool,
+    request_header: usize,
+    response_header: usize,
 }
 
 impl SsDatagram {
@@ -63,6 +78,8 @@ impl SsDatagram {
             wire_maximum: usize::from(wire_maximum).min(MAX_WIRE_PACKET),
             buffer: vec![0; usize::from(wire_maximum).min(MAX_WIRE_PACKET)],
             closed: false,
+            request_header: request_header(config),
+            response_header: nonce_size(config) + 51,
         }
     }
 
@@ -115,6 +132,29 @@ impl SsDatagram {
 
 #[async_trait]
 impl DatagramTransport for SsDatagram {
+    fn payload_budget(&self, peer: &Destination) -> crate::dispatch::DatagramBudget {
+        let address = super::address(peer).serialized_len();
+        let response_address = if matches!(peer, Destination::Domain { .. }) {
+            259
+        } else {
+            address
+        };
+        self.inner
+            .payload_budget(&self.server)
+            .intersect(crate::dispatch::DatagramBudget::new(
+                MAX_WIRE_PACKET as u16,
+                self.wire_maximum as u16,
+            ))
+            .subtract_overhead(
+                self.request_header.saturating_add(address),
+                self.response_header + response_address,
+            )
+            .intersect(crate::dispatch::DatagramBudget::new(
+                u16::MAX,
+                self.maximum as u16,
+            ))
+    }
+
     async fn send(&mut self, datagram: Datagram) -> Result<(), DispatchError> {
         if self.closed {
             return Err(DispatchError::NotAllowed);

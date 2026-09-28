@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, io};
 
 use bytes::{Bytes, BytesMut};
 use md5::{Digest as _, Md5};
-use rand::Rng as _;
+use rand::RngExt as _;
 use tokio::io::{AsyncWrite, AsyncWriteExt as _};
 
 use super::frame::{Command, Frame, HEADER_LENGTH, MAX_FRAME_PAYLOAD};

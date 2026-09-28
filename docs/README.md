@@ -1,48 +1,34 @@
 # VCore 文档
 
-本目录只描述当前实现和仍然有效的开发约束。历史方案、阶段计划、一次性实验记录、旧包哈希和第三方实现对比不属于公共文档；源代码、测试与本文档不一致时视为缺陷。
+本文档只维护当前契约、有效约束和发布边界。历史方案、阶段报告与已取消能力留在 Git 历史，不另建归档副本。行为以当前源码、测试和契约为准，不一致时一起修正。
 
-## 公共契约
+## 配置与接口
 
-1. [配置协议](config.yaml)：配置修订版 14 的完整 YAML 示例、静态 `select` 代理组及组上游和严格字段边界。
-2. [Invoke API](invoke-api.md)：API v5 的请求格式、生命周期和平台回调。
-3. [AnyTLS 出站](anytls.md)：TLS、会话复用、填充、TCP/UoT 和清理语义。
-4. [REALITY V1 协议](reality-wire-protocol.md)：握手、认证、连接状态和失败边界。
-5. [运行时 Controller](controller-api.md)：Bearer 鉴权、实时代理组选择和四字段 TUN 流量快照。
-6. [DNS 与 ICMP](tun-icmp-dns.md)：TUN DNS、代理组出口、缓存、故障转移和本地 Echo Reply。
-7. [GeoData](geodata.md)：规则、资产更新、匹配器和资源上限。
-8. [TUN 平台层](tun-platform.md)：文件描述符、原始 IP 包和平台所有权。
-9. [HTTP 代理入站](http-proxy.md)：本机 / 共享监听、逐请求认证、消息定界、CONNECT / Upgrade 和同步停止。
-10. [SOCKS5 代理入站](socks5-proxy.md)：CONNECT、授权 UDP 关联、双栈与同端口监听、来源隔离和回收。
-11. [Shadowsocks 2022 出站](shadowsocks.md)：官方依赖、配置/IO 适配、AWS-LC 局部例外、已知风险与未完成互通门槛。
+- [配置协议](config.yaml)：严格 YAML、节点、静态 select 组、DNS 与规则。
+- [Invoke API](invoke-api.md)：请求格式、生命周期、平台回调与内联配置。
+- [Controller](controller-api.md)：认证、运行中组选择和 TUN 流量。
+- [入站](inbounds.md)：HTTP 转发/隧道、SOCKS5 TCP/授权 UDP、监听及认证。
+- [出站](outbounds.md)：SOCKS5、AnyTLS、Trojan、VMess AEAD、Hysteria2、SS 2022。
+- [VLESS](vless.md)：传输、Vision、Encryption、REALITY、JLS、静态 ECH。
+- [XHTTP 与 sing-mux](xhttp.md)：双腿、H1/H2/H3、连接池及复用。
+- [TLS 证书与指纹](tls-client-fingerprint.md)：证书 pin、ClientHello 模板、身份与缓存。
+- [REALITY 线协议](reality-wire-protocol.md)：认证、密钥与失败边界。
 
-## 平台与运行架构
+## 运行与平台
 
-1. [Windows VPN 平台边界](windows-vpn.md)：官方 VPN API、包缓冲区、路由、物理网络绑定和安装包约束。
-2. [Windows 会话运行时](windows-session-runtime.md)：Provider、Session Host、包通道和生命周期。
-3. [运行时资源策略](runtime-resource-policy.md)：局部容量、取消、回收和遥测原则。
-4. [rustls REALITY 依赖](rustls-reality-release.md)：自有 fork 的边界和发布要求。
-5. [Windows UWP VPN 最小集成](../example/windows-uwp/README.md)：同包 manifest、完全信任宿主和可运行 demo。
+- [DNS 与 ICMP](tun-icmp-dns.md)、[GeoData](geodata.md)。
+- [资源策略](runtime-resource-policy.md)：局部预算、所有权、取消和观测。
+- [TUN 平台](tun-platform.md)、[Windows VPN](windows-vpn.md)。
+- [TLS 依赖与发布](tls-dependencies.md)：来源、provider、fork 与升级门禁。
+- [Windows 最小集成示例](../example/windows-uwp/README.md)。
 
-## 证据与维护
+## 开发与验证
 
-- [验收矩阵](acceptance.md)：自动化覆盖、实机覆盖和未完成的发布门禁。
-- [架构决策](adr/)：仍然有效的系统级决策。
-- [开发上下文](../CONTEXT.md)：领域词汇和模块边界。
-- [构建与检查](../scripts/README.md)：统一脚本、产物和环境变量。
+- [构建与检查](../scripts/README.md)、[测试入口](../tests/README.md)。
+- [测试隔离](testing-isolation.md)：所有网络服务端必须容器化。
+- [验收边界](acceptance.md)：本地、CI、设备和发布证据分别记录。
+- [领域上下文](../CONTEXT.md)、[架构决策](adr/)。
+- 工程 skills：[Issue 跟踪](agents/issue-tracker.md)、[分类标签](agents/triage-labels.md)、[领域流程](agents/domain.md)。
 
-## 工程 skills
-
-- [Issue 跟踪](agents/issue-tracker.md)：本仓库 GitHub Issues、显式仓库选择和工作项协作。
-- [分类标签](agents/triage-labels.md)：五个默认 triage 角色与 GitHub 标签映射。
-- [领域文档流程](agents/domain.md)：单上下文词汇、ADR 阅读与冲突处理。
-
-`AGENTS.md` 保留工程约束和按任务读取的入口；skills 工作流维护在 `docs/agents/`。
-
-## 文档规则
-
-- 协议文档只描述当前版本；被删除的字段和历史兼容结构不重复收录。
-- 技术标识符、配置键、API 名称和线上协议值保留原文，其余说明使用中文。
-- 验收文档保留可复现矩阵，不累积候选包版本、临时进程号或一次性性能结果。
-- 主机测试、交叉编译、模拟器和虚拟网络不能替代对应物理平台证据。
-- 公共行为变化必须同时更新实现、测试和相关契约。
+配置字段由 `config.yaml` 维护；协议文档补充语义与限制，不复制阶段计划。
+技术标识符保留原文，说明使用中文。AGENTS.md 只放跨任务约束与读取入口。

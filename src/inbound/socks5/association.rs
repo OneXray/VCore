@@ -131,6 +131,11 @@ impl Associations {
         let Ok(permit) = entry.sender.try_reserve() else {
             return;
         };
+        crate::resources::observation::observe_queue(
+            crate::resources::observation::QueueKind::SocksUdp,
+            QUEUE_CAPACITY - entry.sender.capacity(),
+            QUEUE_CAPACITY,
+        );
         *entry.source.lock().unwrap() = source;
         permit.send(Datagram {
             remote,

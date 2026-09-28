@@ -1,0 +1,386 @@
+use crate::{
+    config::Hysteria2OutboundConfig,
+    dispatch::{DatagramTransport, DispatchError},
+    outbound::{
+        ConnectedStream, DatagramRequest, EstablishContext, OutboundConnector, UpstreamPath,
+        owned_stream::OwnedStream, server_destination,
+    },
+    resources::observation::{self, ResourceKind},
+    security::{
+        SecurityContext, StandardTlsClient, TLS_RESUMPTION_SESSION_BUDGET, TlsClientIdentity,
+        TlsClientOptions, TlsVersions,
+    },
+    session::{DatagramSession, Destination, StreamSession},
+    transport::quic::{self, OwnedRuntime},
+};
+use async_trait::async_trait;
+use bytes::Bytes;
+use std::{
+    io,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
+use tokio::{
+    io::AsyncWriteExt,
+    sync::{Mutex as AsyncMutex, oneshot},
+};
+use tokio_util::{sync::CancellationToken, task::TaskTracker};
+
+/// A node owns its authenticated connection and every driver used by that
+/// connection. Individual streams never own the shared cancellation token.
+pub struct Hysteria2Outbound {
+    config: Arc<Hysteria2OutboundConfig>,
+    server: Destination,
+    upstream: UpstreamPath,
+    tls: Arc<rustls::ClientConfig>,
+    current: AsyncMutex<Option<Arc<Session>>>,
+    cancel: CancellationToken,
+    admission: Mutex<()>,
+    tasks: TaskTracker,
+}
+
+struct Session {
+    connection: quinn::Connection,
+    cancel: CancellationToken,
+    udp_enabled: bool,
+    datagrams: Arc<super::datagram::Registry>,
+    #[cfg(feature = "interop-test")]
+    bandwidth: Arc<super::bandwidth::Bandwidth>,
+}
+
+impl std::fmt::Debug for Hysteria2Outbound {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Hysteria2Outbound").finish_non_exhaustive()
+    }
+}
+
+impl Hysteria2Outbound {
+    /// Test-only controller/path evidence; no configuration or traffic addresses.
+    #[cfg(feature = "interop-test")]
+    pub async fn congestion_observation(&self) -> Option<(u64, quinn::ConnectionStats)> {
+        self.current.lock().await.as_ref().map(|session| {
+            (
+                session
+                    .bandwidth
+                    .rate
+                    .load(std::sync::atomic::Ordering::Relaxed),
+                session.connection.stats(),
+            )
+        })
+    }
+    pub fn new_with_path(
+        config: &Hysteria2OutboundConfig,
+        upstream: UpstreamPath,
+    ) -> io::Result<Self> {
+        Self::with_shared_security(
+            config,
+            upstream,
+            &SecurityContext::new(),
+            TLS_RESUMPTION_SESSION_BUDGET,
+            64 * 1024,
+        )
+    }
+
+    pub(crate) fn with_shared_security(
+        config: &Hysteria2OutboundConfig,
+        upstream: UpstreamPath,
+        security: &SecurityContext,
+        resumption_sessions: usize,
+        buffer_limit: usize,
+    ) -> io::Result<Self> {
+        let tls = StandardTlsClient::with_options(
+            security,
+            &config.tls.server_name,
+            TlsClientOptions {
+                versions: TlsVersions::Tls13,
+                alpn: config.tls.alpn.clone(),
+                certificate: config.tls.certificate.clone(),
+                identity: config
+                    .tls
+                    .identity
+                    .as_ref()
+                    .map(|identity| {
+                        TlsClientIdentity::from_pem(&identity.certificate, &identity.private_key)
+                    })
+                    .transpose()?,
+                ..Default::default()
+            },
+            resumption_sessions,
+            buffer_limit,
+        )?
+        .quic_config()?
+        .0;
+        Ok(Self {
+            config: Arc::new(config.clone()),
+            server: server_destination(&config.address, config.port)?,
+            upstream,
+            tls,
+            current: AsyncMutex::new(None),
+            cancel: CancellationToken::new(),
+            admission: Mutex::new(()),
+            tasks: TaskTracker::new(),
+        })
+    }
+
+    async fn session(
+        &self,
+        datagram: DatagramSession,
+        context: &EstablishContext,
+    ) -> Result<Arc<Session>, DispatchError> {
+        if tokio::time::Instant::now() >= context.deadline() {
+            return Err(DispatchError::TimedOut);
+        }
+        let _waiter = observation::track(ResourceKind::Waiter);
+        tokio::select! {biased;
+            () = self.cancel.cancelled() => Err(DispatchError::NotAllowed),
+            result = context.run("Hysteria2 session", async {
+                let mut current = self.current.lock().await;
+                if let Some(session) = current.as_ref().filter(|session|
+                    !session.cancel.is_cancelled() && session.connection.close_reason().is_none()) {
+                    return Ok(session.clone());
+                }
+                current.take();
+                let (ready, reply) = oneshot::channel();
+                let cancel = self.cancel.child_token();
+                let guard = cancel.clone().drop_guard();
+                {
+                    let _admission = self.admission.lock().unwrap();
+                    if self.cancel.is_cancelled() { return Err(DispatchError::NotAllowed); }
+                    let config = self.config.clone();
+                    let upstream = self.upstream.clone();
+                    let server = self.server.clone();
+                    let tls = self.tls.clone();
+                    let context = context.clone();
+                    let task = observation::track(ResourceKind::Task);
+                    self.tasks.spawn(observation::bind(async move {
+                        let _task = task;
+                        drive(config, upstream, server, tls, datagram, context, cancel, ready).await;
+                    }));
+                }
+                let session = reply.await.map_err(|_| DispatchError::ConnectionRefused)??;
+                guard.disarm();
+                *current = Some(session.clone());
+                Ok(session)
+            }) => result,
+        }
+    }
+}
+
+#[async_trait]
+impl OutboundConnector for Hysteria2Outbound {
+    async fn connect_stream(
+        &self,
+        session: StreamSession,
+        context: &EstablishContext,
+    ) -> Result<ConnectedStream, DispatchError> {
+        let request = super::wire::tcp_request(&session.destination)?;
+        let shared = self
+            .session(
+                DatagramSession::new(session.inbound, session.source),
+                context,
+            )
+            .await?;
+        tokio::select! {biased;
+            () = shared.cancel.cancelled() => Err(DispatchError::ConnectionRefused),
+            result = context.run_io("Hysteria2 TCP request", async {
+                let (mut send, recv) = shared.connection.open_bi().await.map_err(failure)?;
+                tokio::io::AsyncWriteExt::write_all(&mut send, &request).await?;
+                send.flush().await?;
+                let stream = super::stream::TcpStream::new(recv, send, context.deadline());
+                Ok(ConnectedStream {
+                    io: Box::new(OwnedStream::new(Box::new(stream), shared.cancel.child_token())),
+                    effective_peer: session.destination,
+                })
+            }) => result,
+        }
+    }
+
+    async fn open_datagram(
+        &self,
+        request: DatagramRequest,
+        context: &EstablishContext,
+    ) -> Result<Box<dyn DatagramTransport>, DispatchError> {
+        let session = self.session(request.session.clone(), context).await?;
+        if !session.udp_enabled || session.connection.max_datagram_size().is_none() {
+            return Err(DispatchError::NotAllowed);
+        }
+        session.datagrams.open(
+            session.connection.clone(),
+            session.cancel.clone(),
+            self.config.udp_mtu,
+            request.budget(),
+        )
+    }
+
+    fn begin_shutdown(&self) {
+        let _admission = self.admission.lock().unwrap();
+        self.cancel.cancel();
+        self.tasks.close();
+    }
+
+    async fn shutdown(&self) {
+        self.begin_shutdown();
+        self.tasks.wait().await;
+        self.current.lock().await.take();
+    }
+}
+
+impl Drop for Hysteria2Outbound {
+    fn drop(&mut self) {
+        self.cancel.cancel();
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn drive(
+    config: Arc<Hysteria2OutboundConfig>,
+    upstream: UpstreamPath,
+    server: Destination,
+    tls: Arc<rustls::ClientConfig>,
+    datagram: DatagramSession,
+    context: EstablishContext,
+    cancel: CancellationToken,
+    ready: oneshot::Sender<Result<Arc<Session>, DispatchError>>,
+) {
+    let runtime = Arc::new(OwnedRuntime::new(CancellationToken::new()));
+    let mut ready = Some(ready);
+    let mut endpoint = None;
+    let mut paths = None;
+    let datagrams = Arc::new(super::datagram::Registry::default());
+    let bandwidth = Arc::new(super::bandwidth::Bandwidth::default());
+    let _pool = observation::track(ResourceKind::Pool);
+    let operation = async {
+        let _handshake = observation::track(ResourceKind::Handshake);
+        let (path, socket) = super::paths::Paths::open(
+            config.clone(),
+            upstream,
+            &server,
+            datagram,
+            context,
+            bandwidth.clone(),
+        )
+        .await?;
+        let peer = path.peer;
+        let mtu = path.mtu;
+        paths = Some(path);
+        let mut limits = quinn::TransportConfig::default();
+        limits
+            .initial_mtu(mtu)
+            .min_mtu(mtu)
+            .mtu_discovery_config(None)
+            .max_concurrent_bidi_streams(0_u8.into())
+            .max_concurrent_uni_streams((crate::limits::HY2_UNI_STREAMS as u32).into())
+            .stream_receive_window((crate::limits::HY2_STREAM_WINDOW as u32).into())
+            .receive_window((crate::limits::HY2_CONNECTION_WINDOW as u32).into())
+            .send_window(crate::limits::HY2_CONNECTION_WINDOW as u64)
+            .datagram_receive_buffer_size(Some(crate::limits::HY2_DATAGRAM_BUFFER))
+            .datagram_send_buffer_size(crate::limits::HY2_DATAGRAM_BUFFER)
+            .max_idle_timeout(Some(Duration::from_secs(30).try_into().map_err(failure)?))
+            .keep_alive_interval(Some(Duration::from_secs(10)))
+            .congestion_controller_factory(bandwidth.clone());
+        let crypto = quinn::crypto::rustls::QuicClientConfig::try_from(tls).map_err(failure)?;
+        let mut client = quinn::ClientConfig::new(Arc::new(crypto));
+        client.transport_config(Arc::new(limits));
+        let mut options = quinn::EndpointConfig::default();
+        options.max_udp_payload_size(mtu).map_err(failure)?;
+        let mut ep =
+            quinn::Endpoint::new_with_abstract_socket(options, None, socket, runtime.clone())?;
+        ep.set_default_client_config(client);
+        endpoint = Some(ep);
+        let connection = endpoint
+            .as_ref()
+            .unwrap()
+            .connect(peer, &config.tls.server_name)
+            .map_err(failure)?
+            .await
+            .map_err(failure)?;
+        let (mut control, mut requests) = h3::client::builder()
+            .max_field_section_size(crate::limits::HY2_AUTH_HEADERS as u64)
+            .build::<_, _, Bytes>(h3_quinn::Connection::new(connection.clone()))
+            .await
+            .map_err(failure)?;
+        let request = http::Request::builder()
+            .method("POST")
+            .uri("https://hysteria/auth")
+            .header(
+                "Hysteria-Auth",
+                http::HeaderValue::from_bytes(config.password.as_bytes()).map_err(failure)?,
+            )
+            .header("Hysteria-CC-RX", config.down.to_string())
+            .header("Hysteria-Padding", "padding")
+            .body(())
+            .map_err(failure)?;
+        // The driver must be polled during auth and retained afterward. Do not
+        // enable H3 DATAGRAM: Hysteria consumes raw QUIC DATAGRAM frames.
+        let auth = async {
+            let mut stream = requests.send_request(request).await.map_err(failure)?;
+            stream.finish().await.map_err(failure)?;
+            let response = stream.recv_response().await.map_err(failure)?;
+            if response.status().as_u16() != 233 {
+                return Err(io::ErrorKind::PermissionDenied.into());
+            }
+            let udp_enabled = response
+                .headers()
+                .get("Hysteria-UDP")
+                .is_some_and(|value| value == "true");
+            let server_rx = response
+                .headers()
+                .get("Hysteria-CC-RX")
+                .ok_or(io::ErrorKind::InvalidData)?;
+            let rate = super::bandwidth::negotiate(config.up, server_rx.as_bytes())?;
+            bandwidth
+                .rate
+                .store(rate, std::sync::atomic::Ordering::Relaxed);
+            Ok::<_, io::Error>(udp_enabled)
+        };
+        let udp_enabled = tokio::select! {
+            _ = control.wait_idle() => return Err(DispatchError::ConnectionRefused),
+            result = auth => result?,
+        };
+        drop(_handshake);
+        let session = Arc::new(Session {
+            connection: connection.clone(),
+            cancel: cancel.clone(),
+            udp_enabled,
+            datagrams: datagrams.clone(),
+            #[cfg(feature = "interop-test")]
+            bandwidth: bandwidth.clone(),
+        });
+        ready
+            .take()
+            .unwrap()
+            .send(Ok(session))
+            .map_err(|_| DispatchError::ConnectionRefused)?;
+        tokio::select! {
+            _ = connection.closed() => {},
+            _ = control.wait_idle() => {},
+            _ = super::datagram::receive(&connection, &datagrams) => {},
+            _ = paths.as_mut().unwrap().hopping(endpoint.as_ref().unwrap()) => {},
+        }
+        drop(requests);
+        Ok::<_, DispatchError>(())
+    };
+    let result = tokio::select! {biased;
+        () = cancel.cancelled() => Err(DispatchError::NotAllowed),
+        result = operation => result,
+    };
+    cancel.cancel();
+    datagrams.close();
+    if let Some(ready) = ready {
+        let _ = ready.send(Err(result
+            .err()
+            .unwrap_or(DispatchError::ConnectionRefused)));
+    }
+    if let Some(endpoint) = endpoint {
+        endpoint.close(0_u8.into(), b"");
+        let _ = tokio::time::timeout(quic::CLOSE_TIMEOUT, endpoint.wait_idle()).await;
+    }
+    runtime.stop().await;
+    if let Some(mut paths) = paths {
+        paths.stop().await;
+    }
+}
+
+fn failure(_: impl std::fmt::Display) -> io::Error {
+    io::Error::other("Hysteria2 QUIC exchange failed")
+}

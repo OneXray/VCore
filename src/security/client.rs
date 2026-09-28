@@ -1,14 +1,8 @@
 use std::{io, sync::Arc};
 
+use rustls::ClientConfig;
 #[cfg(feature = "interop-test")]
 use rustls::RootCertStore;
-use rustls::{
-    ClientConfig,
-    client::{RealityClientConfig, Resumption},
-    pki_types::ServerName,
-    version::TLS13,
-};
-use tokio_rustls::TlsConnector;
 
 use crate::{
     config::{SecurityConfig, VlessOutboundConfig},
@@ -18,8 +12,8 @@ use crate::{
 use super::{
     SecurityContext,
     tls::{
-        DEFAULT_TLS_BUFFER_LIMIT, StandardTlsClient, StandardTlsProfile,
-        TLS_RESUMPTION_SESSION_BUDGET,
+        DEFAULT_TLS_BUFFER_LIMIT, StandardTlsClient, TLS_RESUMPTION_SESSION_BUDGET,
+        TlsClientOptions, TlsVersions,
     },
 };
 
@@ -31,10 +25,14 @@ pub const REALITY_CLIENT_VERSION: [u8; 3] = [26, 7, 11];
 
 #[derive(Clone)]
 enum SecurityBackend {
+    Plain,
     Standard(StandardTlsClient),
     Reality {
-        connector: TlsConnector,
-        server_name: String,
+        client: super::boring::BoringTlsClient,
+        buffer_limit: usize,
+    },
+    Jls {
+        client: super::boring::BoringTlsClient,
         buffer_limit: usize,
     },
 }
@@ -47,17 +45,17 @@ pub struct SecurityClient {
 impl std::fmt::Debug for SecurityClient {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.backend {
+            SecurityBackend::Plain => formatter.write_str("SecurityClient::Plain"),
             SecurityBackend::Standard(client) => formatter
                 .debug_tuple("SecurityClient::Standard")
                 .field(client)
                 .finish(),
-            SecurityBackend::Reality {
-                server_name,
-                buffer_limit,
-                ..
-            } => formatter
+            SecurityBackend::Reality { buffer_limit, .. } => formatter
                 .debug_struct("SecurityClient::Reality")
-                .field("server_name", server_name)
+                .field("buffer_limit", buffer_limit)
+                .finish_non_exhaustive(),
+            SecurityBackend::Jls { buffer_limit, .. } => formatter
+                .debug_struct("SecurityClient::Jls")
                 .field("buffer_limit", buffer_limit)
                 .finish_non_exhaustive(),
         }
@@ -65,7 +63,17 @@ impl std::fmt::Debug for SecurityClient {
 }
 
 impl SecurityClient {
-    /// Builds one TLS or REALITY transport leg from its normalized security
+    pub(crate) fn quic_config(&self) -> io::Result<(Arc<ClientConfig>, String)> {
+        match &self.backend {
+            SecurityBackend::Standard(client) => client.quic_config(),
+            _ => Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "HTTP/3 requires standard TLS",
+            )),
+        }
+    }
+
+    /// Builds one TLS, REALITY or JLS transport leg from its normalized security
     /// configuration. A VLESS XHTTP download leg may use security settings
     /// distinct from the enclosing proxy's primary leg.
     pub fn from_security(config: &SecurityConfig) -> io::Result<Self> {
@@ -85,8 +93,8 @@ impl SecurityClient {
     /// Builds one node from instance-shared cryptographic material. The
     /// caller allocates the aggregate TLS resumption budget across standard-TLS
     /// nodes; zero disables resumption when the fixed four-session runtime
-    /// budget cannot provide a slot for every node. REALITY always ignores the
-    /// budget because its resumption policy is disabled.
+    /// budget cannot provide a slot for every node. REALITY and JLS ignore the
+    /// budget because their resumption policies are disabled.
     pub(crate) fn from_proxy_with_context(
         config: &VlessOutboundConfig,
         context: &SecurityContext,
@@ -171,37 +179,43 @@ impl SecurityClient {
             ));
         }
         let backend = match config {
-            SecurityConfig::Tls(tls) => SecurityBackend::Standard(StandardTlsClient::new(
+            SecurityConfig::None => SecurityBackend::Plain,
+            SecurityConfig::Tls(tls) => SecurityBackend::Standard(StandardTlsClient::with_options(
                 context,
                 &tls.server_name,
-                StandardTlsProfile::VlessXhttp,
+                TlsClientOptions {
+                    ech: tls.ech.clone(),
+                    client_fingerprint: tls.client_fingerprint,
+                    versions: if tls.tls13_only {
+                        TlsVersions::Tls13
+                    } else {
+                        TlsVersions::Tls12And13
+                    },
+                    alpn: tls.alpn.clone(),
+                    required_alpn: tls.required_alpn.clone(),
+                    certificate: tls.certificate.clone(),
+                    identity: tls
+                        .identity
+                        .as_ref()
+                        .map(|identity| {
+                            super::TlsClientIdentity::from_pem(
+                                &identity.certificate,
+                                &identity.private_key,
+                            )
+                        })
+                        .transpose()?,
+                },
                 resumption_sessions,
                 buffer_limit,
             )?),
-            SecurityConfig::Reality(reality) => {
-                let reality = RealityClientConfig::new(
-                    reality.public_key,
-                    &reality.short_id,
-                    REALITY_CLIENT_VERSION,
-                )
-                .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
-                let mut tls_config = ClientConfig::builder_with_provider(context.provider.clone())
-                    .with_protocol_versions(&[&TLS13])
-                    .map_err(io_other)?
-                    .with_reality(reality)
-                    .map_err(io_other)?
-                    .with_no_client_auth();
-                tls_config.resumption = Resumption::disabled();
-                tls_config.enable_early_data = false;
-                // Xray REALITY does not echo ALPN, so XHTTP deliberately starts
-                // h2 even when negotiated ALPN is nil.
-                tls_config.alpn_protocols = vec![b"h2".to_vec()];
-                SecurityBackend::Reality {
-                    connector: TlsConnector::from(Arc::new(tls_config)),
-                    server_name: config.server_name().to_owned(),
-                    buffer_limit,
-                }
-            }
+            SecurityConfig::Reality(reality) => SecurityBackend::Reality {
+                client: super::boring::BoringTlsClient::reality(reality)?,
+                buffer_limit,
+            },
+            SecurityConfig::Jls(jls) => SecurityBackend::Jls {
+                client: super::boring::BoringTlsClient::jls(jls)?,
+                buffer_limit,
+            },
         };
 
         Ok(Self { backend })
@@ -209,36 +223,50 @@ impl SecurityClient {
 
     pub async fn connect(&self, stream: BoxStream) -> io::Result<BoxStream> {
         match &self.backend {
+            SecurityBackend::Plain => Ok(stream),
             SecurityBackend::Standard(client) => client.connect(stream).await,
             SecurityBackend::Reality {
-                connector,
-                server_name,
+                client,
                 buffer_limit,
-            } => {
-                let server_name = ServerName::try_from(server_name.clone())
-                    .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
-                let tls = connector
-                    .connect_with(server_name, stream, |connection| {
-                        connection.set_buffer_limit(Some(*buffer_limit));
-                    })
-                    .await
-                    .map_err(io_other)?;
-                Ok(Box::new(tls))
             }
+            | SecurityBackend::Jls {
+                client,
+                buffer_limit,
+            } => client.connect(stream, *buffer_limit).await,
+        }
+    }
+
+    pub(crate) async fn connect_vision(
+        &self,
+        stream: BoxStream,
+        stats: Arc<super::vision::SpliceStats>,
+    ) -> io::Result<(BoxStream, super::vision::SpliceControl)> {
+        match &self.backend {
+            SecurityBackend::Plain => Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Vision requires TLS",
+            )),
+            SecurityBackend::Jls { .. } => Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Vision cannot use JLS",
+            )),
+            SecurityBackend::Standard(client) => client.connect_vision(stream, stats).await,
+            SecurityBackend::Reality {
+                client,
+                buffer_limit,
+            } => client.connect_vision(stream, stats, *buffer_limit).await,
         }
     }
 
     #[cfg(test)]
     const fn buffer_limit(&self) -> usize {
         match &self.backend {
+            SecurityBackend::Plain => 0,
             SecurityBackend::Standard(client) => client.buffer_limit(),
-            SecurityBackend::Reality { buffer_limit, .. } => *buffer_limit,
+            SecurityBackend::Reality { buffer_limit, .. }
+            | SecurityBackend::Jls { buffer_limit, .. } => *buffer_limit,
         }
     }
-}
-
-fn io_other(error: impl std::error::Error + Send + Sync + 'static) -> io::Error {
-    io::Error::other(error)
 }
 
 #[cfg(test)]
@@ -253,15 +281,19 @@ mod tests {
             id: uuid::Uuid::parse_str("b831381d-6324-4d53-ad4f-8cda48b30811").unwrap(),
             encryption: VlessEncryption::None,
             flow: String::new(),
-            security: SecurityConfig::Tls(TlsConfig {
-                server_name: "example.com".to_owned(),
-            }),
-            xhttp: XHttpConfig {
+            security: SecurityConfig::Tls(TlsConfig::xhttp("example.com".to_owned())),
+            transport: crate::config::VlessTransport::Xhttp(Box::new(XHttpConfig {
                 path: "/xhttp".to_owned(),
                 host: "example.com".to_owned(),
                 mode: XHttpMode::StreamOne,
+                http_version: Default::default(),
+                reuse: None,
+                headers: Default::default(),
+                request: Default::default(),
                 download: None,
-            },
+            })),
+            packet_encoding: crate::config::VlessPacketEncoding::Xudp,
+            stream_options: Default::default(),
         }
     }
 
@@ -298,9 +330,12 @@ mod tests {
     #[test]
     fn security_level_constructor_keeps_an_independent_reality_identity() {
         let security = SecurityConfig::Reality(crate::config::RealityConfig {
+            support_x25519mlkem768: false,
+            client_fingerprint: None,
             server_name: "download.example.com".to_owned(),
             public_key: [7; 32],
             short_id: vec![1, 2, 3, 4],
+            alpn: vec![b"h2".to_vec()],
         });
         let client = SecurityClient::from_security_with_context(
             &security,
@@ -309,15 +344,10 @@ mod tests {
             12 * 1024,
         )
         .unwrap();
-        let SecurityBackend::Reality {
-            server_name,
-            buffer_limit,
-            ..
-        } = &client.backend
-        else {
+        let SecurityBackend::Reality { buffer_limit, .. } = &client.backend else {
             panic!("REALITY security must build the REALITY backend")
         };
-        assert_eq!(server_name, "download.example.com");
         assert_eq!(*buffer_limit, 12 * 1024);
+        assert!(!format!("{client:?}").contains("download.example.com"));
     }
 }

@@ -142,8 +142,15 @@ impl PreparedSession {
             writer_receiver,
         } = self;
         let (reader, writer) = tokio::io::split(transport);
-        tracker.spawn(reader_loop(session.clone(), reader));
-        tracker.spawn(writer_loop(session, writer, writer_receiver));
+        tracker.spawn(crate::resources::observation::task(reader_loop(
+            session.clone(),
+            reader,
+        )));
+        tracker.spawn(crate::resources::observation::task(writer_loop(
+            session,
+            writer,
+            writer_receiver,
+        )));
         stream
     }
 }
@@ -300,7 +307,7 @@ impl Session {
 
         if self.peer_version.load(Ordering::Acquire) >= 2 {
             let session = self.clone();
-            tracker.spawn(async move {
+            tracker.spawn(crate::resources::observation::task(async move {
                 let result = tokio::select! {
                     biased;
                     () = session.cancellation.cancelled() => return,
@@ -318,7 +325,7 @@ impl Session {
                 if let Err(error) = result {
                     session.fail(error);
                 }
-            });
+            }));
         }
 
         open_guard.commit();
@@ -639,11 +646,10 @@ async fn handle_server_frame(session: &Arc<Session>, frame: Frame) -> io::Result
             if frame.stream_id != 0 {
                 return Err(protocol_error("AnyTLS Alert uses a non-zero stream ID"));
             }
-            let message = bounded_message(&String::from_utf8_lossy(&frame.payload));
-            tracing::warn!(message = %message, "AnyTLS server alert");
+            tracing::warn!("AnyTLS server alert");
             Err(io::Error::new(
                 io::ErrorKind::ConnectionAborted,
-                format!("AnyTLS server alert: {message}"),
+                "AnyTLS server alert",
             ))
         }
         Command::UpdatePaddingScheme => {
@@ -730,23 +736,17 @@ fn handle_syn_ack(session: &Arc<Session>, frame: Frame) -> io::Result<()> {
         return Ok(());
     }
 
-    let message = bounded_message(&String::from_utf8_lossy(&frame.payload));
-    let failure = StreamFailure::new(
-        io::ErrorKind::ConnectionRefused,
-        Arc::<str>::from(format!("AnyTLS remote: {message}")),
-    );
+    let message = "AnyTLS stream rejected by server";
+    let failure = StreamFailure::new(io::ErrorKind::ConnectionRefused, Arc::<str>::from(message));
     active.shared.fail(failure.clone());
     let _ = active.incoming.try_send(StreamEvent::Failed(failure));
     if let Some(waiter) = active.syn_ack.take() {
         let _ = waiter.send(Err(io::Error::new(
             io::ErrorKind::ConnectionRefused,
-            format!("AnyTLS remote: {message}"),
+            message,
         )));
     }
-    Err(io::Error::new(
-        io::ErrorKind::ConnectionRefused,
-        format!("AnyTLS remote: {message}"),
-    ))
+    Err(io::Error::new(io::ErrorKind::ConnectionRefused, message))
 }
 
 fn active_target(
@@ -911,6 +911,56 @@ fn closed_pipe(message: &'static str) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn remote_alerts_and_synack_errors_never_echo_peer_payloads() {
+        use tokio::io::AsyncReadExt;
+        for (command, stream_id, expected, kind) in [
+            (
+                Command::Alert,
+                0,
+                "AnyTLS server alert",
+                io::ErrorKind::ConnectionAborted,
+            ),
+            (
+                Command::SynAck,
+                1,
+                "AnyTLS stream rejected by server",
+                io::ErrorKind::ConnectionRefused,
+            ),
+        ] {
+            let padding = Arc::new(PaddingScheme::default_scheme());
+            let (raw, _peer) = tokio::io::duplex(65536);
+            let mut prepared = Session::prepare_first(
+                1,
+                Weak::new(),
+                Box::new(raw),
+                [0; 32],
+                padding.clone(),
+                Arc::new(ArcSwap::new(padding)),
+                &Destination::domain("target.example", 443).unwrap(),
+                1024,
+                1,
+                &CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+            let session = prepared.session();
+            let payload =
+                Bytes::from_static(b"synthetic-secret target.private.invalid\r\nforged-log");
+            let error = handle_server_frame(
+                &session,
+                Frame::with_payload(command, stream_id, payload).unwrap(),
+            )
+            .await
+            .unwrap_err();
+            assert_eq!(error.kind(), kind);
+            assert_eq!(error.to_string(), expected);
+            session.fail(error);
+            let propagated = prepared.stream.read(&mut [0]).await.unwrap_err();
+            assert_eq!(propagated.to_string(), expected);
+        }
+    }
 
     #[test]
     fn server_settings_version_is_strict_and_bounded_to_supported_v2() {

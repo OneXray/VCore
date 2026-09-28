@@ -19,8 +19,23 @@ use crate::{Result, VCoreError};
 
 mod credentials;
 pub use credentials::{ProxyAccess, ProxyCredentials};
+mod ech;
+pub use ech::StaticEchConfig;
+mod hysteria2;
+pub use hysteria2::{Hysteria2Hopping, Hysteria2OutboundConfig};
+mod jls;
+pub use jls::JlsConfig;
 mod shadowsocks;
 pub use shadowsocks::{ShadowsocksCipher, ShadowsocksOutboundConfig};
+mod trojan;
+pub use trojan::{TrojanOutboundConfig, TrojanTransport};
+mod vless;
+pub use vless::{GrpcOptions, SingMuxConfig, SingMuxProtocol, VlessStreamOptions};
+pub(crate) mod xhttp;
+pub use xhttp::{XHttpHeaders, XHttpRequestOptions, XHttpReuseConfig, XHttpVersion};
+mod vmess;
+pub use vmess::StreamTransport as VmessTransport;
+pub use vmess::{StreamTransport, VmessCipher, VmessOutboundConfig, VmessPacketEncoding};
 
 #[cfg(feature = "ffi")]
 mod measure;
@@ -286,6 +301,9 @@ pub struct ProxyConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProxyProtocol {
+    Hysteria2(Hysteria2OutboundConfig),
+    Vmess(VmessOutboundConfig),
+    Trojan(TrojanOutboundConfig),
     Vless(VlessOutboundConfig),
     Socks5(Socks5OutboundConfig),
     AnyTls(AnyTlsOutboundConfig),
@@ -296,6 +314,9 @@ impl ProxyConfig {
     #[must_use]
     pub fn address(&self) -> &str {
         match &self.protocol {
+            ProxyProtocol::Hysteria2(config) => &config.address,
+            ProxyProtocol::Vmess(config) => &config.address,
+            ProxyProtocol::Trojan(config) => &config.address,
             ProxyProtocol::Vless(config) => &config.address,
             ProxyProtocol::Socks5(config) => &config.address,
             ProxyProtocol::AnyTls(config) => &config.address,
@@ -306,6 +327,9 @@ impl ProxyConfig {
     #[must_use]
     pub const fn port(&self) -> u16 {
         match &self.protocol {
+            ProxyProtocol::Hysteria2(config) => config.port,
+            ProxyProtocol::Vmess(config) => config.port,
+            ProxyProtocol::Trojan(config) => config.port,
             ProxyProtocol::Vless(config) => config.port,
             ProxyProtocol::Socks5(config) => config.port,
             ProxyProtocol::AnyTls(config) => config.port,
@@ -314,7 +338,7 @@ impl ProxyConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct VlessOutboundConfig {
     pub address: String,
     pub port: u16,
@@ -322,7 +346,45 @@ pub struct VlessOutboundConfig {
     pub encryption: VlessEncryption,
     pub flow: String,
     pub security: SecurityConfig,
-    pub xhttp: XHttpConfig,
+    pub transport: VlessTransport,
+    pub packet_encoding: VlessPacketEncoding,
+    pub stream_options: VlessStreamOptions,
+}
+
+impl std::fmt::Debug for VlessOutboundConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VlessOutboundConfig")
+            .finish_non_exhaustive()
+    }
+}
+
+impl VlessOutboundConfig {
+    pub fn xhttp(&self) -> Option<&XHttpConfig> {
+        match &self.transport {
+            VlessTransport::Xhttp(config) => Some(config),
+            VlessTransport::Stream(_) => None,
+        }
+    }
+    pub fn download(&self) -> Option<&XHttpDownloadConfig> {
+        self.xhttp().and_then(|config| config.download.as_deref())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum VlessTransport {
+    Stream(StreamTransport),
+    Xhttp(Box<XHttpConfig>),
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+pub enum VlessPacketEncoding {
+    #[default]
+    #[serde(rename = "xudp")]
+    Xudp,
+    #[serde(rename = "none")]
+    Raw,
+    #[serde(rename = "packetaddr", alias = "packet")]
+    PacketAddr,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -344,10 +406,43 @@ pub struct AnyTlsOutboundConfig {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AnyTlsCertificatePolicy {
+    pub client_fingerprint: Option<ClientFingerprint>,
     pub alpn: Vec<Vec<u8>>,
     pub skip_cert_verify: bool,
     pub fingerprint: Option<[u8; 32]>,
 }
+
+/// A version-pinned ClientHello profile, independent of certificate pins.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClientFingerprint {
+    Chrome120,
+    Chrome133,
+    Firefox120,
+    Safari16,
+}
+
+fn parse_client_fingerprint(value: Option<&str>) -> Result<Option<ClientFingerprint>> {
+    match value {
+        None | Some("" | "none") => Ok(None),
+        Some(_) if !cfg!(feature = "tls-fingerprint") => {
+            invalid("client-fingerprint is not compiled in")
+        }
+        Some("chrome") => Ok(Some(ClientFingerprint::Chrome133)),
+        Some("chrome120") => Ok(Some(ClientFingerprint::Chrome120)),
+        Some("firefox" | "firefox120") => Ok(Some(ClientFingerprint::Firefox120)),
+        Some("safari" | "safari16") => Ok(Some(ClientFingerprint::Safari16)),
+        Some(_) => invalid("unsupported client-fingerprint"),
+    }
+}
+
+#[cfg(all(
+    test,
+    feature = "outbound-anytls",
+    feature = "outbound-trojan",
+    feature = "outbound-vmess",
+    feature = "outbound-vless"
+))]
+mod fingerprint_tests;
 
 impl std::fmt::Debug for AnyTlsOutboundConfig {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -360,37 +455,130 @@ impl std::fmt::Debug for AnyTlsOutboundConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum VlessEncryption {
     None,
+    MlKem768X25519Plus(String),
+}
+impl std::fmt::Debug for VlessEncryption {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::None => "None",
+            Self::MlKem768X25519Plus(_) => "MlKem768X25519Plus { .. }",
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SecurityConfig {
+    None,
     Tls(TlsConfig),
     Reality(RealityConfig),
+    Jls(JlsConfig),
 }
 
 impl SecurityConfig {
+    fn client_fingerprint(&self) -> Option<ClientFingerprint> {
+        match self {
+            Self::None => None,
+            Self::Tls(config) => config.client_fingerprint,
+            Self::Reality(config) => config.client_fingerprint,
+            Self::Jls(config) => config.tls.client_fingerprint,
+        }
+    }
     #[must_use]
     pub fn server_name(&self) -> &str {
         match self {
+            Self::None => "",
             Self::Tls(config) => &config.server_name,
             Self::Reality(config) => &config.server_name,
+            Self::Jls(config) => &config.tls.server_name,
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TlsConfig {
+    pub ech: Option<StaticEchConfig>,
+    pub client_fingerprint: Option<ClientFingerprint>,
     pub server_name: String,
+    pub alpn: Vec<Vec<u8>>,
+    pub tls13_only: bool,
+    pub required_alpn: Option<Vec<u8>>,
+    pub certificate: TlsCertificatePolicy,
+    pub identity: Option<TlsIdentityPem>,
+}
+
+/// Data-only certificate policy, also available in builds without TLS IO.
+/// A matching leaf pin is the trust decision; a non-leaf pin still verifies
+/// the chain and name. Explicit pin/name checks precede `skip_cert_verify`.
+#[derive(Clone, Default, PartialEq, Eq)]
+pub struct TlsCertificatePolicy {
+    pub verification_name: Option<String>,
+    pub skip_cert_verify: bool,
+    pub fingerprint: Option<[u8; 32]>,
+}
+
+impl std::fmt::Debug for TlsCertificatePolicy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TlsCertificatePolicy")
+            .field("explicit_name", &self.verification_name.is_some())
+            .field("skip_cert_verify", &self.skip_cert_verify)
+            .field("pinned", &self.fingerprint.is_some())
+            .finish()
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct TlsIdentityPem {
+    pub certificate: String,
+    pub private_key: String,
+}
+impl std::fmt::Debug for TlsIdentityPem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TlsIdentityPem").finish_non_exhaustive()
+    }
+}
+
+impl TlsConfig {
+    pub fn xhttp(server_name: String) -> Self {
+        Self {
+            ech: None,
+            client_fingerprint: None,
+            server_name,
+            alpn: vec![b"h2".to_vec()],
+            tls13_only: true,
+            required_alpn: Some(b"h2".to_vec()),
+            certificate: Default::default(),
+            identity: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RealityConfig {
+    pub client_fingerprint: Option<ClientFingerprint>,
+    pub support_x25519mlkem768: bool,
     pub server_name: String,
     pub public_key: [u8; 32],
     pub short_id: Vec<u8>,
+    pub alpn: Vec<Vec<u8>>,
+}
+
+impl RealityConfig {
+    pub(crate) fn validate_fingerprint(&self) -> Result<()> {
+        if self.support_x25519mlkem768
+            && !matches!(
+                self.client_fingerprint,
+                None | Some(ClientFingerprint::Chrome133)
+            )
+        {
+            return invalid(
+                "hybrid REALITY requires client-fingerprint chrome or no named fingerprint",
+            );
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -398,6 +586,10 @@ pub struct XHttpConfig {
     pub path: String,
     pub host: String,
     pub mode: XHttpMode,
+    pub http_version: XHttpVersion,
+    pub headers: XHttpHeaders,
+    pub request: std::sync::Arc<XHttpRequestOptions>,
+    pub reuse: Option<std::sync::Arc<XHttpReuseConfig>>,
     pub download: Option<Box<XHttpDownloadConfig>>,
 }
 
@@ -406,8 +598,12 @@ pub struct XHttpDownloadConfig {
     pub address: String,
     pub port: u16,
     pub security: SecurityConfig,
+    pub http_version: XHttpVersion,
     pub path: String,
     pub host: String,
+    pub headers: XHttpHeaders,
+    pub request: std::sync::Arc<XHttpRequestOptions>,
+    pub reuse: Option<std::sync::Arc<XHttpReuseConfig>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -667,6 +863,12 @@ where
 // protocol fields inline avoids extra heap allocations in the startup path.
 #[allow(clippy::large_enum_variant)]
 enum RawOutbound {
+    #[serde(rename = "hysteria2")]
+    Hysteria2(hysteria2::RawHysteria2),
+    #[serde(rename = "vmess")]
+    Vmess(vmess::RawVmess),
+    #[serde(rename = "trojan")]
+    Trojan(trojan::RawTrojan),
     #[serde(rename = "ss")]
     Shadowsocks {
         name: String,
@@ -684,42 +886,7 @@ enum RawOutbound {
         dialer_proxy: Option<String>,
     },
     #[serde(rename = "vless")]
-    Vless {
-        name: String,
-        server: String,
-        port: u16,
-        uuid: String,
-        #[serde(default)]
-        udp: bool,
-        tls: bool,
-        network: String,
-        #[serde(default)]
-        encryption: String,
-        #[serde(default)]
-        flow: String,
-        #[serde(default, deserialize_with = "deserialize_present_option")]
-        servername: Option<String>,
-        #[serde(default, deserialize_with = "deserialize_present_option")]
-        alpn: Option<Vec<String>>,
-        #[serde(
-            rename = "dialer-proxy",
-            default,
-            deserialize_with = "deserialize_present_option"
-        )]
-        dialer_proxy: Option<String>,
-        #[serde(
-            rename = "reality-opts",
-            default,
-            deserialize_with = "deserialize_present_option"
-        )]
-        reality_opts: Option<RawRealitySettings>,
-        #[serde(
-            rename = "xhttp-opts",
-            default,
-            deserialize_with = "deserialize_present_option"
-        )]
-        xhttp_opts: Option<RawXHttpSettings>,
-    },
+    Vless(vless::RawVless),
     #[serde(rename = "socks5")]
     Socks5 {
         name: String,
@@ -757,6 +924,12 @@ enum RawOutbound {
         #[serde(default, deserialize_with = "deserialize_present_option")]
         fingerprint: Option<String>,
         #[serde(
+            rename = "client-fingerprint",
+            default,
+            deserialize_with = "deserialize_present_option"
+        )]
+        client_fingerprint: Option<String>,
+        #[serde(
             rename = "dialer-proxy",
             default,
             deserialize_with = "deserialize_present_option"
@@ -768,16 +941,130 @@ enum RawOutbound {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawXHttpSettings {
+    #[serde(
+        rename = "reuse-settings",
+        default,
+        deserialize_with = "deserialize_present_map"
+    )]
+    reuse_settings: Option<xhttp::RawReuseConfig>,
     #[serde(default, deserialize_with = "deserialize_present_option")]
     host: Option<String>,
     #[serde(default = "default_path")]
     path: String,
     #[serde(default = "default_xhttp_mode")]
     mode: String,
+    #[serde(default)]
+    headers: std::collections::BTreeMap<String, String>,
+    #[serde(rename = "no-grpc-header", default)]
+    no_grpc_header: bool,
+    #[serde(
+        rename = "x-padding-bytes",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    x_padding_bytes: Option<String>,
+    #[serde(rename = "x-padding-obfs-mode", default)]
+    x_padding_obfs_mode: bool,
+    #[serde(
+        rename = "x-padding-key",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    x_padding_key: Option<String>,
+    #[serde(
+        rename = "x-padding-header",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    x_padding_header: Option<String>,
+    #[serde(
+        rename = "x-padding-placement",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    x_padding_placement: Option<String>,
+    #[serde(
+        rename = "x-padding-method",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    x_padding_method: Option<String>,
+    #[serde(
+        rename = "uplink-http-method",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    uplink_http_method: Option<String>,
+    #[serde(
+        rename = "session-placement",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    session_placement: Option<String>,
+    #[serde(
+        rename = "session-key",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    session_key: Option<String>,
+    #[serde(
+        rename = "session-table",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    session_table: Option<String>,
+    #[serde(
+        rename = "session-length",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    session_length: Option<String>,
+    #[serde(
+        rename = "seq-placement",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    seq_placement: Option<String>,
+    #[serde(
+        rename = "seq-key",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    seq_key: Option<String>,
+    #[serde(
+        rename = "uplink-data-placement",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    uplink_data_placement: Option<String>,
+    #[serde(
+        rename = "uplink-data-key",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    uplink_data_key: Option<String>,
+    #[serde(
+        rename = "uplink-chunk-size",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    uplink_chunk_size: Option<String>,
+    #[serde(
+        rename = "sc-max-each-post-bytes",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    sc_max_each_post_bytes: Option<String>,
+    #[serde(
+        rename = "sc-min-posts-interval-ms",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    sc_min_posts_interval_ms: Option<String>,
     #[serde(
         rename = "download-settings",
         default,
-        deserialize_with = "deserialize_present_option"
+        deserialize_with = "deserialize_present_map"
     )]
     download_settings: Option<RawXHttpDownloadSettings>,
 }
@@ -785,9 +1072,30 @@ struct RawXHttpSettings {
 impl Default for RawXHttpSettings {
     fn default() -> Self {
         Self {
+            reuse_settings: None,
             host: None,
             path: default_path(),
             mode: default_xhttp_mode(),
+            headers: Default::default(),
+            no_grpc_header: false,
+            x_padding_bytes: None,
+            x_padding_obfs_mode: false,
+            x_padding_key: None,
+            x_padding_header: None,
+            x_padding_placement: None,
+            x_padding_method: None,
+            uplink_http_method: None,
+            session_placement: None,
+            session_key: None,
+            session_table: None,
+            session_length: None,
+            seq_placement: None,
+            seq_key: None,
+            uplink_data_placement: None,
+            uplink_data_key: None,
+            uplink_chunk_size: None,
+            sc_max_each_post_bytes: None,
+            sc_min_posts_interval_ms: None,
             download_settings: None,
         }
     }
@@ -796,6 +1104,18 @@ impl Default for RawXHttpSettings {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawXHttpDownloadSettings {
+    #[serde(
+        rename = "client-fingerprint",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    client_fingerprint: Option<String>,
+    #[serde(
+        rename = "reuse-settings",
+        default,
+        deserialize_with = "deserialize_present_map"
+    )]
+    reuse_settings: Option<xhttp::RawReuseConfig>,
     #[serde(default, deserialize_with = "deserialize_present_option")]
     server: Option<String>,
     #[serde(default, deserialize_with = "deserialize_present_option")]
@@ -807,15 +1127,66 @@ struct RawXHttpDownloadSettings {
     #[serde(default, deserialize_with = "deserialize_present_option")]
     alpn: Option<Vec<String>>,
     #[serde(
-        rename = "reality-opts",
+        rename = "skip-cert-verify",
         default,
         deserialize_with = "deserialize_present_option"
     )]
-    reality_opts: Option<RawRealitySettings>,
+    skip_cert_verify: Option<bool>,
+    #[serde(
+        rename = "name-cert-verify",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    name_cert_verify: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_present_option")]
+    fingerprint: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_present_option")]
+    certificate: Option<String>,
+    #[serde(
+        rename = "private-key",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    private_key: Option<String>,
+    #[serde(
+        rename = "reality-opts",
+        default,
+        deserialize_with = "deserialize_present_map"
+    )]
+    reality_opts: Option<RawXHttpDownloadReality>,
+    #[serde(rename = "jls-opts", default, deserialize_with = "jls::deserialize")]
+    jls_opts: Option<jls::RawJls>,
+    #[serde(rename = "ech-opts", default, deserialize_with = "ech::deserialize")]
+    ech_opts: Option<ech::RawEch>,
     #[serde(default, deserialize_with = "deserialize_present_option")]
     path: Option<String>,
     #[serde(default, deserialize_with = "deserialize_present_option")]
     host: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_present_option")]
+    headers: Option<std::collections::BTreeMap<String, String>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawXHttpDownloadReality {
+    #[serde(
+        rename = "public-key",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    public_key: Option<String>,
+    #[serde(
+        rename = "short-id",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    short_id: Option<String>,
+    #[serde(
+        rename = "support-x25519mlkem768",
+        default,
+        deserialize_with = "deserialize_present_option"
+    )]
+    support_x25519mlkem768: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -825,6 +1196,8 @@ struct RawRealitySettings {
     public_key: String,
     #[serde(rename = "short-id", default)]
     short_id: String,
+    #[serde(rename = "support-x25519mlkem768", default)]
+    support_x25519mlkem768: bool,
 }
 
 #[derive(Debug)]
@@ -859,6 +1232,30 @@ where
     T: Deserialize<'de>,
 {
     T::deserialize(deserializer).map(Some)
+}
+
+// Derived structs also accept positional sequences. Configuration objects must
+// remain named maps: in particular, [] must not silently select all defaults.
+fn deserialize_present_map<'de, D, T>(deserializer: D) -> std::result::Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    struct NamedMap<T>(std::marker::PhantomData<T>);
+    impl<'de, T: Deserialize<'de>> Visitor<'de> for NamedMap<T> {
+        type Value = T;
+
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("a named configuration map")
+        }
+
+        fn visit_map<A: MapAccess<'de>>(self, map: A) -> std::result::Result<T, A::Error> {
+            T::deserialize(serde::de::value::MapAccessDeserializer::new(map))
+        }
+    }
+    deserializer
+        .deserialize_map(NamedMap(std::marker::PhantomData))
+        .map(Some)
 }
 
 fn deserialize_non_null_vec<'de, D, T>(deserializer: D) -> std::result::Result<Vec<T>, D::Error>
@@ -1538,6 +1935,9 @@ pub(crate) fn proxy_graph_order(
 impl RawOutbound {
     fn normalize(self) -> Result<PendingProxyConfig> {
         let (tag, dialer_proxy, udp, protocol) = match self {
+            Self::Hysteria2(raw) => raw.normalize()?,
+            Self::Vmess(raw) => raw.normalize()?,
+            Self::Trojan(raw) => raw.normalize()?,
             Self::Shadowsocks {
                 name,
                 server,
@@ -1552,39 +1952,7 @@ impl RawOutbound {
                 udp,
                 ProxyProtocol::Shadowsocks(shadowsocks::normalize(server, port, cipher, password)?),
             ),
-            Self::Vless {
-                name,
-                server,
-                port,
-                uuid,
-                udp,
-                tls,
-                network,
-                encryption,
-                flow,
-                servername,
-                alpn,
-                dialer_proxy,
-                reality_opts,
-                xhttp_opts,
-            } => (
-                name,
-                dialer_proxy,
-                udp,
-                ProxyProtocol::Vless(normalize_vless(
-                    server,
-                    port,
-                    uuid,
-                    tls,
-                    network,
-                    encryption,
-                    flow,
-                    servername,
-                    alpn,
-                    reality_opts,
-                    xhttp_opts,
-                )?),
-            ),
+            Self::Vless(raw) => raw.normalize()?,
             Self::Socks5 {
                 name,
                 server,
@@ -1610,12 +1978,10 @@ impl RawOutbound {
                 alpn,
                 skip_cert_verify,
                 fingerprint,
+                client_fingerprint,
                 dialer_proxy,
-            } => (
-                name,
-                dialer_proxy,
-                udp,
-                ProxyProtocol::AnyTls(normalize_anytls(
+            } => {
+                let mut config = normalize_anytls(
                     server,
                     port,
                     password,
@@ -1623,8 +1989,11 @@ impl RawOutbound {
                     alpn,
                     skip_cert_verify,
                     fingerprint,
-                )?),
-            ),
+                )?;
+                config.tls.client_fingerprint =
+                    parse_client_fingerprint(client_fingerprint.as_deref())?;
+                (name, dialer_proxy, udp, ProxyProtocol::AnyTls(config))
+            }
         };
         validate_route_target_definition_name(&tag, "proxy name")?;
         if let Some(dialer_proxy) = &dialer_proxy {
@@ -1637,65 +2006,6 @@ impl RawOutbound {
             protocol,
         })
     }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn normalize_vless(
-    server: String,
-    port: u16,
-    uuid: String,
-    tls: bool,
-    network: String,
-    encryption: String,
-    flow: String,
-    servername: Option<String>,
-    alpn: Option<Vec<String>>,
-    reality_opts: Option<RawRealitySettings>,
-    xhttp_opts: Option<RawXHttpSettings>,
-) -> Result<VlessOutboundConfig> {
-    validate_host(&server, "VLESS server")?;
-    validate_port(port, "VLESS")?;
-    let id = parse_standard_uuid(&uuid)?;
-    if !matches!(encryption.as_str(), "" | "none") {
-        return invalid("VLESS encryption must be empty or `none`");
-    }
-    if !flow.is_empty() {
-        return invalid("VLESS flow must be empty");
-    }
-    if !tls {
-        return invalid("VLESS tls must be true");
-    }
-    if network != "xhttp" {
-        return invalid("VLESS network must be `xhttp`");
-    }
-    if let Some(alpn) = alpn
-        && alpn.as_slice() != ["h2"]
-    {
-        return invalid("VLESS alpn must be [h2] when configured");
-    }
-    let server_name_is_explicit = servername.is_some();
-    let server_name = servername.unwrap_or_else(|| server.clone());
-    validate_host(&server_name, "VLESS servername")?;
-    let security = match reality_opts {
-        Some(reality) => SecurityConfig::Reality(reality.normalize(server_name)?),
-        None => SecurityConfig::Tls(TlsConfig { server_name }),
-    };
-    let xhttp = xhttp_opts.unwrap_or_default().normalize(
-        &server,
-        port,
-        server_name_is_explicit.then_some(security.server_name()),
-        security.server_name(),
-        &security,
-    )?;
-    Ok(VlessOutboundConfig {
-        address: server,
-        port,
-        id,
-        encryption: VlessEncryption::None,
-        flow,
-        security,
-        xhttp,
-    })
 }
 
 impl RawRealitySettings {
@@ -1722,9 +2032,12 @@ impl RawRealitySettings {
         }
 
         Ok(RealityConfig {
+            client_fingerprint: None,
+            support_x25519mlkem768: self.support_x25519mlkem768,
             server_name,
             public_key,
             short_id,
+            alpn: vec![b"h2".to_vec()],
         })
     }
 }
@@ -1817,6 +2130,7 @@ fn normalize_anytls(
         password,
         server_name,
         tls: AnyTlsCertificatePolicy {
+            client_fingerprint: None,
             alpn,
             skip_cert_verify,
             fingerprint,
@@ -1832,13 +2146,39 @@ impl RawXHttpSettings {
         default_explicit_server_name: Option<&str>,
         default_host: &str,
         security: &SecurityConfig,
+        http_version: XHttpVersion,
     ) -> Result<XHttpConfig> {
+        if http_version == XHttpVersion::Http3 && !matches!(security, SecurityConfig::Tls(_)) {
+            return invalid("XHTTP HTTP/3 requires standard TLS");
+        }
+        let headers = XHttpHeaders::normalize(self.headers.clone())?;
+        let has_download = self.download_settings.is_some();
+        let mode = match self.mode.as_str() {
+            "auto" if matches!(security, SecurityConfig::Reality(_)) && has_download => {
+                XHttpMode::StreamUp
+            }
+            "auto" if matches!(security, SecurityConfig::Reality(_)) => XHttpMode::StreamOne,
+            "auto" | "packet-up" => XHttpMode::PacketUp,
+            "stream-one" if !has_download => XHttpMode::StreamOne,
+            "stream-one" => {
+                return invalid("xhttp mode `stream-one` cannot be used with download-settings");
+            }
+            "stream-up" => XHttpMode::StreamUp,
+            _ => return invalid("XHTTP mode must be auto, packet-up, stream-up, or stream-one"),
+        };
+        let request = std::sync::Arc::new(XHttpRequestOptions::normalize(&self, &headers, mode)?);
+        let reuse = self
+            .reuse_settings
+            .map(|raw| raw.normalize(http_version))
+            .transpose()?
+            .map(std::sync::Arc::new);
         let Self {
             host,
             path,
-            mode,
             download_settings,
+            ..
         } = self;
+        let host = host.filter(|value| !value.is_empty());
         if path.is_empty()
             || path.len() > 2_048
             || !path.starts_with('/')
@@ -1848,16 +2188,19 @@ impl RawXHttpSettings {
                 "xhttp-opts.path must be a valid path/query starting with `/` and at most 2048 bytes",
             );
         }
-        let download = download_settings
+        let mut download = download_settings
             .map(|settings| {
-                settings.normalize(
-                    default_address,
-                    default_port,
-                    default_explicit_server_name,
+                settings.normalize(XHttpDownloadDefaults {
+                    address: default_address,
+                    port: default_port,
+                    explicit_server_name: default_explicit_server_name,
                     security,
-                    &path,
-                    host.as_deref(),
-                )
+                    http_version,
+                    path: &path,
+                    explicit_host: host.as_deref(),
+                    headers: &headers,
+                    reuse: &reuse,
+                })
             })
             .transpose()?
             .map(Box::new);
@@ -1867,60 +2210,106 @@ impl RawXHttpSettings {
                 |address| format!("[{address}]"),
             )
         });
-        if host.is_empty() || host.len() > 253 || host.parse::<http::uri::Authority>().is_err() {
+        if host.is_empty()
+            || host.len() > 253
+            || host.contains('@')
+            || host.parse::<http::uri::Authority>().is_err()
+        {
             return invalid("xhttp-opts.host must be a valid HTTP authority");
         }
 
-        let mode = match mode.as_str() {
-            "auto" if matches!(security, SecurityConfig::Reality(_)) && download.is_some() => {
-                XHttpMode::StreamUp
-            }
-            "auto" if matches!(security, SecurityConfig::Reality(_)) => XHttpMode::StreamOne,
-            "auto" | "packet-up" => XHttpMode::PacketUp,
-            "stream-one" if download.is_none() => XHttpMode::StreamOne,
-            "stream-one" => {
-                return invalid("xhttp mode `stream-one` cannot be used with download-settings");
-            }
-            "stream-up" => XHttpMode::StreamUp,
-            _ => return invalid("XHTTP mode must be auto, packet-up, stream-up, or stream-one"),
-        };
+        if let Some(download) = &mut download {
+            request.validate_headers(&download.headers, &download.path)?;
+            download.request = request.clone();
+        }
         Ok(XHttpConfig {
             path,
             host,
             mode,
+            http_version,
+            headers,
+            request,
             download,
+            reuse,
         })
     }
 }
 
+struct XHttpDownloadDefaults<'a> {
+    reuse: &'a Option<std::sync::Arc<XHttpReuseConfig>>,
+    address: &'a str,
+    port: u16,
+    explicit_server_name: Option<&'a str>,
+    security: &'a SecurityConfig,
+    http_version: XHttpVersion,
+    path: &'a str,
+    explicit_host: Option<&'a str>,
+    headers: &'a XHttpHeaders,
+}
+
 impl RawXHttpDownloadSettings {
-    fn normalize(
-        self,
-        default_address: &str,
-        default_port: u16,
-        default_explicit_server_name: Option<&str>,
-        default_security: &SecurityConfig,
-        default_path: &str,
-        default_explicit_host: Option<&str>,
-    ) -> Result<XHttpDownloadConfig> {
+    fn normalize(self, defaults: XHttpDownloadDefaults<'_>) -> Result<XHttpDownloadConfig> {
+        let XHttpDownloadDefaults {
+            reuse: default_reuse,
+            address: default_address,
+            port: default_port,
+            explicit_server_name: default_explicit_server_name,
+            security: default_security,
+            http_version: default_http_version,
+            path: default_path,
+            explicit_host: default_explicit_host,
+            headers: default_headers,
+        } = defaults;
         let Self {
             server,
             port,
             tls,
             servername,
             alpn,
+            skip_cert_verify,
+            name_cert_verify,
+            fingerprint,
+            client_fingerprint,
+            certificate,
+            private_key,
             reality_opts,
+            jls_opts,
+            ech_opts,
             path,
             host,
+            headers,
+            reuse_settings,
         } = self;
+        let headers = headers
+            .map(XHttpHeaders::normalize)
+            .transpose()?
+            .unwrap_or_else(|| default_headers.clone());
 
-        if tls == Some(false) {
-            return invalid("xhttp-opts.download-settings.tls must be true when configured");
+        let http_version = alpn
+            .as_deref()
+            .map(XHttpVersion::from_alpn)
+            .transpose()?
+            .unwrap_or(default_http_version);
+        let tls = tls.unwrap_or(!matches!(default_security, SecurityConfig::None));
+        let client_fingerprint = match client_fingerprint {
+            Some(value) => parse_client_fingerprint(Some(&value))?,
+            None => default_security.client_fingerprint(),
+        };
+        if client_fingerprint.is_some() && (!tls || http_version == XHttpVersion::Http3) {
+            return invalid(
+                "XHTTP download client-fingerprint requires TCP TLS; clear the inherited profile before selecting plaintext or HTTP/3",
+            );
         }
-        if let Some(alpn) = &alpn
-            && alpn.as_slice() != ["h2"]
+        let reuse = match reuse_settings {
+            Some(raw) => Some(std::sync::Arc::new(raw.normalize(http_version)?)),
+            None => default_reuse.clone(),
+        };
+        if http_version == XHttpVersion::Http1
+            && reuse
+                .as_ref()
+                .is_some_and(|value| value.keep_alive_seconds != 0)
         {
-            return invalid("xhttp-opts.download-settings.alpn must be [h2] when configured");
+            return invalid("XHTTP HTTP/1 download cannot inherit a keepalive period override");
         }
 
         let address = server.unwrap_or_else(|| default_address.to_owned());
@@ -1934,25 +2323,150 @@ impl RawXHttpDownloadSettings {
         validate_host(&server_name, "XHTTP download servername")?;
         let host = host
             .or_else(|| default_explicit_host.map(str::to_owned))
+            .filter(|value| !value.is_empty())
             .unwrap_or_else(|| {
                 server_name
                     .parse::<std::net::Ipv6Addr>()
                     .map_or_else(|_| server_name.clone(), |address| format!("[{address}]"))
             });
-        if host.is_empty() || host.len() > 253 || host.parse::<http::uri::Authority>().is_err() {
+        if host.is_empty()
+            || host.len() > 253
+            || host.contains('@')
+            || host.parse::<http::uri::Authority>().is_err()
+        {
             return invalid("xhttp-opts.download-settings.host must be a valid HTTP authority");
         }
-        let security = match reality_opts {
-            Some(reality) => SecurityConfig::Reality(reality.normalize(server_name)?),
-            None => {
-                let mut security = default_security.clone();
-                match &mut security {
-                    SecurityConfig::Tls(config) => config.server_name = server_name,
-                    SecurityConfig::Reality(config) => config.server_name = server_name,
+        let reality = match reality_opts {
+            None => match default_security {
+                SecurityConfig::Reality(config) => {
+                    let mut config = config.clone();
+                    config.server_name = server_name.clone();
+                    Some(config)
                 }
-                security
-            }
+                _ => None,
+            },
+            Some(RawXHttpDownloadReality {
+                public_key: None,
+                short_id: None,
+                support_x25519mlkem768: None,
+            }) => None,
+            Some(RawXHttpDownloadReality {
+                public_key: Some(public_key),
+                short_id,
+                support_x25519mlkem768,
+            }) => Some(
+                RawRealitySettings {
+                    public_key,
+                    short_id: short_id.unwrap_or_default(),
+                    support_x25519mlkem768: support_x25519mlkem768.unwrap_or(false),
+                }
+                .normalize(server_name.clone())?,
+            ),
+            Some(_) => return invalid("XHTTP download REALITY replacement requires public-key"),
         };
+        // Resolve inherited leaf policies before choosing the final security
+        // mode. A mode switch must not silently erase a pin or client identity.
+        let mut config = match default_security {
+            SecurityConfig::Tls(config) => config.clone(),
+            SecurityConfig::Jls(config) => config.tls.clone(),
+            _ => TlsConfig::xhttp(server_name.clone()),
+        };
+        config.server_name = server_name;
+        config.client_fingerprint = client_fingerprint;
+        config.alpn = vec![http_version.alpn().to_vec()];
+        config.required_alpn = Some(http_version.alpn().to_vec());
+        if let Some(raw) = ech_opts {
+            config.ech = raw.normalize()?;
+        }
+        if config.ech.is_some() && config.server_name.parse::<IpAddr>().is_ok() {
+            return invalid("XHTTP download ECH requires a DNS servername");
+        }
+        if let Some(skip) = skip_cert_verify {
+            config.certificate.skip_cert_verify = skip;
+        }
+        if let Some(name) = name_cert_verify {
+            config.certificate.verification_name = if name.is_empty() {
+                None
+            } else {
+                validate_host(&name, "XHTTP download certificate verification name")?;
+                Some(name)
+            };
+        }
+        if let Some(pin) = fingerprint {
+            config.certificate.fingerprint = if pin.is_empty() {
+                None
+            } else {
+                Some(vless::parse_pin(&pin)?)
+            };
+        }
+        match (certificate, private_key) {
+            (None, None) => {}
+            (Some(certificate), Some(private_key))
+                if certificate.is_empty() && private_key.is_empty() =>
+            {
+                config.identity = None
+            }
+            (Some(certificate), Some(private_key)) => {
+                vless::validate_client_identity(&certificate, &private_key)?;
+                config.identity = Some(TlsIdentityPem {
+                    certificate,
+                    private_key,
+                });
+            }
+            _ => {
+                return invalid(
+                    "XHTTP download certificate and private-key must be replaced or cleared together",
+                );
+            }
+        }
+        let certificate_policy = config.certificate.skip_cert_verify
+            || config.certificate.verification_name.is_some()
+            || config.certificate.fingerprint.is_some()
+            || config.identity.is_some();
+        let jls = match jls_opts {
+            Some(raw) if raw.is_empty() => None,
+            Some(raw) => Some(raw.normalize(config.clone())?),
+            None => match default_security {
+                SecurityConfig::Jls(config) => Some(config.clone()),
+                _ => None,
+            },
+        };
+        if reality.is_some() && jls.is_some() {
+            return invalid("XHTTP download JLS and REALITY are mutually exclusive");
+        }
+        if config.ech.is_some() && (reality.is_some() || jls.is_some() || !tls) {
+            return invalid(
+                "XHTTP download ECH requires standard TLS; clear inherited ECH before changing security mode",
+            );
+        }
+        if (reality.is_some() || jls.is_some() || !tls) && certificate_policy {
+            return invalid(
+                "XHTTP download must explicitly clear inherited certificate policy before changing security mode",
+            );
+        }
+        let security = if let Some(mut reality) = reality {
+            if !tls {
+                return invalid("XHTTP download REALITY requires TLS");
+            }
+            reality.alpn = vec![http_version.alpn().to_vec()];
+            reality.client_fingerprint = client_fingerprint;
+            reality.validate_fingerprint()?;
+            SecurityConfig::Reality(reality)
+        } else if let Some(mut jls) = jls {
+            if !tls {
+                return invalid("XHTTP download JLS requires TLS");
+            }
+            jls.tls = config;
+            jls.validate()?;
+            SecurityConfig::Jls(jls)
+        } else if tls {
+            SecurityConfig::Tls(config)
+        } else {
+            SecurityConfig::None
+        };
+        if http_version == XHttpVersion::Http3 && !matches!(security, SecurityConfig::Tls(_)) {
+            return invalid("XHTTP HTTP/3 download requires standard TLS");
+        }
 
         let path = path.unwrap_or_else(|| default_path.to_owned());
         if path.is_empty()
@@ -1968,8 +2482,12 @@ impl RawXHttpDownloadSettings {
             address,
             port,
             security,
+            http_version,
             path,
             host,
+            headers,
+            request: Default::default(),
+            reuse,
         })
     }
 }
@@ -2796,9 +3314,7 @@ proxies:
 
     fn first_xhttp_download(config: &Config) -> &XHttpDownloadConfig {
         first_vless(config)
-            .xhttp
-            .download
-            .as_deref()
+            .download()
             .expect("expected XHTTP download settings")
     }
 
@@ -2848,10 +3364,13 @@ proxies:
         assert_eq!(first_vless(&config).address, "203.0.113.1");
         assert!(matches!(
             &first_vless(&config).security,
-            SecurityConfig::Tls(TlsConfig { server_name }) if server_name == "example.com"
+            SecurityConfig::Tls(TlsConfig { server_name, .. }) if server_name == "example.com"
         ));
-        assert_eq!(first_vless(&config).xhttp.mode, XHttpMode::PacketUp);
-        assert!(first_vless(&config).xhttp.download.is_none());
+        assert_eq!(
+            first_vless(&config).xhttp().unwrap().mode,
+            XHttpMode::PacketUp
+        );
+        assert!(first_vless(&config).xhttp().unwrap().download.is_none());
     }
 
     #[test]
@@ -3031,9 +3550,12 @@ geo-update-interval: 24"#,
             );
         let config = Config::parse_yaml(yaml.as_bytes()).unwrap();
         assert_eq!(first_vless(&config).flow, "");
-        assert_eq!(first_vless(&config).xhttp.path, "/");
-        assert_eq!(first_vless(&config).xhttp.host, "example.com");
-        assert_eq!(first_vless(&config).xhttp.mode, XHttpMode::PacketUp);
+        assert_eq!(first_vless(&config).xhttp().unwrap().path, "/");
+        assert_eq!(first_vless(&config).xhttp().unwrap().host, "example.com");
+        assert_eq!(
+            first_vless(&config).xhttp().unwrap().mode,
+            XHttpMode::PacketUp
+        );
         assert!(matches!(
             config.inbounds[1],
             InboundConfig::Tun(TunInboundConfig { mtu: 1_500, .. })
@@ -3195,7 +3717,7 @@ geo-update-interval: 24"#,
             .replace("servername: example.com", "servername: '::1'")
             .replace("      host: example.com\n", "");
         let config = Config::parse_yaml(yaml.as_bytes()).unwrap();
-        assert_eq!(first_vless(&config).xhttp.host, "[::1]");
+        assert_eq!(first_vless(&config).xhttp().unwrap().host, "[::1]");
     }
 
     #[test]
@@ -3207,19 +3729,25 @@ geo-update-interval: 24"#,
         assert_eq!(reality.server_name, "example.com");
         assert_eq!(reality.public_key, [7_u8; 32]);
         assert_eq!(reality.short_id, [1, 0xa2]);
-        assert_eq!(first_vless(&config).xhttp.mode, XHttpMode::StreamOne);
+        assert_eq!(
+            first_vless(&config).xhttp().unwrap().mode,
+            XHttpMode::StreamOne
+        );
     }
 
     #[test]
     fn auto_mode_tracks_the_security_transport() {
         let tls = Config::parse_yaml(CURRENT_TLS.as_bytes()).unwrap();
-        assert_eq!(first_vless(&tls).xhttp.mode, XHttpMode::PacketUp);
+        assert_eq!(first_vless(&tls).xhttp().unwrap().mode, XHttpMode::PacketUp);
         let reality = Config::parse_yaml(reality_yaml().as_bytes()).unwrap();
-        assert_eq!(first_vless(&reality).xhttp.mode, XHttpMode::StreamOne);
+        assert_eq!(
+            first_vless(&reality).xhttp().unwrap().mode,
+            XHttpMode::StreamOne
+        );
         let reality_with_download = with_xhttp_download(&reality_yaml(), "");
         let reality_with_download = Config::parse_yaml(reality_with_download.as_bytes()).unwrap();
         assert_eq!(
-            first_vless(&reality_with_download).xhttp.mode,
+            first_vless(&reality_with_download).xhttp().unwrap().mode,
             XHttpMode::StreamUp
         );
     }
@@ -3228,13 +3756,22 @@ geo-update-interval: 24"#,
     fn accepts_explicit_supported_xhttp_modes() {
         let packet_up = CURRENT_TLS.replace("mode: auto", "mode: packet-up");
         let packet_up = Config::parse_yaml(packet_up.as_bytes()).unwrap();
-        assert_eq!(first_vless(&packet_up).xhttp.mode, XHttpMode::PacketUp);
+        assert_eq!(
+            first_vless(&packet_up).xhttp().unwrap().mode,
+            XHttpMode::PacketUp
+        );
         let stream_one = CURRENT_TLS.replace("mode: auto", "mode: stream-one");
         let stream_one = Config::parse_yaml(stream_one.as_bytes()).unwrap();
-        assert_eq!(first_vless(&stream_one).xhttp.mode, XHttpMode::StreamOne);
+        assert_eq!(
+            first_vless(&stream_one).xhttp().unwrap().mode,
+            XHttpMode::StreamOne
+        );
         let stream_up = CURRENT_TLS.replace("mode: auto", "mode: stream-up");
         let stream_up = Config::parse_yaml(stream_up.as_bytes()).unwrap();
-        assert_eq!(first_vless(&stream_up).xhttp.mode, XHttpMode::StreamUp);
+        assert_eq!(
+            first_vless(&stream_up).xhttp().unwrap().mode,
+            XHttpMode::StreamUp
+        );
 
         for (mode, expected) in [
             ("packet-up", XHttpMode::PacketUp),
@@ -3243,7 +3780,7 @@ geo-update-interval: 24"#,
             let yaml = with_xhttp_download(CURRENT_TLS, "")
                 .replace("mode: auto", &format!("mode: {mode}"));
             let config = Config::parse_yaml(yaml.as_bytes()).unwrap();
-            assert_eq!(first_vless(&config).xhttp.mode, expected);
+            assert_eq!(first_vless(&config).xhttp().unwrap().mode, expected);
         }
     }
 
@@ -3258,9 +3795,12 @@ geo-update-interval: 24"#,
         assert_eq!(download.host, "example.com");
         assert!(matches!(
             &download.security,
-            SecurityConfig::Tls(TlsConfig { server_name }) if server_name == "example.com"
+            SecurityConfig::Tls(TlsConfig { server_name, .. }) if server_name == "example.com"
         ));
-        assert_eq!(first_vless(&tls_inherited).xhttp.mode, XHttpMode::PacketUp);
+        assert_eq!(
+            first_vless(&tls_inherited).xhttp().unwrap().mode,
+            XHttpMode::PacketUp
+        );
 
         let download_reality_key = URL_SAFE_NO_PAD.encode([9_u8; 32]);
         let tls_to_reality = with_xhttp_download(
@@ -3288,7 +3828,10 @@ geo-update-interval: 24"#,
         assert_eq!(download_reality.server_name, "reality-download.example.com");
         assert_eq!(download_reality.public_key, [9_u8; 32]);
         assert_eq!(download_reality.short_id, [2, 0xa3]);
-        assert_eq!(first_vless(&tls_to_reality).xhttp.mode, XHttpMode::PacketUp);
+        assert_eq!(
+            first_vless(&tls_to_reality).xhttp().unwrap().mode,
+            XHttpMode::PacketUp
+        );
 
         let reality_inherited = with_xhttp_download(&reality_yaml(), "");
         let reality_inherited = Config::parse_yaml(reality_inherited.as_bytes()).unwrap();
@@ -3297,7 +3840,7 @@ geo-update-interval: 24"#,
             &first_vless(&reality_inherited).security
         );
         assert_eq!(
-            first_vless(&reality_inherited).xhttp.mode,
+            first_vless(&reality_inherited).xhttp().unwrap().mode,
             XHttpMode::StreamUp
         );
 
@@ -3314,7 +3857,10 @@ geo-update-interval: 24"#,
         };
         assert_eq!(download_reality.server_name, "tls-download.example.com");
         assert_eq!(
-            first_vless(&reality_with_explicit_tls).xhttp.mode,
+            first_vless(&reality_with_explicit_tls)
+                .xhttp()
+                .unwrap()
+                .mode,
             XHttpMode::StreamUp
         );
     }
@@ -3394,9 +3940,9 @@ geo-update-interval: 24"#,
         }
 
         for fields in [
-            "tls: false",
-            "alpn: []",
-            "alpn: [h3]",
+            "tls: 'false'",
+            "alpn: [unknown]",
+            "alpn: [h3, h2]",
             "server: 'bad host'",
             "port: 0",
             "servername: 'bad host'",
@@ -3413,16 +3959,6 @@ geo-update-interval: 24"#,
         for fields in [
             "shadow-tls-opts: {}",
             "restls-opts: {}",
-            "jls-opts: {}",
-            "ech-opts: {}",
-            "headers: {}",
-            "reuse-settings: {}",
-            "skip-cert-verify: false",
-            "name-cert-verify: example.com",
-            "fingerprint: pinned",
-            "certificate: cert.pem",
-            "private-key: key.pem",
-            "client-fingerprint: chrome",
             "mode: stream-up",
             "typo: true",
         ] {
@@ -3434,11 +3970,7 @@ geo-update-interval: 24"#,
             );
         }
 
-        for unsupported in [
-            "    shadow-tls-opts: {}\n",
-            "    restls-opts: {}\n",
-            "    jls-opts: null\n",
-        ] {
+        for unsupported in ["    shadow-tls-opts: {}\n", "    restls-opts: {}\n"] {
             let yaml = CURRENT_TLS.replace(
                 "    xhttp-opts:\n",
                 &format!("{unsupported}    xhttp-opts:\n"),
@@ -3478,13 +4010,9 @@ geo-update-interval: 24"#,
             CURRENT_TLS.replace("    server: ", "    vnext: []\n    server: "),
             CURRENT_TLS.replace("    network: xhttp", "    typo: true\n    network: xhttp"),
             CURRENT_TLS.replace("      path: /x", "      typo: true\n      path: /x"),
-            CURRENT_TLS.replace(
-                "    servername: example.com",
-                "    client-fingerprint: chrome\n    servername: example.com",
-            ),
             reality_yaml().replace(
                 "      public-key:",
-                "      support-x25519mlkem768: true\n      public-key:",
+                "      unknown-reality-option: true\n      public-key:",
             ),
         ] {
             let error = Config::parse_yaml(yaml.as_bytes()).unwrap_err();
@@ -3943,7 +4471,6 @@ authentication:
     fn rejects_anytls_fields_outside_the_locked_subset() {
         for field in [
             "tls: true",
-            "client-fingerprint: chrome",
             "ech-opts: {}",
             "certificate: client.crt",
             "private-key: client.key",
@@ -4078,10 +4605,10 @@ authentication:
     #[test]
     fn validates_tls_and_xhttp_whitelists() {
         for yaml in [
-            CURRENT_TLS.replace("alpn: [h2]", "alpn: [http/1.1]"),
+            CURRENT_TLS.replace("alpn: [h2]", "alpn: [unknown]"),
             CURRENT_TLS.replace(
                 "    alpn: [h2]",
-                "    alpn: [h2]\n    skip-cert-verify: false",
+                "    alpn: [h2]\n    skip-cert-verify: null",
             ),
             CURRENT_TLS.replace("    alpn: [h2]", "    alpn: [h2]\n    allowInsecure: true"),
             CURRENT_TLS.replace("path: /x", "path: '/bad path'"),

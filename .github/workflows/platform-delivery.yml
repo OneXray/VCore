@@ -1,0 +1,78 @@
+name: Release builds
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  production:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: apple
+            label: Apple
+            platform: apple
+            runner: macos-15
+            targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios,aarch64-apple-darwin,x86_64-apple-darwin
+            manifest: dist/apple/vcore-delivery.json
+          - name: android
+            label: Android
+            platform: android
+            runner: ubuntu-24.04
+            targets: aarch64-linux-android,x86_64-linux-android
+            manifest: dist/android/vcore-delivery.json
+          - name: windows-x64
+            label: Windows x64
+            platform: windows
+            runner: windows-2025
+            targets: x86_64-pc-windows-msvc
+            manifest: dist/windows/x64/vcore-delivery.json
+          - name: windows-arm64
+            label: Windows ARM64
+            platform: windows
+            runner: windows-11-arm
+            targets: aarch64-pc-windows-msvc
+            manifest: dist/windows/arm64/vcore-delivery.json
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.targets }}
+          components: rustfmt
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: "0.12.15"
+          python-version: "3.13"
+      - name: Platform artifact contracts
+        run: uv run --project scripts --locked python -m unittest discover -s scripts/tests -p test_platform_delivery.py
+      - name: Locked source
+        run: cargo fetch --locked
+      - name: Android toolchain
+        if: matrix.platform == 'android'
+        shell: bash
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;28.2.13676358"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
+      - name: Build production artifacts and record identity
+        run: uv run --project scripts --locked vcore-scripts build ${{ matrix.platform }} --delivery
+      - name: Independently verify packaged files
+        run: uv run --project scripts --locked vcore-scripts check platform-artifacts --manifest ${{ matrix.manifest }}
+      - name: Native C ABI and Windows snapshot/startup contracts
+        if: matrix.platform != 'android'
+        run: uv run --project scripts --locked vcore-scripts check platform-abi --manifest ${{ matrix.manifest }}
+      - name: Preserve unsigned artifacts and evidence
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: vcore-${{ matrix.name }}-${{ github.sha }}
+          path: |
+            dist/${{ matrix.platform }}/
+            target/platform-delivery/abi/**/result.json
+          if-no-files-found: error
+          retention-days: 14

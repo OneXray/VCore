@@ -4,11 +4,11 @@
   <a href="../README.md">English</a> · <a href="./README.zh_CN.md">简体中文</a> · Русский
 </p>
 
-VCore — независимое клиентское прокси-ядро на Rust, не привязанное к конкретному хост-приложению. Через строгую YAML-конфигурацию и Invoke API v5 оно предоставляет граф прокси, статические группы `select`, DNS, правила маршрутизации, GeoData, HTTP/SOCKS5 listeners, плоскость данных TUN и loopback Controller. Внутренняя ревизия схемы конфигурации — 14; она присутствует только в ответе `version` и `buildIdentity`, но не записывается в YAML.
+VCore — независимое клиентское прокси-ядро на Rust, не привязанное к конкретному хост-приложению. Через строгую YAML-конфигурацию и Invoke API v5 оно предоставляет граф прокси, статические группы `select`, DNS, правила маршрутизации, GeoData, HTTP/SOCKS5 listeners, плоскость данных TUN и loopback Controller. Внутренняя ревизия схемы конфигурации — 27; она присутствует только в ответе `version` и `buildIdentity`, но не записывается в YAML.
 
 ## Возможности
 
-- Исходящие подключения: VLESS + XHTTP + TLS/REALITY, SOCKS5 CONNECT/UDP ASSOCIATE, AnyTLS TCP/UoT и DIRECT.
+- Исходящие подключения: [VLESS TCP/WS/gRPC/HTTP/H2/XHTTP, TLS/REALITY и Vision](../docs/vless.md), SOCKS5 CONNECT/UDP ASSOCIATE, AnyTLS TCP/UoT, Shadowsocks 2022, [Trojan TCP/UDP через TLS/WS/gRPC](../docs/outbounds.md#trojan), [VMess AEAD через TCP/WS/gRPC/HTTP/H2](../docs/outbounds.md#vmess-aead), [Hysteria2 TCP/UDP, управление скоростью, Salamander и смена портов](../docs/outbounds.md#hysteria2) и DIRECT.
 - Цепочки прокси: `dialer-proxy` образует ориентированный ациклический граф произвольной длины. Если узел A указывает на B, физический путь имеет вид `client -> B -> A -> target`.
 - Группы прокси: статические группы `select` сохраняют порядок участников; участниками могут быть конкретные узлы, вложенные группы, `DIRECT` и `REJECT`. Выбор текущей session можно менять через Controller. `dialer-proxy` принимает узел или группу; DIRECT в группе верхнего уровня подключается к заранее разрешённому серверу текущего узла.
 - Маршрутизация: последовательно применяются `DOMAIN`, `DOMAIN-SUFFIX`, `DOMAIN-KEYWORD`, `GEOSITE`, `GEOIP`, `IP-CIDR`, `IP-CIDR6`, `DST-PORT`, `NETWORK` и завершающее правило `MATCH`.
@@ -17,6 +17,7 @@ VCore — независимое клиентское прокси-ядро на
 - Listeners: HTTP CONNECT/forward с аутентификацией и маршрутизацией каждого запроса, потоковыми телами, Keep-Alive и Upgrade; SOCKS5 CONNECT и UDP ASSOCIATE с авторизацией через TCP. По умолчанию доступ локальный без аутентификации; для LAN требуется общая пара имени пользователя и пароля.
 - GeoData: VCore управляет `geosite.dat` и `geoip.dat` в `dataDir/geodata`, загружает их по запросу и может обновлять через цепочку прокси.
 - Измерение задержки: `measureDelay` принимает за вызов 1–5 конфигураций node-only, использует до пяти частных worker и сохраняет порядок входных данных в результатах.
+- TLS: независимый pin сертификата и четыре необязательных [шаблона ClientHello](../docs/tls-client-fingerprint.md); [VLESS JLS](../docs/vless.md#jls) сохраняет полную аутентификацию TLS. [Статический ECH](../docs/vless.md#静态-ech) использует явную конфигурацию основного и download-соединения VLESS, без динамических DNS-запросов или отката при ошибке.
 
 ## Конфигурация
 
@@ -72,6 +73,8 @@ Authorization: Bearer <secret>
 
 `GET /traffic` возвращает одноразовый TUN snapshot `up/down/upTotal/downTotal`. Конечные точки групп читают и изменяют выбранного прямого участника статической группы `select`; успешное изменение влияет только на новые физические TCP-, UDP- и DNS-transports текущей session. Оно не переносит существующие соединения, UDP associations, состояние DNS или pooled TCP transports и не выполняет автоматический failover. Controller, управляющий группами, требует один Bearer secret для всех маршрутов и может работать без TUN. Подробности — в [`docs/controller-api.md`](../docs/controller-api.md).
 
+Аутентифицированная сессия Hysteria2 сохраняет выбранный upstream при смене портов. Замена socket в той же QUIC-сессии не считывает выбор группы заново; новый выбор применяется только к новой аутентифицированной сессии.
+
 ## Платформы
 
 | Платформа | Плоскость данных | Статус |
@@ -93,7 +96,7 @@ packet queue                     256
 ordinary event / UDP response    128
 DNS ingress / DNS response       128 / 128
 TCP buffer                       32 KiB per direction
-TLS / XHTTP buffer               64 KiB
+rustls / XHTTP buffer            64 KiB
 DNS typed cache                  256 entries
 DNS opaque cache                 64 entries / 256 KiB
 GeoData allocation capacity      8 MiB
@@ -105,22 +108,11 @@ TCP sessions, обычные UDP associations, half-open connections, outbound h
 
 ## Документация
 
-- [Оглавление документации](../docs/README.md)
-- [Контракт конфигурации](../docs/config.yaml)
+- [Documentation index](../docs/README.md)
+- [Configuration](../docs/config.yaml)
 - [Invoke API](../docs/invoke-api.md)
-- [HTTP proxy inbound](../docs/http-proxy.md)
-- [SOCKS5 proxy inbound](../docs/socks5-proxy.md)
-- [AnyTLS outbound](../docs/anytls.md)
-- [Клиентский протокол REALITY V1](../docs/reality-wire-protocol.md)
-- [Зависимость rustls REALITY и требования к выпуску](../docs/rustls-reality-release.md)
-- [Runtime Controller](../docs/controller-api.md)
-- [ICMP и DNS в TUN](../docs/tun-icmp-dns.md)
-- [Правила и assets GeoData](../docs/geodata.md)
-- [Платформенный слой TUN](../docs/tun-platform.md)
-- [Граница платформы Windows VPN](../docs/windows-vpn.md)
-- [Runtime сессии Windows](../docs/windows-session-runtime.md)
-- [Политика ресурсов runtime](../docs/runtime-resource-policy.md)
-- [Матрица приёмки](../docs/acceptance.md)
+- [Build and test](../scripts/README.md)
+- [Acceptance boundaries](../docs/acceptance.md)
 
 ## Пример
 
@@ -130,7 +122,7 @@ TCP sessions, обычные UDP associations, half-open connections, outbound h
 
 ```bash
 cargo fmt --all -- --check
-cargo test --all-features --all-targets
+uv run --project scripts --locked vcore-scripts check core --profile debug
 cargo clippy --locked --all-features --lib --bins -- -D warnings
 cargo test --manifest-path crates/vcore-netstack/Cargo.toml --all-targets
 cargo clippy --manifest-path crates/vcore-netstack/Cargo.toml --all-targets -- -D warnings
@@ -158,7 +150,8 @@ uv run --project scripts --locked vcore-scripts build windows
 - [smoltcp](https://github.com/smoltcp-rs/smoltcp), [clash-rs](https://github.com/Watfaq/clash-rs) и [netstack-smoltcp](https://github.com/automesh-network/netstack-smoltcp): userspace IP stacks и TUN netstacks.
 - [windows-rs](https://github.com/microsoft/windows-rs), [UWP VPN Plugin Sample](https://github.com/microsoft/UwpVpnPluginSample), [wireguard-uwp-rs](https://github.com/luqmana/wireguard-uwp-rs), [Maple](https://github.com/YtFlow/Maple) и [YtFlowCore](https://github.com/YtFlow/YtFlowCore): Windows VPN, активация WinRT и packet flow.
 - [Xray-core](https://github.com/XTLS/Xray-core), [Mihomo](https://github.com/MetaCubeX/mihomo) и [Leaf](https://github.com/eycorsican/leaf): прокси-протоколы, маршрутизация, архитектура TUN и interoperability references.
-- [rustls](https://github.com/rustls/rustls): TLS-зависимость и upstream сопровождаемого VCore REALITY fork.
+- [rustls](https://github.com/rustls/rustls): TLS без fingerprint, QUIC и общая проверка сертификатов WebPKI.
+- [boring](https://github.com/cloudflare/boring) / [BoringSSL](https://boringssl.googlesource.com/boringssl/): именованные профили TLS ClientHello и расширение classic REALITY в собственном fork VCore.
 
 ## Лицензия
 

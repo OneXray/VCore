@@ -1,6 +1,6 @@
 # VCore Invoke API
 
-业务接口版本为 5，配置结构修订版为 14。配置只通过内联的 `configYaml` 或 `configYamls` 传入；每份已加载的 VCore 运行时最多拥有一个公共实例。代理组实时选择沿用 Controller，不增加 Invoke method 或版本协商。
+业务接口版本为 5，配置结构修订版为 27。配置只通过内联的 `configYaml` 或 `configYamls` 传入；每份已加载的 VCore 运行时最多拥有一个公共实例。代理组实时选择沿用 Controller，不增加 Invoke method 或版本协商。静态 ECH 只使用节点内联配置，不新增 bootstrap DNS 入参。
 
 ## C ABI
 
@@ -108,8 +108,8 @@ stopped -> preparing -> prepared -> starting -> running
 ```json
 {
   "apiVersion": 5,
-  "buildIdentity": "VCore;engine=rust;coreVersion=0.1.0;invokeApiVersion=5;configVersion=14",
-  "configVersion": 14,
+  "buildIdentity": "VCore;engine=rust;coreVersion=0.1.0;invokeApiVersion=5;configVersion=27",
+  "configVersion": 27,
   "engine": "rust",
   "version": "0.1.0"
 }
@@ -316,7 +316,7 @@ ProtectFd(fd) -> bool
 
 配置 `external-controller` 后，运行时可提供回环 `GET /traffic`、`GET /group`、`GET /group/{name}`、`GET /proxies/{name}` 和 `PUT /proxies/{name}`。代理组 Controller 可以在非 TUN 的 HTTP 或 SOCKS5 配置中运行；此时 `/traffic` 不存在。只要 Controller 管理代理组，`secret` 就必填并保护全部路由。
 
-组成员列表是配置期固定的，选择只存于当前 Running Session。成功切换只影响之后新建的物理 TCP、UDP 和 DNS transport，不迁移既有连接、UDP association、DNS 状态或 TCP pool，也不触发 failover。Controller 查询不携带 `instanceId`，不进入 Invoke 命令锁；完整语义见 [Controller API](controller-api.md)。
+组成员列表是配置期固定的，选择只存于当前 Running Session。成功切换只影响之后新建的物理 TCP、UDP 和 DNS transport，不迁移既有连接、UDP association、DNS 状态或 TCP pool，也不触发 failover。已认证 Hysteria2 会话的后续逻辑流和跳端口 socket 保留初始上游选择；新的认证会话才读取新选择。Controller 查询不携带 `instanceId`，不进入 Invoke 命令锁；完整语义见 [Controller API](controller-api.md)。
 
 ## Windows 安装包桥接
 

@@ -36,7 +36,9 @@ use crate::{
         QuicConnectionKey, QuicSniffOutcome, QuicSniffer, quic_connection_key,
         quic_has_unsupported_version,
     },
-    resources::{ResourceActivity, ResourceActivityGuard, ResourceQueue, RuntimeResourceStats},
+    resources::{
+        ResourceActivity, ResourceActivityGuard, ResourceQueue, RuntimeResourceStats, observation,
+    },
     session::{Datagram, DatagramSession, Destination, InboundKind, StreamSession},
     tcp_sniffer::{SniffOutcome, SniffProtocol, TcpSniffer},
     traffic::TunTrafficStats,
@@ -179,16 +181,16 @@ impl TunRuntime {
         let netstack_stats = parts.stats.clone();
         let mut tasks = JoinSet::new();
 
-        tasks.spawn(netstack_stats_loop(
+        tasks.spawn(observation::task(netstack_stats_loop(
             netstack_stats.clone(),
             cancellation.clone(),
-        ));
-        tasks.spawn(
+        )));
+        tasks.spawn(observation::task(
             self.traffic_stats
                 .clone()
                 .run_rate_clock(cancellation.clone()),
-        );
-        tasks.spawn(tun_read_loop(
+        ));
+        tasks.spawn(observation::task(tun_read_loop(
             self.tun.clone(),
             parts.packet_sink,
             self.ipv6,
@@ -196,22 +198,22 @@ impl TunRuntime {
             resource_stats.clone(),
             self.traffic_stats.clone(),
             cancellation.clone(),
-        ));
-        tasks.spawn(tun_write_loop(
+        )));
+        tasks.spawn(observation::task(tun_write_loop(
             self.tun,
             parts.packet_stream,
             self.traffic_stats,
             cancellation.clone(),
-        ));
+        )));
         let sniffer = self.sniffer;
-        tasks.spawn(tcp_loop(
+        tasks.spawn(observation::task(tcp_loop(
             parts.tcp_listener,
             self.dispatcher.clone(),
             sniffer.clone(),
             resource_stats.clone(),
             cancellation.clone(),
-        ));
-        tasks.spawn(udp_loop(
+        )));
+        tasks.spawn(observation::task(udp_loop(
             parts.udp_socket,
             self.dispatcher,
             self.dns,
@@ -219,7 +221,7 @@ impl TunRuntime {
             self.limits,
             resource_stats.clone(),
             cancellation.clone(),
-        ));
+        )));
 
         let mut first_error = tokio::select! {
             biased;
@@ -445,14 +447,14 @@ async fn tcp_loop(
                     "TUN TCP session accepted"
                 );
                 let activity = resource_stats.begin(ResourceActivity::TcpSession);
-                sessions.spawn(relay_tcp(
+                sessions.spawn(observation::task(relay_tcp(
                     session_id,
                     stream,
                     dispatcher.clone(),
                     sniffer.clone(),
                     activity,
                     cancellation.clone(),
-                ));
+                )));
             }
         }
     }
@@ -845,7 +847,7 @@ async fn udp_loop(
                         }
                     }
                     let permit = dns.begin_query();
-                    dns_tasks.spawn(run_tun_dns_query(
+                    dns_tasks.spawn(observation::task(run_tun_dns_query(
                         dns.clone(),
                         permit,
                         datagram,
@@ -853,7 +855,7 @@ async fn udp_loop(
                         tun_mtu,
                         resource_stats.clone(),
                         cancellation.clone(),
-                    ));
+                    )));
                     continue;
                 }
                 let source = datagram.source;
@@ -871,7 +873,7 @@ async fn udp_loop(
                     });
                     let activity =
                         resource_stats.begin(ResourceActivity::UdpAssociation);
-                    tasks.spawn(run_udp_association(
+                    tasks.spawn(observation::task(run_udp_association(
                         receiver,
                         activity,
                         UdpAssociationTaskContext {
@@ -886,7 +888,7 @@ async fn udp_loop(
                             sniffer: sniffer.clone(),
                             cancellation: child_cancellation,
                         },
-                    ));
+                    )));
                 }
                 let Some(association) = associations.get(&source) else {
                     continue;
@@ -1824,7 +1826,7 @@ mod tests {
 
     use async_trait::async_trait;
     use tokio::{
-        io::{AsyncReadExt as _, AsyncWriteExt as _},
+        io::AsyncReadExt as _,
         sync::{Notify, mpsc},
     };
 
@@ -4322,11 +4324,11 @@ mod tests {
     }
 
     fn add_bytes(sum: &mut u32, bytes: &[u8]) {
-        let mut chunks = bytes.chunks_exact(2);
-        for chunk in &mut chunks {
-            *sum += u32::from(u16::from_be_bytes([chunk[0], chunk[1]]));
+        let (chunks, remainder) = bytes.as_chunks::<2>();
+        for chunk in chunks {
+            *sum += u32::from(u16::from_be_bytes(*chunk));
         }
-        if let Some(byte) = chunks.remainder().first() {
+        if let Some(byte) = remainder.first() {
             *sum += u32::from(*byte) << 8;
         }
     }

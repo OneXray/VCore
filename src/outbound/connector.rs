@@ -21,8 +21,9 @@ use crate::{
 };
 
 use super::DirectOutbound;
+use crate::dns::resolution::{ResolutionContext, inherited_deadline};
 
-const DEFAULT_ESTABLISH_TIMEOUT: Duration = Duration::from_secs(10);
+pub const DEFAULT_ESTABLISH_TIMEOUT: Duration = Duration::from_secs(10);
 pub(crate) const MAX_OUTBOUND_DIAGNOSTIC_MESSAGE_BYTES: usize = 256;
 
 tokio::task_local! {
@@ -125,6 +126,10 @@ fn diagnostic_stage(operation: &'static str) -> &'static str {
         "AnyTLS TLS handshake" => "anytls-tls",
         "AnyTLS authentication and session preface" => "anytls-session",
         "AnyTLS session open" => "anytls-stream",
+        "Trojan TLS handshake" => "trojan-tls",
+        "Trojan request header" => "trojan-request",
+        "Trojan WebSocket upgrade" => "trojan-websocket",
+        "Trojan gRPC handshake" => "trojan-grpc",
         _ => "outbound",
     }
 }
@@ -200,24 +205,61 @@ impl fmt::Write for BoundedMessage {
 /// A router builds this context once and passes it through the complete
 /// configured chain so nested connectors share one timeout instead of restarting it at
 /// every hop.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct EstablishContext {
     deadline: Instant,
-    selections: Mutex<HashMap<usize, (Arc<AtomicUsize>, usize)>>,
+    resolution: ResolutionContext,
+    selections: Arc<Mutex<SelectionSnapshot>>,
 }
+
+type SelectionSnapshot = HashMap<usize, (Arc<AtomicUsize>, usize)>;
 
 impl EstablishContext {
     #[must_use]
     pub fn with_timeout(duration: Duration) -> Self {
+        Self::with_resolution(duration, ResolutionContext::default())
+    }
+
+    #[must_use]
+    pub fn with_resolution(duration: Duration, resolution: ResolutionContext) -> Self {
         Self {
-            deadline: Instant::now() + duration,
-            selections: Mutex::new(HashMap::new()),
+            deadline: inherited_deadline(Instant::now() + duration),
+            resolution,
+            selections: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
     #[must_use]
     pub const fn deadline(&self) -> Instant {
         self.deadline
+    }
+
+    pub async fn resolve_ip(
+        &self,
+        target: &Destination,
+    ) -> Result<std::net::SocketAddr, DispatchError> {
+        self.resolution.resolve_ip(target, self.deadline).await
+    }
+
+    pub fn resolution(&self) -> ResolutionContext {
+        self.resolution.clone()
+    }
+
+    /// Only for a new physical path of an already authenticated session, never
+    /// for extending an in-progress setup. Freeze its group choices and give
+    /// this socket's complete upstream establishment a new absolute deadline.
+    #[cfg(feature = "outbound-hysteria2")]
+    pub(crate) fn authenticated_continuation(&self) -> Self {
+        Self {
+            deadline: Instant::now() + DEFAULT_ESTABLISH_TIMEOUT,
+            resolution: self.resolution.clone(),
+            selections: Arc::new(Mutex::new(
+                self.selections
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .clone(),
+            )),
+        }
     }
 
     /// One read per group for the entire setup, including both legs of a
@@ -309,7 +351,7 @@ impl std::fmt::Debug for ConnectedStream {
 #[derive(Debug, Clone)]
 pub struct DatagramRequest {
     pub session: DatagramSession,
-    max_response_payload_size: u16,
+    budget: crate::dispatch::DatagramBudget,
 }
 
 impl DatagramRequest {
@@ -318,21 +360,47 @@ impl DatagramRequest {
         let max_response_payload_size = session.max_response_payload_size();
         Self {
             session,
-            max_response_payload_size,
+            budget: crate::dispatch::DatagramBudget::new(u16::MAX, max_response_payload_size),
         }
     }
 
     #[must_use]
     pub const fn max_response_payload_size(&self) -> u16 {
-        self.max_response_payload_size
+        self.budget.receive()
     }
 
     #[must_use]
     pub fn with_max_response_payload_size(&self, maximum: u16) -> Self {
         Self {
             session: self.session.clone(),
-            max_response_payload_size: maximum,
+            budget: crate::dispatch::DatagramBudget::new(self.budget.transmit(), maximum),
         }
+    }
+
+    pub const fn budget(&self) -> crate::dispatch::DatagramBudget {
+        self.budget
+    }
+
+    #[must_use]
+    pub fn with_budget(&self, budget: crate::dispatch::DatagramBudget) -> Self {
+        Self {
+            session: self.session.clone(),
+            budget,
+        }
+    }
+
+    /// Budget the wire envelope independently in each direction. A larger
+    /// requested envelope can never increase a lower transport's real cap.
+    pub fn with_envelope(&self, transmit: usize, receive: usize) -> Self {
+        let widen = |value: u16, overhead: usize| {
+            usize::from(value)
+                .saturating_add(overhead)
+                .min(usize::from(u16::MAX)) as u16
+        };
+        self.with_budget(crate::dispatch::DatagramBudget::new(
+            widen(self.budget.transmit(), transmit),
+            widen(self.budget.receive(), receive),
+        ))
     }
 }
 
@@ -527,7 +595,11 @@ impl UpstreamPath {
 
     /// Pins a native UDP proxy server without performing DNS after prepare.
     /// Resolving here and opening IO below share the context's group snapshot.
-    #[cfg(feature = "outbound-shadowsocks")]
+    #[cfg(any(
+        feature = "outbound-shadowsocks",
+        feature = "outbound-vless",
+        feature = "outbound-hysteria2"
+    ))]
     pub(crate) fn datagram_server(
         &self,
         server: &Destination,
@@ -591,6 +663,7 @@ fn validate_prepared_endpoint(
 pub struct ConnectorDispatcher {
     inner: Arc<dyn OutboundConnector>,
     allow_udp: bool,
+    resolution: ResolutionContext,
 }
 
 impl ConnectorDispatcher {
@@ -599,6 +672,7 @@ impl ConnectorDispatcher {
         Self {
             inner,
             allow_udp: true,
+            resolution: ResolutionContext::default(),
         }
     }
 
@@ -609,7 +683,21 @@ impl ConnectorDispatcher {
     /// carrying a child TCP stream is not rejected by the parent's UDP flag.
     #[must_use]
     pub fn with_udp_capability(inner: Arc<dyn OutboundConnector>, allow_udp: bool) -> Self {
-        Self { inner, allow_udp }
+        Self {
+            inner,
+            allow_udp,
+            resolution: ResolutionContext::default(),
+        }
+    }
+
+    #[must_use]
+    pub fn with_resolution(mut self, resolution: ResolutionContext) -> Self {
+        self.resolution = resolution;
+        self
+    }
+
+    fn context(&self) -> EstablishContext {
+        EstablishContext::with_resolution(DEFAULT_ESTABLISH_TIMEOUT, self.resolution.clone())
     }
 }
 
@@ -617,7 +705,7 @@ impl ConnectorDispatcher {
 impl Dispatcher for ConnectorDispatcher {
     async fn connect_tcp(&self, session: StreamSession) -> Result<BoxStream, DispatchError> {
         self.inner
-            .connect_stream(session, &EstablishContext::default())
+            .connect_stream(session, &self.context())
             .await
             .map(|connected| connected.io)
     }
@@ -630,7 +718,7 @@ impl Dispatcher for ConnectorDispatcher {
             return Err(DispatchError::NotAllowed);
         }
         self.inner
-            .open_datagram(DatagramRequest::new(session), &EstablishContext::default())
+            .open_datagram(DatagramRequest::new(session), &self.context())
             .await
     }
 }
@@ -646,6 +734,52 @@ mod tests {
     };
 
     use super::*;
+
+    #[cfg(feature = "outbound-hysteria2")]
+    #[tokio::test]
+    async fn authenticated_continuation_keeps_group_choice_but_has_a_new_io_deadline() {
+        #[cfg(feature = "interop-test")]
+        let _case = crate::resources::case_events::Case::new(
+            "HYSTERIA2-UNIT",
+            "authenticated_continuation_keeps_group_choice_but_has_a_new_io_deadline",
+        );
+        let selection = Arc::new(AtomicUsize::new(0));
+        let path = selected_path(
+            selection.clone(),
+            vec![
+                SelectUpstreamMember::Proxy(Arc::new(MarkedConnector {
+                    marker: 1,
+                    ..Default::default()
+                })),
+                SelectUpstreamMember::Proxy(Arc::new(MarkedConnector {
+                    marker: 2,
+                    ..Default::default()
+                })),
+            ],
+        );
+        let context = EstablishContext::with_timeout(Duration::from_millis(1));
+        let request = DatagramRequest::new(DatagramSession::new(
+            InboundKind::InternalMeasure,
+            test_session().source,
+        ));
+        let mut initial = path.open_datagram(request.clone(), &context).await.unwrap();
+        assert_eq!(initial.receive().await.unwrap().payload[0], 1);
+        tokio::time::sleep(Duration::from_millis(2)).await;
+        selection.store(1, Ordering::Release);
+        let continuation = context.authenticated_continuation();
+        assert!(context.deadline() < Instant::now());
+        assert!(continuation.deadline() > Instant::now());
+        let mut old = path
+            .open_datagram(request.clone(), &continuation)
+            .await
+            .unwrap();
+        assert_eq!(old.receive().await.unwrap().payload[0], 1);
+        let mut new = path
+            .open_datagram(request, &EstablishContext::default())
+            .await
+            .unwrap();
+        assert_eq!(new.receive().await.unwrap().payload[0], 2);
+    }
 
     struct UnreachableConnector;
 

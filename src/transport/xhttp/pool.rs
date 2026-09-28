@@ -1,0 +1,269 @@
+//! Node-owned transport leases. Thresholds choose candidates, not admission.
+use super::{ConnectionGuard, ConnectionLease, SendRequest, connection_closed};
+use crate::{
+    config::XHttpReuseConfig,
+    resources::observation::{Guard, ResourceKind, track},
+};
+use std::{
+    future::Future,
+    io,
+    sync::{Arc, Mutex, Weak},
+    time::Duration,
+};
+use tokio::time::Instant;
+
+const MAX_IDLE_ENTRIES: usize = crate::limits::XHTTP_IDLE_ENTRIES;
+const MAX_IDLE_HTTP1_CONNECTIONS: usize = crate::limits::XHTTP_IDLE_H1_CONNECTIONS;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Policy {
+    Multiplexed,
+    Exclusive,
+    Recyclable,
+}
+
+#[derive(Debug)]
+pub(super) struct Pool {
+    options: Option<Arc<XHttpReuseConfig>>,
+    concurrency: usize,
+    connections: usize,
+    state: Arc<Mutex<State>>,
+    opening: tokio::sync::Mutex<()>,
+}
+#[derive(Debug, Default)]
+struct State {
+    entries: Vec<Entry>,
+    next_id: u64,
+    closed: bool,
+}
+#[derive(Clone, Debug)]
+struct Physical {
+    sender: SendRequest,
+    driver: Arc<ConnectionGuard>,
+}
+#[derive(Debug)]
+enum Transport {
+    Multiplexed(Physical),
+    Http1(Vec<Physical>),
+}
+#[derive(Debug)]
+struct Entry {
+    id: u64,
+    transport: Transport,
+    active: usize,
+    reuses: usize,
+    max_reuses: usize,
+    remaining: Option<usize>,
+    expires: Option<Instant>,
+    _observation: Guard,
+}
+impl Entry {
+    fn retired(&self) -> bool {
+        matches!(&self.transport, Transport::Multiplexed(physical) if physical.driver.task.is_finished())
+            || self.remaining == Some(0)
+            || self.max_reuses > 0 && self.reuses >= self.max_reuses
+            || self.expires.is_some_and(|at| Instant::now() >= at)
+    }
+    fn reserve(&mut self, state: &Arc<Mutex<State>>, reused: bool) -> io::Result<Usage> {
+        self.active = self
+            .active
+            .checked_add(1)
+            .ok_or_else(|| io::Error::from(io::ErrorKind::OutOfMemory))?;
+        if reused {
+            self.reuses = self.reuses.saturating_add(1);
+        }
+        if let Some(left) = &mut self.remaining {
+            *left = left.saturating_sub(1);
+        }
+        Ok(Usage {
+            state: Arc::downgrade(state),
+            id: self.id,
+            recycle: None,
+            reusable: false,
+        })
+    }
+    fn take(&mut self, policy: Policy) -> Option<Physical> {
+        match &mut self.transport {
+            Transport::Multiplexed(physical) => Some(physical.clone()),
+            Transport::Http1(idle) if policy == Policy::Recyclable => {
+                while let Some(physical) = idle.pop() {
+                    if !physical.driver.task.is_finished() {
+                        return Some(physical);
+                    }
+                }
+                None
+            }
+            Transport::Http1(_) => None,
+        }
+    }
+}
+impl State {
+    fn cleanup(&mut self) {
+        let mut idle = 0;
+        self.entries.retain(|entry| {
+            // Logical streams own driver leases independently of candidate retention.
+            if entry.retired() {
+                return false;
+            }
+            if entry.active != 0 {
+                return true;
+            }
+            idle += 1;
+            idle <= MAX_IDLE_ENTRIES
+        });
+    }
+}
+impl Pool {
+    pub(super) fn new(options: Option<Arc<XHttpReuseConfig>>) -> Self {
+        Self {
+            concurrency: options
+                .as_ref()
+                .map_or(0, |options| options.concurrency.sample()),
+            connections: options
+                .as_ref()
+                .map_or(0, |options| options.connections.sample()),
+            options,
+            state: Arc::default(),
+            opening: tokio::sync::Mutex::default(),
+        }
+    }
+    pub(super) async fn acquire<F, Fut>(
+        &self,
+        policy: Policy,
+        make: F,
+    ) -> io::Result<(SendRequest, ConnectionLease)>
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = io::Result<(SendRequest, Arc<ConnectionGuard>)>>,
+    {
+        let Some(options) = &self.options else {
+            let (sender, driver) = make().await?;
+            return Ok((sender, driver.into()));
+        };
+        let _opening = self.opening.lock().await;
+        let existing = {
+            let mut state = self.state.lock().unwrap();
+            if state.closed {
+                return Err(connection_closed());
+            }
+            state.cleanup();
+            if self.connections == 0 || state.entries.len() >= self.connections {
+                state
+                    .entries
+                    .iter_mut()
+                    .filter(|entry| self.concurrency == 0 || entry.active < self.concurrency)
+                    .min_by_key(|entry| entry.active)
+                    .map(|entry| -> io::Result<_> {
+                        Ok((entry.take(policy), entry.reserve(&self.state, true)?))
+                    })
+                    .transpose()?
+            } else {
+                None
+            }
+        };
+        let (physical, mut usage) = if let Some((physical, usage)) = existing {
+            let physical = if let Some(physical) = physical {
+                physical
+            } else {
+                let (sender, driver) = make().await?;
+                Physical { sender, driver }
+            };
+            (physical, usage)
+        } else {
+            let (sender, driver) = make().await?;
+            let physical = Physical { sender, driver };
+            let mut state = self.state.lock().unwrap();
+            if state.closed {
+                return Err(connection_closed());
+            }
+            let id = state.next_id;
+            state.next_id = id.checked_add(1).ok_or_else(connection_closed)?;
+            let mut entry = Entry {
+                id,
+                transport: if policy == Policy::Multiplexed {
+                    Transport::Multiplexed(physical.clone())
+                } else {
+                    Transport::Http1(Vec::new())
+                },
+                active: 0,
+                reuses: 0,
+                max_reuses: options.reuse_times.sample(),
+                remaining: (options.requests.max > 0).then(|| options.requests.sample()),
+                expires: (options.age_seconds.max > 0).then(|| {
+                    Instant::now() + Duration::from_secs(options.age_seconds.sample() as u64)
+                }),
+                _observation: track(ResourceKind::Pool),
+            };
+            let usage = entry.reserve(&self.state, false)?;
+            state.entries.push(entry);
+            (physical, usage)
+        };
+        if policy == Policy::Recyclable {
+            usage.recycle = Some(physical.clone());
+        }
+        Ok((
+            physical.sender,
+            ConnectionLease {
+                _driver: physical.driver,
+                _usage: Some(usage),
+            },
+        ))
+    }
+    pub(super) fn clear(&self) {
+        let mut state = self.state.lock().unwrap();
+        state.closed = true;
+        state.entries.clear();
+    }
+
+    #[cfg(feature = "interop-test")]
+    pub(super) fn quic_pings(&self) -> Vec<u64> {
+        self.state
+            .lock()
+            .unwrap()
+            .entries
+            .iter()
+            .filter_map(|entry| {
+                let Transport::Multiplexed(Physical {
+                    sender: SendRequest::H3(sender),
+                    ..
+                }) = &entry.transport
+                else {
+                    return None;
+                };
+                Some(sender.observation.stats().frame_tx.ping)
+            })
+            .collect()
+    }
+}
+#[derive(Debug)]
+pub(super) struct Usage {
+    state: Weak<Mutex<State>>,
+    id: u64,
+    recycle: Option<Physical>,
+    reusable: bool,
+}
+impl Usage {
+    pub(super) fn permit_recycle(&mut self) {
+        self.reusable = true;
+    }
+}
+impl Drop for Usage {
+    fn drop(&mut self) {
+        if let Some(state) = self.state.upgrade() {
+            let mut state = state.lock().unwrap();
+            if let Some(entry) = state.entries.iter_mut().find(|entry| entry.id == self.id) {
+                entry.active = entry.active.saturating_sub(1);
+                if self.reusable
+                    && !entry.retired()
+                    && let Some(physical) = self.recycle.take()
+                    && !physical.driver.task.is_finished()
+                    && let Transport::Http1(idle) = &mut entry.transport
+                    && idle.len() < MAX_IDLE_HTTP1_CONNECTIONS
+                {
+                    idle.push(physical);
+                }
+            }
+            state.cleanup();
+        }
+    }
+}

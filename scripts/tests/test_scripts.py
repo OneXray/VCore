@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import subprocess
 import sys
@@ -11,14 +12,14 @@ import xml.etree.ElementTree as ET
 from contextlib import ExitStack
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from vcore_scripts import builds, cli, mihomo
 from vcore_scripts.builds import EXPECTED_IDENTITY, _android_target, _require_identity
 from vcore_scripts.checks import (
+    BORING_GIT_SOURCE,
+    BORING_REVISION,
     CRATES_IO_SOURCES,
-    RUSTLS_GIT_SOURCE_PREFIX,
-    SHADOWSOCKS_GIT_SOURCE,
     _shadowsocks_aws_lc_errors,
     _tls_dependency_errors,
 )
@@ -51,51 +52,30 @@ class ScriptTest(unittest.TestCase):
         )
         self.assertNotIn("interop-test", features)
 
-    def test_mihomo_check_dispatches_and_missing_peer_is_not_success(self):
-        with patch("vcore_scripts.cli.run_mihomo_interop") as run:
+    def test_download_cli_dispatches_host_and_container_target(self):
+        with patch("vcore_scripts.cli.download_mihomo") as fetch:
+            self.assertEqual(cli.main(["download", "mihomo"]), 0)
             self.assertEqual(
-                cli.main(["check", "mihomo-interop", "--binary", "fixture-mihomo"]), 0
+                cli.main(["download", "mihomo", "--target", "linux-arm64"]), 0
             )
-        run.assert_called_once_with(Path("fixture-mihomo"))
-        with (
-            tempfile.TemporaryDirectory() as directory,
-            self.assertRaisesRegex(RuntimeError, "NOT RUN"),
-        ):
-            mihomo.run_mihomo_interop(Path(directory) / "missing")
+        self.assertEqual(fetch.call_args_list, [call(None), call("linux-arm64")])
 
-    def test_extended_mihomo_dispatch_and_soak_bounds(self):
-        with patch("vcore_scripts.cli.run_mihomo_interop") as run:
-            self.assertEqual(
-                cli.main(
-                    ["check", "mihomo-interop", "--extended", "--soak-seconds", "90"]
-                ),
-                0,
-            )
-        run.assert_called_once_with(
-            None, extended=True, soak_seconds=90, container_binary=None
-        )
-        for extended, seconds in [(False, 1), (True, -1), (True, 7201)]:
-            with (
-                self.subTest(extended=extended, seconds=seconds),
-                self.assertRaises(ValueError),
-            ):
-                mihomo.run_mihomo_interop(extended=extended, soak_seconds=seconds)
-
-    def test_container_cli_dispatch(self):
-        with patch("vcore_scripts.cli.run_mihomo_interop") as run:
+    def test_legacy_demo_requires_explicit_config_and_source(self):
+        with patch("vcore_scripts.cli.run_demo") as run:
             self.assertEqual(
                 cli.main(
                     [
-                        "check",
-                        "mihomo-interop",
-                        "--container-binary",
-                        "linux-mihomo",
+                        "demo",
+                        "windows-tun2socks",
+                        "fixture.json",
+                        "--xray-source",
+                        "fixture-xray",
                     ]
                 ),
                 0,
             )
         run.assert_called_once_with(
-            None, extended=False, soak_seconds=0, container_binary=Path("linux-mihomo")
+            Path("fixture.json"), xray_source=Path("fixture-xray")
         )
 
     def test_container_bridge_ipv6_does_not_select_lan_or_utun(self):
@@ -304,6 +284,57 @@ except RuntimeError as error:
         with self.assertRaisesRegex(RuntimeError, "unsupported Android Rust target"):
             _android_target("mips-linux-android", "24")
 
+    def test_android_build_packages_the_matching_ndk_cpp_runtime(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            toolchain = root / "ndk/toolchain"
+            (toolchain / "bin").mkdir(parents=True)
+            (toolchain / "bin/llvm-ar").touch()
+            targets = ("aarch64-linux-android", "x86_64-linux-android")
+            for target in targets:
+                abi, clang, _ = _android_target(target, "24")
+                (toolchain / "bin" / clang).touch()
+                (toolchain / "bin" / (clang + "++")).touch()
+                runtime = toolchain / "sysroot/usr/lib" / target / "libc++_shared.so"
+                runtime.parent.mkdir(parents=True)
+                runtime.write_bytes(abi.encode())
+                artifact = root / "target" / target / "release/libvcore.so"
+                artifact.parent.mkdir(parents=True)
+                artifact.write_bytes(EXPECTED_IDENTITY)
+            with (
+                patch.dict(
+                    builds.os.environ,
+                    {"ANDROID_NDK_HOME": str(root / "ndk")},
+                    clear=True,
+                ),
+                patch.object(builds, "CORE_DIR", root),
+                patch.object(builds, "_android_toolchain", return_value=toolchain),
+                patch.object(builds, "_require_targets"),
+                patch.object(builds, "_cargo_build") as cargo,
+            ):
+                builds.build_android()
+            self.assertEqual(cargo.call_count, 2)
+            for invocation, target in zip(cargo.call_args_list, targets, strict=True):
+                abi, clang, _ = _android_target(target, "24")
+                env = invocation.args[3]
+                self.assertEqual(env["VCORE_CMAKE_ANDROID_ABI"], abi)
+                self.assertEqual(env["VCORE_CMAKE_ANDROID_API"], "24")
+                self.assertEqual(
+                    env[f"CMAKE_TOOLCHAIN_FILE_{target.replace('-', '_')}"],
+                    str(root / "scripts/cmake/android.toolchain.cmake"),
+                )
+                self.assertEqual(
+                    env[f"CXX_{target.replace('-', '_')}"],
+                    str(toolchain / "bin" / (clang + "++")),
+                )
+                output = root / "dist/android" / abi
+                self.assertEqual(
+                    (output / "libvcore.so").read_bytes(), EXPECTED_IDENTITY
+                )
+                self.assertEqual(
+                    (output / "libc++_shared.so").read_bytes(), abi.encode()
+                )
+
     def test_artifact_identity_check_reads_binary_directly(self):
         with tempfile.TemporaryDirectory() as directory:
             artifact = Path(directory) / "libvcore.a"
@@ -355,9 +386,7 @@ except RuntimeError as error:
                         root / "dist/windows/arm64/vcore-windows-artifacts.json"
                     ).read_text()
                 )
-                expected_digest = (
-                    "bfb78d72918e79702c425f161b4889064a68981ce9f5e69da78166f4ad56e3e8"
-                )
+                expected_digest = hashlib.sha256(_windows_pe(0xAA64)).hexdigest()
                 self.assertEqual(
                     manifest,
                     {
@@ -397,13 +426,13 @@ except RuntimeError as error:
                 {
                     "id": "rustls-id",
                     "name": "rustls",
-                    "version": "0.23.43",
-                    "source": RUSTLS_GIT_SOURCE_PREFIX + "a" * 40,
+                    "version": "0.23.45",
+                    "source": registry,
                 },
                 {
                     "id": "tokio-rustls-id",
                     "name": "tokio-rustls",
-                    "version": "0.26.4",
+                    "version": "0.26.5",
                     "source": registry,
                 },
                 {
@@ -412,17 +441,137 @@ except RuntimeError as error:
                     "version": "0.17.14",
                     "source": registry,
                 },
+                *[
+                    dict(id=name, name=name, version="5.2.0", source=BORING_GIT_SOURCE)
+                    for name in ("boring", "boring-sys", "tokio-boring")
+                ],
+                dict(id="hpke", name="hpke", version="0.14.1", source=registry),
             ],
             "resolve": {
                 "nodes": [
                     {
                         "id": "rustls-id",
-                        "features": ["reality", "ring", "std", "tls12"],
-                    }
+                        "features": ["ring", "std", "tls12"],
+                        "deps": [],
+                    },
+                    {
+                        "id": "boring",
+                        "features": [
+                            "reality",
+                            "client-fingerprint",
+                            "shadow-tls-v3",
+                            "jls",
+                        ],
+                        "deps": [{"pkg": "boring-sys"}],
+                    },
+                    {
+                        "id": "boring-sys",
+                        "features": ["reality", "shadow-tls-v3", "jls"],
+                    },
+                    {
+                        "id": "tokio-boring",
+                        "features": [],
+                        "deps": [{"pkg": "boring"}, {"pkg": "boring-sys"}],
+                    },
+                    {
+                        "id": "hpke",
+                        "features": ["alloc", "aes", "chacha", "x25519", "hkdfsha2"],
+                    },
                 ]
             },
         }
         self.assertEqual(_tls_dependency_errors(metadata), [])
+
+        for invalid_source in (None, BORING_GIT_SOURCE):
+            invalid = copy.deepcopy(metadata)
+            invalid["packages"][-1]["source"] = invalid_source
+            self.assertTrue(_tls_dependency_errors(invalid))
+        for feature in ("alloc", "aes", "chacha", "x25519"):
+            invalid = copy.deepcopy(metadata)
+            invalid["resolve"]["nodes"][-1]["features"].remove(feature)
+            self.assertTrue(_tls_dependency_errors(invalid))
+
+        for index, old_version in [(0, "0.23.43"), (1, "0.26.4"), (3, "5.1.0")]:
+            with self.subTest(outdated_version=old_version):
+                outdated = copy.deepcopy(metadata)
+                outdated["packages"][index]["version"] = old_version
+                self.assertTrue(_tls_dependency_errors(outdated))
+
+        for source in [
+            None,
+            registry,
+            BORING_GIT_SOURCE.rsplit("#", 1)[0] + "#" + "f" * 40,
+            BORING_GIT_SOURCE.replace("?branch=release", "?branch=main"),
+            BORING_GIT_SOURCE.replace("?branch=release", f"?rev={BORING_REVISION}"),
+            BORING_GIT_SOURCE.replace("OneXray/boring", "example/boring"),
+        ]:
+            for index in (3, 4, 5):
+                with self.subTest(boring_source=source, package=index):
+                    invalid = copy.deepcopy(metadata)
+                    invalid["packages"][index]["source"] = source
+                    self.assertTrue(_tls_dependency_errors(invalid))
+
+        for required in ["reality", "client-fingerprint", "shadow-tls-v3", "jls"]:
+            with self.subTest(boring_feature=required):
+                invalid = copy.deepcopy(metadata)
+                invalid["resolve"]["nodes"][1]["features"].remove(required)
+                self.assertTrue(_tls_dependency_errors(invalid))
+
+        for missing in ["edge", "node", "package"]:
+            with self.subTest(boring_missing=missing):
+                invalid = copy.deepcopy(metadata)
+                if missing == "edge":
+                    invalid["resolve"]["nodes"][1]["deps"] = []
+                elif missing == "node":
+                    invalid["resolve"]["nodes"].pop()
+                else:
+                    invalid["packages"].pop()
+                self.assertTrue(_tls_dependency_errors(invalid))
+
+        for forbidden in ["reality", "aws_lc_rs", "fips"]:
+            invalid = copy.deepcopy(metadata)
+            invalid["resolve"]["nodes"][0]["features"].append(forbidden)
+            self.assertTrue(_tls_dependency_errors(invalid))
+
+        for forbidden in ("fips", "restls"):
+            for index in (1, 2, 3):
+                with self.subTest(native_feature=forbidden, node=index):
+                    invalid = copy.deepcopy(metadata)
+                    invalid["resolve"]["nodes"][index]["features"].append(forbidden)
+                    self.assertTrue(_tls_dependency_errors(invalid))
+
+        for source in CRATES_IO_SOURCES:
+            with self.subTest(rustls_registry=source):
+                official = copy.deepcopy(metadata)
+                official["packages"][0]["source"] = source
+                self.assertEqual(_tls_dependency_errors(official), [])
+
+        for source in (
+            None,
+            "git+https://example.invalid/rustls?branch=custom#" + "a" * 40,
+            "git+https://github.com/rustls/rustls#" + "a" * 40,
+            "registry+https://example.invalid/index",
+        ):
+            with self.subTest(rustls_source=source):
+                invalid = copy.deepcopy(metadata)
+                invalid["packages"][0]["source"] = source
+                self.assertTrue(
+                    any(
+                        "rustls must come from crates.io" in error
+                        for error in _tls_dependency_errors(invalid)
+                    )
+                )
+
+        duplicate = copy.deepcopy(metadata)
+        duplicate["packages"].append(
+            dict(
+                id="second-rustls",
+                name="rustls",
+                version="0.23.45",
+                source="git+https://github.com/rustls/rustls#" + "a" * 40,
+            )
+        )
+        self.assertTrue(_tls_dependency_errors(duplicate))
 
         metadata["packages"].append(
             {
@@ -442,7 +591,7 @@ except RuntimeError as error:
         metadata["packages"][0]["source"] = None
         self.assertTrue(
             any(
-                "vcore/reality-0.23 GitHub branch" in error
+                "rustls must come from crates.io" in error
                 for error in _tls_dependency_errors(metadata)
             )
         )
@@ -456,7 +605,7 @@ except RuntimeError as error:
                 for name, version, source in zip(
                     names,
                     ["1.25.0", "0.8.0", "1.18.1", "0.45.0"],
-                    [SHADOWSOCKS_GIT_SOURCE, registry, registry, registry],
+                    [registry] * 4,
                     strict=True,
                 )
             ],
@@ -478,6 +627,21 @@ except RuntimeError as error:
             },
         }
         self.assertEqual(_shadowsocks_aws_lc_errors(metadata), [])
+        for source in CRATES_IO_SOURCES:
+            with self.subTest(shadowsocks_registry=source):
+                official = copy.deepcopy(metadata)
+                official["packages"][0]["source"] = source
+                self.assertEqual(_shadowsocks_aws_lc_errors(official), [])
+        for source in (
+            "git+https://github.com/shadowsocks/shadowsocks-rust.git?rev="
+            "ab388c7466d21f979430e33cc9ef10e22fb05955#"
+            "ab388c7466d21f979430e33cc9ef10e22fb05955",
+            "registry+https://example.invalid/index",
+        ):
+            with self.subTest(shadowsocks_source=source):
+                invalid = copy.deepcopy(metadata)
+                invalid["packages"][0]["source"] = source
+                self.assertTrue(_shadowsocks_aws_lc_errors(invalid))
         for index, feature in [(0, "aead-cipher-2022-extra"), (1, "v2-extra")]:
             invalid = copy.deepcopy(metadata)
             invalid["resolve"]["nodes"][index]["features"].append(feature)

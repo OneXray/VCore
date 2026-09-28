@@ -1,0 +1,72 @@
+#![cfg(feature = "outbound-vless")]
+use serde_json::json;
+use vcore::config::Config;
+
+fn parse(options: serde_json::Value, vision: bool) -> bool {
+    Config::parse_yaml(
+        &serde_json::to_vec(&json!({
+            "socks-port":1080,
+            "proxies":[{"name":"edge","type":"vless","server":"example.com","port":443,
+                "uuid":"07070707-0707-0707-0707-070707070707","tls":true,
+                "flow":if vision {"xtls-rprx-vision"} else {""},"smux":options}],
+            "rules":["MATCH,edge"]
+        }))
+        .unwrap(),
+    )
+    .is_ok()
+}
+
+#[test]
+fn sing_mux_accepts_three_protocols_and_rejects_invalid_or_ignored_options() {
+    #[cfg(feature = "interop-test")]
+    let _case = vcore::resources::case_events::Case::new(
+        "XHTTP-UNIT",
+        "sing_mux_accepts_three_protocols_and_rejects_invalid_or_ignored_options",
+    );
+    for protocol in ["h2mux", "smux", "yamux"] {
+        for enabled in [false, true] {
+            assert!(parse(
+                json!({"enabled":enabled,"protocol":protocol,"padding":true,
+                "only-tcp":true,"max-connections":2,"min-streams":3}),
+                false
+            ));
+        }
+    }
+    assert!(parse(json!({"enabled":true,"max-streams":3}), false));
+    assert!(parse(json!({}), false));
+    assert!(!parse(json!([]), false));
+    for field in [
+        "enabled",
+        "protocol",
+        "padding",
+        "only-tcp",
+        "max-connections",
+        "min-streams",
+        "max-streams",
+    ] {
+        for value in [json!(null), json!([]), json!(0.5)] {
+            assert!(!parse(json!({field:value}), false), "{field}");
+        }
+    }
+    for field in ["max-connections", "min-streams", "max-streams"] {
+        for value in [0, 1, 2147483647_u64] {
+            assert!(parse(json!({field:value}), false));
+        }
+        assert!(!parse(json!({field:2147483648_u64}), false));
+    }
+    for options in [
+        json!(null),
+        json!({"enabled":null}),
+        json!({"protocol":"mux"}),
+        json!({"protocol":""}),
+        json!({"padding":1}),
+        json!({"only-tcp":null}),
+        json!({"enabled":true,"max-connections":2,"max-streams":3}),
+        json!({"max-streams":-1}),
+        json!({"min-streams":2147483648_u64}),
+        json!({"enabled":true,"brutal":true}),
+    ] {
+        assert!(!parse(options, false));
+    }
+    assert!(!parse(json!({"enabled":true}), true));
+}

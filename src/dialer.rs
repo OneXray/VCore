@@ -33,6 +33,10 @@ use windows::Win32::Networking::WinSock::{
 };
 
 use crate::limits::{DNS_WORKER_STACK_BYTES, MAX_DNS_WORKERS};
+use crate::resources::observation::{ObservedIo, ResourceKind, track};
+
+pub type PhysicalStream = ObservedIo<tokio::net::TcpStream>;
+pub type PhysicalDatagram = ObservedIo<UdpSocket>;
 
 const MAX_RESOLVED_ADDRESSES: usize = 8;
 
@@ -343,7 +347,7 @@ impl Dialer {
         self
     }
 
-    pub async fn connect(&self, endpoint: &ResolvedEndpoint) -> io::Result<tokio::net::TcpStream> {
+    pub async fn connect(&self, endpoint: &ResolvedEndpoint) -> io::Result<PhysicalStream> {
         let mut last_error = None;
         for address in &endpoint.addresses {
             if !self.ipv6 && address.is_ipv6() {
@@ -368,13 +372,13 @@ impl Dialer {
 
     /// Connects a direct TCP socket while applying the same platform protect
     /// hook and timeout used for the proxy-server dial path.
-    pub async fn connect_address(&self, address: SocketAddr) -> io::Result<tokio::net::TcpStream> {
+    pub async fn connect_address(&self, address: SocketAddr) -> io::Result<PhysicalStream> {
         self.connect_one(address).await
     }
 
     /// Creates a direct UDP socket for one destination and applies the
     /// platform protect or binding policy before exposing it to the caller.
-    pub async fn bind_udp_for(&self, destination: SocketAddr) -> io::Result<UdpSocket> {
+    pub async fn bind_udp_for(&self, destination: SocketAddr) -> io::Result<PhysicalDatagram> {
         self.require_permitted(destination)?;
         let ipv6 = destination.is_ipv6();
         let bind_address = self
@@ -405,7 +409,7 @@ impl Dialer {
                 "socket protection is only supported on Unix platforms",
             ));
         }
-        Ok(socket)
+        Ok(ObservedIo::new(socket, ResourceKind::Socket))
     }
 
     fn source_address_for(&self, destination: SocketAddr) -> io::Result<Option<SocketAddr>> {
@@ -493,7 +497,7 @@ impl Dialer {
         Ok(())
     }
 
-    async fn connect_one(&self, address: SocketAddr) -> io::Result<tokio::net::TcpStream> {
+    async fn connect_one(&self, address: SocketAddr) -> io::Result<PhysicalStream> {
         self.require_permitted(address)?;
         let ipv6 = address.is_ipv6();
         let socket = if ipv6 {
@@ -501,6 +505,7 @@ impl Dialer {
         } else {
             TcpSocket::new_v4()?
         };
+        let guard = track(ResourceKind::Socket);
         #[cfg(unix)]
         if let Some(protector) = &self.protector {
             protector.protect(socket.as_raw_fd())?;
@@ -521,7 +526,7 @@ impl Dialer {
             .await
             .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "connect timed out"))??;
         stream.set_nodelay(true)?;
-        Ok(stream)
+        Ok(ObservedIo::with_guard(stream, guard))
     }
 
     fn require_permitted(&self, address: SocketAddr) -> io::Result<()> {

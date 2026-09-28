@@ -13,13 +13,9 @@ CRATES_IO_SOURCES = {
     "registry+https://github.com/rust-lang/crates.io-index",
     "registry+https://index.crates.io/",
 }
-RUSTLS_GIT_SOURCE_PREFIX = (
-    "git+https://github.com/OneVCore/rustls?branch=vcore/reality-0.23#"
-)
-SHADOWSOCKS_REVISION = "ab388c7466d21f979430e33cc9ef10e22fb05955"
-SHADOWSOCKS_GIT_SOURCE = (
-    "git+https://github.com/shadowsocks/shadowsocks-rust.git"
-    f"?rev={SHADOWSOCKS_REVISION}#{SHADOWSOCKS_REVISION}"
+BORING_REVISION = "d5a5d41850886aef5b269015130ee6d6eb2129ba"
+BORING_GIT_SOURCE = (
+    f"git+https://github.com/OneXray/boring?branch=release#{BORING_REVISION}"
 )
 
 _C_SOURCE = r"""#include "vcore.h"
@@ -100,7 +96,7 @@ def _shadowsocks_aws_lc_errors(metadata: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     allowed: dict[str, dict[str, Any]] = {}
     expected = {
-        "shadowsocks": ("1.25.0", {SHADOWSOCKS_GIT_SOURCE}),
+        "shadowsocks": ("1.25.0", CRATES_IO_SOURCES),
         "shadowsocks-crypto": ("0.8.0", CRATES_IO_SOURCES),
         "aws-lc-rs": (None, CRATES_IO_SOURCES),
         "aws-lc-sys": (None, CRATES_IO_SOURCES),
@@ -178,8 +174,8 @@ def _tls_dependency_errors(metadata: dict[str, Any]) -> list[str]:
             return None
         return matches[0]
 
-    rustls = require_single("rustls", "0.23.43")
-    tokio_rustls = require_single("tokio-rustls", "0.26.4")
+    rustls = require_single("rustls", "0.23.45")
+    tokio_rustls = require_single("tokio-rustls", "0.26.5")
     ring = named("ring")
 
     if len(ring) != 1:
@@ -195,12 +191,9 @@ def _tls_dependency_errors(metadata: dict[str, Any]) -> list[str]:
 
     if rustls is not None:
         rustls_source = rustls.get("source") or ""
-        revision = rustls_source.removeprefix(RUSTLS_GIT_SOURCE_PREFIX)
-        if len(revision) != 40 or any(
-            character not in "0123456789abcdef" for character in revision
-        ):
+        if rustls_source not in CRATES_IO_SOURCES:
             errors.append(
-                "rustls must come from the vcore/reality-0.23 GitHub branch; "
+                "rustls must come from crates.io; "
                 f"resolved source: {rustls_source or 'path'}"
             )
 
@@ -226,8 +219,8 @@ def _tls_dependency_errors(metadata: dict[str, Any]) -> list[str]:
             errors.append("rustls is missing from the resolved dependency graph")
         else:
             features = set(rustls_node["features"])
-            missing = {"reality", "ring"} - features
-            forbidden = {"aws_lc_rs", "fips"} & features
+            missing = {"ring"} - features
+            forbidden = {"reality", "aws_lc_rs", "fips"} & features
             if missing:
                 errors.append(
                     f"rustls is missing required features: {', '.join(sorted(missing))}"
@@ -237,6 +230,63 @@ def _tls_dependency_errors(metadata: dict[str, Any]) -> list[str]:
                     "rustls enables forbidden provider features: "
                     f"{', '.join(sorted(forbidden))}"
                 )
+
+    native = {}
+    node_by_id = {node["id"]: node for node in nodes}
+    hpke = require_single("hpke", "0.14.1")
+    if hpke is not None:
+        if hpke.get("source") not in CRATES_IO_SOURCES:
+            errors.append("hpke must be the unmodified crates.io release")
+        hpke_node = node_by_id.get(hpke["id"])
+        if hpke_node is None or set(hpke_node.get("features", [])) != {
+            "alloc",
+            "aes",
+            "chacha",
+            "x25519",
+            "hkdfsha2",
+        }:
+            errors.append("hpke must use only the approved ECH algorithms")
+    for name, required in (
+        ("boring", {"reality", "client-fingerprint", "shadow-tls-v3", "jls"}),
+        ("boring-sys", {"reality", "shadow-tls-v3", "jls"}),
+        ("tokio-boring", set()),
+    ):
+        package = require_single(name, "5.2.0")
+        if package is None:
+            continue
+        native[name] = package
+        if package.get("source") != BORING_GIT_SOURCE:
+            errors.append(
+                f"{name} must use the approved boring release branch "
+                "and locked revision"
+            )
+        node = node_by_id.get(package["id"])
+        if node is None:
+            errors.append(f"{name} is missing from the resolved graph")
+            continue
+        features = set(node["features"])
+        if not required <= features:
+            errors.append(f"{name} is missing required TLS features")
+        if features & {
+            "fips",
+            "fips-precompiled",
+            "rpk",
+            "pq-experimental",
+            "restls",
+        }:
+            errors.append(f"{name} enables an unapproved native TLS mode")
+    for parent, children in (
+        ("boring", {"boring-sys"}),
+        ("tokio-boring", {"boring", "boring-sys"}),
+    ):
+        if parent in native:
+            deps = {
+                dep["pkg"]
+                for dep in node_by_id.get(native[parent]["id"], {}).get("deps", [])
+            }
+            for child in children:
+                if child not in native or native[child]["id"] not in deps:
+                    errors.append(f"{parent} must directly use the locked {child}")
 
     errors.extend(_shadowsocks_aws_lc_errors(metadata))
     return errors
@@ -273,12 +323,19 @@ def check_tls_dependencies() -> None:
     rustls = next(
         package for package in metadata["packages"] if package["name"] == "rustls"
     )
-    revision = rustls["source"].rsplit("#", 1)[1]
     print("TLS dependency check passed:")
-    print(f"- one OneVCore rustls 0.23.43 vcore/reality-0.23 @ {revision[:12]}")
-    print("- one official tokio-rustls 0.26.4")
+    print(f"- one official crates.io rustls {rustls['version']}")
+    print("- one official tokio-rustls 0.26.5")
+    print("- one official hpke 0.14.1 with the approved static ECH algorithms")
+    print(
+        "- one boring/boring-sys/tokio-boring 5.2.0 release branch "
+        f"@ {BORING_REVISION[:12]}"
+    )
     print(f"- one registry ring {ring['version']} provider")
-    print("- no Watfaq or second rustls version; TLS uses ring only")
+    print(
+        "- unprofiled TLS/QUIC use rustls + ring; REALITY/named profiles use BoringSSL"
+    )
+    print("- no Watfaq, second rustls source or rustls REALITY backend")
     if any(p["name"] == "aws-lc-rs" for p in metadata["packages"]):
         print("- AWS-LC is restricted to the pinned official Shadowsocks 2022 chain")
     else:
