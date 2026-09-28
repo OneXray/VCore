@@ -14,7 +14,7 @@
   },
   "samples": [
     {
-      "case_id": "CF0-chrome-tcp-16-0",
+      "case_id": "FINGERPRINT-REFERENCE-chrome-tcp-16-0",
       "profile": "chrome",
       "context": "tcp",
       "template": "Chrome133",
@@ -200,7 +200,7 @@
       }
     },
     {
-      "case_id": "CF0-chrome-reality-16-0",
+      "case_id": "FINGERPRINT-REFERENCE-chrome-reality-16-0",
       "profile": "chrome",
       "context": "reality",
       "template": "Chrome133",
@@ -381,7 +381,7 @@
       }
     },
     {
-      "case_id": "CF0-chrome120-tcp-16-0",
+      "case_id": "FINGERPRINT-REFERENCE-chrome120-tcp-16-0",
       "profile": "chrome120",
       "context": "tcp",
       "template": "Chrome120",
@@ -562,7 +562,7 @@
       }
     },
     {
-      "case_id": "CF0-chrome120-reality-16-0",
+      "case_id": "FINGERPRINT-REFERENCE-chrome120-reality-16-0",
       "profile": "chrome120",
       "context": "reality",
       "template": "Chrome120",
@@ -748,7 +748,7 @@
       }
     },
     {
-      "case_id": "CF0-firefox-tcp-16-0",
+      "case_id": "FINGERPRINT-REFERENCE-firefox-tcp-16-0",
       "profile": "firefox",
       "context": "tcp",
       "template": "Firefox120",
@@ -920,7 +920,7 @@
       }
     },
     {
-      "case_id": "CF0-firefox-reality-16-0",
+      "case_id": "FINGERPRINT-REFERENCE-firefox-reality-16-0",
       "profile": "firefox",
       "context": "reality",
       "template": "Firefox120",
@@ -1092,7 +1092,7 @@
       }
     },
     {
-      "case_id": "CF0-safari-tcp-16-0",
+      "case_id": "FINGERPRINT-REFERENCE-safari-tcp-16-0",
       "profile": "safari",
       "context": "tcp",
       "template": "Safari16.0",
@@ -1268,7 +1268,7 @@
       }
     },
     {
-      "case_id": "CF0-safari-reality-16-0",
+      "case_id": "FINGERPRINT-REFERENCE-safari-reality-16-0",
       "profile": "safari",
       "context": "reality",
       "template": "Safari16.0",

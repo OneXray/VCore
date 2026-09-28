@@ -1,4 +1,4 @@
-"""Execute N7 and reconstruct its result from frozen commands and native events."""
+"""Execute security cases and reconstruct results from commands and native events."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from contextlib import ExitStack
 
 from .protocol_evidence import HEX, new_result, read_events, read_json
 from .protocol_inputs import redact
-from .protocol_n7_catalog import FIELDS, GATES, definitions, groups
+from .protocol_security_catalog import FIELDS, GATES, definitions, groups
 
 
 def commands(identifier):
@@ -16,14 +16,14 @@ def commands(identifier):
 
     cargo = ["cargo", "test", "--locked", "--all-features"]
     targets = [
-        "n7_ech_config",
-        "n7_ech_tls",
-        "n7_encryption_config",
-        "n7_reality_config",
-        "n7_jls_config",
+        "ech_config",
+        "ech_tls",
+        "encryption_config",
+        "reality_config",
+        "jls_config",
     ]
-    if identifier in {"N7-CFG", "N7-RELEASE"}:
-        if identifier == "N7-RELEASE":
+    if identifier in {"SECURITY-CFG", "SECURITY-RELEASE"}:
+        if identifier == "SECURITY-RELEASE":
             cargo += ["--release"]
         return [
             cargo + sum((["--test", name] for name in targets), []),
@@ -31,8 +31,8 @@ def commands(identifier):
             cargo + ["--lib", "outbound::vless::encryption"],
             cargo + ["--lib", "config::"],
         ]
-    if identifier == "N7-FEATURES":
-        return previous("N6-FEATURES") + [
+    if identifier == "SECURITY-FEATURES":
+        return previous("HYSTERIA2-FEATURES") + [
             [
                 "cargo",
                 "test",
@@ -41,9 +41,9 @@ def commands(identifier):
                 "--features",
                 "outbound-vless",
                 "--test",
-                "n7_ech_config",
+                "ech_config",
                 "--test",
-                "n7_ech_tls",
+                "ech_tls",
             ],
             [
                 "cargo",
@@ -54,7 +54,7 @@ def commands(identifier):
                 "--no-run",
             ],
         ]
-    if identifier == "N7-SCRIPTS":
+    if identifier == "SECURITY-SCRIPTS":
         return [
             [
                 sys.executable,
@@ -63,31 +63,35 @@ def commands(identifier):
                 "{output}/script-tests.json",
             ]
         ]
-    return previous(identifier.replace("N7-", "N6-"))
+    return previous(identifier.replace("SECURITY-", "HYSTERIA2-"))
 
 
 def gate_result(case, records, events, script=None):
     from .protocol_hysteria2_catalog import assertions_pass
-    from .protocol_n7_units import TESTS
+    from .protocol_security_units import TESTS
 
     identifier = case["case_id"]
     good = bool(records) and all(
         r.get("exit_code") == 0 and r.get("cleanup") is True for r in records
     )
-    if identifier in {"N7-CFG", "N7-RELEASE"}:
+    if identifier in {"SECURITY-CFG", "SECURITY-RELEASE"}:
         # Config and TLS tests each have an exact BEGIN/PASS pair. Library
         # regressions run separately without these assertion identities.
-        selected = [e for e in events if e.get("suite") == "N7-CONFIG-TLS"]
+        selected = [e for e in events if e.get("suite") == "SECURITY-CONFIG-TLS"]
         good &= assertions_pass(
             selected,
-            {("N7-CONFIG-TLS", name): 1 for names in TESTS.values() for name in names},
+            {
+                ("SECURITY-CONFIG-TLS", name): 1
+                for names in TESTS.values()
+                for name in names
+            },
         )
         good &= all(e.get("status") in {"BEGIN", "PASS"} for e in events)
-    if identifier == "N7-SCRIPTS":
+    if identifier == "SECURITY-SCRIPTS":
         samples = (script or {}).get("cases", [])
         names = [s.get("test") for s in samples]
         required = {
-            "test_protocol_n7.N7AcceptanceTest." + name
+            "test_protocol_security.SecurityAcceptanceTest." + name
             for name in (
                 "test_frozen_scope_and_compositions",
                 "test_native_missing_duplicate_wrong_events_fail",
@@ -194,7 +198,9 @@ def vless_catalog(group):
         return catalog()
     from .protocol_vless_container import ALL_CASES
 
-    return ALL_CASES | {"F5-ANYTLS": ("M", "anytls", True, "public_legacy_regression")}
+    return ALL_CASES | {
+        "FINGERPRINT-ANYTLS": ("M", "anytls", True, "public_legacy_regression")
+    }
 
 
 def close_reference_pass(group, mode, directory):
@@ -235,9 +241,9 @@ def vless_pass(group, report, directory):
     ) != group.get("client_fingerprint"):
         return False
     stage = (
-        "N7"
+        "SECURITY"
         if group.get("ech") or group.get("jls") or group.get("encryption")
-        else "N4"
+        else "VLESS"
     )
     for record in records:
         name = record["case_id"]
@@ -360,11 +366,16 @@ def hybrid_pass(group, report, directory):
         good &= (
             events
             == [
-                dict(schema_version=1, suite="N7-WIRE", assertion=test, status=status)
+                dict(
+                    schema_version=1,
+                    suite="SECURITY-WIRE",
+                    assertion=test,
+                    status=status,
+                )
                 for status in ("BEGIN", "PASS")
             ]
             if native
-            else events_pass(events, test, MODES[mode][0], stage="N7")
+            else events_pass(events, test, MODES[mode][0], stage="SECURITY")
         )
         if not good:
             return False
@@ -384,9 +395,9 @@ def encryption_pass(group, report, directory):
         "native_ticket_expiry" if group.get("expiry") else "native_encryption_roundtrip"
     )
     marker = (
-        "N7-ENCRYPTION-EXPIRY-PASS full-resumed-expired-full-resumed"
+        "SECURITY-ENCRYPTION-EXPIRY-PASS full-resumed-expired-full-resumed"
         if group.get("expiry")
-        else "N7-ENCRYPTION-WIRE-PASS rounds=4 bytes_per_direction=10485760"
+        else "SECURITY-ENCRYPTION-WIRE-PASS rounds=4 bytes_per_direction=10485760"
     )
     if (
         len(records) != len(expected)
@@ -405,7 +416,7 @@ def encryption_pass(group, report, directory):
             and record.get("cleanup") is True
             and marker in log
             and "1 passed; 0 failed; 0 ignored" in log
-            and record.get("command") == rust_command("n7_encryption_wire", test)
+            and record.get("command") == rust_command("encryption_wire", test)
         ):
             return False
     return True
@@ -438,7 +449,7 @@ def fields_report(cases, results):
     rows = []
     for field in sorted(FIELDS):
         owners = [c["case_id"] for c in cases if field in c["row_ids"]]
-        cfg = [c for c in owners if c in {"N7-CFG", "N7-RELEASE"}]
+        cfg = [c for c in owners if c in {"SECURITY-CFG", "SECURITY-RELEASE"}]
         wire = [c for c in owners if c not in GATES]
         good = (
             bool(cfg)
@@ -453,7 +464,9 @@ def fields_report(cases, results):
                 status="PASS" if good else "NOT RUN",
             )
         )
-    return dict(stage="N7", scope="selected-vless-security-consumers", fields=rows)
+    return dict(
+        stage="SECURITY", scope="selected-vless-security-consumers", fields=rows
+    )
 
 
 def execute(cases, run, output, results):
@@ -499,13 +512,13 @@ def execute(cases, run, output, results):
                     events += read_events(path)
             script = (
                 read_json(output / "script-tests.json")
-                if identifier == "N7-SCRIPTS"
+                if identifier == "SECURITY-SCRIPTS"
                 else None
             )
             results[identifier] = gate_result(case, records, events, script)
             print(identifier + ": " + results[identifier]["status"], flush=True)
             if results[identifier]["status"] != "PASS":
-                raise RuntimeError("N7 local gate failed: " + identifier)
+                raise RuntimeError("SECURITY local gate failed: " + identifier)
         if any(c["case_id"] in catalog for c in cases):
             supplied = prepare_peers(output, {"M", "XR", "V2"})
             run["container_image"] = image_scope.enter_context(
@@ -520,7 +533,8 @@ def execute(cases, run, output, results):
         # Retained combinations first, followed by the longer new ECH matrix.
         # Every required group still runs in this same frozen source/image scope.
         for case in sorted(
-            cases, key=lambda c: (c["case_id"].startswith("N7-ECH-"), c["case_id"])
+            cases,
+            key=lambda c: (c["case_id"].startswith("SECURITY-ECH-"), c["case_id"]),
         ):
             identifier = case["case_id"]
             if identifier in GATES:
@@ -543,7 +557,7 @@ def execute(cases, run, output, results):
             )
             print(identifier + ": " + results[identifier]["status"], flush=True)
             if results[identifier]["status"] != "PASS":
-                raise RuntimeError("N7 native gate failed: " + identifier)
+                raise RuntimeError("SECURITY native gate failed: " + identifier)
     finally:
         image_scope.close()
         (output / "peers.json").write_text(
@@ -574,13 +588,13 @@ def check(run_dir, cases, run, results, peers, paths):
         )
         or snapshot["log"] not in paths
     ):
-        raise ValueError("missing or altered N7 frozen container image")
+        raise ValueError("missing or altered SECURITY frozen container image")
     if (
         cases != definitions()
         or set(peers) != {"M", "XR", "V2"}
         or not {"fields.json", "script-tests.json"} <= set(paths)
     ):
-        raise ValueError("incomplete N7 stage artifacts or altered manifest")
+        raise ValueError("incomplete SECURITY stage artifacts or altered manifest")
     records = run.get("commands", [])
     names = {
         f"{c['case_id']}-{i}"
@@ -589,7 +603,7 @@ def check(run_dir, cases, run, results, peers, paths):
         if c["case_id"] in GATES
     }
     if len(records) != len(names) or {r.get("name") for r in records} != names:
-        raise ValueError("missing, duplicate or extra N7 gate command")
+        raise ValueError("missing, duplicate or extra SECURITY gate command")
     actual = {r["case_id"]: r for r in results}
     source = {
         k: run[k]
@@ -612,7 +626,7 @@ def check(run_dir, cases, run, results, peers, paths):
                     != [redact(v.replace("{output}", str(run_dir))) for v in argv]
                     or record["log"] not in paths
                 ):
-                    raise ValueError("N7 gate command or log changed")
+                    raise ValueError("SECURITY gate command or log changed")
                 selected.append(record)
                 path = run_dir / f"{identifier}-{i}-events.jsonl"
                 if path.exists():
@@ -622,7 +636,7 @@ def check(run_dir, cases, run, results, peers, paths):
                 selected,
                 events,
                 read_json(run_dir / "script-tests.json")
-                if identifier == "N7-SCRIPTS"
+                if identifier == "SECURITY-SCRIPTS"
                 else None,
             )
         else:
@@ -639,10 +653,10 @@ def check(run_dir, cases, run, results, peers, paths):
                 image_digest=digest,
             )
         if recalculated != actual[identifier] or recalculated["status"] != "PASS":
-            raise ValueError("N7 results differ from independent evidence")
+            raise ValueError("SECURITY results differ from independent evidence")
     fields = fields_report(cases, results)
     if read_json(run_dir / "fields.json") != fields or any(
         f["status"] != "PASS" for f in fields["fields"]
     ):
-        raise ValueError("missing N7 field behavior coverage")
-    print(f"N7: PASS ({len(cases)} required groups; {len(FIELDS)} field rows)")
+        raise ValueError("missing SECURITY field behavior coverage")
+    print(f"SECURITY: PASS ({len(cases)} required groups; {len(FIELDS)} field rows)")

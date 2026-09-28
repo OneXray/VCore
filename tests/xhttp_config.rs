@@ -18,7 +18,7 @@ fn document(options: Value) -> Vec<u8> {
 fn xhttp_fields_reject_wrong_types_null_and_every_range_boundary_before_io() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "xhttp_fields_reject_wrong_types_null_and_every_range_boundary_before_io",
     );
     let fields = [
@@ -168,7 +168,7 @@ fn xhttp_fields_reject_wrong_types_null_and_every_range_boundary_before_io() {
 fn empty_http_authority_falls_back_to_each_legs_authentication_name() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "empty_http_authority_falls_back_to_each_legs_authentication_name",
     );
     for (host, down_host, up, down) in [
@@ -204,7 +204,7 @@ fn empty_http_authority_falls_back_to_each_legs_authentication_name() {
 fn download_security_changes_do_not_silently_discard_inherited_certificate_policy() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "download_security_changes_do_not_silently_discard_inherited_certificate_policy",
     );
     for download in [
@@ -235,7 +235,7 @@ fn download_security_changes_do_not_silently_discard_inherited_certificate_polic
 fn h3_requires_exclusive_alpn_and_standard_tls_on_each_leg() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "h3_requires_exclusive_alpn_and_standard_tls_on_each_leg",
     );
     let mut value: Value =
@@ -271,7 +271,7 @@ fn h3_requires_exclusive_alpn_and_standard_tls_on_each_leg() {
 fn custom_headers_inherit_replace_clear_and_do_not_leak_values() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "custom_headers_inherit_replace_clear_and_do_not_leak_values",
     );
     for (download, expected) in [
@@ -313,7 +313,7 @@ fn custom_headers_inherit_replace_clear_and_do_not_leak_values() {
 fn conflicting_request_fields_are_rejected_on_both_legs_before_io() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "conflicting_request_fields_are_rejected_on_both_legs_before_io",
     );
     for options in [
@@ -336,7 +336,7 @@ fn conflicting_request_fields_are_rejected_on_both_legs_before_io() {
 fn http_version_selects_h1_only_for_its_single_alpn_and_supports_plaintext() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "http_version_selects_h1_only_for_its_single_alpn_and_supports_plaintext",
     );
     use vcore::config::{SecurityConfig, XHttpVersion};
@@ -377,7 +377,7 @@ fn http_version_selects_h1_only_for_its_single_alpn_and_supports_plaintext() {
 fn download_certificate_policy_inherits_and_explicit_false_or_empty_clears() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "download_certificate_policy_inherits_and_explicit_false_or_empty_clears",
     );
     use vcore::config::SecurityConfig;
@@ -425,7 +425,7 @@ fn download_certificate_policy_inherits_and_explicit_false_or_empty_clears() {
 fn download_mtls_identity_is_inherited_or_replaced_and_cleared_as_a_pair() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "download_mtls_identity_is_inherited_or_replaced_and_cleared_as_a_pair",
     );
     use base64::Engine as _;
@@ -485,7 +485,7 @@ fn download_mtls_identity_is_inherited_or_replaced_and_cleared_as_a_pair() {
 fn download_reality_object_replaces_inherits_or_clears_without_merging_keys() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "download_reality_object_replaces_inherits_or_clears_without_merging_keys",
     );
     use base64::Engine as _;
@@ -538,7 +538,7 @@ fn download_reality_object_replaces_inherits_or_clears_without_merging_keys() {
 fn reuse_object_presence_and_download_whole_object_replacement_are_preserved() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "reuse_object_presence_and_download_whole_object_replacement_are_preserved",
     );
     for (options, upload, down) in [

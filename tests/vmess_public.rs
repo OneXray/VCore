@@ -21,7 +21,7 @@ mod tun;
 
 fn fixture() -> Value {
     let value: Value = serde_json::from_slice(
-        &std::fs::read(std::env::var("VCORE_VMESS_AB_INPUT").expect("use isolated N3 runner"))
+        &std::fs::read(std::env::var("VCORE_VMESS_AB_INPUT").expect("use isolated VMESS runner"))
             .unwrap(),
     )
     .unwrap();
@@ -310,7 +310,7 @@ fn echo(port: u16, f: &Value) {
     origin.marker(b'D');
 }
 fn bulk(port: u16, f: &Value, ipv6: bool, domain: bool) {
-    let _case = Case::new("N3-BASE", "tcp_10mib_both_directions");
+    let _case = Case::new("VMESS-BASE", "tcp_10mib_both_directions");
     let mut origin = Origin::new(f, 10, ipv6);
     let mut client = connect(port, origin.target, domain);
     let mut hello = [0; 5];
@@ -344,9 +344,9 @@ fn dns(config: &mut Value, origin: &Origin, via: &str) {
         json!({"enable":true,"ipv6":false,"nameserver":[format!("udp://{}#{via}",origin.target)]});
 }
 #[test]
-#[ignore = "isolated N3 runner"]
+#[ignore = "isolated VMESS runner"]
 fn public_base() {
-    let _case = Case::new("N3-PUBLIC", "public_base");
+    let _case = Case::new("VMESS-PUBLIC", "public_base");
     let f = fixture();
     initialize(&f);
     let port = free_port();
@@ -360,7 +360,7 @@ fn public_base() {
     echo(port, &f);
     core.stop();
     for codec in ["", "xudp", "packetaddr"] {
-        let _codec = Case::new("N3-BASE", "udp_each_codec_and_family");
+        let _codec = Case::new("VMESS-BASE", "udp_each_codec_and_family");
         let mut node = f["node"].clone();
         node["packet-encoding"] = json!(codec);
         let mut yaml = config(node, port);
@@ -445,9 +445,9 @@ fn denied(node: Value, f: &Value) {
     core.stop();
 }
 #[test]
-#[ignore = "isolated N3 runner"]
+#[ignore = "isolated VMESS runner"]
 fn public_negative() {
-    let _case = Case::new("N3-PUBLIC", "public_negative");
+    let _case = Case::new("VMESS-PUBLIC", "public_negative");
     let f = fixture();
     initialize(&f);
     let original = f["node"].clone();
@@ -505,9 +505,9 @@ fn public_negative() {
 }
 
 #[test]
-#[ignore = "isolated N3 runner"]
+#[ignore = "isolated VMESS runner"]
 fn public_alpn_rejection() {
-    let _case = Case::new("N3-PUBLIC", "public_alpn_rejection");
+    let _case = Case::new("VMESS-PUBLIC", "public_alpn_rejection");
     let f = fixture();
     initialize(&f);
     // The official listener advertises h2 when its gRPC entrance is enabled.
@@ -516,7 +516,7 @@ fn public_alpn_rejection() {
     control["network"] = json!("grpc");
     control["alpn"] = json!(["h2"]);
     control.as_object_mut().unwrap().remove("ws-opts");
-    control["grpc-opts"] = json!({"grpc-service-name":"n3-alpn"});
+    control["grpc-opts"] = json!({"grpc-service-name":"vmess-alpn"});
     let port = free_port();
     let core = Core::start(&config(control, port));
     echo(port, &f);
@@ -525,9 +525,9 @@ fn public_alpn_rejection() {
 }
 
 #[test]
-#[ignore = "isolated N3 runner"]
+#[ignore = "isolated VMESS runner"]
 fn public_udp_first_response() {
-    let _case = Case::new("N3-PUBLIC", "public_udp_first_response");
+    let _case = Case::new("VMESS-PUBLIC", "public_udp_first_response");
     let f = fixture();
     initialize(&f);
     let port = free_port();
@@ -538,9 +538,9 @@ fn public_udp_first_response() {
 }
 
 #[test]
-#[ignore = "isolated N3 runner"]
+#[ignore = "isolated VMESS runner"]
 fn public_body_options() {
-    let _case = Case::new("N3-PUBLIC", "public_body_options");
+    let _case = Case::new("VMESS-PUBLIC", "public_body_options");
     let f = fixture();
     initialize(&f);
     let port = free_port();
@@ -550,7 +550,7 @@ fn public_body_options() {
         } else {
             4
         } {
-            let _body = Case::new("N3-BODY", "config_controls_aead_body");
+            let _body = Case::new("VMESS-BODY", "config_controls_aead_body");
             let mut node = f["node"].clone();
             node["cipher"] = json!(cipher);
             node["global-padding"] = json!(flags & 1 != 0);
@@ -565,9 +565,9 @@ fn public_body_options() {
 }
 
 #[test]
-#[ignore = "isolated N3 runner"]
+#[ignore = "isolated VMESS runner"]
 fn public_legacy_regression() {
-    let _case = Case::new("N3-PUBLIC", "public_legacy_regression");
+    let _case = Case::new("VMESS-PUBLIC", "public_legacy_regression");
     let f = fixture();
     initialize(&f);
     let port = free_port();

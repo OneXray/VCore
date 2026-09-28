@@ -468,7 +468,7 @@ mod tests {
     fn chunks_preserve_boundaries_masks_padding_and_authenticated_eof() {
         #[cfg(feature = "interop-test")]
         let _evidence = crate::resources::case_events::Case::new(
-            "N3-CODEC",
+            "VMESS-CODEC",
             "chunks_preserve_boundaries_masks_padding_and_authenticated_eof",
         );
         for cipher in [BodyCipher::Aes128Gcm, BodyCipher::Chacha20Poly1305] {
@@ -493,7 +493,7 @@ mod tests {
     fn tags_lengths_and_nonce_exhaustion_fail_closed() {
         #[cfg(feature = "interop-test")]
         let _evidence = crate::resources::case_events::Case::new(
-            "N3-CODEC",
+            "VMESS-CODEC",
             "tags_lengths_and_nonce_exhaustion_fail_closed",
         );
         for cipher in [BodyCipher::Aes128Gcm, BodyCipher::Chacha20Poly1305] {

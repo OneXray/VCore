@@ -1,4 +1,4 @@
-"""N9 public-runtime gates against seven listeners in an owned native peer."""
+"""INTEGRATION public-runtime gates against seven listeners in an owned native peer."""
 
 from __future__ import annotations
 
@@ -19,24 +19,24 @@ from .native_release import download_native
 from .protocol_containers import ContainerLab, command, frozen_image
 from .protocol_fixtures import certificates
 from .protocol_inputs import redact, sha256, source_identity
-from .protocol_n9_catalog import PROTOCOLS
-from .protocol_n9_native import peer_configuration, rust_command
+from .protocol_integration_catalog import PROTOCOLS
+from .protocol_integration_native import peer_configuration, rust_command
 from .protocol_peers import run_command
 
 CONSUMERS = {
-    "N9-ENTRYPOINTS": "entrypoints",
-    "N9-GRAPH": "graph",
-    "N9-DNS-MEASURE": "dns_measure",
-    "N9-RESOURCE-TRACER": "resource_tracer",
-    "N9-LIFECYCLE": "lifecycle::public_lifetimes",
-    "N9-LIFECYCLE-TRACER": "lifecycle::lifecycle_tracer",
-    "N9-REBUILD": "pressure::rebuild",
-    "N9-REBUILD-TRACER": "pressure::rebuild_tracer",
-    "N9-SOAK": "pressure::soak",
-    "N9-SOAK-TRACER": "pressure::soak_tracer",
-    "N9-SS-ALGORITHMS": "shadowsocks::algorithms",
-    "N9-SS-EIH": "shadowsocks::eih",
-    "N9-FAILURES": "connector::protect_failure",
+    "INTEGRATION-ENTRYPOINTS": "entrypoints",
+    "INTEGRATION-GRAPH": "graph",
+    "INTEGRATION-DNS-MEASURE": "dns_measure",
+    "INTEGRATION-RESOURCE-TRACER": "resource_tracer",
+    "INTEGRATION-LIFECYCLE": "lifecycle::public_lifetimes",
+    "INTEGRATION-LIFECYCLE-TRACER": "lifecycle::lifecycle_tracer",
+    "INTEGRATION-REBUILD": "pressure::rebuild",
+    "INTEGRATION-REBUILD-TRACER": "pressure::rebuild_tracer",
+    "INTEGRATION-SOAK": "pressure::soak",
+    "INTEGRATION-SOAK-TRACER": "pressure::soak_tracer",
+    "INTEGRATION-SS-ALGORITHMS": "shadowsocks::algorithms",
+    "INTEGRATION-SS-EIH": "shadowsocks::eih",
+    "INTEGRATION-FAILURES": "connector::protect_failure",
 }
 
 
@@ -46,13 +46,15 @@ def run(output: Path, selected, *, supplied=None):
         or len(selected) != len(set(selected))
         or not set(selected) <= CONSUMERS.keys()
     ):
-        raise ValueError("invalid N9 public gate selection")
+        raise ValueError("invalid INTEGRATION public gate selection")
     output = output.resolve()
     if not output.is_relative_to((CORE_DIR / "target/interop/runs").resolve()):
-        raise ValueError("N9 evidence must stay inside the owned run directory")
+        raise ValueError(
+            "INTEGRATION evidence must stay inside the owned run directory"
+        )
     output.mkdir(parents=True, exist_ok=False)
     report = dict(
-        stage="N9",
+        stage="INTEGRATION",
         scope="public-runtime-subset",
         source=source_identity(),
         status="NOT RUN",
@@ -69,7 +71,7 @@ def run(output: Path, selected, *, supplied=None):
         else:
             binary, identity = supplied
             if sha256(binary) != identity["binary_sha256"]:
-                raise RuntimeError("N9 native peer identity mismatch")
+                raise RuntimeError("INTEGRATION native peer identity mismatch")
         report["peers"]["M"] = identity
         lab = ContainerLab(report["isolation"], mtu=1500)
         with tempfile.TemporaryDirectory(prefix="private-", dir=output) as temporary:
@@ -88,7 +90,7 @@ def run(output: Path, selected, *, supplied=None):
                     [
                         "env",
                         "VCORE_ISOLATED_ORIGIN=1",
-                        "VCORE_ORIGIN_PROFILE=N9",
+                        "VCORE_ORIGIN_PROFILE=INTEGRATION",
                         "python",
                         "-B",
                         "/data/fixture/origin.py",
@@ -124,7 +126,9 @@ def run(output: Path, selected, *, supplied=None):
                     ).split()[0]
                     != identity["binary_sha256"]
                 ):
-                    raise RuntimeError("N9 upstream binary differs from download")
+                    raise RuntimeError(
+                        "INTEGRATION upstream binary differs from download"
+                    )
                 directory = root / "native"
                 directory.mkdir()
                 shutil.copy2(binary, directory / "peer")
@@ -149,7 +153,9 @@ def run(output: Path, selected, *, supplied=None):
                     ).split()[0]
                     != identity["binary_sha256"]
                 ):
-                    raise RuntimeError("N9 container binary differs from download")
+                    raise RuntimeError(
+                        "INTEGRATION container binary differs from download"
+                    )
                 certificate = certificates(directory)
                 nodes, listeners = {}, []
                 config = None
@@ -193,7 +199,7 @@ def run(output: Path, selected, *, supplied=None):
                     listeners=listeners,
                     **{
                         "external-controller": "0.0.0.0:23998",
-                        "secret": "synthetic-n9-control",
+                        "secret": "synthetic-integration-control",
                     },
                 )
                 (directory / "config.json").write_text(json.dumps(config))
@@ -211,7 +217,7 @@ def run(output: Path, selected, *, supplied=None):
                     peer_controller=f"{peer.ipv4}:23998",
                     data_dir=str(root / "core"),
                 )
-                if "N9-SS-EIH" in selected:
+                if "INTEGRATION-SS-EIH" in selected:
                     artifact = download_native(
                         "SS", output / "binaries-ss", "linux-arm64", defer_version=True
                     )
@@ -233,7 +239,7 @@ def run(output: Path, selected, *, supplied=None):
                         ).split()[0]
                         != artifact.identity["binary_sha256"]
                     ):
-                        raise RuntimeError("N9 SS binary identity mismatch")
+                        raise RuntimeError("INTEGRATION SS binary identity mismatch")
                     report["peers"]["SS"] = artifact.identity
                     servers, eih_nodes = [], []
                     for index, length in enumerate((16, 32)):
@@ -285,13 +291,13 @@ def run(output: Path, selected, *, supplied=None):
                 path = root / "fixture.json"
                 path.write_text(json.dumps(fixture))
                 for identifier in selected:
-                    print(f"N9: {identifier}", flush=True)
+                    print(f"INTEGRATION: {identifier}", flush=True)
                     env = dict(
                         os.environ,
                         VCORE_VLESS_INPUT=str(path),
-                        VCORE_PROTOCOL_STAGE="N9",
+                        VCORE_PROTOCOL_STAGE="INTEGRATION",
                         VCORE_CASE_EVENTS=str(output / (identifier + "-events.jsonl")),
-                        VCORE_N9_OBSERVATIONS=str(
+                        VCORE_INTEGRATION_OBSERVATIONS=str(
                             output / (identifier + "-observations.json")
                         ),
                     )
@@ -309,7 +315,7 @@ def run(output: Path, selected, *, supplied=None):
                             seconds=result.seconds,
                         )
                     )
-                    if "N9-SS-EIH" in selected:
+                    if "INTEGRATION-SS-EIH" in selected:
                         # The follow-log owner buffers while live; snapshot via
                         # the CLI so a short failed run retains real diagnostics.
                         text = command("logs", ss.name)
@@ -322,7 +328,7 @@ def run(output: Path, selected, *, supplied=None):
                         text = re.sub(r"(?:\d{1,3}\.){3}\d{1,3}", "<fixture-ip>", text)
                         (output / "ssserver.log").write_text(redact(text))
                     if result.returncode != 0 or not result.cleanup:
-                        raise RuntimeError("N9 public-runtime consumer failed")
+                        raise RuntimeError("INTEGRATION public-runtime consumer failed")
         report["status"] = "PASS"
     except BaseException as error:
         report.update(status="FAIL", failure_kind=type(error).__name__)
@@ -334,7 +340,9 @@ def run(output: Path, selected, *, supplied=None):
         )
         if not report["cleanup"] or not report["source_unchanged"]:
             report["status"] = "FAIL"
-        (output / "n9-suite.json").write_text(json.dumps(report, indent=2) + "\n")
+        (output / "integration-suite.json").write_text(
+            json.dumps(report, indent=2) + "\n"
+        )
     return report
 
 

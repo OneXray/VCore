@@ -1,4 +1,4 @@
-"""Frozen N4 native/public consumer requirements; no result-derived catalog."""
+"""Frozen VLESS native/public consumer requirements; no result-derived catalog."""
 
 from .protocol_evidence import idle_resources
 from .protocol_vless_peers import MODES, peer_kind
@@ -13,7 +13,7 @@ def add(mode, suffix, test, *, wire=False):
     encrypted = mode.endswith(("-tls", "-reality", "-mtls")) or mode.startswith(
         ("xhttp-", "vision-")
     )
-    (WIRE if wire else PUBLIC)[f"N4-{mode.upper()}-{suffix}"] = (
+    (WIRE if wire else PUBLIC)[f"VLESS-{mode.upper()}-{suffix}"] = (
         kind,
         mode,
         encrypted,
@@ -69,7 +69,7 @@ add(
 )
 for protocol in ("vmess", "trojan"):
     for network in ("tcp", "ws", "grpc"):
-        PUBLIC[f"N4-REGRESSION-{protocol.upper()}-{network.upper()}"] = (
+        PUBLIC[f"VLESS-REGRESSION-{protocol.upper()}-{network.upper()}"] = (
             "M",
             f"{protocol}-{network}",
             True,
@@ -110,7 +110,7 @@ add("grpc-tls", "POOL-COUNTS", "native_grpc_pool_thresholds", wire=True)
 CASES = WIRE | PUBLIC
 
 
-def events_pass(events, test, mode, *, stage="N4"):
+def events_pass(events, test, mode, *, stage="VLESS"):
     main = [event for event in events if event.get("suite") == f"{stage}-PUBLIC"]
     if len(main) != 2 or not pairs(main, f"{stage}-PUBLIC", test, 1):
         return False

@@ -16,13 +16,13 @@ fn quiet_reader(stream: &mut TcpStream) {
 }
 
 #[test]
-#[ignore = "owned N9 container fixture required; at least 500 seconds"]
+#[ignore = "owned INTEGRATION container fixture required; at least 500 seconds"]
 fn public_lifetimes() {
     lifetimes(100);
 }
 
 #[test]
-#[ignore = "owned N9 container fixture required; development subset only"]
+#[ignore = "owned INTEGRATION container fixture required; development subset only"]
 fn lifecycle_tracer() {
     lifetimes(20);
 }
@@ -40,7 +40,7 @@ fn lifetimes(count: usize) {
     for cycle in 0..count {
         let protocol = NEW_PROTOCOLS[(cycle / 5) % NEW_PROTOCOLS.len()];
         let mode = cycle % 5;
-        let mut case = RecordedCase::new("N9-LIFECYCLE", "stop_and_remain_quiet");
+        let mut case = RecordedCase::new("INTEGRATION-LIFECYCLE", "stop_and_remain_quiet");
         let probe = ResourceProbe::default();
         case.checkpoint("baseline", probe.snapshot());
         let baseline = fd_count();
@@ -162,7 +162,7 @@ fn lifetimes(count: usize) {
         let end = fd_count();
         assert!(end <= baseline);
         observations.push(json!({"cycle":cycle,"protocol":protocol,"mode":mode,"baseline_fd":baseline,"retained_fixture_fd":retained,"after_stop_fd":after_stop,"final_fd":end,"stop_ms":stop_ms,"quiet_seconds":quiet_seconds,"active":active,"after_stop":stopped,"quiet":probe.snapshot(),"ports_rebound":true}));
-        println!("N9 lifecycle: {}/{count}", cycle + 1);
+        println!("INTEGRATION lifecycle: {}/{count}", cycle + 1);
     }
     observe(json!({"count":count,"cycles":observations}));
 }

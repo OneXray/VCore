@@ -27,7 +27,7 @@ fn parse(proxy: Value) -> vcore::Result<Config> {
 fn public_reality_accepts_explicit_hybrid_without_replacing_the_fingerprint() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N7-CONFIG-TLS",
+        "SECURITY-CONFIG-TLS",
         "public_reality_accepts_explicit_hybrid_without_replacing_the_fingerprint",
     );
     for profile in [None, Some("none"), Some(""), Some("chrome")] {
@@ -46,7 +46,7 @@ fn public_reality_accepts_explicit_hybrid_without_replacing_the_fingerprint() {
 fn public_reality_rejects_profiles_without_the_required_hybrid_share() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N7-CONFIG-TLS",
+        "SECURITY-CONFIG-TLS",
         "public_reality_rejects_profiles_without_the_required_hybrid_share",
     );
     for profile in ["chrome120", "firefox", "firefox120", "safari", "safari16"] {
@@ -81,7 +81,7 @@ fn split_proxy() -> Value {
 fn download_inherits_or_replaces_the_entire_reality_object_without_leaf_merging() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N7-CONFIG-TLS",
+        "SECURITY-CONFIG-TLS",
         "download_inherits_or_replaces_the_entire_reality_object_without_leaf_merging",
     );
     let node = split_proxy();
@@ -118,7 +118,7 @@ fn download_inherits_or_replaces_the_entire_reality_object_without_leaf_merging(
 fn hybrid_flag_is_a_strict_nonnullable_boolean_on_both_legs() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N7-CONFIG-TLS",
+        "SECURITY-CONFIG-TLS",
         "hybrid_flag_is_a_strict_nonnullable_boolean_on_both_legs",
     );
     for value in [Value::Null, json!("true"), json!(1), json!([]), json!({})] {
@@ -147,7 +147,7 @@ fn hybrid_flag_is_a_strict_nonnullable_boolean_on_both_legs() {
 fn classic_default_and_explicit_false_preserve_all_existing_profiles() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N7-CONFIG-TLS",
+        "SECURITY-CONFIG-TLS",
         "classic_default_and_explicit_false_preserve_all_existing_profiles",
     );
     for profile in [
@@ -185,7 +185,7 @@ fn classic_default_and_explicit_false_preserve_all_existing_profiles() {
 fn inherited_profile_is_validated_after_download_reality_replacement() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N7-CONFIG-TLS",
+        "SECURITY-CONFIG-TLS",
         "inherited_profile_is_validated_after_download_reality_replacement",
     );
     let mut node = split_proxy();
@@ -205,7 +205,7 @@ fn inherited_profile_is_validated_after_download_reality_replacement() {
 fn hybrid_reality_cannot_be_combined_with_h3_or_plaintext_on_either_leg() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N7-CONFIG-TLS",
+        "SECURITY-CONFIG-TLS",
         "hybrid_reality_cannot_be_combined_with_h3_or_plaintext_on_either_leg",
     );
     for download in [false, true] {

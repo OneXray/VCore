@@ -1,4 +1,4 @@
-"""Bounded one-way bandwidth origin, only inside the owned N6 container.
+"""Bounded one-way bandwidth origin, only inside the owned HYSTERIA2 container.
 
 64-KiB records carry a sequence and deterministic payload. Upload progress is
 timestamped at the actual origin, not inferred from the client's send buffer.

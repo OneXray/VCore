@@ -17,7 +17,7 @@ from vcore_scripts.protocol_harness import SCRIPT_OBSERVATIONS
 
 class RunEvidenceTest(unittest.TestCase):
     def fixture(self):
-        cases = [case for case in load_manifest() if case["stage"] == "N1"]
+        cases = [case for case in load_manifest() if case["stage"] == "FOUNDATIONS"]
         idle = {
             "counts": [
                 {"kind": name, "current": 0, "peak": 1}
@@ -54,7 +54,7 @@ class RunEvidenceTest(unittest.TestCase):
                                 "status": status,
                                 "seconds": 5,
                                 "resources": idle
-                                if case["case_id"] == "N1-RESOURCES"
+                                if case["case_id"] == "FOUNDATIONS-RESOURCES"
                                 and status == "PASS"
                                 else None,
                                 "checkpoints": [
@@ -116,7 +116,7 @@ class RunEvidenceTest(unittest.TestCase):
         ]
         return {
             "run.json": {
-                "stage": "N1",
+                "stage": "FOUNDATIONS",
                 "mode": "execute",
                 "source_unchanged": True,
                 "cleanup": True,
@@ -185,7 +185,7 @@ class RunEvidenceTest(unittest.TestCase):
         ):
             directory = Path(temporary)
             self.write_fixture(directory, fixture)
-            check_run(directory, "N1")
+            check_run(directory, "FOUNDATIONS")
             for mutation in [
                 "raw-event",
                 "nonidle",
@@ -208,13 +208,13 @@ class RunEvidenceTest(unittest.TestCase):
                     del data["rust-events.jsonl"]
                 elif mutation == "quiet":
                     for event in data["rust-events.jsonl"]:
-                        if event["suite"] == "N1-RESOURCES":
+                        if event["suite"] == "FOUNDATIONS-RESOURCES":
                             event["checkpoints"] = []
                 else:
                     data["script-tests.json"]["cases"][0]["status"] = "NOT RUN"
                 self.write_fixture(directory, data)
                 with self.subTest(mutation=mutation), self.assertRaises(ValueError):
-                    check_run(directory, "N1")
+                    check_run(directory, "FOUNDATIONS")
 
     def test_content_tampering_partial_runs_and_preflight_cannot_sign_off(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -223,7 +223,7 @@ class RunEvidenceTest(unittest.TestCase):
             self.write_fixture(directory, data)
             (directory / "summary.md").write_text("tampered")
             with self.assertRaises(ValueError):
-                check_run(directory, "N1")
+                check_run(directory, "FOUNDATIONS")
             for change in [
                 {"selected_cases": []},
                 {"mode": "preflight"},
@@ -232,4 +232,4 @@ class RunEvidenceTest(unittest.TestCase):
                 data["run.json"].update(change)
                 self.write_fixture(directory, data)
                 with self.assertRaises(ValueError):
-                    check_run(directory, "N1")
+                    check_run(directory, "FOUNDATIONS")

@@ -1,4 +1,4 @@
-"""Recompute N9 lifecycle/pressure gates from bounded, persisted observations."""
+"""Recompute lifecycle/pressure gates from bounded, persisted observations."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-//! N1 shared transport probe. Synthetic VLESS framing is test-only; this is
+//! FOUNDATIONS shared transport probe. Synthetic VLESS framing is test-only; this is
 //! not a production protocol/configuration registration.
 
 use std::{
@@ -31,8 +31,8 @@ use vcore::{
     },
 };
 
-const GREETING: &[u8] = b"N1-server-first\n";
-const TRAILER: &[u8] = b"N1-half-close\n";
+const GREETING: &[u8] = b"FOUNDATIONS-server-first\n";
+const TRAILER: &[u8] = b"FOUNDATIONS-half-close\n";
 const UUID: [u8; 16] = [
     0xb8, 0x31, 0x38, 0x1d, 0x63, 0x24, 0x4d, 0x53, 0xad, 0x4f, 0x8c, 0xda, 0x48, 0xb3, 0x08, 0x11,
 ];
@@ -229,7 +229,7 @@ async fn run(config: Value) -> Value {
                 .map_err(|_| "tls")?;
         }
         if matches!(mode, "ws" | "wss" | "ws-header" | "ws-path") {
-            let path = config["path"].as_str().unwrap_or("/n1-ws");
+            let path = config["path"].as_str().unwrap_or("/foundations-ws");
             let early = match mode {
                 "ws-header" => Some(WebSocketEarlyData::Header {
                     name: config["ed_header"]
@@ -254,7 +254,7 @@ async fn run(config: Value) -> Value {
         if mode == "http" {
             let options = HttpObfsOptions::new(
                 http::Method::GET,
-                "http://localhost/n1-http",
+                "http://localhost/foundations-http",
                 Default::default(),
             )
             .map_err(|_| "http_options")?;
@@ -264,9 +264,9 @@ async fn run(config: Value) -> Value {
         }
         if mode.starts_with("grpc") || mode == "h2" {
             let uri = if mode == "h2" {
-                "https://localhost/n1-h2"
+                "https://localhost/foundations-h2"
             } else {
-                "https://localhost/n1-grpc/Tun"
+                "https://localhost/foundations-grpc/Tun"
             };
             let (io, owner) = if mode == "h2" {
                 legacy_h2(stream, uri, context.deadline()).await

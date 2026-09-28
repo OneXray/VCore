@@ -1,4 +1,4 @@
-//! N9 consumers share the established public Invoke/SOCKS/origin boundaries.
+//! INTEGRATION consumers share the established public Invoke/SOCKS/origin boundaries.
 use super::*;
 use vcore::resources::observation::{QueueKind, ResourceKind, ResourceProbe};
 
@@ -9,12 +9,12 @@ mod pressure;
 mod shadowsocks;
 
 #[test]
-#[ignore = "owned N9 container fixture required"]
+#[ignore = "owned INTEGRATION container fixture required"]
 fn resource_tracer() {
     let f = fixture();
     initialize(&f);
     for protocol in PROTOCOLS {
-        let mut case = RecordedCase::new("N9-RESOURCE-TRACER", protocol);
+        let mut case = RecordedCase::new("INTEGRATION-RESOURCE-TRACER", protocol);
         let probe = ResourceProbe::default();
         case.checkpoint("baseline", probe.snapshot());
         let port = free_port();
@@ -66,7 +66,7 @@ const PROTOCOLS: [&str; 7] = [
 
 fn observe(value: Value) {
     std::fs::write(
-        std::env::var("VCORE_N9_OBSERVATIONS").unwrap(),
+        std::env::var("VCORE_INTEGRATION_OBSERVATIONS").unwrap(),
         value.to_string(),
     )
     .unwrap();
@@ -85,12 +85,12 @@ fn denied_target(port: u16, f: &Value) {
 }
 
 #[test]
-#[ignore = "owned N9 container fixture required"]
+#[ignore = "owned INTEGRATION container fixture required"]
 fn graph() {
     let f = fixture();
     initialize(&f);
     for protocol in PROTOCOLS {
-        let _case = RecordedCase::new("N9-GRAPH", protocol);
+        let _case = RecordedCase::new("INTEGRATION-GRAPH", protocol);
         let port = free_port();
         let controller = free_port();
         let mut node = f["nodes"][protocol].clone();
@@ -143,12 +143,12 @@ fn graph() {
 }
 
 #[test]
-#[ignore = "owned N9 container fixture required"]
+#[ignore = "owned INTEGRATION container fixture required"]
 fn dns_measure() {
     let f = fixture();
     initialize(&f);
     for protocol in PROTOCOLS {
-        let _case = RecordedCase::new("N9-DNS-MEASURE", protocol);
+        let _case = RecordedCase::new("INTEGRATION-DNS-MEASURE", protocol);
         let node = f["nodes"][protocol].clone();
         let port = free_port();
         let mut dns_origin = Origin::new(&f, 17, false);
@@ -197,28 +197,28 @@ fn dns_measure() {
 
 #[test]
 #[cfg(target_os = "macos")]
-#[ignore = "owned N9 container fixture required"]
+#[ignore = "owned INTEGRATION container fixture required"]
 fn entrypoints() {
     let f = fixture();
     let mut observations = Vec::new();
     for protocol in PROTOCOLS {
-        let _case = RecordedCase::new("N9-ENTRYPOINTS", protocol);
+        let _case = RecordedCase::new("INTEGRATION-ENTRYPOINTS", protocol);
         let mut single = f.clone();
         single["node"] = f["nodes"][protocol].clone();
         runtime::entrypoints(&single);
         observations.push(json!({"protocol":protocol,"http_forward":true,"http_connect":true,"tun_tcp":true,"tun_udp":true,"tun_dns":true}));
     }
     std::fs::write(
-        std::env::var("VCORE_N9_OBSERVATIONS").unwrap(),
+        std::env::var("VCORE_INTEGRATION_OBSERVATIONS").unwrap(),
         json!({"entrypoints":observations}).to_string(),
     )
     .unwrap();
 }
 
 #[test]
-#[ignore = "owned N9 container fixture required"]
+#[ignore = "owned INTEGRATION container fixture required"]
 fn ss_bulk_stress() {
-    let _case = RecordedCase::new("N9-SS", "bulk_stress");
+    let _case = RecordedCase::new("INTEGRATION-SS", "bulk_stress");
     let f = fixture();
     initialize(&f);
     let port = free_port();
@@ -237,7 +237,7 @@ fn ss_bulk_stress() {
 }
 
 #[test]
-#[ignore = "owned N9 container fixture required"]
+#[ignore = "owned INTEGRATION container fixture required"]
 fn carrier_tracer() {
     let f = fixture();
     initialize(&f);
@@ -245,9 +245,9 @@ fn carrier_tracer() {
 }
 
 #[test]
-#[ignore = "owned N9 container fixture required"]
+#[ignore = "owned INTEGRATION container fixture required"]
 fn ordered_pair() {
-    let _case = RecordedCase::new("N9-PAIR", "ordered_pair");
+    let _case = RecordedCase::new("INTEGRATION-PAIR", "ordered_pair");
     let f = fixture();
     initialize(&f);
     let mut observations = Vec::new();
@@ -307,7 +307,7 @@ fn ordered_pair() {
         }
     }
     std::fs::write(
-        std::env::var("VCORE_N9_OBSERVATIONS").unwrap(),
+        std::env::var("VCORE_INTEGRATION_OBSERVATIONS").unwrap(),
         json!({"first":f["first"]["type"],"last":f["last"]["type"],"paths":observations,"domain_native":domain_terminal(&f),"budgets":connector::budget_pair(&f),"routed_udp":routed_udp_pair(&f),"carrier_capability":connector::carrier_pair(&f)})
             .to_string(),
     )
@@ -315,7 +315,7 @@ fn ordered_pair() {
 }
 
 fn routed_udp_pair(f: &Value) -> Value {
-    let _case = RecordedCase::new("N9-PAIR", "routed_udp_permission");
+    let _case = RecordedCase::new("INTEGRATION-PAIR", "routed_udp_permission");
     for enabled in [true, false] {
         let port = free_port();
         let mut first = f["first"].clone();
@@ -344,7 +344,7 @@ fn domain_terminal(f: &Value) -> Vec<Value> {
     if f["last"]["type"] != "trojan" {
         return vec![];
     }
-    let _case = RecordedCase::new("N9-PAIR", "native_domain_terminal");
+    let _case = RecordedCase::new("INTEGRATION-PAIR", "native_domain_terminal");
     let mut observations = Vec::new();
     for outer_ipv6 in [false, true] {
         for grouped in [false, true] {

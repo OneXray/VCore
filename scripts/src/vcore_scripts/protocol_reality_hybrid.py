@@ -1,4 +1,4 @@
-"""N7.2 VCore hybrid REALITY gate; not complete N7 stage acceptance."""
+"""Hybrid REALITY checks; not complete security suite acceptance."""
 
 from __future__ import annotations
 
@@ -187,10 +187,10 @@ def run(output: Path, selected=None, *, encryption=None, supplied=None):
         or len(set(selected)) != len(selected)
         or not set(selected) <= required.keys()
     ):
-        raise ValueError("invalid N7.2 selection")
+        raise ValueError("invalid SECURITY.reality selection")
     output.mkdir(parents=True, exist_ok=False)
     report = dict(
-        stage="N7.2",
+        stage="SECURITY.reality",
         scope="S03/D16-production",
         encryption_profile=encryption,
         complete_selection=set(selected) == set(required),
@@ -226,7 +226,7 @@ def run(output: Path, selected=None, *, encryption=None, supplied=None):
         )
         (output / "build.log").write_text(redact(built.stdout.decode(errors="replace")))
         if built.returncode or not built.cleanup:
-            raise RuntimeError("N7.2 consumer build failed")
+            raise RuntimeError("SECURITY.reality consumer build failed")
         lab = ContainerLab(report["isolation"], mtu=1500)
         with (
             tempfile.TemporaryDirectory(prefix="private-", dir=output) as temporary,
@@ -253,7 +253,7 @@ def run(output: Path, selected=None, *, encryption=None, supplied=None):
             origin = lab.start(
                 stack,
                 origin_dir,
-                "n7-origin",
+                "security-origin",
                 [
                     "env",
                     "VCORE_ISOLATED_ORIGIN=1",
@@ -267,7 +267,7 @@ def run(output: Path, selected=None, *, encryption=None, supplied=None):
             observer = lab.start(
                 stack,
                 observer_dir,
-                "n7-observer",
+                "security-observer",
                 [
                     "env",
                     "VCORE_ISOLATED_ORIGIN=1",
@@ -279,7 +279,7 @@ def run(output: Path, selected=None, *, encryption=None, supplied=None):
             server = lab.start(
                 stack,
                 server_dir,
-                "n7-mihomo",
+                "security-mihomo",
                 [
                     "/data/fixture/peer",
                     "-d",
@@ -291,7 +291,7 @@ def run(output: Path, selected=None, *, encryption=None, supplied=None):
             hop = lab.start(
                 stack,
                 hop_dir,
-                "n7-upstream",
+                "security-upstream",
                 [
                     "/data/fixture/peer",
                     "-d",
@@ -446,7 +446,7 @@ def run(output: Path, selected=None, *, encryption=None, supplied=None):
                         os.environ,
                         VCORE_VLESS_INPUT=str(fixture),
                         VCORE_CASE_EVENTS=str(events_path),
-                        VCORE_PROTOCOL_STAGE="N7",
+                        VCORE_PROTOCOL_STAGE="SECURITY",
                     ),
                 )
                 (output / f"{case}.log").write_text(
@@ -457,7 +457,7 @@ def run(output: Path, selected=None, *, encryption=None, supplied=None):
                 wire_path.write_text(json.dumps(observed, indent=2) + "\n")
                 events = read_events(events_path) if events_path.exists() else []
                 remapped = [
-                    dict(e, suite=e.get("suite", "").replace("N7-", "N4-", 1))
+                    dict(e, suite=e.get("suite", "").replace("SECURITY-", "VLESS-", 1))
                     for e in events
                 ]
                 assertions = (
@@ -465,7 +465,7 @@ def run(output: Path, selected=None, *, encryption=None, supplied=None):
                     == [
                         dict(
                             schema_version=1,
-                            suite="N4-WIRE",
+                            suite="VLESS-WIRE",
                             assertion=test,
                             status=status,
                         )
@@ -507,7 +507,7 @@ def run(output: Path, selected=None, *, encryption=None, supplied=None):
                 for peer in (origin, observer, server, hop):
                     peer.ensure_alive()
                 if not passed:
-                    raise RuntimeError(f"N7.2 case failed: {case}")
+                    raise RuntimeError(f"SECURITY.reality case failed: {case}")
         report["status"] = "PASS"
     except KeyboardInterrupt:
         report.update(status="INTERRUPTED", reason="user interruption")

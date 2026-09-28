@@ -1,4 +1,4 @@
-"""N5 VCore upload/download security against owned native handlers.
+"""XHTTP VCore upload/download security against owned native handlers.
 
 H1/H2 use one Mihomo listener with two ports. H3 uses the approved xcaddy
 gateway (two bindings, one Xray h2c handler). Neither topology invents a decoder.
@@ -58,7 +58,7 @@ def security_cases(base, identities, download_identity, server_ipv6):
             tls=True,
             servername="localhost",
             host="localhost",
-            path="/n5/",
+            path="/xhttp/",
             headers={"X-Download": "fixture"},
             **{"reuse-settings": {}, "fingerprint": "", "name-cert-verify": ""},
         )
@@ -114,7 +114,7 @@ def run(output: Path, versions: list[str], *, supplied: dict | None = None):
         raise ValueError("security output must be a fresh target/interop/runs child")
     output.mkdir(exist_ok=False)
     report = dict(
-        stage="N5",
+        stage="XHTTP",
         scope="security-development-only",
         source=source_identity(),
         status="NOT RUN",
@@ -323,7 +323,7 @@ def run(output: Path, versions: list[str], *, supplied: dict | None = None):
                     **identities["valid"],
                     **{
                         "xhttp-opts": {
-                            "path": "/n5",
+                            "path": "/xhttp",
                             "host": "localhost",
                             "headers": {"X-Upload": "fixture"},
                         }

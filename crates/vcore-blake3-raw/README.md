@@ -48,7 +48,7 @@ cargo test --locked -p vcore-blake3-raw
 ```
 
 This checks a primitive, not the Encryption handshake, ticket authentication,
-runtime ownership, platform integration, or N7.1 acceptance.
+runtime ownership, platform integration, or end-to-end Encryption acceptance.
 
 The binary-context fixture has 52 values generated with the independent
 `github.com/metacubex/blake3 v0.1.0` implementation used by Mihomo, using Go 1.27.1.

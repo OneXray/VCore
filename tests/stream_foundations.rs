@@ -4,7 +4,7 @@
 fn transport_options_reject_ambiguous_headers_before_io() {
     #[cfg(feature = "interop-test")]
     let mut _case = vcore::resources::case_events::Case::new(
-        "N1-STREAM",
+        "FOUNDATIONS-STREAM",
         "transport_options_reject_ambiguous_headers_before_io",
     );
     use vcore::transport::{HttpObfsOptions, WebSocketEarlyData, WebSocketOptions};
@@ -51,7 +51,7 @@ fn transport_options_reject_ambiguous_headers_before_io() {
 async fn http_first_header_preserves_prefix_raw_continuation_and_half_close_tail() {
     #[cfg(feature = "interop-test")]
     let mut _case = vcore::resources::case_events::Case::new(
-        "N1-STREAM",
+        "FOUNDATIONS-STREAM",
         "http_first_header_preserves_prefix_raw_continuation_and_half_close_tail",
     );
     timeout(Duration::from_secs(3), async {
@@ -113,7 +113,7 @@ async fn http_first_header_preserves_prefix_raw_continuation_and_half_close_tail
 async fn legacy_h2_keeps_unframed_bytes_server_first_and_owned_whole_close() {
     #[cfg(feature = "interop-test")]
     let mut _case = vcore::resources::case_events::Case::new(
-        "N1-STREAM",
+        "FOUNDATIONS-STREAM",
         "legacy_h2_keeps_unframed_bytes_server_first_and_owned_whole_close",
     );
     timeout(Duration::from_secs(3), async {
@@ -180,7 +180,7 @@ async fn legacy_h2_keeps_unframed_bytes_server_first_and_owned_whole_close() {
 async fn websocket_rejects_invalid_upgrade_responses_and_bounded_header_overflows() {
     #[cfg(feature = "interop-test")]
     let mut _case = vcore::resources::case_events::Case::new(
-        "N1-STREAM",
+        "FOUNDATIONS-STREAM",
         "websocket_rejects_invalid_upgrade_responses_and_bounded_header_overflows",
     );
     for change in [
@@ -255,7 +255,7 @@ async fn websocket_rejects_invalid_upgrade_responses_and_bounded_header_overflow
 async fn websocket_early_data_and_remaining_frames_keep_the_original_byte_order() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N1-STREAM",
+        "FOUNDATIONS-STREAM",
         "websocket_early_data_and_remaining_frames_keep_the_original_byte_order",
     );
     use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -323,11 +323,15 @@ async fn websocket_early_data_and_remaining_frames_keep_the_original_byte_order(
 async fn stalled_handshake(kind: &str, raw: Observed, deadline: Instant) -> io::Result<()> {
     match kind {
         "ws" => {
-            websocket(Box::new(raw), "ws://fixture.invalid/n0", deadline).await?;
+            websocket(Box::new(raw), "ws://fixture.invalid/stream", deadline).await?;
         }
         "grpc" => {
-            let (mut stream, owner) =
-                grpc(Box::new(raw), "https://fixture.invalid/n0/Tun", deadline).await?;
+            let (mut stream, owner) = grpc(
+                Box::new(raw),
+                "https://fixture.invalid/stream/Tun",
+                deadline,
+            )
+            .await?;
             let result = stream.read_u8().await;
             drop(stream);
             owner.stop().await?;
@@ -361,7 +365,7 @@ async fn stalled_handshake(kind: &str, raw: Observed, deadline: Instant) -> io::
 async fn setup_deadline_releases_supplied_io_in_stream_adapters() {
     #[cfg(feature = "interop-test")]
     let mut _case = vcore::resources::case_events::Case::new(
-        "N1-STREAM",
+        "FOUNDATIONS-STREAM",
         "setup_deadline_releases_supplied_io_in_stream_adapters",
     );
     for kind in ["ws", "grpc", "h2", "http"] {
@@ -400,7 +404,7 @@ async fn setup_deadline_releases_supplied_io_in_stream_adapters() {
 async fn cancelled_setup_releases_supplied_io_without_a_detached_task() {
     #[cfg(feature = "interop-test")]
     let mut _case = vcore::resources::case_events::Case::new(
-        "N1-STREAM",
+        "FOUNDATIONS-STREAM",
         "cancelled_setup_releases_supplied_io_without_a_detached_task",
     );
     for kind in ["ws", "grpc", "h2", "http"] {
@@ -435,7 +439,7 @@ async fn cancelled_setup_releases_supplied_io_without_a_detached_task() {
 async fn ws_rejects_oversized_and_truncated_frames_instead_of_reporting_eof() {
     #[cfg(feature = "interop-test")]
     let mut _case = vcore::resources::case_events::Case::new(
-        "N1-STREAM",
+        "FOUNDATIONS-STREAM",
         "ws_rejects_oversized_and_truncated_frames_instead_of_reporting_eof",
     );
     for frame in [
@@ -452,7 +456,7 @@ async fn ws_rejects_oversized_and_truncated_frames_instead_of_reporting_eof() {
         });
         let mut stream = websocket(
             Box::new(outgoing),
-            "ws://fixture.invalid/n0",
+            "ws://fixture.invalid/stream",
             Instant::now() + Duration::from_secs(2),
         )
         .await
@@ -474,7 +478,7 @@ async fn ws_rejects_oversized_and_truncated_frames_instead_of_reporting_eof() {
 async fn ws_accepts_mihomo_clean_underlay_eof_only_at_complete_message_boundaries() {
     #[cfg(feature = "interop-test")]
     let mut _case = vcore::resources::case_events::Case::new(
-        "N1-STREAM",
+        "FOUNDATIONS-STREAM",
         "ws_accepts_mihomo_clean_underlay_eof_only_at_complete_message_boundaries",
     );
     for frame in [
@@ -489,7 +493,7 @@ async fn ws_accepts_mihomo_clean_underlay_eof_only_at_complete_message_boundarie
         });
         let mut stream = websocket(
             Box::new(outgoing),
-            "ws://fixture.invalid/n0",
+            "ws://fixture.invalid/stream",
             Instant::now() + Duration::from_secs(2),
         )
         .await
@@ -508,7 +512,7 @@ async fn ws_accepts_mihomo_clean_underlay_eof_only_at_complete_message_boundarie
 async fn dropping_an_established_ws_releases_its_only_io_owner() {
     #[cfg(feature = "interop-test")]
     let mut _case = vcore::resources::case_events::Case::new(
-        "N1-STREAM",
+        "FOUNDATIONS-STREAM",
         "dropping_an_established_ws_releases_its_only_io_owner",
     );
     let (outgoing, incoming) = tokio::io::duplex(128);
@@ -524,7 +528,7 @@ async fn dropping_an_established_ws_releases_its_only_io_owner() {
     });
     let mut stream = websocket(
         Box::new(raw),
-        "ws://fixture.invalid/n0",
+        "ws://fixture.invalid/stream",
         Instant::now() + Duration::from_secs(2),
     )
     .await
@@ -546,7 +550,7 @@ async fn dropping_an_established_ws_releases_its_only_io_owner() {
 async fn grpc_rejects_oversized_truncated_and_invalid_records() {
     #[cfg(feature = "interop-test")]
     let mut _case = vcore::resources::case_events::Case::new(
-        "N1-STREAM",
+        "FOUNDATIONS-STREAM",
         "grpc_rejects_oversized_truncated_and_invalid_records",
     );
     for wire in [
@@ -573,7 +577,7 @@ async fn grpc_rejects_oversized_truncated_and_invalid_records() {
         });
         let (mut stream, owner) = grpc(
             Box::new(outgoing),
-            "https://fixture.invalid/n0/Tun",
+            "https://fixture.invalid/stream/Tun",
             Instant::now() + Duration::from_secs(2),
         )
         .await
@@ -599,7 +603,7 @@ async fn grpc_rejects_oversized_truncated_and_invalid_records() {
 async fn grpc_large_writes_obey_small_http2_windows_and_keep_byte_integrity() {
     #[cfg(feature = "interop-test")]
     let mut _case = vcore::resources::case_events::Case::new(
-        "N1-STREAM",
+        "FOUNDATIONS-STREAM",
         "grpc_large_writes_obey_small_http2_windows_and_keep_byte_integrity",
     );
     let (outgoing, incoming) = tokio::io::duplex(128);
@@ -646,7 +650,7 @@ async fn grpc_large_writes_obey_small_http2_windows_and_keep_byte_integrity() {
     });
     let (stream, owner) = grpc(
         Box::new(outgoing),
-        "https://fixture.invalid/n0/Tun",
+        "https://fixture.invalid/stream/Tun",
         Instant::now() + Duration::from_secs(2),
     )
     .await
@@ -679,7 +683,7 @@ async fn grpc_large_writes_obey_small_http2_windows_and_keep_byte_integrity() {
 async fn ws_partial_writes_empty_frames_ping_and_half_close_preserve_every_byte() {
     #[cfg(feature = "interop-test")]
     let mut _case = vcore::resources::case_events::Case::new(
-        "N1-STREAM",
+        "FOUNDATIONS-STREAM",
         "ws_partial_writes_empty_frames_ping_and_half_close_preserve_every_byte",
     );
     let (outgoing, incoming) = tokio::io::duplex(128);
@@ -710,7 +714,7 @@ async fn ws_partial_writes_empty_frames_ping_and_half_close_preserve_every_byte(
     });
     let mut stream = websocket(
         Box::new(outgoing),
-        "ws://fixture.invalid/n0",
+        "ws://fixture.invalid/stream",
         Instant::now() + Duration::from_secs(2),
     )
     .await
@@ -788,7 +792,7 @@ impl AsyncWrite for Observed {
 async fn grpc_handles_response_after_upload_fragmented_records_and_owned_stop() {
     #[cfg(feature = "interop-test")]
     let mut _case = vcore::resources::case_events::Case::new(
-        "N1-STREAM",
+        "FOUNDATIONS-STREAM",
         "grpc_handles_response_after_upload_fragmented_records_and_owned_stop",
     );
     let (outgoing, incoming) = tokio::io::duplex(128);
@@ -805,7 +809,7 @@ async fn grpc_handles_response_after_upload_fragmented_records_and_owned_stop() 
             .await
             .unwrap();
         let (request, mut respond) = connection.accept().await.unwrap().unwrap();
-        assert_eq!(request.uri().path(), "/n0/Tun");
+        assert_eq!(request.uri().path(), "/stream/Tun");
         let session = async move {
             let mut body = request.into_body();
             let mut wire = Vec::new();
@@ -840,7 +844,7 @@ async fn grpc_handles_response_after_upload_fragmented_records_and_owned_stop() 
     });
     let (mut stream, owner) = grpc(
         Box::new(raw),
-        "https://fixture.invalid/n0/Tun",
+        "https://fixture.invalid/stream/Tun",
         Instant::now() + Duration::from_secs(2),
     )
     .await
@@ -883,7 +887,7 @@ use tokio_tungstenite::tungstenite::Message;
 async fn websocket_supplied_io_preserves_server_first_and_partial_writes() {
     #[cfg(feature = "interop-test")]
     let mut _case = vcore::resources::case_events::Case::new(
-        "N1-STREAM",
+        "FOUNDATIONS-STREAM",
         "websocket_supplied_io_preserves_server_first_and_partial_writes",
     );
     let (client, peer) = tokio::io::duplex(128);

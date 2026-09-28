@@ -1,4 +1,4 @@
-"""N7.1 incremental wire gate; not public YAML or complete stage acceptance."""
+"""Encryption wire checks; not public YAML or complete security acceptance."""
 
 from __future__ import annotations
 
@@ -66,15 +66,17 @@ def run(
     output.mkdir(parents=True, exist_ok=False)
     if expiry:
         test = "native_ticket_expiry"
-        marker = "N7-ENCRYPTION-EXPIRY-PASS full-resumed-expired-full-resumed"
+        marker = "SECURITY-ENCRYPTION-EXPIRY-PASS full-resumed-expired-full-resumed"
     elif consumer:
         test = "public_tcp_roundtrip"
-        marker = "N7-ENCRYPTION-CONSUMER-PASS rounds=4 bytes_per_direction=10485760"
+        marker = (
+            "SECURITY-ENCRYPTION-CONSUMER-PASS rounds=4 bytes_per_direction=10485760"
+        )
     else:
         test = "native_encryption_roundtrip"
-        marker = "N7-ENCRYPTION-WIRE-PASS rounds=4 bytes_per_direction=10485760"
+        marker = "SECURITY-ENCRYPTION-WIRE-PASS rounds=4 bytes_per_direction=10485760"
     report = dict(
-        stage="N7.1-wire",
+        stage="SECURITY.encryption-wire",
         scope="public-config-and-outbound" if consumer else "native-wire-only",
         cipher="chacha20-poly1305" if chacha else "cpu-selected",
         ticket_expiry=expiry,
@@ -102,7 +104,7 @@ def run(
                 "--locked",
                 "--all-features",
                 "--test",
-                "n7_encryption_wire",
+                "encryption_wire",
                 "--no-run",
             ],
             timeout=240,
@@ -141,7 +143,7 @@ def run(
             origin = lab.start(
                 stack,
                 origin_dir,
-                "n7-e-origin",
+                "security-e-origin",
                 [
                     "env",
                     "VCORE_ISOLATED_ORIGIN=1",
@@ -153,7 +155,7 @@ def run(
             server = lab.start(
                 stack,
                 server_dir,
-                "n7-e-mihomo",
+                "security-e-mihomo",
                 [
                     "/data/fixture/peer",
                     "-d",
@@ -260,7 +262,7 @@ def run(
                     "--locked",
                     "--all-features",
                     "--test",
-                    "n7_encryption_wire",
+                    "encryption_wire",
                     test,
                     "--",
                     "--ignored",

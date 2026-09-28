@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from vcore_scripts import cli
-from vcore_scripts.protocol_catalogs import FIELD_IDS, PEERS, PROTOCOLS, STAGES
+from vcore_scripts.protocol_catalogs import FIELD_IDS, PEERS, PROTOCOLS, SUITES
 from vcore_scripts.protocol_preflight import preflight
 
 
@@ -20,14 +20,21 @@ class ProtocolRetirementTest(unittest.TestCase):
         self.assertNotIn("outbound-wireguard", features)
         self.assertNotIn("wireguard", PROTOCOLS)
         self.assertNotIn("W", PEERS)
-        self.assertNotIn("N8", STAGES)
+        self.assertNotIn("WIREGUARD", SUITES)
         self.assertFalse(any(identifier.startswith("WG") for identifier in FIELD_IDS))
 
     def test_retired_cli_selections_fail_before_any_harness_work(self):
         for arguments in (
-            ["protocol-interop", "--stage", "N8", "--list"],
-            ["protocol-coverage", "--stage", "N8", "--catalog-only"],
-            ["protocol-interop", "--stage", "N7", "--protocol", "wireguard", "--list"],
+            ["protocol-interop", "--suite", "wireguard", "--list"],
+            ["protocol-coverage", "--suite", "wireguard", "--catalog-only"],
+            [
+                "protocol-interop",
+                "--suite",
+                "security",
+                "--protocol",
+                "wireguard",
+                "--list",
+            ],
         ):
             with self.subTest(arguments=arguments), redirect_stderr(io.StringIO()):
                 with self.assertRaises(SystemExit) as error:

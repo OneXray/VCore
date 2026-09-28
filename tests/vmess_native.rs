@@ -62,7 +62,7 @@ fn event_for(assertion: &str, status: &str) {
         .append(true)
         .open(path)
         .unwrap();
-    writeln!(file, "{}", serde_json::json!({"schema_version":1,"suite":"N3-WIRE","assertion":assertion,"status":status})).unwrap();
+    writeln!(file, "{}", serde_json::json!({"schema_version":1,"suite":"VMESS-WIRE","assertion":assertion,"status":status})).unwrap();
 }
 
 async fn stream(
@@ -138,7 +138,7 @@ async fn wire_stream(
         "ws" => {
             let scheme = if encrypted { "wss" } else { "ws" };
             let options = WebSocketOptions::new(
-                &format!("{scheme}://localhost:{}/n3-ws", peer.port()),
+                &format!("{scheme}://localhost:{}/vmess-ws", peer.port()),
                 http::HeaderMap::new(),
                 None,
             )?;
@@ -148,9 +148,9 @@ async fn wire_stream(
             let uri = format!(
                 "{scheme}://localhost/{}",
                 if mode == "grpc" {
-                    "n3-grpc/Tun"
+                    "vmess-grpc/Tun"
                 } else {
-                    "n3-h2"
+                    "vmess-h2"
                 }
             );
             let connected = if mode == "grpc" {
@@ -164,7 +164,7 @@ async fn wire_stream(
         "http" => {
             let options = HttpObfsOptions::new(
                 http::Method::GET,
-                &format!("{scheme}://localhost:{}/n3-http", peer.port()),
+                &format!("{scheme}://localhost:{}/vmess-http", peer.port()),
                 http::HeaderMap::new(),
             )?;
             raw = http_obfs(raw, &options, handshake.request(), deadline).await?;

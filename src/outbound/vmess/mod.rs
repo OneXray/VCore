@@ -78,7 +78,7 @@ mod tests {
     fn auto_uses_detected_hardware_not_architecture_name() {
         #[cfg(feature = "interop-test")]
         let _evidence = crate::resources::case_events::Case::new(
-            "N3-CODEC",
+            "VMESS-CODEC",
             "auto_uses_detected_hardware_not_architecture_name",
         );
         assert_eq!(

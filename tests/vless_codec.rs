@@ -61,7 +61,7 @@ fn packet() -> Datagram {
 async fn stopping_before_first_udp_send_wakes_receive_and_releases_io() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N4-UNIT",
+        "VLESS-UNIT",
         "stopping_before_first_udp_send_wakes_receive_and_releases_io",
     );
     for encoding in ["none", "packetaddr"] {
@@ -90,7 +90,7 @@ async fn stopping_before_first_udp_send_wakes_receive_and_releases_io() {
 async fn raw_and_packetaddr_consume_wire_and_keep_cancelled_receive_progress() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N4-UNIT",
+        "VLESS-UNIT",
         "raw_and_packetaddr_consume_wire_and_keep_cancelled_receive_progress",
     );
     for encoding in ["none", "packetaddr", "packet"] {
@@ -159,7 +159,7 @@ async fn raw_and_packetaddr_consume_wire_and_keep_cancelled_receive_progress() {
 async fn udp_cancelled_send_and_bad_response_header_close_owned_io() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N4-UNIT",
+        "VLESS-UNIT",
         "udp_cancelled_send_and_bad_response_header_close_owned_io",
     );
     for encoding in ["none", "packetaddr", "xudp"] {
@@ -214,7 +214,7 @@ async fn udp_cancelled_send_and_bad_response_header_close_owned_io() {
 async fn tcp_bad_response_header_poisoning_and_absolute_response_deadline() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N4-UNIT",
+        "VLESS-UNIT",
         "tcp_bad_response_header_poisoning_and_absolute_response_deadline",
     );
     for invalid_header in [true, false] {

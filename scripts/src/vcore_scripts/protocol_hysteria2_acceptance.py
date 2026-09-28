@@ -1,4 +1,4 @@
-"""N6 execution and independent fail-closed reconstruction of persisted evidence."""
+"""Hysteria2 execution and fail-closed reconstruction of persisted evidence."""
 
 from __future__ import annotations
 
@@ -25,13 +25,13 @@ from .protocol_inputs import redact
 
 def commands(identifier):
     cargo = ["cargo", "test", "--locked", "--all-features"]
-    if identifier in {"N6-CFG", "N6-UNIT", "N6-RELEASE"}:
-        if identifier == "N6-RELEASE":
+    if identifier in {"HYSTERIA2-CFG", "HYSTERIA2-UNIT", "HYSTERIA2-RELEASE"}:
+        if identifier == "HYSTERIA2-RELEASE":
             cargo += ["--release"]
         result = []
-        if identifier != "N6-UNIT":
+        if identifier != "HYSTERIA2-UNIT":
             result.append(cargo + ["--test", "hysteria2_config"])
-        if identifier != "N6-CFG":
+        if identifier != "HYSTERIA2-CFG":
             result += [
                 cargo + ["--lib", "outbound::hysteria2::"],
                 cargo
@@ -44,7 +44,7 @@ def commands(identifier):
                 cargo + ["--test", "hysteria2_paths"],
             ]
         return result
-    if identifier == "N6-REGRESSION":
+    if identifier == "HYSTERIA2-REGRESSION":
         # Every chosen test uses memory IO/config, never a host server.
         targets = [
             "feature_foundations",
@@ -70,10 +70,10 @@ def commands(identifier):
                 "--exact",
             ],
         ]
-    if identifier == "N6-QUALITY":
+    if identifier == "HYSTERIA2-QUALITY":
         from .protocol_vmess_acceptance import commands as previous
 
-        return previous("N3-QUALITY")[:7] + [
+        return previous("VMESS-QUALITY")[:7] + [
             [
                 "cargo",
                 "clippy",
@@ -104,12 +104,12 @@ def commands(identifier):
                 "warnings",
             ],
         ]
-    if identifier == "N6-PLATFORMS":
+    if identifier == "HYSTERIA2-PLATFORMS":
         return [
             ["vcore-scripts", "build", "apple"],
             ["vcore-scripts", "build", "android"],
         ]
-    if identifier == "N6-FEATURES":
+    if identifier == "HYSTERIA2-FEATURES":
         checks = [
             ["cargo", "check", "--locked", "--no-default-features", "--lib"]
             + (["--features", feature] if feature else [])
@@ -160,7 +160,7 @@ def commands(identifier):
                 "--lib",
             ],
         ]
-    if identifier == "N6-SCRIPTS":
+    if identifier == "HYSTERIA2-SCRIPTS":
         return [
             [
                 sys.executable,
@@ -177,14 +177,14 @@ def gate_result(case, records, events, script=None):
     good = bool(records) and all(
         r.get("exit_code") == 0 and r.get("cleanup") is True for r in records
     )
-    if identifier in {"N6-CFG", "N6-UNIT", "N6-RELEASE"}:
+    if identifier in {"HYSTERIA2-CFG", "HYSTERIA2-UNIT", "HYSTERIA2-RELEASE"}:
         expected = {}
-        if identifier != "N6-UNIT":
-            expected.update({("N6-CFG", name): 1 for name in CFG})
-        if identifier != "N6-CFG":
-            expected.update({("N6-UNIT", name): 1 for name in UNIT})
+        if identifier != "HYSTERIA2-UNIT":
+            expected.update({("HYSTERIA2-CFG", name): 1 for name in CFG})
+        if identifier != "HYSTERIA2-CFG":
+            expected.update({("HYSTERIA2-UNIT", name): 1 for name in UNIT})
         good &= assertions_pass(events, expected)
-    if identifier == "N6-SCRIPTS":
+    if identifier == "HYSTERIA2-SCRIPTS":
         required = {
             "test_protocol_hysteria2.Hysteria2AcceptanceTest." + name
             for name in (
@@ -378,19 +378,19 @@ def fields_report(cases, results):
             if field in c["row_ids"] and c["case_id"] in M | H
         ]
         good = (
-            status.get("N6-CFG") == "PASS"
+            status.get("HYSTERIA2-CFG") == "PASS"
             and bool(native)
             and all(status.get(i) == "PASS" for i in native)
         )
         rows.append(
             dict(
                 row_id=field,
-                configuration="N6-CFG",
+                configuration="HYSTERIA2-CFG",
                 behavior_cases=native,
                 status="PASS" if good else "NOT RUN",
             )
         )
-    return dict(stage="N6", scope="hysteria2-consumer", fields=rows)
+    return dict(stage="HYSTERIA2", scope="hysteria2-consumer", fields=rows)
 
 
 def prepare(output, kinds):
@@ -505,12 +505,12 @@ def execute(cases, run, output, results):
                     events += read_events(path)
             script = (
                 read_json(output / "script-tests.json")
-                if identifier == "N6-SCRIPTS"
+                if identifier == "HYSTERIA2-SCRIPTS"
                 else None
             )
             results[identifier] = gate_result(case, records, events, script)
             if results[identifier]["status"] != "PASS":
-                raise RuntimeError(f"N6 local gate failed: {identifier}")
+                raise RuntimeError(f"HYSTERIA2 local gate failed: {identifier}")
         kinds = {"M" for c in cases if c["case_id"] in M} | {
             "H" for c in cases if c["case_id"] in H
         }
@@ -544,7 +544,7 @@ def execute(cases, run, output, results):
             results[identifier] = result
             print(f"{identifier}: {result['status']}", flush=True)
             if result["status"] != "PASS":
-                raise RuntimeError(f"N6 native gate failed: {identifier}")
+                raise RuntimeError(f"HYSTERIA2 native gate failed: {identifier}")
     finally:
         (output / "peers.json").write_text(
             json.dumps(
@@ -568,7 +568,7 @@ def check(run_dir, cases, run, results, peers, paths):
         }
         <= set(paths)
     ):
-        raise ValueError("incomplete N6 stage artifacts or altered manifest")
+        raise ValueError("incomplete HYSTERIA2 stage artifacts or altered manifest")
     actual = {r["case_id"]: r for r in results}
     records = run.get("commands", [])
     expected_names = {
@@ -580,7 +580,7 @@ def check(run_dir, cases, run, results, peers, paths):
         len(records) != len(expected_names)
         or {r.get("name") for r in records} != expected_names
     ):
-        raise ValueError("missing, duplicate or extra N6 validation command")
+        raise ValueError("missing, duplicate or extra HYSTERIA2 validation command")
     source = {
         k: run[k]
         for k in (
@@ -601,7 +601,7 @@ def check(run_dir, cases, run, results, peers, paths):
                     != [redact(v.replace("{output}", str(run_dir))) for v in argv]
                     or record["log"] not in paths
                 ):
-                    raise ValueError("N6 validation command/log changed")
+                    raise ValueError("HYSTERIA2 validation command/log changed")
                 selected.append(record)
                 path = run_dir / f"{identifier}-{i}-events.jsonl"
                 if path.exists():
@@ -611,7 +611,7 @@ def check(run_dir, cases, run, results, peers, paths):
                 selected,
                 events,
                 read_json(run_dir / "script-tests.json")
-                if identifier == "N6-SCRIPTS"
+                if identifier == "HYSTERIA2-SCRIPTS"
                 else None,
             )
         else:
@@ -621,7 +621,7 @@ def check(run_dir, cases, run, results, peers, paths):
                 / ("xhttp-fields-results.json" if identifier == H3 else "report.json")
             )
             if report.get("source") != source:
-                raise ValueError("N6 native source differs from stage input")
+                raise ValueError("HYSTERIA2 native source differs from stage input")
             recalculated = (
                 h3_result(case, report, directory)
                 if identifier == H3
@@ -645,7 +645,7 @@ def check(run_dir, cases, run, results, peers, paths):
             ):
                 raise ValueError("native identity changed between reports")
         if recalculated != actual[identifier] or recalculated["status"] != "PASS":
-            raise ValueError("N6 results differ from structured evidence")
+            raise ValueError("HYSTERIA2 results differ from structured evidence")
     preparation = read_json(run_dir / "package-preparation.json")
     if (
         not preparation.get("firewall_packages")
@@ -657,8 +657,8 @@ def check(run_dir, cases, run, results, peers, paths):
     if read_json(run_dir / "fields.json") != fields or any(
         f["status"] != "PASS" for f in fields["fields"]
     ):
-        raise ValueError("missing N6 field behavior coverage")
-    print(f"N6: PASS ({len(cases)} required cases; {len(FIELDS)} field rows)")
+        raise ValueError("missing HYSTERIA2 field behavior coverage")
+    print(f"HYSTERIA2: PASS ({len(cases)} required cases; {len(FIELDS)} field rows)")
 
 
 def preflight(output):

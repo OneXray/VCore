@@ -1,4 +1,4 @@
-"""N10 production delivery commands, without network servers or platform mocks."""
+"""PLATFORM production delivery commands, without network servers or platform mocks."""
 
 from __future__ import annotations
 

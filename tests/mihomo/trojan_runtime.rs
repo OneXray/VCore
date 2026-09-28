@@ -67,16 +67,16 @@ impl Association {
 }
 
 #[test]
-#[ignore = "requires the owned N2 native-peer runner"]
+#[ignore = "requires the owned TROJAN native-peer runner"]
 fn public_trojan_native_lifecycle() {
-    let _case = Case::new("N2-NATIVE", "runtime::public_trojan_native_lifecycle");
+    let _case = Case::new("TROJAN-NATIVE", "runtime::public_trojan_native_lifecycle");
     let fixture = fixture();
     invoke("initialize", None, json!({"dataDir":fixture["data_dir"]}));
     // The process-wide Invoke worker is lazily created by the first instance;
     // it is not owned by a Running Session. Establish that baseline once.
     Core::start(&config(fixture["node"].clone(), free_port()).to_string()).stop();
     for cycle in 0..20 {
-        let cycle_case = Case::new("N2-LIFE-CYCLE", "stop_and_remain_quiet");
+        let cycle_case = Case::new("TROJAN-LIFE-CYCLE", "stop_and_remain_quiet");
         let baseline = ss_lifecycle::open_fd_count();
         let port = free_port();
         let proxy = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
@@ -183,10 +183,10 @@ fn public_trojan_native_lifecycle() {
 }
 
 #[test]
-#[ignore = "requires the owned N2 native-peer runner"]
+#[ignore = "requires the owned TROJAN native-peer runner"]
 fn public_trojan_native_certificate_names() {
     let _case = Case::new(
-        "N2-NATIVE",
+        "TROJAN-NATIVE",
         "runtime::public_trojan_native_certificate_names",
     );
     let fixture = fixture();
@@ -212,10 +212,10 @@ fn public_trojan_native_certificate_names() {
 }
 
 #[test]
-#[ignore = "requires the owned N2 native-peer runner"]
+#[ignore = "requires the owned TROJAN native-peer runner"]
 fn public_trojan_native_udp_isolation_and_limit() {
     let _case = Case::new(
-        "N2-NATIVE",
+        "TROJAN-NATIVE",
         "runtime::public_trojan_native_udp_isolation_and_limit",
     );
     let fixture = fixture();
@@ -250,9 +250,9 @@ fn public_trojan_native_udp_isolation_and_limit() {
 
 #[test]
 #[cfg(any(target_os = "macos", target_os = "ios"))]
-#[ignore = "requires the owned N2 native-peer runner"]
+#[ignore = "requires the owned TROJAN native-peer runner"]
 fn public_trojan_native_entrypoints() {
-    let _case = Case::new("N2-NATIVE", "runtime::public_trojan_native_entrypoints");
+    let _case = Case::new("TROJAN-NATIVE", "runtime::public_trojan_native_entrypoints");
     let fixture = fixture();
     invoke("initialize", None, json!({"dataDir":fixture["data_dir"]}));
     let port = free_port();

@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 fn registry_matches_live_production_constants_and_has_owned_boundary_cases() {
     #[cfg(feature = "interop-test")]
     let mut _case = vcore::resources::case_events::Case::new(
-        "N1-LIMITS",
+        "FOUNDATIONS-LIMITS",
         "registry_matches_live_production_constants_and_has_owned_boundary_cases",
     );
     use vcore::{ResourceLimits, dispatch, transport};

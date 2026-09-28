@@ -1,4 +1,4 @@
-//! VLESS public normalization. Transport options share the N1 adapters;
+//! VLESS public normalization. Transport options share the common stream adapters;
 //! security and VLESS-specific behavior remain independent of VMess.
 use super::vmess::{RawGrpc, RawH2, RawHttp, RawWs};
 use super::*;

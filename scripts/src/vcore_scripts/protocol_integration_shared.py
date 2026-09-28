@@ -3,26 +3,26 @@
 from __future__ import annotations
 
 from .protocol_evidence import read_json
-from .protocol_n7_acceptance import CHECKERS, REPORTS
-from .protocol_n7_catalog import groups
-from .protocol_n9_checks import envelope
+from .protocol_integration_checks import envelope
+from .protocol_security_acceptance import CHECKERS, REPORTS
+from .protocol_security_catalog import groups
 
 SHARED = (
-    "N7-SHARED-NONE",
-    "N7-SHARED-CHROME",
-    "N7-SHARED-XHTTP",
-    "N7-HYBRID-RETAINED",
-    "N7-JLS-RETAINED",
-    "N7-ECH-CHROME",
-    "N7-ECH-ENCRYPTION-NATIVE-0RTT-MIXED",
-    "N7-JLS-ENCRYPTION-NATIVE-0RTT-MIXED",
-    "N7-HYBRID-ENCRYPTION-NATIVE-0RTT-MIXED",
+    "SECURITY-SHARED-NONE",
+    "SECURITY-SHARED-CHROME",
+    "SECURITY-SHARED-XHTTP",
+    "SECURITY-HYBRID-RETAINED",
+    "SECURITY-JLS-RETAINED",
+    "SECURITY-ECH-CHROME",
+    "SECURITY-ECH-ENCRYPTION-NATIVE-0RTT-MIXED",
+    "SECURITY-JLS-ENCRYPTION-NATIVE-0RTT-MIXED",
+    "SECURITY-HYBRID-ENCRYPTION-NATIVE-0RTT-MIXED",
 )
 HOPS = (
-    "N6-HOP-V4-PLAIN-FIXED",
-    "N6-HOP-V4-OBFS-RANDOM",
-    "N6-HOP-V6-PLAIN-RANDOM",
-    "N6-HOP-V6-OBFS-FIXED",
+    "HYSTERIA2-HOP-V4-PLAIN-FIXED",
+    "HYSTERIA2-HOP-V4-OBFS-RANDOM",
+    "HYSTERIA2-HOP-V6-PLAIN-RANDOM",
+    "HYSTERIA2-HOP-V6-OBFS-FIXED",
 )
 
 
@@ -33,7 +33,7 @@ def shared_run(directory, supplied):
 
     catalog = groups()
     for name in SHARED:
-        print("N9 shared: " + name, flush=True)
+        print("INTEGRATION shared: " + name, flush=True)
         group = catalog[name]
         options = {k: v for k, v in group.items() if k not in {"rows", "runner"}}
         if group["runner"] == "xhttp":
@@ -61,7 +61,7 @@ def hops_run(directory, supplied):
     from .protocol_hysteria2_hop import run
 
     for name in HOPS:
-        print("N9 uninterrupted: " + name, flush=True)
+        print("INTEGRATION uninterrupted: " + name, flush=True)
         run(directory / name, supplied=supplied, **H[name])
 
 

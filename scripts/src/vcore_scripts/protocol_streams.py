@@ -1,4 +1,4 @@
-"""N1 transport-only native cases; synthetic VLESS is not public YAML support."""
+"""Transport-only native cases; synthetic VLESS is not public YAML support."""
 
 from __future__ import annotations
 
@@ -19,17 +19,17 @@ from .protocol_peers import OwnedProcess, run_command
 from .protocol_preflight import preflight
 
 CLIENT_ID = "b831381d-6324-4d53-ad4f-8cda48b30811"  # Public synthetic identity.
-GREETING, TRAILER = b"N1-server-first\n", b"N1-half-close\n"
+GREETING, TRAILER = b"FOUNDATIONS-server-first\n", b"FOUNDATIONS-half-close\n"
 STREAM_CASES = {
-    "N1-M-WS": ("M", "ws"),
-    "N1-M-WSS": ("M", "wss"),
-    "N1-M-GRPC": ("M", "grpc"),
-    "N1-M-GRPC-TLS": ("M", "grpc-tls"),
-    "N1-M-WS-ED": ("M", "ws-header"),
-    "N1-V2-HTTP": ("V2", "http"),
-    "N1-V2-H2": ("V2", "h2"),
-    "N1-V2-WS-HEADER": ("V2", "ws-header"),
-    "N1-V2-WS-PATH": ("V2", "ws-path"),
+    "FOUNDATIONS-M-WS": ("M", "ws"),
+    "FOUNDATIONS-M-WSS": ("M", "wss"),
+    "FOUNDATIONS-M-GRPC": ("M", "grpc"),
+    "FOUNDATIONS-M-GRPC-TLS": ("M", "grpc-tls"),
+    "FOUNDATIONS-M-WS-ED": ("M", "ws-header"),
+    "FOUNDATIONS-V2-HTTP": ("V2", "http"),
+    "FOUNDATIONS-V2-H2": ("V2", "h2"),
+    "FOUNDATIONS-V2-WS-HEADER": ("V2", "ws-header"),
+    "FOUNDATIONS-V2-WS-PATH": ("V2", "ws-path"),
 }
 
 
@@ -107,7 +107,7 @@ def peer_config(kind, mode, port, cert, key):
     encrypted = mode in {"wss", "grpc-tls", "h2"}
     if kind == "M":
         listener = {
-            "name": "n1-stream",
+            "name": "foundations-stream",
             "type": "vless",
             "listen": "127.0.0.1",
             "port": port,
@@ -118,9 +118,9 @@ def peer_config(kind, mode, port, cert, key):
         else:
             listener["allow-insecure"] = True  # Explicit loopback-only plaintext.
         if mode.startswith("ws"):
-            listener["ws-path"] = "/n1-ws"
+            listener["ws-path"] = "/foundations-ws"
         if mode.startswith("grpc"):
-            listener["grpc-service-name"] = "n1-grpc"
+            listener["grpc-service-name"] = "foundations-grpc"
         return {
             "mode": "rule",
             "log-level": "silent",
@@ -132,17 +132,18 @@ def peer_config(kind, mode, port, cert, key):
     stream = {"network": "tcp", "security": "tls" if encrypted else "none"}
     if mode == "http":
         stream["tcpSettings"] = {
-            "header": {"type": "http", "request": {"path": ["/n1-http"]}}
+            "header": {"type": "http", "request": {"path": ["/foundations-http"]}}
         }
     elif mode == "h2":
         stream.update(
-            network="http", httpSettings={"host": ["localhost"], "path": "/n1-h2"}
+            network="http",
+            httpSettings={"host": ["localhost"], "path": "/foundations-h2"},
         )
     else:
         stream.update(
             network="ws",
             wsSettings={
-                "path": "/n1-ws",
+                "path": "/foundations-ws",
                 "maxEarlyData": 2048,
                 "earlyDataHeaderName": "x-vcore-ed" if mode == "ws-header" else "",
             },
@@ -177,7 +178,7 @@ def run_streams(output: Path, selected: list[str] | None = None, *, artifacts=No
         raise RuntimeError("invalid native stream case selection")
     output.mkdir(parents=True, exist_ok=False)
     report = {
-        "scope": "N1-shared-transport-only",
+        "scope": "FOUNDATIONS-shared-transport-only",
         "cases": [],
         "peers": [],
         "cleanup": False,

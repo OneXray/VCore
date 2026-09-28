@@ -1,4 +1,4 @@
-"""N2 public Trojan consumer acceptance against owned official native peers."""
+"""TROJAN public Trojan consumer acceptance against owned official native peers."""
 
 from __future__ import annotations
 
@@ -18,26 +18,42 @@ from .protocol_peers import OwnedProcess, run_command
 from .protocol_preflight import preflight
 
 CASES = {
-    "N2-M-TCP": ("M", "tcp", "public_trojan_native_base"),
-    "N2-M-WS": ("M", "ws", "public_trojan_native_base"),
-    "N2-M-GRPC": ("M", "grpc", "public_trojan_native_base"),
-    "N2-M-WS-ED-1": ("M", "ws-ed-1", "public_trojan_native_base"),
-    "N2-M-WS-ED-2048": ("M", "ws-ed-2048", "public_trojan_native_base"),
-    "N2-M-WS-POLICY": ("M", "ws", "public_trojan_native_policy_and_group_snapshots"),
-    "N2-M-GRPC-POLICY": (
+    "TROJAN-M-TCP": ("M", "tcp", "public_trojan_native_base"),
+    "TROJAN-M-WS": ("M", "ws", "public_trojan_native_base"),
+    "TROJAN-M-GRPC": ("M", "grpc", "public_trojan_native_base"),
+    "TROJAN-M-WS-ED-1": ("M", "ws-ed-1", "public_trojan_native_base"),
+    "TROJAN-M-WS-ED-2048": ("M", "ws-ed-2048", "public_trojan_native_base"),
+    "TROJAN-M-WS-POLICY": (
+        "M",
+        "ws",
+        "public_trojan_native_policy_and_group_snapshots",
+    ),
+    "TROJAN-M-GRPC-POLICY": (
         "M",
         "grpc",
         "public_trojan_native_policy_and_group_snapshots",
     ),
-    "N2-M-WS-NEGATIVE": ("M", "ws", "public_trojan_native_transport_negative"),
-    "N2-M-GRPC-NEGATIVE": ("M", "grpc", "public_trojan_native_transport_negative"),
-    "N2-M-ALPN-NEGATIVE": ("M", "ws-alpn", "public_trojan_native_transport_negative"),
-    "N2-V2-WS-HEADER": ("V2", "ws-header", "public_trojan_native_extended_early_data"),
-    "N2-V2-WS-PATH": ("V2", "ws-path", "public_trojan_native_extended_early_data"),
-    "N2-M-TCP-POLICY": ("M", "tcp", "public_trojan_native_policy_and_group_snapshots"),
-    "N2-XR-UDP-DOMAIN": ("XR", "tcp", "public_trojan_native_udp_domain"),
-    "N2-XR-WS-UDP-DOMAIN": ("XR", "ws", "public_trojan_native_udp_domain"),
-    "N2-XR-GRPC-UDP-DOMAIN": ("XR", "grpc", "public_trojan_native_udp_domain"),
+    "TROJAN-M-WS-NEGATIVE": ("M", "ws", "public_trojan_native_transport_negative"),
+    "TROJAN-M-GRPC-NEGATIVE": ("M", "grpc", "public_trojan_native_transport_negative"),
+    "TROJAN-M-ALPN-NEGATIVE": (
+        "M",
+        "ws-alpn",
+        "public_trojan_native_transport_negative",
+    ),
+    "TROJAN-V2-WS-HEADER": (
+        "V2",
+        "ws-header",
+        "public_trojan_native_extended_early_data",
+    ),
+    "TROJAN-V2-WS-PATH": ("V2", "ws-path", "public_trojan_native_extended_early_data"),
+    "TROJAN-M-TCP-POLICY": (
+        "M",
+        "tcp",
+        "public_trojan_native_policy_and_group_snapshots",
+    ),
+    "TROJAN-XR-UDP-DOMAIN": ("XR", "tcp", "public_trojan_native_udp_domain"),
+    "TROJAN-XR-WS-UDP-DOMAIN": ("XR", "ws", "public_trojan_native_udp_domain"),
+    "TROJAN-XR-GRPC-UDP-DOMAIN": ("XR", "grpc", "public_trojan_native_udp_domain"),
 }
 for _mode in ("tcp", "ws", "grpc"):
     for _suffix, _test in (
@@ -45,28 +61,32 @@ for _mode in ("tcp", "ws", "grpc"):
         ("ENTRYPOINTS", "runtime::public_trojan_native_entrypoints"),
         ("UDP-ISOLATION", "runtime::public_trojan_native_udp_isolation_and_limit"),
     ):
-        CASES[f"N2-M-{_mode.upper()}-{_suffix}"] = ("M", _mode, _test)
-    CASES[f"N2-M-{_mode.upper()}-IPV6"] = (
+        CASES[f"TROJAN-M-{_mode.upper()}-{_suffix}"] = ("M", _mode, _test)
+    CASES[f"TROJAN-M-{_mode.upper()}-IPV6"] = (
         "M",
         _mode + "-ipv6",
         "public_trojan_native_base",
     )
-    CASES[f"N2-M-{_mode.upper()}-OWNED"] = ("M", _mode, "trojan_native_owned_resources")
-    CASES[f"N2-M-{_mode.upper()}-CERTIFICATE"] = (
+    CASES[f"TROJAN-M-{_mode.upper()}-OWNED"] = (
+        "M",
+        _mode,
+        "trojan_native_owned_resources",
+    )
+    CASES[f"TROJAN-M-{_mode.upper()}-CERTIFICATE"] = (
         "M",
         _mode + "-ca",
         "runtime::public_trojan_native_certificate_names",
     )
-CASES["N2-M-GRPC-CUSTOM"] = ("M", "grpc-custom", "public_trojan_native_base")
+CASES["TROJAN-M-GRPC-CUSTOM"] = ("M", "grpc-custom", "public_trojan_native_base")
 
 
 def native_events_pass(events, test):
-    suites = {"N2-NATIVE"}
+    suites = {"TROJAN-NATIVE"}
     if test == "runtime::public_trojan_native_lifecycle":
-        suites.add("N2-LIFE-CYCLE")
+        suites.add("TROJAN-LIFE-CYCLE")
     elif test == "trojan_native_owned_resources":
-        suites.add("N2-OWNED-CYCLE")
-    main = [event for event in events if event.get("suite") == "N2-NATIVE"]
+        suites.add("TROJAN-OWNED-CYCLE")
+    main = [event for event in events if event.get("suite") == "TROJAN-NATIVE"]
     if (
         len(main) != 2
         or any(
@@ -81,9 +101,9 @@ def native_events_pass(events, test):
         "trojan_native_owned_resources",
     }:
         suite = (
-            "N2-OWNED-CYCLE"
+            "TROJAN-OWNED-CYCLE"
             if test == "trojan_native_owned_resources"
-            else "N2-LIFE-CYCLE"
+            else "TROJAN-LIFE-CYCLE"
         )
         cycles = [event for event in events if event.get("suite") == suite]
         if len(cycles) != 40:
@@ -100,7 +120,7 @@ def native_events_pass(events, test):
                 )
             ):
                 return False
-            if suite == "N2-OWNED-CYCLE":
+            if suite == "TROJAN-OWNED-CYCLE":
                 points = end.get("checkpoints", [])
                 phases = {point["phase"]: point["resources"] for point in points}
                 if (
@@ -126,10 +146,10 @@ def run(output: Path, selected=None, *, artifacts=None):
         or len(selected) != len(set(selected))
         or not set(selected) <= CASES.keys()
     ):
-        raise ValueError("invalid N2 case selection")
+        raise ValueError("invalid TROJAN case selection")
     output.mkdir(parents=True, exist_ok=False)
     report = {
-        "stage": "N2",
+        "stage": "TROJAN",
         "scope": "protocol-consumer",
         "source": source_identity(),
         "selected_cases": selected,
@@ -156,7 +176,7 @@ def run(output: Path, selected=None, *, artifacts=None):
                 )
                 continue
             record["peer"] = artifacts[kind].identity
-            print(f"N2: {case_id}", flush=True)
+            print(f"TROJAN: {case_id}", flush=True)
             with (
                 tempfile.TemporaryDirectory(prefix="private-", dir=output) as directory,
                 contextlib.ExitStack() as stack,
@@ -166,7 +186,7 @@ def run(output: Path, selected=None, *, artifacts=None):
                     certificate_chain if mode.endswith("-ca") else certificates
                 )(directory)
                 port, reservation = reserve_port(stack)
-                password = " synthetic N2 密码 "
+                password = " synthetic TROJAN 密码 "
                 config = peer_config(kind, mode, port, password, cert, key)
                 path = directory / "peer.json"
                 path.write_text(json.dumps(config))
@@ -185,10 +205,10 @@ def run(output: Path, selected=None, *, artifacts=None):
                         network="ws",
                         **{
                             "ws-opts": {
-                                "path": "/n2-ws?q=1",
+                                "path": "/trojan-ws?q=1",
                                 "headers": {
                                     "Host": "cover.example:443",
-                                    "X-N2": "fixture",
+                                    "X-TROJAN": "fixture",
                                 },
                             }
                         },
@@ -196,10 +216,10 @@ def run(output: Path, selected=None, *, artifacts=None):
                 if mode.startswith("grpc"):
                     node.update(
                         network="grpc",
-                        **{"grpc-opts": {"grpc-service-name": "n2-grpc"}},
+                        **{"grpc-opts": {"grpc-service-name": "trojan-grpc"}},
                     )
                 if mode.startswith("ws") and kind != "M":
-                    node["ws-opts"]["path"] = "/n2-ws/"
+                    node["ws-opts"]["path"] = "/trojan-ws/"
                 if mode in {"ws-ed-1", "ws-ed-2048", "ws-header", "ws-path"}:
                     node["ws-opts"]["max-early-data"] = 1 if mode == "ws-ed-1" else 2048
                 if mode in {"ws-header", "ws-path"}:
@@ -209,7 +229,7 @@ def run(output: Path, selected=None, *, artifacts=None):
                 if mode == "ws-alpn":
                     node["alpn"] = ["h2", "http/1.1"]
                 if mode == "grpc-custom":
-                    node["grpc-opts"]["grpc-service-name"] = "/n2-grpc/Tun"
+                    node["grpc-opts"]["grpc-service-name"] = "/trojan-grpc/Tun"
                 if mode.endswith("-ipv6"):
                     node["server"] = "::1"
                 command = (

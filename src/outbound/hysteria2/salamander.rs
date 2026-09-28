@@ -92,7 +92,7 @@ mod tests {
     fn salamander_matches_independent_blake2b256_vector_and_rejects_short_packets() {
         #[cfg(feature = "interop-test")]
         let _case = crate::resources::case_events::Case::new(
-            "N6-UNIT",
+            "HYSTERIA2-UNIT",
             "salamander_matches_independent_blake2b256_vector_and_rejects_short_packets",
         );
         // Python hashlib.blake2b(digest_size=32), password || salt; not a

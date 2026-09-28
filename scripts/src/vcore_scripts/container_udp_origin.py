@@ -19,10 +19,10 @@ import threading
 import time
 
 CAPACITY = 20000
-N9_PROFILE = os.environ.get("VCORE_ORIGIN_PROFILE") == "N9"
+INTEGRATION_PROFILE = os.environ.get("VCORE_ORIGIN_PROFILE") == "INTEGRATION"
 # Explicit, still bounded pressure profile. Historical protocol fixtures keep
 # their original limits; no production queue or socket policy is changed.
-SLOTS = threading.BoundedSemaphore(96 if N9_PROFILE else 8)
+SLOTS = threading.BoundedSemaphore(96 if INTEGRATION_PROFILE else 8)
 COVER_SLOTS = threading.BoundedSemaphore(8)
 
 
@@ -159,7 +159,7 @@ def serve(control):
                 seen = False
                 dns = family in (b"\x11", b"\x13")
                 dns_deadline = time.monotonic() + 240
-                for _ in range(100000 if N9_PROFILE else 20000):
+                for _ in range(100000 if INTEGRATION_PROFILE else 20000):
                     wait = (
                         min(30, max(0, dns_deadline - time.monotonic())) if dns else 30
                     )

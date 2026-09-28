@@ -6,7 +6,8 @@
 - foundation-cases.json：尚未替代的基础/Trojan 稳定证据标识与断言。旧服务端编排
   未全容器化，不作为可执行宿主入口；本地基础测试使用 check core。
 - 其他可执行用例由 scripts/src/vcore_scripts 下各协议 catalog/definitions 生成，
-  protocol_evidence.load_manifest 统一校验。N 前缀是稳定证据 ID，不是产品能力版本。
+  protocol_evidence.load_manifest 统一校验。用例 ID 以协议或验证用途为前缀，
+  分组使用 tcp、udp、transports、lifecycle 等能力名称，不绑定开发阶段。
 - limits.json：局部资源上限及边界 case；Rust 测试对照真实常量。
 - encryption-crypto.json 与 encryption-vectors：独立官方 Go 原语生成的密码向量，
   被生产模块的确定性测试直接使用。

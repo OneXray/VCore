@@ -1054,7 +1054,7 @@ mod connector_composition_tests {
     fn all_two_hop_protocol_combinations_build_as_connector_graphs() {
         #[cfg(feature = "interop-test")]
         let _case = crate::resources::case_events::Case::new(
-            "N4-REGRESSION",
+            "VLESS-REGRESSION",
             "all_two_hop_protocol_combinations_build_as_connector_graphs",
         );
         let physical: Arc<dyn OutboundConnector> = Arc::new(NeverConnector);
@@ -1104,7 +1104,7 @@ mod connector_composition_tests {
     fn direct_download_constructor_reuses_or_requires_the_precise_prepared_endpoint() {
         #[cfg(feature = "interop-test")]
         let _case = crate::resources::case_events::Case::new(
-            "N4-REGRESSION",
+            "VLESS-REGRESSION",
             "direct_download_constructor_reuses_or_requires_the_precise_prepared_endpoint",
         );
         let same = split_vless_config("same.example", "same.example", 443);
@@ -1150,7 +1150,7 @@ mod connector_composition_tests {
     fn split_node_over_a_proxy_automatically_reuses_its_parent_for_both_legs() {
         #[cfg(feature = "interop-test")]
         let _case = crate::resources::case_events::Case::new(
-            "N4-REGRESSION",
+            "VLESS-REGRESSION",
             "split_node_over_a_proxy_automatically_reuses_its_parent_for_both_legs",
         );
         let parent: Arc<dyn OutboundConnector> = Arc::new(NeverConnector);

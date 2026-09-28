@@ -1323,7 +1323,7 @@ mod tests {
     struct FixedResolver;
 
     #[tokio::test]
-    async fn n9_feature_admission_is_explicit_without_opening_sockets() {
+    async fn integration_feature_admission_is_explicit_without_opening_sockets() {
         let variants = [
             ("socks5", "", cfg!(feature = "outbound-socks5")),
             (
@@ -1358,7 +1358,7 @@ mod tests {
             ),
         ];
         for (protocol, fields, enabled) in variants {
-            let _case = crate::resources::case_events::Case::new("N9-FEATURE", protocol);
+            let _case = crate::resources::case_events::Case::new("INTEGRATION-FEATURE", protocol);
             let yaml = format!(
                 "socks-port: 1080\nproxies:\n  - {{name: peer, type: {protocol}, server: 127.0.0.1, port: 443{fields}}}\nrules: ['MATCH,peer']\n"
             );

@@ -104,7 +104,7 @@ mod tests {
     #[test]
     fn measurement_rejects_future_protocols_and_oversized_documents() {
         let _case = crate::resources::case_events::Case::new(
-            "N1-SCHEMA",
+            "FOUNDATIONS-SCHEMA",
             "measurement_rejects_future_protocols_and_oversized_documents",
         );
         let yaml =

@@ -110,7 +110,7 @@ class ContainerLab:
 class ContainerPeer:
     def __init__(self, lab, root, role):
         self.lab, self.root = lab, root
-        self.name = f"vcore-n3-{lab.run_id}-{role}"
+        self.name = f"vcore-interop-{lab.run_id}-{role}"
         if len(self.name) > 63:
             digest = hashlib.sha256(self.name.encode()).hexdigest()[:8]
             self.name = self.name[:54] + "-" + digest

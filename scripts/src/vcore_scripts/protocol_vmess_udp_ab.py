@@ -1,4 +1,4 @@
-"""Container-only matched UDP diagnostic, not N3 stage acceptance."""
+"""Container-only matched UDP diagnostic, not VMESS stage acceptance."""
 
 from __future__ import annotations
 

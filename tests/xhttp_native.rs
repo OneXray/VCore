@@ -75,7 +75,8 @@ async fn native_xhttp_request_fields() {
     )
     .unwrap();
     assert_eq!(fixture["isolation"], "containers");
-    let case = vcore::resources::case_events::Case::new("N5-XHTTP", "native_xhttp_request_fields");
+    let case =
+        vcore::resources::case_events::Case::new("XHTTP-XHTTP", "native_xhttp_request_fields");
     tokio::time::timeout(Duration::from_secs(120), async {
         let outbound = node(&fixture, None);
         let tiny = fixture["tiny"].as_bool().unwrap_or(false);
@@ -183,7 +184,8 @@ async fn native_xhttp_udp_encodings() {
     )
     .unwrap();
     assert_eq!(fixture["isolation"], "containers");
-    let case = vcore::resources::case_events::Case::new("N5-XHTTP", "native_xhttp_udp_encodings");
+    let case =
+        vcore::resources::case_events::Case::new("XHTTP-XHTTP", "native_xhttp_udp_encodings");
     tokio::time::timeout(Duration::from_secs(120), async {
         let resolution = vcore::dns::resolution::ResolutionContext::measurement(
             Arc::new(FixtureResolver(

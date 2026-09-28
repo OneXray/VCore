@@ -1,9 +1,9 @@
 use super::*;
 
 #[test]
-#[ignore = "isolated N4 runner"]
+#[ignore = "isolated VLESS runner"]
 fn public_udp_isolation() {
-    let _case = Case::start("N4-PUBLIC", "runtime::public_udp_isolation");
+    let _case = Case::start("VLESS-PUBLIC", "runtime::public_udp_isolation");
     let f = fixture();
     initialize(&f);
     let port = free_port();
@@ -59,9 +59,9 @@ fn public_udp_isolation() {
 
 #[test]
 #[cfg(target_os = "macos")]
-#[ignore = "isolated N4 runner"]
+#[ignore = "isolated VLESS runner"]
 fn public_entrypoints() {
-    let _case = Case::start("N4-PUBLIC", "runtime::public_entrypoints");
+    let _case = Case::start("VLESS-PUBLIC", "runtime::public_entrypoints");
     let f = fixture();
     entrypoints(&f);
 }
@@ -195,14 +195,14 @@ pub(super) fn exchange(client: &mut TcpStream, bytes: &[u8]) {
 }
 
 #[test]
-#[ignore = "isolated N4 runner"]
+#[ignore = "isolated VLESS runner"]
 fn public_lifecycle() {
-    let _case = Case::start("N4-PUBLIC", "runtime::public_lifecycle");
+    let _case = Case::start("VLESS-PUBLIC", "runtime::public_lifecycle");
     let f = fixture();
     initialize(&f);
     Core::start(&config(f["node"].clone(), free_port())).stop();
     for cycle in 0..20 {
-        let _cycle = Case::start("N4-LIFE", "stop_and_remain_quiet");
+        let _cycle = Case::start("VLESS-LIFE", "stop_and_remain_quiet");
         let baseline = fd_count();
         let port = free_port();
         let mut held = None;
@@ -339,10 +339,10 @@ pub(super) fn select(controller: u16, name: &str) {
 }
 
 #[test]
-#[ignore = "isolated N4 runner"]
+#[ignore = "isolated VLESS runner"]
 fn grpc_pool_keeps_physical_selection_until_new_transport() {
     let _case = Case::start(
-        "N4-PUBLIC",
+        "VLESS-PUBLIC",
         "runtime::grpc_pool_keeps_physical_selection_until_new_transport",
     );
     let f = fixture();
@@ -393,9 +393,9 @@ fn grpc_pool_keeps_physical_selection_until_new_transport() {
     origin.marker(b'D');
 }
 #[test]
-#[ignore = "isolated N4 runner"]
+#[ignore = "isolated VLESS runner"]
 fn public_graph() {
-    let _case = Case::start("N4-PUBLIC", "runtime::public_graph");
+    let _case = Case::start("VLESS-PUBLIC", "runtime::public_graph");
     let f = fixture();
     initialize(&f);
     let port = free_port();
@@ -502,9 +502,9 @@ fn public_graph() {
 }
 
 #[test]
-#[ignore = "isolated N4 runner"]
+#[ignore = "isolated VLESS runner"]
 fn public_ipv6_and_gates() {
-    let _case = Case::start("N4-PUBLIC", "runtime::public_ipv6_and_gates");
+    let _case = Case::start("VLESS-PUBLIC", "runtime::public_ipv6_and_gates");
     let f = fixture();
     initialize(&f);
     let port = free_port();
@@ -540,7 +540,7 @@ fn public_ipv6_and_gates() {
 }
 
 #[tokio::test]
-#[ignore = "isolated N4 runner"]
+#[ignore = "isolated VLESS runner"]
 async fn owned_resources() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use vcore::{
@@ -550,7 +550,7 @@ async fn owned_resources() {
         resources::observation::{ResourceKind, ResourceProbe},
         session::{Datagram, DatagramSession, InboundKind, StreamSession},
     };
-    let _case = Case::start("N4-PUBLIC", "runtime::owned_resources");
+    let _case = Case::start("VLESS-PUBLIC", "runtime::owned_resources");
     let f = fixture();
     let parsed =
         Config::parse_yaml(config(f["node"].clone(), 1080).to_string().as_bytes()).unwrap();
@@ -558,7 +558,7 @@ async fn owned_resources() {
         unreachable!()
     };
     for _ in 0..20 {
-        let mut case = Case::start("N4-OWNED", "stop_and_remain_quiet");
+        let mut case = Case::start("VLESS-OWNED", "stop_and_remain_quiet");
         let probe = ResourceProbe::default();
         case.checkpoint("baseline", probe.snapshot());
         probe

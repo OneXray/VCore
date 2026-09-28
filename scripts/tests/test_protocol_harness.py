@@ -21,10 +21,10 @@ class ProtocolHarnessTest(unittest.TestCase):
                     [
                         "check",
                         "protocol-interop",
-                        "--stage",
-                        "N1",
+                        "--suite",
+                        "foundations",
                         "--case",
-                        "N1-QUIC",
+                        "FOUNDATIONS-QUIC",
                         "--protocol",
                         "foundation",
                         "--list",
@@ -32,11 +32,18 @@ class ProtocolHarnessTest(unittest.TestCase):
                 ),
                 0,
             )
-            self.assertEqual(run.call_args.kwargs["identifiers"], ["N1-QUIC"])
+            self.assertEqual(run.call_args.kwargs["identifiers"], ["FOUNDATIONS-QUIC"])
             self.assertTrue(run.call_args.kwargs["list_only"])
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             cli.main(
-                ["check", "protocol-interop", "--stage", "N1", "--list", "--preflight"]
+                [
+                    "check",
+                    "protocol-interop",
+                    "--suite",
+                    "foundations",
+                    "--list",
+                    "--preflight",
+                ]
             )
 
     def test_coverage_requires_explicit_catalog_or_result_mode(self):
@@ -48,15 +55,15 @@ class ProtocolHarnessTest(unittest.TestCase):
                     [
                         "check",
                         "protocol-coverage",
-                        "--stage",
-                        "N1",
+                        "--suite",
+                        "foundations",
                         "--run-dir",
                         "target/interop/runs/fixture",
                     ]
                 ),
                 0,
             )
-            self.assertEqual(check.call_args.args[1], "N1")
+            self.assertEqual(check.call_args.args[1], "FOUNDATIONS")
             self.assertEqual(
                 check.call_args.args[0],
                 Path("target/interop/runs/fixture").resolve(),
@@ -121,7 +128,7 @@ class ProtocolHarnessTest(unittest.TestCase):
                     "run_identity",
                     return_value=identity
                     | {
-                        "stage": "N3",
+                        "stage": "VMESS",
                         "mode": "execute",
                         "suite_timeout_seconds": 30,
                         "commands": [],
@@ -153,7 +160,7 @@ class ProtocolHarnessTest(unittest.TestCase):
                 self.assertRaises(RuntimeError),
             ):
                 protocol_harness.run_protocol_interop(
-                    stage="N3", identifiers=["N3-CFG"], run_dir=output
+                    stage="VMESS", identifiers=["VMESS-CFG"], run_dir=output
                 )
             self.assertEqual(
                 json.loads((output / "cases.json").read_text())[0]["status"], "NOT RUN"

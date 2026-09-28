@@ -42,7 +42,7 @@ impl AsyncRead for CountWrites {
 }
 
 #[tokio::test]
-#[ignore = "requires the owned N7 Encryption container harness"]
+#[ignore = "requires the owned SECURITY Encryption container harness"]
 async fn public_tcp_roundtrip() {
     use vcore::{
         config::{Config, ProxyProtocol},
@@ -121,7 +121,7 @@ async fn public_tcp_roundtrip() {
         .unwrap();
     }
     outbound.shutdown().await;
-    println!("N7-ENCRYPTION-CONSUMER-PASS rounds=4 bytes_per_direction=10485760");
+    println!("SECURITY-ENCRYPTION-CONSUMER-PASS rounds=4 bytes_per_direction=10485760");
 }
 impl AsyncWrite for CountWrites {
     fn poll_write(
@@ -183,7 +183,7 @@ impl AsyncWrite for CorruptRead {
 }
 
 #[tokio::test]
-#[ignore = "requires the owned N7 Encryption container harness"]
+#[ignore = "requires the owned SECURITY Encryption container harness"]
 async fn native_encryption_roundtrip() {
     let fixture: serde_json::Value = serde_json::from_slice(
         &std::fs::read(std::env::var("VCORE_ENCRYPTION_FIXTURE").unwrap()).unwrap(),
@@ -359,11 +359,11 @@ async fn native_encryption_roundtrip() {
         .await;
     }
     client.close();
-    println!("N7-ENCRYPTION-WIRE-PASS rounds=4 bytes_per_direction=10485760");
+    println!("SECURITY-ENCRYPTION-WIRE-PASS rounds=4 bytes_per_direction=10485760");
 }
 
 #[tokio::test]
-#[ignore = "requires the owned N7 Encryption container harness with short-lived tickets"]
+#[ignore = "requires the owned SECURITY Encryption container harness with short-lived tickets"]
 async fn native_ticket_expiry() {
     let fixture: serde_json::Value = serde_json::from_slice(
         &std::fs::read(std::env::var("VCORE_ENCRYPTION_FIXTURE").unwrap()).unwrap(),
@@ -382,7 +382,7 @@ async fn native_ticket_expiry() {
     identity_probe(&client, &fixture, false, true, false, None).await;
     identity_probe(&client, &fixture, false, true, true, None).await;
     client.close();
-    println!("N7-ENCRYPTION-EXPIRY-PASS full-resumed-expired-full-resumed");
+    println!("SECURITY-ENCRYPTION-EXPIRY-PASS full-resumed-expired-full-resumed");
 }
 
 async fn identity_probe(

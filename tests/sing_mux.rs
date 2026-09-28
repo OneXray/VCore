@@ -199,7 +199,7 @@ async fn hello(io: &mut BoxStream) {
 async fn yamux_replacing_dropped_streams_at_capacity_keeps_the_sibling_alive() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "yamux_replacing_dropped_streams_at_capacity_keeps_the_sibling_alive",
     );
     tokio::time::timeout(Duration::from_secs(10), async {
@@ -240,7 +240,7 @@ async fn yamux_replacing_dropped_streams_at_capacity_keeps_the_sibling_alive() {
 async fn sing_mux_scheduling_uses_the_selected_branch_not_a_global_stream_quota() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "sing_mux_scheduling_uses_the_selected_branch_not_a_global_stream_quota",
     );
     tokio::time::timeout(Duration::from_secs(5), async {
@@ -315,7 +315,7 @@ impl OutboundConnector for CapturePeer {
 async fn h2mux_sends_idle_ping_and_retires_a_peer_that_never_acknowledges() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "h2mux_sends_idle_ping_and_retires_a_peer_that_never_acknowledges",
     );
     let raw = serde_json::json!({"socks-port":1080,"proxies":[{"name":"edge","type":"vless","server":"example.com","port":443,"uuid":"07070707-0707-0707-0707-070707070707","smux":{"enabled":true,"max-connections":1}}],"rules":["MATCH,edge"]});
@@ -381,7 +381,7 @@ async fn h2mux_sends_idle_ping_and_retires_a_peer_that_never_acknowledges() {
 async fn only_tcp_preserves_all_three_vless_udp_wire_commands() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "only_tcp_preserves_all_three_vless_udp_wire_commands",
     );
     use vcore::session::{Datagram, DatagramSession};
@@ -416,7 +416,7 @@ async fn only_tcp_preserves_all_three_vless_udp_wire_commands() {
 async fn h2mux_reuses_physical_vless_and_cancels_only_one_logical_stream() -> io::Result<()> {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "h2mux_reuses_physical_vless_and_cancels_only_one_logical_stream",
     );
     siblings("h2mux", 2).await
@@ -425,7 +425,7 @@ async fn h2mux_reuses_physical_vless_and_cancels_only_one_logical_stream() -> io
 async fn yamux_reuses_physical_vless_and_cancels_only_one_logical_stream() -> io::Result<()> {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "yamux_reuses_physical_vless_and_cancels_only_one_logical_stream",
     );
     siblings("yamux", 1).await
@@ -434,7 +434,7 @@ async fn yamux_reuses_physical_vless_and_cancels_only_one_logical_stream() -> io
 async fn smux_reuses_physical_vless_and_cancels_only_one_logical_stream() -> io::Result<()> {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "smux_reuses_physical_vless_and_cancels_only_one_logical_stream",
     );
     siblings("smux", 0).await
@@ -478,7 +478,7 @@ async fn siblings(protocol: &str, wire: u8) -> io::Result<()> {
 async fn sing_mux_udp_preserves_addresses_and_cancellation_safe_partial_frames() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "sing_mux_udp_preserves_addresses_and_cancellation_safe_partial_frames",
     );
     use vcore::{

@@ -69,7 +69,7 @@ impl OutboundConnector for Upstream {
 async fn h3_rejects_incapable_or_small_budget_upstreams_before_any_datagram() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "h3_rejects_incapable_or_small_budget_upstreams_before_any_datagram",
     );
     let config=Config::parse_yaml(b"socks-port: 1080\nproxies: [{name: edge, type: vless, server: 192.0.2.1, port: 443, uuid: 07070707-0707-0707-0707-070707070707, tls: true, network: xhttp, alpn: [h3]}]\nrules: ['MATCH,edge']").unwrap();

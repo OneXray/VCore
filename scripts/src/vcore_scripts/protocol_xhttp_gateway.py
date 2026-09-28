@@ -1,6 +1,6 @@
 """Isolated xcaddy H3/mTLS -> one native Xray XHTTP handler probe.
 
-Native comparator evidence only: this never claims VCore N5 acceptance.
+Native comparator evidence only: this never claims VCore XHTTP acceptance.
 """
 
 from __future__ import annotations
@@ -238,8 +238,8 @@ def run(output: Path, *, identities_only=False):
         raise ValueError("gateway output must be a fresh target/interop/runs child")
     output.mkdir(parents=True, exist_ok=False)
     report = dict(
-        stage="N0-F",
-        purpose="N5-xcaddy-H3-mTLS-prerequisite",
+        stage="XHTTP-PEERS",
+        purpose="XHTTP-xcaddy-H3-mTLS-prerequisite",
         vcore_acceptance=False,
         identities_only=identities_only,
         source=source_identity(),
@@ -309,7 +309,7 @@ def run(output: Path, *, identities_only=False):
                 origin = lab.start(
                     stack,
                     origin_dir,
-                    "n5-gateway-origin",
+                    "xhttp-gateway-origin",
                     [
                         "env",
                         "VCORE_ISOLATED_ORIGIN=1",
@@ -321,7 +321,7 @@ def run(output: Path, *, identities_only=False):
                 server = lab.start(
                     stack,
                     server_dir,
-                    "n5-gateway-xray",
+                    "xhttp-gateway-xray",
                     [
                         "/data/fixture/peer",
                         "run",
@@ -335,7 +335,7 @@ def run(output: Path, *, identities_only=False):
                 gateway = lab.start(
                     stack,
                     gateway_dir,
-                    "n5-gateway-caddy",
+                    "xhttp-gateway-caddy",
                     [
                         "env",
                         "XDG_CONFIG_HOME=/data/config",
@@ -381,7 +381,7 @@ def run(output: Path, *, identities_only=False):
                 client = lab.start(
                     stack,
                     client_dir,
-                    "n5-gateway-mihomo",
+                    "xhttp-gateway-mihomo",
                     [
                         "/data/fixture/peer",
                         "-d",

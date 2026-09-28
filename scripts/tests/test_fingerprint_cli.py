@@ -47,7 +47,7 @@ class FingerprintCliTest(unittest.TestCase):
                     "vcore_scripts.protocol_fingerprint.exclusive_run",
                     lambda: exclusive_run(Path(temporary) / "cli.lock"),
                 ),
-                self.assertRaisesRegex(ValueError, "invalid N4 native selection"),
+                self.assertRaisesRegex(ValueError, "invalid VLESS native selection"),
             ):
                 main(["unused-output", "--client-fingerprint", name, "missing"])
 

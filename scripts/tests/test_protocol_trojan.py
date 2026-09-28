@@ -16,7 +16,7 @@ from vcore_scripts.protocol_trojan_acceptance import fields_report, native_resul
 class TrojanEvidenceTest(unittest.TestCase):
     def test_removed_or_downgraded_required_case_is_rejected(self):
         original = load_manifest()
-        index = next(i for i, case in enumerate(original) if case["stage"] == "N2")
+        index = next(i for i, case in enumerate(original) if case["stage"] == "TROJAN")
         for downgrade in (True, False):
             cases = copy.deepcopy(original)
             if downgrade:
@@ -38,7 +38,9 @@ class TrojanEvidenceTest(unittest.TestCase):
                     load_manifest(path)
 
     def test_native_summary_cannot_hide_missing_events_or_unjoined_processes(self):
-        case = next(case for case in load_manifest() if case["case_id"] == "N2-M-TCP")
+        case = next(
+            case for case in load_manifest() if case["case_id"] == "TROJAN-M-TCP"
+        )
         record = {
             "case_id": case["case_id"],
             "status": "PASS",
@@ -53,7 +55,7 @@ class TrojanEvidenceTest(unittest.TestCase):
             self.assertEqual(native_results([case], report, root)[0]["status"], "FAIL")
             events = [
                 {
-                    "suite": "N2-NATIVE",
+                    "suite": "TROJAN-NATIVE",
                     "assertion": "public_trojan_native_base",
                     "schema_version": 1,
                     "status": status,
@@ -82,7 +84,7 @@ class TrojanEvidenceTest(unittest.TestCase):
                 native_results([case], report, root)
 
     def test_partial_case_selection_never_signs_off_fields(self):
-        case = next(case for case in load_manifest() if case["case_id"] == "N2-CFG")
+        case = next(case for case in load_manifest() if case["case_id"] == "TROJAN-CFG")
         result = fields_report([case], [{"case_id": case["case_id"], "status": "PASS"}])
         self.assertEqual(len(result["fields"]), 18)
         self.assertTrue(all(field["status"] == "NOT RUN" for field in result["fields"]))
@@ -94,7 +96,7 @@ class TrojanEvidenceTest(unittest.TestCase):
         self.assertIn("outbound-trojan", DEFAULT_FEATURES.split(","))
 
     def test_every_native_case_is_required_and_mapped_to_fields(self):
-        cases = select_cases(load_manifest(), stage="N2")
+        cases = select_cases(load_manifest(), stage="TROJAN")
         native = {
             case["case_id"]: case for case in cases if case["runner"] == "native-trojan"
         }
@@ -112,7 +114,7 @@ class TrojanEvidenceTest(unittest.TestCase):
         test = "public_trojan_native_base"
         events = [
             {
-                "suite": "N2-NATIVE",
+                "suite": "TROJAN-NATIVE",
                 "assertion": test,
                 "schema_version": 1,
                 "status": status,
@@ -135,7 +137,7 @@ class TrojanEvidenceTest(unittest.TestCase):
         test = "runtime::public_trojan_native_lifecycle"
         events = [
             {
-                "suite": "N2-NATIVE",
+                "suite": "TROJAN-NATIVE",
                 "assertion": test,
                 "schema_version": 1,
                 "status": status,
@@ -144,7 +146,7 @@ class TrojanEvidenceTest(unittest.TestCase):
         ]
         cycles = [
             {
-                "suite": "N2-LIFE-CYCLE",
+                "suite": "TROJAN-LIFE-CYCLE",
                 "assertion": "stop_and_remain_quiet",
                 "schema_version": 1,
                 "status": status,

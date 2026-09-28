@@ -64,7 +64,7 @@ class CoreChecksTest(unittest.TestCase):
                 0,
             )
         self.assertIn("shadowsocks_backpressure", output.getvalue())
-        self.assertIn("N9-PAIR-SS-SS", output.getvalue())
+        self.assertIn("INTEGRATION-PAIR-SS-SS", output.getvalue())
 
 
 if __name__ == "__main__":

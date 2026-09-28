@@ -342,7 +342,7 @@ fn port(variable: &str) -> u16 {
 fn public_client_inbounds_interoperate_with_mihomo_in_both_directions() {
     #[cfg(feature = "interop-test")]
     let mut _case = vcore::resources::case_events::Case::new(
-        "N1-REGRESSION",
+        "FOUNDATIONS-REGRESSION",
         "public_client_inbounds_interoperate_with_mihomo_in_both_directions",
     );
     let upstream = port("VCORE_MIHOMO_UPSTREAM");

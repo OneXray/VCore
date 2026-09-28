@@ -1,4 +1,4 @@
-"""CF5 public-config TLS wire gate over memory IO; no network observer."""
+"""Public-config TLS wire checks over memory IO; no network observer."""
 
 from __future__ import annotations
 
@@ -182,7 +182,7 @@ def run(output):
         raise ValueError("use a fresh directory directly under target/interop/runs")
     output.mkdir(exist_ok=False)
     report = dict(
-        stage="CF5",
+        stage="FINGERPRINT-WIRE",
         scope="memory-clienthello-structure",
         source=source_identity(),
         status="NOT RUN",

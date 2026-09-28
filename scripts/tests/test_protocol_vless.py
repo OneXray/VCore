@@ -42,8 +42,8 @@ class VlessEvidenceTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "must-not-exist"
             for profile, cases in [
-                ("chrome133", ["N4-TCP-TLS-BASE"]),
-                ("chrome120", ["N4-TCP-BASE"]),
+                ("chrome133", ["VLESS-TCP-TLS-BASE"]),
+                ("chrome120", ["VLESS-TCP-BASE"]),
             ]:
                 with self.assertRaises(ValueError):
                     run(output, cases, client_fingerprint=profile)
@@ -101,7 +101,9 @@ class VlessEvidenceTest(unittest.TestCase):
         self.assertEqual(reference["port"], 23003)
         self.assertIn("reality-config", config["listeners"][0])
         self.assertNotIn("reality-config", config["listeners"][1])
-        case = next(c for c in definitions() if c["case_id"] == "N4-WS-REALITY-CLOSE")
+        case = next(
+            c for c in definitions() if c["case_id"] == "VLESS-WS-REALITY-CLOSE"
+        )
         self.assertEqual(case["field_values"]["close_reference"], scope)
         self.assertIn("not a same-combination", case["gap_source"]["reason"])
 
@@ -173,7 +175,7 @@ class VlessEvidenceTest(unittest.TestCase):
                 self.assertEqual(node, original)
 
     def test_independent_features_match_the_executed_command_set(self):
-        case = next(c for c in definitions() if c["case_id"] == "N4-FEATURES")
+        case = next(c for c in definitions() if c["case_id"] == "VLESS-FEATURES")
         with (
             tempfile.TemporaryDirectory() as root,
             patch(
@@ -192,7 +194,7 @@ class VlessEvidenceTest(unittest.TestCase):
 
     def test_required_manifest_cannot_drop_or_downgrade_behavior(self):
         original = load_manifest()
-        index = next(i for i, case in enumerate(original) if case["stage"] == "N4")
+        index = next(i for i, case in enumerate(original) if case["stage"] == "VLESS")
         for mutation in ("drop", "required", "observation", "row"):
             cases = copy.deepcopy(original)
             if mutation == "drop":
@@ -267,7 +269,7 @@ class VlessEvidenceTest(unittest.TestCase):
 
     def test_native_summary_cannot_hide_absent_events_changed_source_or_cleanup(self):
         case = next(
-            c for c in definitions() if c["case_id"] == "N4-VISION-TLS-INNER-TLS"
+            c for c in definitions() if c["case_id"] == "VLESS-VISION-TLS-INNER-TLS"
         )
         test = case["peer_config"]["test"]
         record = dict(
@@ -296,7 +298,7 @@ class VlessEvidenceTest(unittest.TestCase):
             path = Path(root)
             self.assertEqual(native_results([case], report, path)[0]["status"], "FAIL")
             (path / (case["case_id"] + "-events.jsonl")).write_text(
-                "".join(json.dumps(e) + "\n" for e in pair("N4-WIRE", test))
+                "".join(json.dumps(e) + "\n" for e in pair("VLESS-WIRE", test))
             )
             self.assertEqual(native_results([case], report, path)[0]["status"], "PASS")
             for key in ("cleanup", "source_unchanged"):
@@ -322,27 +324,28 @@ class VlessEvidenceTest(unittest.TestCase):
 
     def test_public_base_requires_every_family_codec_and_body_option(self):
         test = "public_base"
-        events = pair("N4-PUBLIC", test)
+        events = pair("VLESS-PUBLIC", test)
         self.assertFalse(events_pass(events, test, "tcp"))
         for name in ("tcp_10mib_both_directions", "udp_each_codec_and_family"):
-            events += [e for _ in range(3) for e in pair("N4-BASE", name)]
+            events += [e for _ in range(3) for e in pair("VLESS-BASE", name)]
         self.assertTrue(events_pass(events, test, "tcp"))
         self.assertFalse(events_pass(events[:-2], test, "tcp"))
         self.assertFalse(events_pass(events + events[-2:], test, "tcp"))
-        n7 = [
-            dict(event, suite=event["suite"].replace("N4-", "N7-")) for event in events
+        security = [
+            dict(event, suite=event["suite"].replace("VLESS-", "SECURITY-"))
+            for event in events
         ]
-        self.assertTrue(events_pass(n7, test, "tcp", stage="N7"))
-        self.assertFalse(events_pass(n7[:-2], test, "tcp", stage="N7"))
-        self.assertFalse(events_pass(n7, test, "tcp"))
+        self.assertTrue(events_pass(security, test, "tcp", stage="SECURITY"))
+        self.assertFalse(events_pass(security[:-2], test, "tcp", stage="SECURITY"))
+        self.assertFalse(events_pass(security, test, "tcp"))
         vision = (
-            pair("N4-PUBLIC", test)
+            pair("VLESS-PUBLIC", test)
             + [
                 e
                 for _ in range(3)
-                for e in pair("N4-BASE", "tcp_10mib_both_directions")
+                for e in pair("VLESS-BASE", "tcp_10mib_both_directions")
             ]
-            + pair("N4-BASE", "udp_each_codec_and_family")
+            + pair("VLESS-BASE", "udp_each_codec_and_family")
         )
         self.assertTrue(events_pass(vision, test, "vision-tls"))
         self.assertFalse(events_pass(vision, test, "tcp"))
@@ -354,9 +357,9 @@ class VlessEvidenceTest(unittest.TestCase):
             ]
         )
         test = "runtime::owned_resources"
-        events = pair("N4-PUBLIC", test)
+        events = pair("VLESS-PUBLIC", test)
         for _ in range(20):
-            cycle = pair("N4-OWNED", "stop_and_remain_quiet")
+            cycle = pair("VLESS-OWNED", "stop_and_remain_quiet")
             cycle[-1].update(
                 seconds=5,
                 resources=snapshot,

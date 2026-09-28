@@ -1,4 +1,4 @@
-"""N6 incremental native gates; all servers/origins stay in owned containers."""
+"""HYSTERIA2 incremental native gates; all servers/origins stay in owned containers."""
 
 from __future__ import annotations
 
@@ -89,11 +89,11 @@ def run(output: Path, test="hysteria2_tcp_base", *, obfs=False, supplied=None):
         "hysteria2::public_concrete_upstream",
         "hysteria2::public_graph_and_hop_snapshot",
     }:
-        raise ValueError("unknown N6 test")
+        raise ValueError("unknown HYSTERIA2 test")
     output = output.resolve()
     output.mkdir(parents=True, exist_ok=False)
     report = dict(
-        stage="N6",
+        stage="HYSTERIA2",
         scope="incremental-native",
         source=source_identity(),
         status="NOT RUN",
@@ -138,7 +138,7 @@ def run(output: Path, test="hysteria2_tcp_base", *, obfs=False, supplied=None):
                 origin = lab.start(
                     stack,
                     origin_dir,
-                    "n6-origin",
+                    "hysteria2-origin",
                     [
                         "env",
                         "VCORE_ISOLATED_ORIGIN=1",
@@ -150,7 +150,7 @@ def run(output: Path, test="hysteria2_tcp_base", *, obfs=False, supplied=None):
                 server = lab.start(
                     stack,
                     server_dir,
-                    "n6-mihomo",
+                    "hysteria2-mihomo",
                     [
                         "/data/fixture/peer",
                         "-d",
@@ -192,7 +192,7 @@ def run(output: Path, test="hysteria2_tcp_base", *, obfs=False, supplied=None):
                     upstream = lab.start(
                         stack,
                         hop_dir,
-                        "n6-hop",
+                        "hysteria2-hop",
                         [
                             "/data/fixture/peer",
                             "-d",
@@ -215,7 +215,7 @@ def run(output: Path, test="hysteria2_tcp_base", *, obfs=False, supplied=None):
                             "hosts": {"vcore-fixture.test": origin.ipv4},
                             "listeners": [
                                 {
-                                    "name": "n6",
+                                    "name": "hysteria2",
                                     "type": "hysteria2",
                                     "listen": "::",
                                     "port": 23000,
@@ -240,7 +240,7 @@ def run(output: Path, test="hysteria2_tcp_base", *, obfs=False, supplied=None):
                     bandwidth_peer = lab.start(
                         stack,
                         bandwidth_dir,
-                        "n6-bandwidth",
+                        "hysteria2-bandwidth",
                         [
                             "env",
                             "VCORE_ISOLATED_ORIGIN=1",
@@ -259,7 +259,9 @@ def run(output: Path, test="hysteria2_tcp_base", *, obfs=False, supplied=None):
                         (23004, {"ignore-client-bandwidth": True}),
                     ]:
                         peer_config["listeners"].append(
-                            dict(baseline, name=f"n6-{port}", port=port, **options)
+                            dict(
+                                baseline, name=f"hysteria2-{port}", port=port, **options
+                            )
                         )
                     (server_dir / "config.json").write_text(json.dumps(peer_config))
                 fixture.write_text(
@@ -322,7 +324,9 @@ def run(output: Path, test="hysteria2_tcp_base", *, obfs=False, supplied=None):
                         ),
                     ]:
                         peer_config["listeners"].append(
-                            dict(baseline, name=f"n6-{port}", port=port, **options)
+                            dict(
+                                baseline, name=f"hysteria2-{port}", port=port, **options
+                            )
                         )
                     (server_dir / "config.json").write_text(json.dumps(peer_config))
                     value = json.loads(fixture.read_text())
@@ -397,7 +401,7 @@ def run(output: Path, test="hysteria2_tcp_base", *, obfs=False, supplied=None):
                         os.environ,
                         VCORE_VLESS_INPUT=str(fixture),
                         VCORE_CASE_EVENTS=str(events),
-                        VCORE_PROTOCOL_STAGE="N6",
+                        VCORE_PROTOCOL_STAGE="HYSTERIA2",
                         VCORE_BANDWIDTH_OBSERVATIONS=str(output / "bandwidth.jsonl"),
                     ),
                 )

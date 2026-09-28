@@ -397,7 +397,7 @@ async fn named_fingerprint_close_notify_has_a_five_second_bound() {
 async fn webpki_rejects_untrusted_wrong_name_and_expired_unless_explicitly_skipped() {
     #[cfg(any(test, feature = "interop-test"))]
     let mut _case = crate::resources::case_events::Case::new(
-        "N1-SECURITY",
+        "FOUNDATIONS-SECURITY",
         "webpki_rejects_untrusted_wrong_name_and_expired_unless_explicitly_skipped",
     );
     for &profile in crate::security::test_profiles() {
@@ -444,7 +444,7 @@ async fn webpki_rejects_untrusted_wrong_name_and_expired_unless_explicitly_skipp
 async fn leaf_pin_is_trust_but_nonleaf_pin_checks_chain_name_and_expiry() {
     #[cfg(any(test, feature = "interop-test"))]
     let mut _case = crate::resources::case_events::Case::new(
-        "N1-SECURITY",
+        "FOUNDATIONS-SECURITY",
         "leaf_pin_is_trust_but_nonleaf_pin_checks_chain_name_and_expiry",
     );
     for &profile in crate::security::test_profiles() {
@@ -526,7 +526,7 @@ fn super_server(chain: &Chain) -> Arc<ServerConfig> {
 async fn ticket_storage_obeys_exact_node_budget_and_consumes_each_ticket_once() {
     #[cfg(any(test, feature = "interop-test"))]
     let mut _case = crate::resources::case_events::Case::new(
-        "N1-SECURITY",
+        "FOUNDATIONS-SECURITY",
         "ticket_storage_obeys_exact_node_budget_and_consumes_each_ticket_once",
     );
     use crate::security::resumption::NodeSessionStore;
@@ -577,7 +577,7 @@ async fn ticket_storage_obeys_exact_node_budget_and_consumes_each_ticket_once() 
 async fn every_certificate_policy_verifies_tls12_and_tls13_handshake_signatures() {
     #[cfg(any(test, feature = "interop-test"))]
     let mut _case = crate::resources::case_events::Case::new(
-        "N1-SECURITY",
+        "FOUNDATIONS-SECURITY",
         "every_certificate_policy_verifies_tls12_and_tls13_handshake_signatures",
     );
     for &profile in crate::security::test_profiles() {
@@ -602,7 +602,7 @@ async fn every_certificate_policy_verifies_tls12_and_tls13_handshake_signatures(
 async fn vless_keeps_webpki_tls13_and_required_h2_after_anytls_connections() {
     #[cfg(any(test, feature = "interop-test"))]
     let mut _case = crate::resources::case_events::Case::new(
-        "N1-SECURITY",
+        "FOUNDATIONS-SECURITY",
         "vless_keeps_webpki_tls13_and_required_h2_after_anytls_connections",
     );
     let chain = chain(false);
@@ -645,7 +645,7 @@ async fn vless_keeps_webpki_tls13_and_required_h2_after_anytls_connections() {
 async fn alpn_and_tls_resumption_are_isolated_between_node_policies() {
     #[cfg(any(test, feature = "interop-test"))]
     let mut _case = crate::resources::case_events::Case::new(
-        "N1-SECURITY",
+        "FOUNDATIONS-SECURITY",
         "alpn_and_tls_resumption_are_isolated_between_node_policies",
     );
     let chain = chain(false);
@@ -710,7 +710,7 @@ async fn alpn_and_tls_resumption_are_isolated_between_node_policies() {
 async fn explicit_verification_name_does_not_change_sni_or_allow_skip_to_override_it() {
     #[cfg(any(test, feature = "interop-test"))]
     let mut _case = crate::resources::case_events::Case::new(
-        "N1-SECURITY",
+        "FOUNDATIONS-SECURITY",
         "explicit_verification_name_does_not_change_sni_or_allow_skip_to_override_it",
     );
     for &profile in crate::security::test_profiles() {
@@ -752,7 +752,7 @@ async fn explicit_verification_name_does_not_change_sni_or_allow_skip_to_overrid
 async fn mutual_tls_identity_is_required_verified_and_not_shared_between_clients() {
     #[cfg(any(test, feature = "interop-test"))]
     let mut _case = crate::resources::case_events::Case::new(
-        "N1-SECURITY",
+        "FOUNDATIONS-SECURITY",
         "mutual_tls_identity_is_required_verified_and_not_shared_between_clients",
     );
     for &profile in crate::security::test_profiles() {
@@ -815,7 +815,7 @@ async fn mutual_tls_identity_is_required_verified_and_not_shared_between_clients
 fn tls_options_reject_invalid_alpn_identity_and_budget_before_using_a_stream() {
     #[cfg(any(test, feature = "interop-test"))]
     let mut _case = crate::resources::case_events::Case::new(
-        "N1-SECURITY",
+        "FOUNDATIONS-SECURITY",
         "tls_options_reject_invalid_alpn_identity_and_budget_before_using_a_stream",
     );
     let context = SecurityContext::new();
@@ -870,7 +870,7 @@ fn tls_options_reject_invalid_alpn_identity_and_budget_before_using_a_stream() {
 async fn certificate_rejection_delivers_no_business_bytes_and_diagnostics_are_redacted() {
     #[cfg(any(test, feature = "interop-test"))]
     let mut _case = crate::resources::case_events::Case::new(
-        "N1-SECURITY",
+        "FOUNDATIONS-SECURITY",
         "certificate_rejection_delivers_no_business_bytes_and_diagnostics_are_redacted",
     );
     for fingerprint in [None, Some([0; 32])] {
@@ -926,7 +926,7 @@ async fn certificate_rejection_delivers_no_business_bytes_and_diagnostics_are_re
 async fn tls_close_write_sends_notify_without_closing_the_supplied_transport() {
     #[cfg(any(test, feature = "interop-test"))]
     let mut _case = crate::resources::case_events::Case::new(
-        "N1-SECURITY",
+        "FOUNDATIONS-SECURITY",
         "tls_close_write_sends_notify_without_closing_the_supplied_transport",
     );
     for &profile in crate::security::test_profiles() {
@@ -986,7 +986,7 @@ async fn tls_close_write_sends_notify_without_closing_the_supplied_transport() {
 async fn tls_close_notify_flush_has_a_five_second_bound() {
     #[cfg(any(test, feature = "interop-test"))]
     let mut _case = crate::resources::case_events::Case::new(
-        "N1-SECURITY",
+        "FOUNDATIONS-SECURITY",
         "tls_close_notify_flush_has_a_five_second_bound",
     );
     let chain = chain(false);
@@ -1020,7 +1020,7 @@ async fn tls_close_notify_flush_has_a_five_second_bound() {
 async fn cancelling_tls_handshake_releases_the_caller_supplied_stream() {
     #[cfg(any(test, feature = "interop-test"))]
     let mut _case = crate::resources::case_events::Case::new(
-        "N1-SECURITY",
+        "FOUNDATIONS-SECURITY",
         "cancelling_tls_handshake_releases_the_caller_supplied_stream",
     );
     for &profile in crate::security::test_profiles() {

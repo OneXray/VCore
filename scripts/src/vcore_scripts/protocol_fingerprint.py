@@ -15,14 +15,14 @@ from .protocol_vless_container import CLIENT_FINGERPRINTS, run
 SELECTED_TIMEOUT_SECONDS = 3600
 
 CASES = [
-    "F5-ANYTLS",
+    "FINGERPRINT-ANYTLS",
     *[
-        f"N4-REGRESSION-{protocol}-{network}"
+        f"VLESS-REGRESSION-{protocol}-{network}"
         for protocol in ("TROJAN", "VMESS")
         for network in ("TCP", "WS", "GRPC")
     ],
     *[
-        f"N4-{mode}-BASE"
+        f"VLESS-{mode}-BASE"
         for mode in (
             "TCP-TLS",
             "WS-TLS",
@@ -49,22 +49,22 @@ CASES = [
             "VISION-REALITY",
         )
     ],
-    "N4-VISION-TLS-INNER-TLS",
-    "CF5-VMESS-HTTP-TLS",
-    "CF5-VMESS-H2-TLS",
-    "N4-VISION-REALITY-INNER-TLS",
-    "N4-TCP-REALITY-NEG",
-    "N4-TCP-TLS-NEG",
-    "N4-GRPC-MTLS-IDENTITY",
-    "N4-WS-ALPN-TLS-NEG",
-    "N4-TCP-TLS-CLOSE",
-    "N4-TCP-REALITY-CLOSE",
-    "N4-GRPC-REALITY-CLOSE",
-    "N4-VISION-REALITY-CLOSE",
-    "N4-GRPC-TLS-LIFE",
-    "N4-GRPC-TLS-OWNED",
-    "N4-VISION-REALITY-LIFE",
-    "N4-VISION-REALITY-OWNED",
+    "VLESS-VISION-TLS-INNER-TLS",
+    "FINGERPRINT-VMESS-HTTP-TLS",
+    "FINGERPRINT-VMESS-H2-TLS",
+    "VLESS-VISION-REALITY-INNER-TLS",
+    "VLESS-TCP-REALITY-NEG",
+    "VLESS-TCP-TLS-NEG",
+    "VLESS-GRPC-MTLS-IDENTITY",
+    "VLESS-WS-ALPN-TLS-NEG",
+    "VLESS-TCP-TLS-CLOSE",
+    "VLESS-TCP-REALITY-CLOSE",
+    "VLESS-GRPC-REALITY-CLOSE",
+    "VLESS-VISION-REALITY-CLOSE",
+    "VLESS-GRPC-TLS-LIFE",
+    "VLESS-GRPC-TLS-OWNED",
+    "VLESS-VISION-REALITY-LIFE",
+    "VLESS-VISION-REALITY-OWNED",
 ]
 
 
@@ -81,7 +81,7 @@ def run_selected(output, profile):
     output.mkdir(parents=True, exist_ok=False)
     started = time.monotonic()
     report = dict(
-        stage="CF5",
+        stage="FINGERPRINT-INTEROP",
         scope="selected-transports",
         profile=profile,
         source=source_identity(),
@@ -105,7 +105,7 @@ def run_selected(output, profile):
                 jobs = {
                     name: [
                         dict(
-                            case_id=f"CF5-{profile}-{name}",
+                            case_id=f"FINGERPRINT-{profile}-{name}",
                             test="security::native_xhttp_security"
                             if name.endswith("reject-pin")
                             else "public_base",

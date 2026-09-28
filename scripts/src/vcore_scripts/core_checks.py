@@ -12,16 +12,16 @@ from .builds import CORE_DIR, DEFAULT_FEATURES
 from .protocol_peers import run_command
 
 FEATURE_TEST = (
-    "runtime::tests::n9_feature_admission_is_explicit_without_opening_sockets"
+    "runtime::tests::integration_feature_admission_is_explicit_without_opening_sockets"
 )
 PROTOCOLS = ("socks5", "anytls", "shadowsocks", "trojan", "vmess", "vless", "hysteria2")
 TARGETS = (
-    "n7_ech_config",
-    "n7_ech_tls",
-    "n7_encryption_config",
-    "n7_reality_config",
-    "n7_jls_config",
-    "n7_security_capabilities",
+    "ech_config",
+    "ech_tls",
+    "encryption_config",
+    "reality_config",
+    "jls_config",
+    "security_capabilities",
     "retired_security",
     "feature_foundations",
     "limit_foundations",

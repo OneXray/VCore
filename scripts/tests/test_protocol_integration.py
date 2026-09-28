@@ -11,9 +11,9 @@ from pathlib import Path
 from vcore_scripts import cli
 
 
-class N9AcceptanceTest(unittest.TestCase):
+class IntegrationAcceptanceTest(unittest.TestCase):
     def test_native_source_identity_and_cleanup_are_required(self):
-        from vcore_scripts.protocol_n9_checks import envelope
+        from vcore_scripts.protocol_integration_checks import envelope
 
         identity = dict(
             version="official-test",
@@ -62,7 +62,7 @@ class N9AcceptanceTest(unittest.TestCase):
 
     def test_pressure_evidence_is_recomputed_not_inferred(self):
         from vcore_scripts.protocol_evidence import RESOURCE_KINDS
-        from vcore_scripts.protocol_n9_metrics import (
+        from vcore_scripts.protocol_integration_metrics import (
             NEW,
             QUEUES,
             lifetimes,
@@ -192,18 +192,20 @@ class N9AcceptanceTest(unittest.TestCase):
             self.assertFalse(soak(broken, event, broken["samples"]))
         self.assertFalse(soak(value, event, points[:-1]))
 
-    def test_n9_consumer_results_keep_the_manifest_scope(self):
+    def test_integration_consumer_results_keep_the_manifest_scope(self):
         from vcore_scripts.protocol_evidence import load_manifest, validate_results
-        from vcore_scripts.protocol_n7_acceptance import result
+        from vcore_scripts.protocol_security_acceptance import result
 
-        case = next(c for c in load_manifest() if c["case_id"] == "N9-PAIR-SS-SS")
+        case = next(
+            c for c in load_manifest() if c["case_id"] == "INTEGRATION-PAIR-SS-SS"
+        )
         validate_results([case], [result(case, True, True)])
 
     def test_pair_evidence_requires_each_real_path_and_original_assertions(self):
-        from vcore_scripts.protocol_n9_acceptance import pair_pass
-        from vcore_scripts.protocol_n9_native import rust_command
+        from vcore_scripts.protocol_integration_acceptance import pair_pass
+        from vcore_scripts.protocol_integration_native import rust_command
 
-        identifier = "N9-PAIR-SOCKS5-VLESS"
+        identifier = "INTEGRATION-PAIR-SOCKS5-VLESS"
         record = dict(
             case_id=identifier,
             command=rust_command(),
@@ -257,11 +259,11 @@ class N9AcceptanceTest(unittest.TestCase):
         events = [
             dict(schema_version=1, suite=suite, assertion=assertion, status=status)
             for suite, assertion, count in (
-                ("N9-PAIR", "ordered_pair", 1),
-                ("N9-BASE", "tcp_10mib_both_directions", 12),
-                ("N9-PAIR", "directional_budget", 1),
-                ("N9-PAIR", "routed_udp_permission", 1),
-                ("N9-PAIR", "carrier_capability", 1),
+                ("INTEGRATION-PAIR", "ordered_pair", 1),
+                ("INTEGRATION-BASE", "tcp_10mib_both_directions", 12),
+                ("INTEGRATION-PAIR", "directional_budget", 1),
+                ("INTEGRATION-PAIR", "routed_udp_permission", 1),
+                ("INTEGRATION-PAIR", "carrier_capability", 1),
             )
             for _ in range(count)
             for status in ("BEGIN", "PASS")
@@ -294,34 +296,39 @@ class N9AcceptanceTest(unittest.TestCase):
         output = io.StringIO()
         with redirect_stdout(output):
             self.assertEqual(
-                cli.main(["check", "protocol-interop", "--stage", "N9", "--list"]), 0
+                cli.main(
+                    ["check", "protocol-interop", "--suite", "integration", "--list"]
+                ),
+                0,
             )
         identifiers = [line.split("\t")[0] for line in output.getvalue().splitlines()]
         protocols = {"SOCKS5", "ANYTLS", "SS", "TROJAN", "VMESS", "VLESS", "HYSTERIA2"}
         expected = {
-            f"N9-PAIR-{first}-{last}" for first in protocols for last in protocols
+            f"INTEGRATION-PAIR-{first}-{last}"
+            for first in protocols
+            for last in protocols
         }
         self.assertEqual(len(expected), 49)
         self.assertEqual({key for key in identifiers if "-PAIR-" in key}, expected)
         self.assertEqual(len(identifiers), len(set(identifiers)))
         self.assertTrue(
             {
-                "N9-ENTRYPOINTS",
-                "N9-GRAPH",
-                "N9-DNS-MEASURE",
-                "N9-SS-ALGORITHMS",
-                "N9-SS-EIH",
-                "N9-LIFECYCLE",
-                "N9-REBUILD",
-                "N9-FAILURES",
-                "N9-SOAK",
-                "N9-HY2-HOP",
-                "N9-DEBUG",
-                "N9-RELEASE",
-                "N9-QUALITY",
-                "N9-FEATURES",
-                "N9-SCRIPTS",
-                "N9-SHARED",
+                "INTEGRATION-ENTRYPOINTS",
+                "INTEGRATION-GRAPH",
+                "INTEGRATION-DNS-MEASURE",
+                "INTEGRATION-SS-ALGORITHMS",
+                "INTEGRATION-SS-EIH",
+                "INTEGRATION-LIFECYCLE",
+                "INTEGRATION-REBUILD",
+                "INTEGRATION-FAILURES",
+                "INTEGRATION-SOAK",
+                "INTEGRATION-HY2-HOP",
+                "INTEGRATION-DEBUG",
+                "INTEGRATION-RELEASE",
+                "INTEGRATION-QUALITY",
+                "INTEGRATION-FEATURES",
+                "INTEGRATION-SCRIPTS",
+                "INTEGRATION-SHARED",
             }
             <= set(identifiers)
         )

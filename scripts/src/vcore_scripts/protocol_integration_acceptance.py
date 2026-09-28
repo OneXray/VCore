@@ -1,4 +1,4 @@
-"""N9 execution and independent reconstruction of raw integration evidence."""
+"""INTEGRATION execution and independent reconstruction of raw integration evidence."""
 
 from __future__ import annotations
 
@@ -6,15 +6,15 @@ import json
 
 from .protocol_evidence import read_events, read_json
 from .protocol_hysteria2_catalog import assertions_pass
-from .protocol_n7_acceptance import result
-from .protocol_n9_catalog import LOCAL, PAIRS, definitions
-from .protocol_n9_checks import envelope, runtime_pass
-from .protocol_n9_local import commands, passed
-from .protocol_n9_shared import hops_pass, shared_pass
+from .protocol_integration_catalog import LOCAL, PAIRS, definitions
+from .protocol_integration_checks import envelope, runtime_pass
+from .protocol_integration_local import commands, passed
+from .protocol_integration_shared import hops_pass, shared_pass
+from .protocol_security_acceptance import result
 
 
 def pair_pass(identifier, record, directory):
-    from .protocol_n9_native import rust_command
+    from .protocol_integration_native import rust_command
 
     first, last = PAIRS[identifier]
     targets = 2 if last == "trojan" else 3
@@ -86,13 +86,13 @@ def pair_pass(identifier, record, directory):
         and assertions_pass(
             events,
             {
-                ("N9-PAIR", "ordered_pair"): 1,
-                ("N9-BASE", "tcp_10mib_both_directions"): 12,
-                ("N9-PAIR", "directional_budget"): 1,
-                ("N9-PAIR", "routed_udp_permission"): 1,
-                ("N9-PAIR", "carrier_capability"): 1,
+                ("INTEGRATION-PAIR", "ordered_pair"): 1,
+                ("INTEGRATION-BASE", "tcp_10mib_both_directions"): 12,
+                ("INTEGRATION-PAIR", "directional_budget"): 1,
+                ("INTEGRATION-PAIR", "routed_udp_permission"): 1,
+                ("INTEGRATION-PAIR", "carrier_capability"): 1,
                 **(
-                    {("N9-PAIR", "native_domain_terminal"): 1}
+                    {("INTEGRATION-PAIR", "native_domain_terminal"): 1}
                     if last == "trojan"
                     else {}
                 ),
@@ -105,10 +105,10 @@ def execute(cases, run, output, results):
     from .protocol_containers import frozen_image
     from .protocol_harness import _command
     from .protocol_hysteria2_acceptance import prepare
-    from .protocol_n9_native import run as run_pairs
-    from .protocol_n9_shared import hops_run, shared_run
-    from .protocol_n9_suite import CONSUMERS
-    from .protocol_n9_suite import run as run_suite
+    from .protocol_integration_native import run as run_pairs
+    from .protocol_integration_shared import hops_run, shared_run
+    from .protocol_integration_suite import CONSUMERS
+    from .protocol_integration_suite import run as run_suite
 
     by_id = {c["case_id"]: c for c in cases}
     supplied, peers = {}, {}
@@ -126,7 +126,7 @@ def execute(cases, run, output, results):
         results[identifier] = result(by_id[identifier], good, cleanup)
         print(identifier + ": " + results[identifier]["status"], flush=True)
         if not good:
-            raise RuntimeError("N9 gate failed: " + identifier)
+            raise RuntimeError("INTEGRATION gate failed: " + identifier)
 
     try:
         for identifier in sorted(by_id.keys() & LOCAL):
@@ -149,7 +149,7 @@ def execute(cases, run, output, results):
                     save(identifier, False, records[-1]["cleanup"])
             script = (
                 read_json(output / "script-tests.json")
-                if identifier == "N9-SCRIPTS"
+                if identifier == "INTEGRATION-SCRIPTS"
                 else None
             )
             save(identifier, passed(identifier, records, events, script))
@@ -158,11 +158,11 @@ def execute(cases, run, output, results):
         with frozen_image(output / "container-image-pull.log") as snapshot:
             run["container_image"] = snapshot
             kinds = {"M"}
-            if "N9-SHARED" in by_id:
+            if "INTEGRATION-SHARED" in by_id:
                 kinds |= {"XR", "V2"}
             if any(PAIRS[i][1] == "trojan" for i in by_id.keys() & PAIRS.keys()):
                 kinds.add("XR")
-            if "N9-HY2-HOP" in by_id:
+            if "INTEGRATION-HY2-HOP" in by_id:
                 kinds.add("H")
             supplied = prepare(output, kinds)
             peers = {k: v[1] for k, v in supplied.items()}
@@ -179,7 +179,7 @@ def execute(cases, run, output, results):
                     domain_peer=supplied.get("XR"),
                 )
                 if [r["case_id"] for r in report["cases"]] != selected:
-                    raise RuntimeError("N9 ordered-pair selection differs")
+                    raise RuntimeError("INTEGRATION ordered-pair selection differs")
                 for record in report["cases"]:
                     identifier = record["case_id"]
                     save(
@@ -189,14 +189,15 @@ def execute(cases, run, output, results):
                         report["cleanup"],
                     )
             selected = sorted(
-                by_id.keys() & CONSUMERS.keys(), key=lambda k: (k == "N9-SOAK", k)
+                by_id.keys() & CONSUMERS.keys(),
+                key=lambda k: (k == "INTEGRATION-SOAK", k),
             )
             if selected:
                 directory = output / "runtime"
                 report = run_suite(directory, selected, supplied=supplied["M"])
                 peers.update(report["peers"])
                 if [r["case_id"] for r in report["cases"]] != selected:
-                    raise RuntimeError("N9 runtime selection differs")
+                    raise RuntimeError("INTEGRATION runtime selection differs")
                 for record in report["cases"]:
                     identifier = record["case_id"]
                     save(
@@ -205,15 +206,21 @@ def execute(cases, run, output, results):
                         and runtime_pass(identifier, record, directory),
                         report["cleanup"],
                     )
-            if "N9-HY2-HOP" in by_id:
+            if "INTEGRATION-HY2-HOP" in by_id:
                 hops_run(output / "hop", supplied["H"])
-                save("N9-HY2-HOP", hops_pass(output / "hop", peers, source, digest))
-            if "N9-SHARED" in by_id:
+                save(
+                    "INTEGRATION-HY2-HOP",
+                    hops_pass(output / "hop", peers, source, digest),
+                )
+            if "INTEGRATION-SHARED" in by_id:
                 shared_run(
                     output / "shared",
                     {k: v for k, v in supplied.items() if k in {"M", "XR", "V2"}},
                 )
-                save("N9-SHARED", shared_pass(output / "shared", peers, source, digest))
+                save(
+                    "INTEGRATION-SHARED",
+                    shared_pass(output / "shared", peers, source, digest),
+                )
     finally:
         (output / "peers.json").write_text(json.dumps(peers, indent=2) + "\n")
 
@@ -222,7 +229,7 @@ def check(run_dir, cases, run, results, peers, paths):
     from .protocol_containers import IMAGE
     from .protocol_evidence import HEX
     from .protocol_inputs import redact
-    from .protocol_n9_suite import CONSUMERS
+    from .protocol_integration_suite import CONSUMERS
 
     observed_paths = {
         str(p.relative_to(run_dir))
@@ -233,7 +240,7 @@ def check(run_dir, cases, run, results, peers, paths):
         and p.name != "run.json"
     }
     if set(paths) != observed_paths:
-        raise ValueError("unhashed or missing N9 evidence artifact")
+        raise ValueError("unhashed or missing INTEGRATION evidence artifact")
     snapshot = run.get("container_image", {})
     digest = snapshot.get("digest", "")
     if not (
@@ -253,7 +260,7 @@ def check(run_dir, cases, run, results, peers, paths):
         and set(peers) == {"M", "XR", "V2", "H", "SS"}
         and {"script-tests.json", "package-preparation.json"} <= set(paths)
     ):
-        raise ValueError("incomplete N9 scope, image or peer identities")
+        raise ValueError("incomplete INTEGRATION scope, image or peer identities")
     source = {
         k: run[k]
         for k in (
@@ -270,12 +277,12 @@ def check(run_dir, cases, run, results, peers, paths):
         for i, _ in enumerate(commands(identifier))
     }
     if len(records) != len(names) or {r.get("name") for r in records} != names:
-        raise ValueError("missing, duplicate or extra N9 local command")
-    pair_report = read_json(run_dir / "pairs/n9-native.json")
-    runtime_report = read_json(run_dir / "runtime/n9-suite.json")
+        raise ValueError("missing, duplicate or extra INTEGRATION local command")
+    pair_report = read_json(run_dir / "pairs/integration-native.json")
+    runtime_report = read_json(run_dir / "runtime/integration-suite.json")
     expected_runtime = sorted(
         {c["case_id"] for c in cases} & CONSUMERS.keys(),
-        key=lambda k: (k == "N9-SOAK", k),
+        key=lambda k: (k == "INTEGRATION-SOAK", k),
     )
     if (
         [r.get("case_id") for r in pair_report.get("cases", [])] != sorted(PAIRS)
@@ -290,7 +297,9 @@ def check(run_dir, cases, run, results, peers, paths):
             guest_mtu=1500,
         )
     ):
-        raise ValueError("missing N9 ordered pairs, runtime gates or native SS policy")
+        raise ValueError(
+            "missing INTEGRATION ordered pairs, runtime gates or native SS policy"
+        )
     actual = {r["case_id"]: r for r in results}
     for case in cases:
         identifier = case["case_id"]
@@ -303,7 +312,7 @@ def check(run_dir, cases, run, results, peers, paths):
                     != [redact(v.replace("{output}", str(run_dir))) for v in argv]
                     or record.get("log") not in paths
                 ):
-                    raise ValueError("N9 command or log changed")
+                    raise ValueError("INTEGRATION command or log changed")
                 selected.append(record)
                 path = run_dir / f"{identifier}-{i}-events.jsonl"
                 if path.exists():
@@ -313,7 +322,7 @@ def check(run_dir, cases, run, results, peers, paths):
                 selected,
                 events,
                 read_json(run_dir / "script-tests.json")
-                if identifier == "N9-SCRIPTS"
+                if identifier == "INTEGRATION-SCRIPTS"
                 else None,
             )
         elif identifier in PAIRS or identifier in CONSUMERS:
@@ -324,14 +333,14 @@ def check(run_dir, cases, run, results, peers, paths):
             good = envelope(report, peers, source, digest) and (
                 pair_pass if pair else runtime_pass
             )(identifier, record, directory)
-        elif identifier == "N9-HY2-HOP":
+        elif identifier == "INTEGRATION-HY2-HOP":
             good = hops_pass(run_dir / "hop", peers, source, digest)
         else:
             good = shared_pass(run_dir / "shared", peers, source, digest)
         if not good or result(case, good, True) != actual[identifier]:
-            raise ValueError("N9 raw evidence does not pass: " + identifier)
+            raise ValueError("INTEGRATION raw evidence does not pass: " + identifier)
     print(
-        f"N9: PASS ({len(cases)} required gates; 49 pairs, "
+        f"INTEGRATION: PASS ({len(cases)} required gates; 49 pairs, "
         "100 lifetimes, 100 rebuilds, 1800-second soak)"
     )
 

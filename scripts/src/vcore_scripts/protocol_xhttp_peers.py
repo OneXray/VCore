@@ -1,4 +1,4 @@
-"""N0-F native XHTTP/mux capability probes, not VCore N5 acceptance.
+"""XHTTP-PEERS native XHTTP/mux capability probes, not VCore XHTTP acceptance.
 
 Official clients, servers and origins run in owned containers. The host only
 drives SOCKS clients and observes the origin. Direct and layered native decoder
@@ -37,7 +37,7 @@ def peer_config(kind, cert, key, *, decoder=None, plain=False):
             listen="::",
             port=23000,
             users=[dict(uuid=CLIENT_ID)],
-            **{"xhttp-config": dict(path="/n5", mode="auto")},
+            **{"xhttp-config": dict(path="/xhttp", mode="auto")},
         )
         if plain:
             listener["allow-insecure"] = True
@@ -60,7 +60,7 @@ def peer_config(kind, cert, key, *, decoder=None, plain=False):
             tlsSettings=dict(
                 alpn=["h3"], certificates=[dict(certificateFile=cert, keyFile=key)]
             ),
-            xhttpSettings=dict(path="/n5", mode="auto"),
+            xhttpSettings=dict(path="/xhttp", mode="auto"),
         ),
     )
     if decoder:
@@ -91,7 +91,7 @@ def client_config(
         network="xhttp",
         servername="localhost",
         alpn=["http/1.1" if version == "h1" else version],
-        **{"packet-encoding": codec, "xhttp-opts": dict(path="/n5", mode=mode)},
+        **{"packet-encoding": codec, "xhttp-opts": dict(path="/xhttp", mode=mode)},
     )
     if not plain:
         node["fingerprint"] = pin
@@ -166,7 +166,7 @@ def socks(proxy, port, command_id, target, target_port):
 
 def exercise(proxy, port, origin, *, udp=False):
     """One small positive data probe; no retry, no full stage coverage claim."""
-    payload = b"n5-native-decoder-probe" * 3
+    payload = b"xhttp-native-decoder-probe" * 3
     with socket.create_connection((origin, 24000), timeout=5) as control:
         control.sendall(b"\x04" if udp else b"\x0d")
         target_port = struct.unpack("!H", exact(control, 2))[0]
@@ -213,10 +213,10 @@ def run(output: Path, *, identities_only=False):
         )
     output.mkdir(parents=True, exist_ok=False)
     report = dict(
-        stage="N0-F",
-        purpose="N5-H3-client-identity-prerequisite"
+        stage="XHTTP-PEERS",
+        purpose="XHTTP-H3-client-identity-prerequisite"
         if identities_only
-        else "N5-native-prerequisites",
+        else "XHTTP-native-prerequisites",
         vcore_acceptance=False,
         source=source_identity(),
         status="NOT RUN",
@@ -259,7 +259,7 @@ def run(output: Path, *, identities_only=False):
             origin = lab.start(
                 stack,
                 origin_dir,
-                "n5-origin",
+                "xhttp-origin",
                 [
                     "env",
                     "VCORE_ISOLATED_ORIGIN=1",
@@ -295,7 +295,7 @@ def run(output: Path, *, identities_only=False):
             decoder = lab.start(
                 stack,
                 decoder_dir,
-                "n5-decoder",
+                "xhttp-decoder",
                 [
                     "/data/fixture/peer",
                     "-d",
@@ -472,7 +472,7 @@ def run(output: Path, *, identities_only=False):
                                 case["failure_kind"] = type(error).__name__
                                 case["data_connected"] = False
                                 # A rejected exchange alone is only a peer
-                                # prerequisite observation, not an N5 negative
+                                # prerequisite observation, not an XHTTP negative
                                 # gate proving zero business bytes/resources.
                                 if not should_connect:
                                     case["status"] = "PASS"

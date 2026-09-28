@@ -2,10 +2,10 @@ use vcore::config::Config;
 
 #[test]
 fn feature_skeletons_do_not_open_unimplemented_yaml_or_measurement_protocols() {
-    // Keep the stable N1 assertion ID as a regression for the retired protocol.
+    // Keep the stable FOUNDATIONS assertion ID as a regression for the retired protocol.
     #[cfg(feature = "interop-test")]
     let mut _case = vcore::resources::case_events::Case::new(
-        "N1-SCHEMA",
+        "FOUNDATIONS-SCHEMA",
         "feature_skeletons_do_not_open_unimplemented_yaml_or_measurement_protocols",
     );
     let yaml = "proxies:\n  - name: node\n    type: wireguard\n    server: example.com\n    port: 443\nrules:\n  - MATCH,node\n";
@@ -97,7 +97,7 @@ fn trojan_yaml_follows_its_own_feature() {
 fn future_fields_and_over_limit_documents_remain_rejected() {
     #[cfg(feature = "interop-test")]
     let mut _case = vcore::resources::case_events::Case::new(
-        "N1-SCHEMA",
+        "FOUNDATIONS-SCHEMA",
         "future_fields_and_over_limit_documents_remain_rejected",
     );
     assert!(Config::parse_yaml(&vec![b'x'; vcore::config::MAX_CONFIG_BYTES + 1]).is_err());

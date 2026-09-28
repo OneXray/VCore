@@ -266,7 +266,7 @@ mod tests {
     fn pacer_limits_actual_bytes_after_one_bounded_burst() {
         #[cfg(feature = "interop-test")]
         let _case = crate::resources::case_events::Case::new(
-            "N6-UNIT",
+            "HYSTERIA2-UNIT",
             "pacer_limits_actual_bytes_after_one_bounded_burst",
         );
         use std::time::{Duration, Instant};
@@ -292,7 +292,7 @@ mod tests {
     fn bandwidth_negotiation_obeys_auto_and_the_lower_positive_limit() {
         #[cfg(feature = "interop-test")]
         let _case = crate::resources::case_events::Case::new(
-            "N6-UNIT",
+            "HYSTERIA2-UNIT",
             "bandwidth_negotiation_obeys_auto_and_the_lower_positive_limit",
         );
         for (up, response, expected) in [

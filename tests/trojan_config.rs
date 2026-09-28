@@ -15,11 +15,11 @@ fn document(extra: Value) -> Vec<u8> {
 fn trojan_tcp_configuration_and_node_graph_accept_the_approved_fields() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N2-CFG",
+        "TROJAN-CFG",
         "trojan_tcp_configuration_and_node_graph_accept_the_approved_fields",
     );
     let yaml = b"socks-port: 1080\nproxies:\n  - name: edge\n    type: trojan\n    server: example.com\n    port: 443\n    password: ' password '\n    udp: true\n    sni: tls.example.com\n    alpn: [h2, http/1.1]\n    skip-cert-verify: false\n    fingerprint: '0000000000000000000000000000000000000000000000000000000000000000'\n    dialer-proxy: upstream\nproxy-groups:\n  - name: upstream\n    type: select\n    proxies: [DIRECT, REJECT]\nrules: ['MATCH,edge']\n";
-    let config = Config::parse_yaml(yaml).expect("N2 Trojan TCP configuration");
+    let config = Config::parse_yaml(yaml).expect("TROJAN Trojan TCP configuration");
     assert_eq!(config.proxies[0].address(), "example.com");
     assert_eq!(config.proxies[0].port(), 443);
     assert!(config.proxies[0].udp);
@@ -30,7 +30,7 @@ fn trojan_tcp_configuration_and_node_graph_accept_the_approved_fields() {
 fn trojan_tcp_defaults_preserve_credentials_and_address_policy() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N2-CFG",
+        "TROJAN-CFG",
         "trojan_tcp_defaults_preserve_credentials_and_address_policy",
     );
     let parsed = Config::parse_yaml(&document(json!({}))).unwrap();
@@ -59,7 +59,7 @@ fn trojan_tcp_defaults_preserve_credentials_and_address_policy() {
 fn trojan_invalid_configuration_is_rejected_without_exposing_credentials() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N2-CFG",
+        "TROJAN-CFG",
         "trojan_invalid_configuration_is_rejected_without_exposing_credentials",
     );
     for extra in [
@@ -131,7 +131,7 @@ fn trojan_invalid_configuration_is_rejected_without_exposing_credentials() {
 fn trojan_ws_and_grpc_configuration_applies_transport_specific_defaults() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N2-CFG",
+        "TROJAN-CFG",
         "trojan_ws_and_grpc_configuration_applies_transport_specific_defaults",
     );
     let config = Config::parse_yaml(&document(json!({"network":"ws"}))).unwrap();
@@ -170,7 +170,7 @@ fn trojan_ws_and_grpc_configuration_applies_transport_specific_defaults() {
 fn trojan_transport_boundaries_fail_before_runtime_io() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N2-CFG",
+        "TROJAN-CFG",
         "trojan_transport_boundaries_fail_before_runtime_io",
     );
     for fields in [

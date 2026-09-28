@@ -14,7 +14,7 @@ use vcore::{
 async fn quic_minimum_budget_is_checked_before_io_and_exact_minimum_connects() {
     #[cfg(feature = "interop-test")]
     let mut _case = vcore::resources::case_events::Case::new(
-        "N1-QUIC",
+        "FOUNDATIONS-QUIC",
         "quic_minimum_budget_is_checked_before_io_and_exact_minimum_connects",
     );
     use std::sync::Arc;
@@ -128,7 +128,7 @@ impl vcore::dispatch::DatagramTransport for PendingSend {
 async fn pending_send_is_not_restarted_and_stop_cancels_without_waiting_for_writable() {
     #[cfg(feature = "interop-test")]
     let mut _case = vcore::resources::case_events::Case::new(
-        "N1-QUIC",
+        "FOUNDATIONS-QUIC",
         "pending_send_is_not_restarted_and_stop_cancels_without_waiting_for_writable",
     );
     use std::sync::{
@@ -180,7 +180,7 @@ async fn pending_send_is_not_restarted_and_stop_cancels_without_waiting_for_writ
 async fn controlled_quic_datagram_seam_roundtrips_and_stop_closes_owned_io() {
     #[cfg(feature = "interop-test")]
     let mut _case = vcore::resources::case_events::Case::new(
-        "N1-QUIC",
+        "FOUNDATIONS-QUIC",
         "controlled_quic_datagram_seam_roundtrips_and_stop_closes_owned_io",
     );
     tokio::time::timeout(Duration::from_secs(3), async {
@@ -241,7 +241,7 @@ async fn controlled_quic_datagram_seam_roundtrips_and_stop_closes_owned_io() {
 async fn mapped_peer_sends_to_one_physical_port_and_reports_the_logical_peer() {
     #[cfg(feature = "interop-test")]
     let mut _case = vcore::resources::case_events::Case::new(
-        "N1-QUIC",
+        "FOUNDATIONS-QUIC",
         "mapped_peer_sends_to_one_physical_port_and_reports_the_logical_peer",
     );
     tokio::time::timeout(Duration::from_secs(5), async {
@@ -301,7 +301,7 @@ async fn mapped_peer_sends_to_one_physical_port_and_reports_the_logical_peer() {
 async fn incoming_queue_backpressures_without_discarding_a_controlled_burst() {
     #[cfg(feature = "interop-test")]
     let mut _case = vcore::resources::case_events::Case::new(
-        "N1-QUIC",
+        "FOUNDATIONS-QUIC",
         "incoming_queue_backpressures_without_discarding_a_controlled_burst",
     );
     tokio::time::timeout(Duration::from_secs(5), async {
@@ -355,7 +355,7 @@ async fn incoming_queue_backpressures_without_discarding_a_controlled_burst() {
 async fn controlled_direct_datagrams_roundtrip_and_stop() {
     #[cfg(feature = "interop-test")]
     let mut _case = vcore::resources::case_events::Case::new(
-        "N1-QUIC",
+        "FOUNDATIONS-QUIC",
         "controlled_direct_datagrams_roundtrip_and_stop",
     );
     tokio::time::timeout(Duration::from_secs(5), async {

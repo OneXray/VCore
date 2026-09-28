@@ -1,4 +1,4 @@
-"""N5 execution and independently recomputed, fail-closed stage evidence."""
+"""XHTTP execution and independently recomputed, fail-closed stage evidence."""
 
 from __future__ import annotations
 
@@ -40,32 +40,32 @@ def test_command(test):
 
 def commands(identifier):
     cargo = ["cargo", "test", "--locked", "--all-features"]
-    if identifier in {"N5-CFG", "N5-UNIT", "N5-RELEASE"}:
+    if identifier in {"XHTTP-CFG", "XHTTP-UNIT", "XHTTP-RELEASE"}:
         names = list(UNIT_TESTS)
-        if identifier == "N5-CFG":
+        if identifier == "XHTTP-CFG":
             names = names[:2]
-        elif identifier == "N5-UNIT":
+        elif identifier == "XHTTP-UNIT":
             names = names[2:]
-        flags = ["--release"] if identifier == "N5-RELEASE" else []
+        flags = ["--release"] if identifier == "XHTTP-RELEASE" else []
         selected = sum((["--test", name] for name in names), [])
         result = [cargo + flags + selected]
-        if identifier != "N5-CFG":
+        if identifier != "XHTTP-CFG":
             result += [
                 cargo + flags + ["--lib", "transport::xhttp::tests::"],
                 cargo + flags + ["--lib", "transport::sing_mux::"],
                 cargo + flags + ["--test", "vless_lifecycle"],
             ]
         return result
-    if identifier == "N5-REGRESSION":
+    if identifier == "XHTTP-REGRESSION":
         return sum(
             (
-                previous_commands("N4-" + part)
+                previous_commands("VLESS-" + part)
                 for part in ("REGRESSION", "CODEC", "TRANSPORT", "VISION")
             ),
             [],
         )
-    if identifier == "N5-QUALITY":
-        return previous_commands("N4-QUALITY") + [
+    if identifier == "XHTTP-QUALITY":
+        return previous_commands("VLESS-QUALITY") + [
             [
                 "cargo",
                 "test",
@@ -107,8 +107,8 @@ def gate_result(case, records, events):
             e.get("schema_version") == 1 and e.get("status") in {"BEGIN", "PASS"}
             for e in events
         )
-        if case["case_id"] != "N5-REGRESSION":
-            unit = [e for e in events if e.get("suite") == "N5-UNIT"]
+        if case["case_id"] != "XHTTP-REGRESSION":
+            unit = [e for e in events if e.get("suite") == "XHTTP-UNIT"]
             good &= len(unit) == 2 * len(assertions) and all(
                 e["assertion"] in assertions for e in unit
             )
@@ -131,7 +131,7 @@ def native_results(cases, report, directory, *, allow_partial=False):
         or not actual <= expected
         or (not allow_partial and actual != expected)
     ):
-        raise ValueError("missing, duplicate or unknown N5 native case")
+        raise ValueError("missing, duplicate or unknown XHTTP native case")
     by_id = {record["case_id"]: record for record in records}
     output = []
     for case in cases:
@@ -207,7 +207,7 @@ def security_results(cases, report, directory, *, allow_partial=False):
         or not actual <= ids
         or (not allow_partial and actual != ids)
     ):
-        raise ValueError("missing, duplicate or unknown N5 security case")
+        raise ValueError("missing, duplicate or unknown XHTTP security case")
     results = []
     by_id = {r["case_id"]: r for r in records}
     for case in cases:
@@ -264,11 +264,11 @@ def fields_report(cases, results):
                 row_id=row,
                 required_cases=owners,
                 status="PASS"
-                if complete and behavior and "N5-CFG" in owners
+                if complete and behavior and "XHTTP-CFG" in owners
                 else "NOT RUN",
             )
         )
-    return dict(schema_version=1, stage="N5", protocol="vless", fields=fields)
+    return dict(schema_version=1, stage="XHTTP", protocol="vless", fields=fields)
 
 
 def prepare_peers(output, kinds):
@@ -296,7 +296,7 @@ def prepare_peers(output, kinds):
 
 
 def preflight(output):
-    """Only verify the N5 native artifacts inside an owned isolated guest."""
+    """Only verify the XHTTP native artifacts inside an owned isolated guest."""
     import shutil
     import tempfile
     from contextlib import ExitStack
@@ -309,7 +309,7 @@ def preflight(output):
     lab = ContainerLab(isolation, mtu=1500)
     try:
         with tempfile.TemporaryDirectory(
-            prefix="n5-preflight-", dir=CORE_DIR / "target"
+            prefix="xhttp-preflight-", dir=CORE_DIR / "target"
         ) as tmp:
             from pathlib import Path
 
@@ -331,7 +331,7 @@ def preflight(output):
                     ).strip()
                     digest = command("exec", peer.name, "sha256sum", binary).split()[0]
                     if not version or digest != identity["binary_sha256"]:
-                        raise RuntimeError("isolated N5 artifact identity mismatch")
+                        raise RuntimeError("isolated XHTTP artifact identity mismatch")
                     identity["version"] = version
     finally:
         (output / "peers.json").write_text(
@@ -359,7 +359,7 @@ def execute(cases, run, output, results):
         identifier = case["case_id"]
         if identifier not in GATES:
             continue
-        if identifier == "N5-FEATURES":
+        if identifier == "XHTTP-FEATURES":
             result = _features(case, run, output)
             for name, command in (
                 (
@@ -396,7 +396,7 @@ def execute(cases, run, output, results):
                         cleanup=observed.cleanup,
                     )
             results[identifier] = result
-        elif identifier == "N5-SCRIPTS":
+        elif identifier == "XHTTP-SCRIPTS":
             results[identifier] = _scripts(case, run, output)
         else:
             start = len(run["commands"])
@@ -500,7 +500,7 @@ def check(run_dir, cases, run, results, peers, paths):
         "summary.md",
     }
     if not needed <= set(paths) or cases != definitions():
-        raise ValueError("missing N5 artifacts or altered frozen metadata")
+        raise ValueError("missing XHTTP artifacts or altered frozen metadata")
     recalculated = []
     source_keys = (
         "parent_commit",
@@ -517,7 +517,7 @@ def check(run_dir, cases, run, results, peers, paths):
             report.get("source") != {key: run.get(key) for key in source_keys}
             or report.get("status") != "PASS"
         ):
-            raise ValueError("N5 native source identity mismatch")
+            raise ValueError("XHTTP native source identity mismatch")
         isolation = report.get("isolation", {})
         if (
             isolation.get("host_servers") is not False
@@ -528,17 +528,17 @@ def check(run_dir, cases, run, results, peers, paths):
                 for p in isolation["peers"]
             )
         ):
-            raise ValueError("N5 native isolation or cleanup missing")
+            raise ValueError("XHTTP native isolation or cleanup missing")
         if any(
             identity != peers.get(kind)
             for kind, identity in report.get("peers", {}).items()
         ):
-            raise ValueError("N5 peer identity changed between reports")
+            raise ValueError("XHTTP peer identity changed between reports")
         recalculated += evaluator(
             [c for c in cases if c["case_id"] in wanted], report, run_dir / name
         )
     if set(peers) != {"M", "XR", "V2", "Caddy"}:
-        raise ValueError("N5 required official peers missing")
+        raise ValueError("XHTTP required official peers missing")
     for kind, peer in peers.items():
         project = {
             "M": "MetaCubeX/mihomo",
@@ -554,7 +554,7 @@ def check(run_dir, cases, run, results, peers, paths):
             )
             or not HEX.fullmatch(peer.get("binary_sha256", ""))
         ):
-            raise ValueError("invalid official N5 peer identity")
+            raise ValueError("invalid official XHTTP peer identity")
         if kind != "Caddy" and not HEX.fullmatch(peer.get("archive_sha256", "")):
             raise ValueError("missing native download digest")
         if kind == "Caddy" and (
@@ -576,7 +576,7 @@ def check(run_dir, cases, run, results, peers, paths):
             for r in records
         )
     ):
-        raise ValueError("missing, duplicate or failed N5 command")
+        raise ValueError("missing, duplicate or failed XHTTP command")
     for case in cases:
         identifier = case["case_id"]
         expected_commands = commands(identifier)
@@ -586,7 +586,7 @@ def check(run_dir, cases, run, results, peers, paths):
         for i, argv in enumerate(expected_commands):
             record = next(r for r in records if r["name"] == f"{identifier}-{i}")
             if record["command"] != [redact(part) for part in argv]:
-                raise ValueError("N5 validation command changed")
+                raise ValueError("XHTTP validation command changed")
             selected.append(record)
             path = run_dir / f"{identifier}-{i}-events.jsonl"
             if path.exists():
@@ -594,7 +594,7 @@ def check(run_dir, cases, run, results, peers, paths):
         recalculated.append(gate_result(case, selected, events))
     actual = {r["case_id"]: r for r in results}
     if any(r != actual.get(r["case_id"]) for r in recalculated):
-        raise ValueError("N5 results disagree with structured evidence")
+        raise ValueError("XHTTP results disagree with structured evidence")
     for record in records:
         name = record["name"]
         if name == "feature-default":
@@ -624,7 +624,7 @@ def check(run_dir, cases, run, results, peers, paths):
         else:
             continue
         if record["command"] != [redact(part) for part in argv]:
-            raise ValueError("N5 feature or script command changed")
+            raise ValueError("XHTTP feature or script command changed")
     script = read_json(run_dir / "script-tests.json")
     tests = {t["test"]: t["status"] for t in script["cases"]}
     required_tests = set(SCRIPT_OBSERVATIONS.values()) | {
@@ -641,20 +641,20 @@ def check(run_dir, cases, run, results, peers, paths):
         or not required_tests <= set(tests)
         or any(v != "PASS" for v in tests.values())
     ):
-        raise ValueError("N5 offline failure-path proof missing")
+        raise ValueError("XHTTP offline failure-path proof missing")
     fields = fields_report(cases, results)
     if read_json(run_dir / "fields.json") != fields or any(
         f["status"] != "PASS" for f in fields["fields"]
     ):
-        raise ValueError("incomplete N5 field behavior coverage")
+        raise ValueError("incomplete XHTTP field behavior coverage")
     resources = read_events(run_dir / "resources.jsonl")
     owned = [
         e
         for e in resources
-        if e.get("suite") == "N5-OWNED" and e.get("status") == "PASS"
+        if e.get("suite") == "XHTTP-OWNED" and e.get("status") == "PASS"
     ]
     if len(owned) != 20 * len(REPRESENTATIVES) or any(
         not idle_resources(e.get("resources")) for e in owned
     ):
-        raise ValueError("missing N5 twenty-round owned resource proof")
-    print(f"N5: PASS ({len(cases)} required cases; {len(FIELD_IDS)} field rows)")
+        raise ValueError("missing XHTTP twenty-round owned resource proof")
+    print(f"XHTTP: PASS ({len(cases)} required cases; {len(FIELD_IDS)} field rows)")

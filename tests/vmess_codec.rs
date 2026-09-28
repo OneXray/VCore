@@ -11,7 +11,7 @@ use vcore::{
 async fn xudp_cancelled_send_and_bad_frame_release_io_and_cannot_resume() {
     #[cfg(feature = "interop-test")]
     let _evidence = vcore::resources::case_events::Case::new(
-        "N3-CODEC",
+        "VMESS-CODEC",
         "xudp_cancelled_send_and_bad_frame_release_io_and_cannot_resume",
     );
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -114,7 +114,7 @@ async fn xudp_cancelled_send_and_bad_frame_release_io_and_cannot_resume() {
 async fn xudp_zero_global_id_omits_the_optional_extension_like_mihomo() {
     #[cfg(feature = "interop-test")]
     let _evidence = vcore::resources::case_events::Case::new(
-        "N3-CODEC",
+        "VMESS-CODEC",
         "xudp_zero_global_id_omits_the_optional_extension_like_mihomo",
     );
     use tokio::io::AsyncReadExt;
@@ -138,7 +138,7 @@ async fn xudp_zero_global_id_omits_the_optional_extension_like_mihomo() {
 fn packetaddr_has_ip_only_address_first_wire_and_rejects_truncation() {
     #[cfg(feature = "interop-test")]
     let _evidence = vcore::resources::case_events::Case::new(
-        "N3-CODEC",
+        "VMESS-CODEC",
         "packetaddr_has_ip_only_address_first_wire_and_rejects_truncation",
     );
     use vcore::outbound::address::{decode_packet_addr, encode_packet_addr};
@@ -173,7 +173,7 @@ fn packetaddr_has_ip_only_address_first_wire_and_rejects_truncation() {
 fn vmess_aead_requests_are_fresh_bounded_and_redacted() {
     #[cfg(feature = "interop-test")]
     let _evidence = vcore::resources::case_events::Case::new(
-        "N3-CODEC",
+        "VMESS-CODEC",
         "vmess_aead_requests_are_fresh_bounded_and_redacted",
     );
     let identity = VmessIdentity::new(uuid::Uuid::from_bytes([7; 16]));
@@ -194,7 +194,7 @@ fn vmess_aead_requests_are_fresh_bounded_and_redacted() {
 async fn vmess_response_authentication_cannot_be_skipped_by_none_cipher() {
     #[cfg(feature = "interop-test")]
     let _evidence = vcore::resources::case_events::Case::new(
-        "N3-CODEC",
+        "VMESS-CODEC",
         "vmess_response_authentication_cannot_be_skipped_by_none_cipher",
     );
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -226,7 +226,7 @@ async fn vmess_response_authentication_cannot_be_skipped_by_none_cipher() {
 async fn vmess_whole_close_wakes_reader_and_releases_io_before_response() {
     #[cfg(feature = "interop-test")]
     let _evidence = vcore::resources::case_events::Case::new(
-        "N3-CODEC",
+        "VMESS-CODEC",
         "vmess_whole_close_wakes_reader_and_releases_io_before_response",
     );
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -265,7 +265,7 @@ async fn vmess_whole_close_wakes_reader_and_releases_io_before_response() {
 async fn xudp_explicit_budget_rejects_max_plus_one_before_writing() {
     #[cfg(feature = "interop-test")]
     let _evidence = vcore::resources::case_events::Case::new(
-        "N3-CODEC",
+        "VMESS-CODEC",
         "xudp_explicit_budget_rejects_max_plus_one_before_writing",
     );
     use vcore::{

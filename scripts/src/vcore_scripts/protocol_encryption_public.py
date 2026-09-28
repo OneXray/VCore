@@ -1,4 +1,4 @@
-"""N7.1 public consumers of Encryption using the existing isolated VLESS lab."""
+"""Public Encryption consumers using the existing isolated VLESS lab."""
 
 from __future__ import annotations
 
@@ -58,7 +58,7 @@ def catalog():
             ("BASE", "public_base"),
             ("CLOSE", "native_mihomo_close_alignment"),
         ):
-            required[f"N7-E-{mode.upper()}-{suffix}"] = ("M", mode, tls, test)
+            required[f"SECURITY-E-{mode.upper()}-{suffix}"] = ("M", mode, tls, test)
     for mode in ("tcp-tls", "grpc-tls"):
         for suffix, test in (
             ("GRAPH", "runtime::public_graph"),
@@ -68,7 +68,7 @@ def catalog():
             ("OWNED", "runtime::owned_resources"),
             ("UDP-ISOLATION", "runtime::public_udp_isolation"),
         ):
-            required[f"N7-E-{mode.upper()}-{suffix}"] = ("M", mode, True, test)
+            required[f"SECURITY-E-{mode.upper()}-{suffix}"] = ("M", mode, True, test)
     for mode in ("vision-encryption", "vision-tls", "vision-reality"):
         for suffix, test in (
             ("BASE", "public_base"),
@@ -77,7 +77,7 @@ def catalog():
             ("CLOSE", "native_mihomo_close_alignment"),
             ("DIRECT-CLOSE", "native_vision_direct_close_alignment"),
         ):
-            required[f"N7-E-{mode.upper()}-{suffix}"] = (
+            required[f"SECURITY-E-{mode.upper()}-{suffix}"] = (
                 "M",
                 mode,
                 mode != "vision-encryption",

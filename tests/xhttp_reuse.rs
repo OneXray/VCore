@@ -69,7 +69,7 @@ async fn peer(
 async fn enabled_reuse_shares_physical_h2_without_one_close_killing_its_sibling() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "enabled_reuse_shares_physical_h2_without_one_close_killing_its_sibling",
     );
     tokio::time::timeout(Duration::from_secs(3), async {
@@ -118,7 +118,7 @@ async fn enabled_reuse_shares_physical_h2_without_one_close_killing_its_sibling(
 async fn reuse_thresholds_expand_and_retire_without_closing_active_sessions() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "reuse_thresholds_expand_and_retire_without_closing_active_sessions",
     );
     use serde_json::json;
@@ -168,7 +168,7 @@ async fn reuse_thresholds_expand_and_retire_without_closing_active_sessions() {
 async fn expired_transport_is_not_assigned_again_while_old_session_stays_live() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "expired_transport_is_not_assigned_again_while_old_session_stays_live",
     );
     tokio::time::timeout(Duration::from_secs(3), async {
@@ -207,7 +207,7 @@ async fn expired_transport_is_not_assigned_again_while_old_session_stays_live() 
 async fn pooled_packet_posts_do_not_each_consume_a_transport_lease() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "pooled_packet_posts_do_not_each_consume_a_transport_lease",
     );
     tokio::time::timeout(Duration::from_secs(3), async {
@@ -292,7 +292,7 @@ async fn pooled_packet_posts_do_not_each_consume_a_transport_lease() {
 async fn h2_keepalive_uses_default_explicit_and_disabled_idle_periods() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "h2_keepalive_uses_default_explicit_and_disabled_idle_periods",
     );
     for (seconds, expected) in [(0, Some(45)), (2, Some(2)), (-1, None)] {
@@ -352,7 +352,7 @@ async fn h2_keepalive_uses_default_explicit_and_disabled_idle_periods() {
 async fn download_uses_its_own_reuse_counters_and_keeps_shared_sessions_alive() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "download_uses_its_own_reuse_counters_and_keeps_shared_sessions_alive",
     );
     tokio::time::timeout(Duration::from_secs(3), async {
@@ -395,7 +395,7 @@ async fn download_uses_its_own_reuse_counters_and_keeps_shared_sessions_alive() 
 async fn h1_packet_upload_reuses_its_idle_connection_but_reopens_the_cancelled_get() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "h1_packet_upload_reuses_its_idle_connection_but_reopens_the_cancelled_get",
     );
     tokio::time::timeout(Duration::from_secs(3), async {
@@ -479,7 +479,7 @@ async fn h1_packet_upload_reuses_its_idle_connection_but_reopens_the_cancelled_g
 async fn stopping_during_handshake_prevents_late_driver_admission() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "stopping_during_handshake_prevents_late_driver_admission",
     );
     tokio::time::timeout(Duration::from_secs(2), async {
@@ -515,7 +515,7 @@ async fn stopping_during_handshake_prevents_late_driver_admission() {
 async fn stop_wakes_a_handshake_even_when_the_peer_never_responds() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "stop_wakes_a_handshake_even_when_the_peer_never_responds",
     );
     let client =

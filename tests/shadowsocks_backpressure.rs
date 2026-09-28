@@ -48,7 +48,8 @@ impl OutboundConnector for MemoryUpstream {
 #[tokio::test]
 async fn growing_caller_buffer_after_backpressure_never_loses_plaintext() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new("N9-ADAPTER", "growing_caller_buffer");
+    let _case =
+        vcore::resources::case_events::Case::new("INTEGRATION-ADAPTER", "growing_caller_buffer");
     for (cipher, initial) in [
         ShadowsocksCipher::Aes128Gcm,
         ShadowsocksCipher::Aes256Gcm,
@@ -132,8 +133,10 @@ async fn growing_caller_buffer_after_backpressure_never_loses_plaintext() {
 #[tokio::test]
 async fn server_first_over_buffered_upstream_delivers_handshake() {
     #[cfg(feature = "interop-test")]
-    let _case =
-        vcore::resources::case_events::Case::new("N9-ADAPTER", "server_first_buffered_upstream");
+    let _case = vcore::resources::case_events::Case::new(
+        "INTEGRATION-ADAPTER",
+        "server_first_buffered_upstream",
+    );
     for cipher in [
         ShadowsocksCipher::Aes128Gcm,
         ShadowsocksCipher::Aes256Gcm,

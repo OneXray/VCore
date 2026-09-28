@@ -99,7 +99,7 @@ fn datagram_request() -> vcore::outbound::DatagramRequest {
 async fn native_hopping() {
     use std::sync::{Arc, atomic::Ordering};
     use vcore::resources::observation::{ResourceKind, ResourceProbe};
-    let mut event = vcore::resources::case_events::Case::new("N6-HOP", "native_hopping");
+    let mut event = vcore::resources::case_events::Case::new("HYSTERIA2-HOP", "native_hopping");
     let f = fixture();
     let probe = ResourceProbe::default();
     probe
@@ -348,7 +348,7 @@ async fn bandwidth(f: &Value, direction: u8, up: u64, down: u64, port: u16, expe
         "listener_port":port,"controller_bps":expected,"payload_bps":throughput,"buckets":buckets,
         "udp_tx_bytes":after.udp_tx.bytes - before.udp_tx.bytes,"udp_rx_bytes":after.udp_rx.bytes - before.udp_rx.bytes,
         "rtt_ms":after.path.rtt.as_secs_f64()*1000.0,"cwnd":after.path.cwnd,"lost_packets":after.path.lost_packets});
-    println!("N6-BANDWIDTH {evidence}");
+    println!("HYSTERIA2-BANDWIDTH {evidence}");
     if let Ok(path) = std::env::var("VCORE_BANDWIDTH_OBSERVATIONS") {
         use std::io::Write;
         let mut file = std::fs::OpenOptions::new()
@@ -367,9 +367,10 @@ async fn bandwidth(f: &Value, direction: u8, up: u64, down: u64, port: u16, expe
 }
 
 #[tokio::test]
-#[ignore = "owned isolated N6 peers required"]
+#[ignore = "owned isolated HYSTERIA2 peers required"]
 async fn native_bandwidth_matrix() {
-    let _case = vcore::resources::case_events::Case::new("N6-BANDWIDTH", "native_bandwidth_matrix");
+    let _case =
+        vcore::resources::case_events::Case::new("HYSTERIA2-BANDWIDTH", "native_bandwidth_matrix");
     let f = fixture();
     for direction in *b"UD" {
         let baseline = bandwidth(&f, direction, 0, 0, 23000, 0).await;
@@ -414,8 +415,10 @@ async fn native_bandwidth_matrix() {
 #[tokio::test]
 #[ignore = "owned isolated Mihomo client and server required"]
 async fn native_mihomo_close_alignment() {
-    let _case =
-        vcore::resources::case_events::Case::new("N6-NATIVE", "native_mihomo_close_alignment");
+    let _case = vcore::resources::case_events::Case::new(
+        "HYSTERIA2-NATIVE",
+        "native_mihomo_close_alignment",
+    );
     let f = fixture();
     assert_eq!(f["close_reference"]["scope"], "same-mode");
     assert_eq!(f["close_reference"]["terminated"], true);
@@ -450,11 +453,11 @@ async fn native_mihomo_close_alignment() {
 }
 
 #[tokio::test]
-#[ignore = "owned isolated N6 peers required"]
+#[ignore = "owned isolated HYSTERIA2 peers required"]
 async fn native_security_matrix() {
     use vcore::resources::{case_events::Case, observation::ResourceProbe};
     let f = fixture();
-    let mut case = Case::new("N6-SECURITY", "native_security_matrix");
+    let mut case = Case::new("HYSTERIA2-SECURITY", "native_security_matrix");
     let probe = ResourceProbe::default();
     const IDS: &[&str] = &[
         "root-pin",
@@ -485,7 +488,7 @@ async fn native_security_matrix() {
     for sample in f["security"].as_array().unwrap() {
         let id = sample["id"].as_str().unwrap();
         let _sample = Case::new(
-            "N6-SECURITY-CASE",
+            "HYSTERIA2-SECURITY-CASE",
             IDS.iter().copied().find(|name| *name == id).unwrap(),
         );
         let success = sample["success"].as_bool().unwrap();
@@ -528,7 +531,7 @@ async fn native_security_matrix() {
             })
             .await;
         assert!(probe.snapshot().is_idle(), "{id}: {:?}", probe.snapshot());
-        println!("N6-SECURITY {id} PASS");
+        println!("HYSTERIA2-SECURITY {id} PASS");
     }
     for identity in f["invalid_identities"].as_array().unwrap() {
         let mut raw = f["node"].clone();
@@ -549,7 +552,8 @@ async fn native_security_matrix() {
 #[tokio::test]
 #[ignore = "official Hysteria with disableUDP required"]
 async fn native_udp_disabled() {
-    let _case = vcore::resources::case_events::Case::new("N6-UDP-DISABLED", "native_udp_disabled");
+    let _case =
+        vcore::resources::case_events::Case::new("HYSTERIA2-UDP-DISABLED", "native_udp_disabled");
     let f = fixture();
     let outbound = node(f["node"].clone());
     let (mut control, target) = origin(&f, 10, false).await;
@@ -589,7 +593,7 @@ async fn hop_interrupt(reject: bool) {
         observation::{ResourceKind, ResourceProbe},
     };
     let mut event = Case::new(
-        "N6-HOP",
+        "HYSTERIA2-HOP",
         if reject {
             "native_hop_protect_rejection"
         } else {
@@ -674,10 +678,10 @@ async fn native_stop_during_hop() {
 }
 
 #[tokio::test]
-#[ignore = "owned isolated N6 peers required"]
+#[ignore = "owned isolated HYSTERIA2 peers required"]
 async fn native_deadline_and_udp_budget() {
     use vcore::resources::{case_events::Case, observation::ResourceProbe};
-    let mut event = Case::new("N6-NATIVE", "native_deadline_and_udp_budget");
+    let mut event = Case::new("HYSTERIA2-NATIVE", "native_deadline_and_udp_budget");
     let f = fixture();
     let probe = ResourceProbe::default();
     probe
@@ -749,7 +753,7 @@ async fn native_deadline_and_udp_budget() {
 }
 
 #[tokio::test]
-#[ignore = "owned isolated N6 peers required"]
+#[ignore = "owned isolated HYSTERIA2 peers required"]
 async fn native_owned_lifecycle() {
     use std::sync::{Arc, atomic::Ordering};
     use vcore::resources::{
@@ -758,7 +762,7 @@ async fn native_owned_lifecycle() {
     };
     let f = fixture();
     for cycle in 0..20 {
-        let mut case = Case::new("N6-LIFE", "native_owned_lifecycle");
+        let mut case = Case::new("HYSTERIA2-LIFE", "native_owned_lifecycle");
         let probe = ResourceProbe::default();
         case.checkpoint("baseline", probe.snapshot());
         probe.scope(async {

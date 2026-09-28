@@ -5,7 +5,7 @@ use vcore::{dispatch::DatagramBudget, packet::IpVersion};
 async fn shadowsocks_budget_accounts_for_cipher_headers_and_identity_chain() {
     #[cfg(feature = "interop-test")]
     let mut _case = vcore::resources::case_events::Case::new(
-        "N1-DATAGRAM",
+        "FOUNDATIONS-DATAGRAM",
         "shadowsocks_budget_accounts_for_cipher_headers_and_identity_chain",
     );
     use base64::{Engine as _, engine::general_purpose::STANDARD};
@@ -85,7 +85,7 @@ async fn shadowsocks_budget_accounts_for_cipher_headers_and_identity_chain() {
 async fn socks5_budget_retains_distinct_payload_and_envelope_limits() {
     #[cfg(feature = "interop-test")]
     let mut _case = vcore::resources::case_events::Case::new(
-        "N1-DATAGRAM",
+        "FOUNDATIONS-DATAGRAM",
         "socks5_budget_retains_distinct_payload_and_envelope_limits",
     );
     use bytes::Bytes;
@@ -177,7 +177,7 @@ async fn socks5_budget_retains_distinct_payload_and_envelope_limits() {
 async fn direct_budget_rejects_large_sends_and_drops_oversize_responses() {
     #[cfg(feature = "interop-test")]
     let mut _case = vcore::resources::case_events::Case::new(
-        "N1-DATAGRAM",
+        "FOUNDATIONS-DATAGRAM",
         "direct_budget_rejects_large_sends_and_drops_oversize_responses",
     );
     use bytes::Bytes;
@@ -224,7 +224,7 @@ async fn direct_budget_rejects_large_sends_and_drops_oversize_responses() {
 fn layered_directional_budgets_account_for_ip_headers_and_exact_minima() {
     #[cfg(feature = "interop-test")]
     let mut _case = vcore::resources::case_events::Case::new(
-        "N1-DATAGRAM",
+        "FOUNDATIONS-DATAGRAM",
         "layered_directional_budgets_account_for_ip_headers_and_exact_minima",
     );
     let ipv4 = DatagramBudget::from_path_mtu(1500, IpVersion::V4).unwrap();

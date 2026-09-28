@@ -69,7 +69,7 @@ fn ping_count(wire: &[u8]) -> usize {
 async fn grpc_idle_ping_is_observable_disabled_by_zero_and_joined_at_stop() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N4-UNIT",
+        "VLESS-UNIT",
         "grpc_idle_ping_is_observable_disabled_by_zero_and_joined_at_stop",
     );
     for interval in [0, 1] {
@@ -125,7 +125,7 @@ async fn memory_peer(count: Arc<AtomicUsize>, tasks: TaskTracker) -> io::Result<
         while let Some(Ok((request, mut response))) = connection.accept().await {
             assert_eq!(request.method(), "POST");
             assert_eq!(request.uri().path(), "/service/Tun");
-            assert_eq!(request.headers()["user-agent"], "n4-observer");
+            assert_eq!(request.headers()["user-agent"], "vless-observer");
             let mut send = response
                 .send_response(
                     http::Response::builder()
@@ -153,7 +153,7 @@ async fn memory_peer(count: Arc<AtomicUsize>, tasks: TaskTracker) -> io::Result<
 async fn grpc_pool_matches_both_threshold_policies_and_keeps_other_streams_alive() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N4-UNIT",
+        "VLESS-UNIT",
         "grpc_pool_matches_both_threshold_policies_and_keeps_other_streams_alive",
     );
     tokio::time::timeout(Duration::from_secs(8), async {
@@ -167,7 +167,7 @@ async fn grpc_pool_matches_both_threshold_policies_and_keeps_other_streams_alive
             let tasks = TaskTracker::new();
             let count = Arc::new(AtomicUsize::new(0));
             let pool = GrpcPool::new(GrpcOptions {
-                user_agent: "n4-observer".into(),
+                user_agent: "vless-observer".into(),
                 max_connections: max,
                 min_streams: min,
                 max_streams: streams,

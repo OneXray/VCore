@@ -1,4 +1,4 @@
-//! Trojan consumer checks through public YAML and Invoke, owned by the N2 runner.
+//! Trojan consumer checks through public YAML and Invoke, owned by the TROJAN runner.
 use super::*;
 use sha2::{Digest, Sha256};
 use vcore::resources::case_events::Case;
@@ -7,7 +7,7 @@ use vcore::resources::case_events::Case;
 mod runtime;
 
 fn fixture() -> Value {
-    serde_json::from_str(&env::var("VCORE_TROJAN_FIXTURE").expect("use the N2 runner")).unwrap()
+    serde_json::from_str(&env::var("VCORE_TROJAN_FIXTURE").expect("use the TROJAN runner")).unwrap()
 }
 
 fn free_port() -> u16 {
@@ -177,9 +177,9 @@ fn measurement(node: &Value) {
 }
 
 #[test]
-#[ignore = "requires the owned N2 native-peer runner"]
+#[ignore = "requires the owned TROJAN native-peer runner"]
 fn public_trojan_native_base() {
-    let _case = Case::new("N2-NATIVE", "public_trojan_native_base");
+    let _case = Case::new("TROJAN-NATIVE", "public_trojan_native_base");
     let fixture = fixture();
     invoke("initialize", None, json!({"dataDir":fixture["data_dir"]}));
     let port = free_port();
@@ -199,9 +199,9 @@ fn public_trojan_native_base() {
 }
 
 #[test]
-#[ignore = "requires the owned N2 native-peer runner"]
+#[ignore = "requires the owned TROJAN native-peer runner"]
 fn public_trojan_native_udp_domain() {
-    let _case = Case::new("N2-NATIVE", "public_trojan_native_udp_domain");
+    let _case = Case::new("TROJAN-NATIVE", "public_trojan_native_udp_domain");
     let fixture = fixture();
     invoke("initialize", None, json!({"dataDir":fixture["data_dir"]}));
     let port = free_port();
@@ -213,9 +213,9 @@ fn public_trojan_native_udp_domain() {
 }
 
 #[test]
-#[ignore = "requires the owned N2 native-peer runner"]
+#[ignore = "requires the owned TROJAN native-peer runner"]
 fn public_trojan_native_extended_early_data() {
-    let _case = Case::new("N2-NATIVE", "public_trojan_native_extended_early_data");
+    let _case = Case::new("TROJAN-NATIVE", "public_trojan_native_extended_early_data");
     let fixture = fixture();
     invoke("initialize", None, json!({"dataDir":fixture["data_dir"]}));
     let port = free_port();
@@ -232,9 +232,9 @@ fn public_trojan_native_extended_early_data() {
 }
 
 #[test]
-#[ignore = "requires the owned N2 native-peer runner"]
+#[ignore = "requires the owned TROJAN native-peer runner"]
 fn public_trojan_native_transport_negative() {
-    let _case = Case::new("N2-NATIVE", "public_trojan_native_transport_negative");
+    let _case = Case::new("TROJAN-NATIVE", "public_trojan_native_transport_negative");
     let fixture = fixture();
     invoke("initialize", None, json!({"dataDir":fixture["data_dir"]}));
     let mut node = fixture["node"].clone();
@@ -288,10 +288,10 @@ fn assert_no_origin_bytes(node: Value) {
 }
 
 #[test]
-#[ignore = "requires the owned N2 native-peer runner"]
+#[ignore = "requires the owned TROJAN native-peer runner"]
 fn public_trojan_native_policy_and_group_snapshots() {
     let _case = Case::new(
-        "N2-NATIVE",
+        "TROJAN-NATIVE",
         "public_trojan_native_policy_and_group_snapshots",
     );
     let fixture = fixture();
@@ -315,7 +315,9 @@ fn public_trojan_native_policy_and_group_snapshots() {
         probe_socks_tcp(SocketAddr::from((Ipv4Addr::LOCALHOST, port)), false, false);
         core.stop();
     }
-    println!("N2 policy: wrong password, untrusted certificate, wrong pin, skip and pin passed");
+    println!(
+        "TROJAN policy: wrong password, untrusted certificate, wrong pin, skip and pin passed"
+    );
     // A concrete Trojan upstream is also usable as the physical first hop.
     let port = free_port();
     let controller = SocketAddr::from((Ipv4Addr::LOCALHOST, free_port()));
@@ -331,7 +333,7 @@ fn public_trojan_native_policy_and_group_snapshots() {
         .unwrap()
         .push(hop.clone());
     let core = Core::start(&document.to_string());
-    println!("N2 policy: checking concrete upstream");
+    println!("TROJAN policy: checking concrete upstream");
     let proxy = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
     probe_socks_tcp(proxy, false, false);
     probe_socks_udp(proxy, false, false);
@@ -340,7 +342,7 @@ fn public_trojan_native_policy_and_group_snapshots() {
     leaf["dialer-proxy"] = json!("outer");
     let document = json!({"socks-port":port,"ipv6":true,"external-controller":controller.to_string(),"secret":"fixture-controller-only","proxies":[leaf,hop],"proxy-groups":[{"name":"outer","type":"select","proxies":["inner"]},{"name":"inner","type":"select","proxies":["hop","DIRECT","REJECT"]}],"rules":["MATCH,peer"]});
     let core = Core::start(&document.to_string());
-    println!("N2 policy: checking nested group snapshots");
+    println!("TROJAN policy: checking nested group snapshots");
     let mut tcp = groups::TcpFlow::open(proxy);
     let mut udp = groups::UdpFlow::open(proxy);
     udp.exchange(1);

@@ -1,8 +1,8 @@
-"""Frozen N7 selected-security requirements, independent of runtime results.
+"""Selected security requirements, independent of runtime results.
 
-This is an explicit covering set, not a Cartesian-product support claim. N7.1,
-N7.2 and JLS retain their historical full subpackage reports; this stage reruns
-their critical consumers and discharges the new static ECH and composition gates.
+This is an explicit covering set, not a Cartesian-product support claim. Encryption,
+hybrid REALITY and JLS have dedicated reports; this suite exercises their critical
+consumers together with static ECH and composition checks.
 """
 
 from __future__ import annotations
@@ -12,13 +12,13 @@ ECH_FIELDS = ["S04", "S05", "D17", "D18"]
 JLS_FIELDS = ["S12", "S13", "D25", "D26"]
 HYBRID_FIELDS = ["S03", "D16"]
 GATES = {
-    "N7-CFG",
-    "N7-RELEASE",
-    "N7-REGRESSION",
-    "N7-QUALITY",
-    "N7-FEATURES",
-    "N7-SCRIPTS",
-    "N7-PLATFORMS",
+    "SECURITY-CFG",
+    "SECURITY-RELEASE",
+    "SECURITY-REGRESSION",
+    "SECURITY-QUALITY",
+    "SECURITY-FEATURES",
+    "SECURITY-SCRIPTS",
+    "SECURITY-PLATFORMS",
 }
 PROFILES = ("chrome", "chrome120", "firefox", "safari")
 ENCRYPTION = tuple(
@@ -37,23 +37,29 @@ def groups():
     def add(name, runner, rows, **options):
         result[name] = dict(runner=runner, rows=rows, **options)
 
-    add("N7-ECH-STANDARD", "vless", ECH_FIELDS, selected=list(ech_catalog()), ech=True)
+    add(
+        "SECURITY-ECH-STANDARD",
+        "vless",
+        ECH_FIELDS,
+        selected=list(ech_catalog()),
+        ech=True,
+    )
     named = [
-        "N7-ECH-TCP-TLS-BASE",
-        "N7-ECH-TCP-TLS-REJECT",
-        "N7-ECH-WS-TLS-BASE",
-        "N7-ECH-GRPC-TLS-BASE",
-        "N7-ECH-GRPC-TLS-CLOSE",
-        "N7-ECH-TCP-MTLS-IDENTITY",
-        "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-BASE",
-        "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-REJECT",
-        "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-DOWNLOAD",
-        "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-H1-BASE",
-        "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-H1-DOWNLOAD",
+        "SECURITY-ECH-TCP-TLS-BASE",
+        "SECURITY-ECH-TCP-TLS-REJECT",
+        "SECURITY-ECH-WS-TLS-BASE",
+        "SECURITY-ECH-GRPC-TLS-BASE",
+        "SECURITY-ECH-GRPC-TLS-CLOSE",
+        "SECURITY-ECH-TCP-MTLS-IDENTITY",
+        "SECURITY-ECH-XHTTP-STREAM-UP-DOWNLOAD-BASE",
+        "SECURITY-ECH-XHTTP-STREAM-UP-DOWNLOAD-REJECT",
+        "SECURITY-ECH-XHTTP-STREAM-UP-DOWNLOAD-DOWNLOAD",
+        "SECURITY-ECH-XHTTP-STREAM-UP-DOWNLOAD-H1-BASE",
+        "SECURITY-ECH-XHTTP-STREAM-UP-DOWNLOAD-H1-DOWNLOAD",
     ]
     for profile in PROFILES:
         add(
-            "N7-ECH-" + profile.upper(),
+            "SECURITY-ECH-" + profile.upper(),
             "vless",
             ECH_FIELDS,
             selected=named,
@@ -62,7 +68,7 @@ def groups():
         )
 
     add(
-        "N7-JLS-RETAINED",
+        "SECURITY-JLS-RETAINED",
         "vless",
         JLS_FIELDS,
         jls=True,
@@ -88,7 +94,7 @@ def groups():
         ],
     )
     add(
-        "N7-HYBRID-RETAINED",
+        "SECURITY-HYBRID-RETAINED",
         "hybrid",
         HYBRID_FIELDS,
         selected=[
@@ -109,28 +115,31 @@ def groups():
     for profile in ENCRYPTION:
         suffix = profile.upper()
         add(
-            "N7-ECH-ENCRYPTION-" + suffix,
+            "SECURITY-ECH-ENCRYPTION-" + suffix,
             "vless",
             ["VL06", *ECH_FIELDS],
             ech=True,
             encryption=profile,
             client_fingerprint="chrome",
             selected=[
-                "N7-ECH-TCP-TLS-BASE",
-                "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-BASE",
-                "N7-ECH-XHTTP-STREAM-UP-DOWNLOAD-H1-BASE",
+                "SECURITY-ECH-TCP-TLS-BASE",
+                "SECURITY-ECH-XHTTP-STREAM-UP-DOWNLOAD-BASE",
+                "SECURITY-ECH-XHTTP-STREAM-UP-DOWNLOAD-H1-BASE",
             ],
         )
         add(
-            "N7-JLS-ENCRYPTION-" + suffix,
+            "SECURITY-JLS-ENCRYPTION-" + suffix,
             "vless",
             ["VL06", *JLS_FIELDS],
             jls=True,
             encryption=profile,
-            selected=["N7-JLS-TCP-BASE", "N7-JLS-XHTTP-STREAM-UP-DOWNLOAD-BASE"],
+            selected=[
+                "SECURITY-JLS-TCP-BASE",
+                "SECURITY-JLS-XHTTP-STREAM-UP-DOWNLOAD-BASE",
+            ],
         )
         add(
-            "N7-HYBRID-ENCRYPTION-" + suffix,
+            "SECURITY-HYBRID-ENCRYPTION-" + suffix,
             "hybrid",
             ["VL06", *HYBRID_FIELDS],
             encryption=profile,
@@ -177,7 +186,7 @@ def groups():
         ),
         ("h3-keepalive", ["keepalive::native_h3_keepalive_observes_each_leg_and_stop"]),
     ]
-    fields("N7-ECH-H3", ECH_FIELDS, specs, ech=True)
+    fields("SECURITY-ECH-H3", ECH_FIELDS, specs, ech=True)
     for security in ("ech", "jls"):
         versions = ("h1", "h2", "h3") if security == "ech" else ("h1", "h2")
         specs = [
@@ -187,14 +196,14 @@ def groups():
             for only in ("", "-only-tcp")
         ]
         fields(
-            "N7-" + security.upper() + "-MUX",
+            "SECURITY-" + security.upper() + "-MUX",
             ECH_FIELDS if security == "ech" else JLS_FIELDS,
             specs,
             **{security: True},
             encryption="native-0rtt-mixed",
         )
     fields(
-        "N7-ECH-NATIVE-TRANSPORT",
+        "SECURITY-ECH-NATIVE-TRANSPORT",
         ECH_FIELDS,
         [
             ("outer-" + transport + "-tls", ["public_base"])
@@ -205,7 +214,7 @@ def groups():
     )
 
     fields(
-        "N7-ECH-H3-ENCRYPTION",
+        "SECURITY-ECH-H3-ENCRYPTION",
         ["VL06", *ECH_FIELDS],
         [
             (f"h3-{mode}-headers", ["public_base"])
@@ -216,31 +225,31 @@ def groups():
         encryption="native-0rtt-mixed",
     )
 
-    add("N7-ENCRYPTION-WIRE", "encryption", ["VL06"])
-    add("N7-ENCRYPTION-CHACHA", "encryption", ["VL06"], chacha=True)
-    add("N7-ENCRYPTION-EXPIRY", "encryption", ["VL06"], expiry=True)
+    add("SECURITY-ENCRYPTION-WIRE", "encryption", ["VL06"])
+    add("SECURITY-ENCRYPTION-CHACHA", "encryption", ["VL06"], chacha=True)
+    add("SECURITY-ENCRYPTION-EXPIRY", "encryption", ["VL06"], expiry=True)
     for profile in ("none", "chrome"):
         add(
-            "N7-SHARED-" + profile.upper(),
+            "SECURITY-SHARED-" + profile.upper(),
             "vless",
             [],
             client_fingerprint=profile,
             selected=[
-                "N4-TCP-TLS-BASE",
-                "N4-TCP-TLS-NEG",
-                "N4-TCP-REALITY-BASE",
-                "N4-TCP-REALITY-NEG",
-                "N4-VISION-REALITY-BASE",
-                "N4-GRPC-TLS-BASE",
-                "N4-HTTP-TLS-BASE",
-                "N4-H2-TLS-BASE",
-                "N4-REGRESSION-TROJAN-TCP",
-                "N4-REGRESSION-VMESS-GRPC",
-                "F5-ANYTLS",
+                "VLESS-TCP-TLS-BASE",
+                "VLESS-TCP-TLS-NEG",
+                "VLESS-TCP-REALITY-BASE",
+                "VLESS-TCP-REALITY-NEG",
+                "VLESS-VISION-REALITY-BASE",
+                "VLESS-GRPC-TLS-BASE",
+                "VLESS-HTTP-TLS-BASE",
+                "VLESS-H2-TLS-BASE",
+                "VLESS-REGRESSION-TROJAN-TCP",
+                "VLESS-REGRESSION-VMESS-GRPC",
+                "FINGERPRINT-ANYTLS",
             ],
         )
     fields(
-        "N7-SHARED-XHTTP",
+        "SECURITY-SHARED-XHTTP",
         [],
         [
             ("h1-stream-up-split-reuse", ["public_base"]),
@@ -260,7 +269,9 @@ def definitions():
         group = native.get(identifier, {})
         runner = group.get("runner", "gate")
         rows = sorted(
-            FIELDS if identifier in {"N7-CFG", "N7-RELEASE"} else group.get("rows", [])
+            FIELDS
+            if identifier in {"SECURITY-CFG", "SECURITY-RELEASE"}
+            else group.get("rows", [])
         )
         options = {k: v for k, v in group.items() if k not in {"rows", "runner"}}
         kind = (
@@ -273,8 +284,8 @@ def definitions():
         result.append(
             dict(
                 case_id=identifier,
-                stage="N7",
-                substage="N7.5",
+                stage="SECURITY",
+                substage="SECURITY.acceptance",
                 required=True,
                 row_ids=rows,
                 protocol="vless",
@@ -298,7 +309,7 @@ def definitions():
                     "listener; VCore remains Safari, not a same-profile comparison.",
                     source="https://github.com/MetaCubeX/utls/blob/v1.8.7/u_handshake_client.go",
                 )
-                if identifier == "N7-ECH-SAFARI"
+                if identifier == "SECURITY-ECH-SAFARI"
                 else None
                 if kind != "XR"
                 else dict(

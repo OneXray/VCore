@@ -1,4 +1,4 @@
-"""N3 wire cases against official latest peers and entirely isolated origins."""
+"""VMESS wire cases against official latest peers and entirely isolated origins."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ def run(output: Path, selected=None, *, preflight_only=False):
         or len(set(selected)) != len(selected)
         or not set(selected) <= ALL_CASES.keys()
     ):
-        raise ValueError("invalid N3 native selection")
+        raise ValueError("invalid VMESS native selection")
     output.mkdir(parents=True, exist_ok=False)
     if preflight_only:
         # One listener/origin group per official implementation, not a traffic run.
@@ -41,7 +41,7 @@ def run(output: Path, selected=None, *, preflight_only=False):
             for kind in sorted(kinds)
         ]
     report = dict(
-        stage="N3",
+        stage="VMESS",
         scope="container-wire-and-public-consumer",
         source=source_identity(),
         status="NOT RUN",
@@ -294,7 +294,7 @@ def run(output: Path, selected=None, *, preflight_only=False):
                                 == [
                                     dict(
                                         schema_version=1,
-                                        suite="N3-WIRE",
+                                        suite="VMESS-WIRE",
                                         assertion=test,
                                         status=status,
                                     )

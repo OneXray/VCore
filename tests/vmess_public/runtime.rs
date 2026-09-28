@@ -1,9 +1,9 @@
 use super::*;
 
 #[test]
-#[ignore = "isolated N3 runner"]
+#[ignore = "isolated VMESS runner"]
 fn public_udp_isolation() {
-    let _case = Case::new("N3-PUBLIC", "runtime::public_udp_isolation");
+    let _case = Case::new("VMESS-PUBLIC", "runtime::public_udp_isolation");
     let f = fixture();
     initialize(&f);
     let port = free_port();
@@ -51,10 +51,10 @@ fn public_udp_isolation() {
 
 #[test]
 #[cfg(target_os = "macos")]
-#[ignore = "isolated N3 runner"]
+#[ignore = "isolated VMESS runner"]
 fn public_entrypoints() {
     use std::os::{fd::AsRawFd, unix::net::UnixDatagram};
-    let _case = Case::new("N3-PUBLIC", "runtime::public_entrypoints");
+    let _case = Case::new("VMESS-PUBLIC", "runtime::public_entrypoints");
     let f = fixture();
     initialize(&f);
     let port = free_port();
@@ -182,14 +182,14 @@ fn exchange(client: &mut TcpStream, bytes: &[u8]) {
 }
 
 #[test]
-#[ignore = "isolated N3 runner"]
+#[ignore = "isolated VMESS runner"]
 fn public_lifecycle() {
-    let _case = Case::new("N3-PUBLIC", "runtime::public_lifecycle");
+    let _case = Case::new("VMESS-PUBLIC", "runtime::public_lifecycle");
     let f = fixture();
     initialize(&f);
     Core::start(&config(f["node"].clone(), free_port())).stop();
     for cycle in 0..20 {
-        let _cycle = Case::new("N3-LIFE", "stop_and_remain_quiet");
+        let _cycle = Case::new("VMESS-LIFE", "stop_and_remain_quiet");
         let baseline = fd_count();
         let port = free_port();
         let mut held = None;
@@ -303,9 +303,9 @@ fn select(controller: u16, name: &str) {
     assert!(response.starts_with(b"HTTP/1.1 204"));
 }
 #[test]
-#[ignore = "isolated N3 runner"]
+#[ignore = "isolated VMESS runner"]
 fn public_graph() {
-    let _case = Case::new("N3-PUBLIC", "runtime::public_graph");
+    let _case = Case::new("VMESS-PUBLIC", "runtime::public_graph");
     let f = fixture();
     initialize(&f);
     let port = free_port();
@@ -382,9 +382,9 @@ fn public_graph() {
 }
 
 #[test]
-#[ignore = "isolated N3 runner"]
+#[ignore = "isolated VMESS runner"]
 fn public_ipv6_and_gates() {
-    let _case = Case::new("N3-PUBLIC", "runtime::public_ipv6_and_gates");
+    let _case = Case::new("VMESS-PUBLIC", "runtime::public_ipv6_and_gates");
     let f = fixture();
     initialize(&f);
     let port = free_port();
@@ -420,7 +420,7 @@ fn public_ipv6_and_gates() {
 }
 
 #[tokio::test]
-#[ignore = "isolated N3 runner"]
+#[ignore = "isolated VMESS runner"]
 async fn owned_resources() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use vcore::{
@@ -433,7 +433,7 @@ async fn owned_resources() {
         resources::observation::{ResourceKind, ResourceProbe},
         session::{Datagram, DatagramSession, InboundKind, StreamSession},
     };
-    let _case = Case::new("N3-PUBLIC", "runtime::owned_resources");
+    let _case = Case::new("VMESS-PUBLIC", "runtime::owned_resources");
     let f = fixture();
     let parsed =
         Config::parse_yaml(config(f["node"].clone(), 1080).to_string().as_bytes()).unwrap();
@@ -441,7 +441,7 @@ async fn owned_resources() {
         unreachable!()
     };
     for _ in 0..20 {
-        let mut case = Case::new("N3-OWNED", "stop_and_remain_quiet");
+        let mut case = Case::new("VMESS-OWNED", "stop_and_remain_quiet");
         let probe = ResourceProbe::default();
         case.checkpoint("baseline", probe.snapshot());
         probe

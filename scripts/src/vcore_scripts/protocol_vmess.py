@@ -1,4 +1,4 @@
-"""N3 wire gate; all peers and origins run in isolated containers."""
+"""VMESS wire gate; all peers and origins run in isolated containers."""
 
 from __future__ import annotations
 
@@ -7,19 +7,21 @@ from pathlib import Path
 
 from .mihomo_isolation import exclusive_run
 
-CASES = {"N3-M-IDENTITY": ("M", "tcp", False, "native_identity_time_replay_rejection")}
-CASES["N3-M-RAW-UDP"] = ("M", "tcp", False, "native_raw_udp_boundaries")
-CASES["N3-M-ENCODED-UDP"] = ("M", "tcp", False, "native_encoded_udp_boundaries")
+CASES = {
+    "VMESS-M-IDENTITY": ("M", "tcp", False, "native_identity_time_replay_rejection")
+}
+CASES["VMESS-M-RAW-UDP"] = ("M", "tcp", False, "native_raw_udp_boundaries")
+CASES["VMESS-M-ENCODED-UDP"] = ("M", "tcp", False, "native_encoded_udp_boundaries")
 for _mode in ("tcp", "ws", "grpc", "http", "h2"):
     for _tls in (False, True):
         _kind = "V2" if _mode in {"http", "h2"} else "M"
-        CASES[f"N3-{_kind}-{_mode.upper()}-{'TLS' if _tls else 'PLAIN'}"] = (
+        CASES[f"VMESS-{_kind}-{_mode.upper()}-{'TLS' if _tls else 'PLAIN'}"] = (
             _kind,
             _mode,
             _tls,
             "native_cipher_matrix",
         )
-        CASES[f"N3-{_kind}-{_mode.upper()}-{'TLS' if _tls else 'PLAIN'}-CLOSE"] = (
+        CASES[f"VMESS-{_kind}-{_mode.upper()}-{'TLS' if _tls else 'PLAIN'}-CLOSE"] = (
             _kind,
             _mode,
             _tls,
@@ -28,7 +30,7 @@ for _mode in ("tcp", "ws", "grpc", "http", "h2"):
         if _mode != "tcp" or _tls:
             for _encoding in ("raw", "encoded"):
                 CASES[
-                    f"N3-{_kind}-{_mode.upper()}-{'TLS' if _tls else 'PLAIN'}"
+                    f"VMESS-{_kind}-{_mode.upper()}-{'TLS' if _tls else 'PLAIN'}"
                     f"-{_encoding.upper()}-UDP"
                 ] = (
                     _kind,
@@ -58,7 +60,7 @@ def peer_config(kind, mode, encrypted, port, cert, key):
     identity = "07070707-0707-0707-0707-070707070707"
     if kind == "M":
         listener = dict(
-            name="n3",
+            name="vmess",
             type="vmess",
             listen="127.0.0.1",
             port=port,
@@ -67,11 +69,11 @@ def peer_config(kind, mode, encrypted, port, cert, key):
         if encrypted:
             listener.update(certificate=str(cert), **{"private-key": str(key)})
         if mode == "ws":
-            listener["ws-path"] = "/n3-ws"
+            listener["ws-path"] = "/vmess-ws"
         if mode == "grpc":
-            listener["grpc-service-name"] = "n3-grpc"
+            listener["grpc-service-name"] = "vmess-grpc"
         if variant == "ws-alpn":
-            listener["grpc-service-name"] = "n3-alpn"
+            listener["grpc-service-name"] = "vmess-alpn"
         return {
             "mode": "rule",
             "log-level": "silent",
@@ -83,17 +85,17 @@ def peer_config(kind, mode, encrypted, port, cert, key):
     stream = dict(network="tcp", security="tls" if encrypted else "none")
     if mode == "http":
         stream["tcpSettings"] = {
-            "header": {"type": "http", "request": {"path": ["/n3-http"]}}
+            "header": {"type": "http", "request": {"path": ["/vmess-http"]}}
         }
     elif mode == "h2":
         stream.update(
-            network="http", httpSettings=dict(host=["localhost"], path="/n3-h2")
+            network="http", httpSettings=dict(host=["localhost"], path="/vmess-h2")
         )
     elif mode == "ws":
         stream.update(
             network="ws",
             wsSettings={
-                "path": "/n3-ws/",
+                "path": "/vmess-ws/",
                 "maxEarlyData": 2048,
                 "earlyDataHeaderName": "X-Vcore-Ed" if variant == "ws-header" else "",
             },

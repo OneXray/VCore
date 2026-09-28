@@ -31,14 +31,14 @@ struct Protect {
 }
 
 #[tokio::test]
-#[ignore = "requires the owned N2 native-peer runner"]
+#[ignore = "requires the owned TROJAN native-peer runner"]
 async fn trojan_native_owned_resources() {
     use bytes::Bytes;
     use vcore::{
         outbound::DatagramRequest,
         session::{Datagram, DatagramSession},
     };
-    let _case = Case::new("N2-NATIVE", "trojan_native_owned_resources");
+    let _case = Case::new("TROJAN-NATIVE", "trojan_native_owned_resources");
     let fixture: serde_json::Value =
         serde_json::from_str(&std::env::var("VCORE_TROJAN_FIXTURE").unwrap()).unwrap();
     let node = &fixture["node"];
@@ -52,7 +52,7 @@ async fn trojan_native_owned_resources() {
         unreachable!()
     };
     for _ in 0..20 {
-        let mut cycle = Case::new("N2-OWNED-CYCLE", "stop_and_remain_quiet");
+        let mut cycle = Case::new("TROJAN-OWNED-CYCLE", "stop_and_remain_quiet");
         let probe = ResourceProbe::default();
         cycle.checkpoint("baseline", probe.snapshot());
         probe
@@ -185,7 +185,7 @@ fn session() -> StreamSession {
 #[tokio::test]
 async fn trojan_handshake_deadlines_cancel_tls_ws_and_grpc_without_retaining_io() {
     let mut case = Case::new(
-        "N2-CANCEL",
+        "TROJAN-CANCEL",
         "trojan_handshake_deadlines_cancel_tls_ws_and_grpc_without_retaining_io",
     );
     for mode in ["tls", "ws", "grpc"] {
@@ -265,7 +265,7 @@ async fn trojan_handshake_deadlines_cancel_tls_ws_and_grpc_without_retaining_io(
 #[tokio::test]
 async fn trojan_protect_rejection_and_expired_deadline_send_no_network_bytes() {
     let mut case = Case::new(
-        "N2-CANCEL",
+        "TROJAN-CANCEL",
         "trojan_protect_rejection_and_expired_deadline_send_no_network_bytes",
     );
     let probe = ResourceProbe::default();

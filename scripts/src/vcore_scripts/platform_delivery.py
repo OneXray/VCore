@@ -214,11 +214,14 @@ def check_delivery(
             f"PASS {record['group']} artifact integrity (not device/release acceptance)"
         )
     if complete and groups != GROUPS:
-        raise ValueError("N10.1 requires Apple, Android, native Windows ARM64 and x64")
+        raise ValueError(
+            "complete platform artifacts require Apple, Android, "
+            "native Windows ARM64 and x64"
+        )
     if complete:
         print(
-            "PASS N10.1 production artifacts; "
-            "N10.2/N10.3/N10.4 require separate evidence"
+            "PASS production platform artifacts; "
+            "ABI, devices and release require separate evidence"
         )
 
 

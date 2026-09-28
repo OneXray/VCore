@@ -325,7 +325,7 @@ fn event(name: &str, status: &str) {
     writeln!(
         file,
         "{}",
-        json!({"schema_version":1,"suite":if std::env::var("VCORE_PROTOCOL_STAGE").as_deref() == Ok("N7") {"N7-WIRE"} else {"N4-WIRE"},"assertion":name,"status":status})
+        json!({"schema_version":1,"suite":if std::env::var("VCORE_PROTOCOL_STAGE").as_deref() == Ok("SECURITY") {"SECURITY-WIRE"} else {"VLESS-WIRE"},"assertion":name,"status":status})
     )
     .unwrap();
 }
@@ -437,7 +437,7 @@ fn session(target: Destination) -> StreamSession {
 }
 
 #[tokio::test]
-#[ignore = "isolated N7 JLS runner"]
+#[ignore = "isolated SECURITY JLS runner"]
 async fn native_jls_fail_closed() {
     let name = "native_jls_fail_closed";
     event(name, "BEGIN");
@@ -505,7 +505,7 @@ async fn native_jls_fail_closed() {
 }
 
 #[tokio::test]
-#[ignore = "isolated N7 ECH runner"]
+#[ignore = "isolated SECURITY ECH runner"]
 async fn native_ech_fail_closed() {
     use base64::{Engine as _, engine::general_purpose::STANDARD};
     let name = "native_ech_fail_closed";
@@ -557,7 +557,7 @@ async fn native_ech_fail_closed() {
 }
 
 #[tokio::test]
-#[ignore = "isolated N7 hybrid REALITY runner"]
+#[ignore = "isolated SECURITY hybrid REALITY runner"]
 async fn native_hybrid_fail_closed() {
     use vcore::{config::SecurityConfig, security::SecurityClient};
     let name = "native_hybrid_fail_closed";

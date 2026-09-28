@@ -371,7 +371,7 @@ mod tests {
     async fn shared_xudp_receives_frames_without_a_vless_response_header() {
         #[cfg(any(test, feature = "interop-test"))]
         let mut _case = crate::resources::case_events::Case::new(
-            "N1-XUDP",
+            "FOUNDATIONS-XUDP",
             "shared_xudp_receives_frames_without_a_vless_response_header",
         );
         let (client, mut peer) = tokio::io::duplex(64);
@@ -390,7 +390,7 @@ mod tests {
     fn first_frame_matches_xray_mux_wire_format() {
         #[cfg(any(test, feature = "interop-test"))]
         let mut _case = crate::resources::case_events::Case::new(
-            "N1-XUDP",
+            "FOUNDATIONS-XUDP",
             "first_frame_matches_xray_mux_wire_format",
         );
         let datagram = Datagram {
@@ -416,7 +416,7 @@ mod tests {
     fn followup_frame_carries_each_datagrams_destination() {
         #[cfg(any(test, feature = "interop-test"))]
         let mut _case = crate::resources::case_events::Case::new(
-            "N1-XUDP",
+            "FOUNDATIONS-XUDP",
             "followup_frame_carries_each_datagrams_destination",
         );
         let datagram = Datagram {
@@ -434,7 +434,7 @@ mod tests {
     fn destination_codec_round_trips_all_address_families() {
         #[cfg(any(test, feature = "interop-test"))]
         let mut _case = crate::resources::case_events::Case::new(
-            "N1-XUDP",
+            "FOUNDATIONS-XUDP",
             "destination_codec_round_trips_all_address_families",
         );
         for destination in [
@@ -454,7 +454,7 @@ mod tests {
     async fn normal_and_error_end_frames_are_distinguishable() {
         #[cfg(any(test, feature = "interop-test"))]
         let mut _case = crate::resources::case_events::Case::new(
-            "N1-XUDP",
+            "FOUNDATIONS-XUDP",
             "normal_and_error_end_frames_are_distinguishable",
         );
         let normal = receive_frame_error(&[0, 4, 0, 0, STATUS_END, 0]).await;
@@ -476,7 +476,7 @@ mod tests {
     async fn oversized_response_is_rejected_before_payload_read() {
         #[cfg(any(test, feature = "interop-test"))]
         let mut _case = crate::resources::case_events::Case::new(
-            "N1-XUDP",
+            "FOUNDATIONS-XUDP",
             "oversized_response_is_rejected_before_payload_read",
         );
         let (client, mut server) = tokio::io::duplex(64);
@@ -516,7 +516,7 @@ mod tests {
     async fn fragmented_receive_survives_cancellation_and_resumes() {
         #[cfg(any(test, feature = "interop-test"))]
         let mut _case = crate::resources::case_events::Case::new(
-            "N1-XUDP",
+            "FOUNDATIONS-XUDP",
             "fragmented_receive_survives_cancellation_and_resumes",
         );
         let (client, mut server) = tokio::io::duplex(64);
@@ -557,7 +557,7 @@ mod tests {
     async fn keepalive_data_is_consumed_without_becoming_an_udp_response() {
         #[cfg(any(test, feature = "interop-test"))]
         let mut _case = crate::resources::case_events::Case::new(
-            "N1-XUDP",
+            "FOUNDATIONS-XUDP",
             "keepalive_data_is_consumed_without_becoming_an_udp_response",
         );
         let (client, mut server) = tokio::io::duplex(128);
@@ -588,7 +588,7 @@ mod tests {
     async fn full_wire_payload_remains_available_to_proxy_inbounds() {
         #[cfg(any(test, feature = "interop-test"))]
         let mut _case = crate::resources::case_events::Case::new(
-            "N1-XUDP",
+            "FOUNDATIONS-XUDP",
             "full_wire_payload_remains_available_to_proxy_inbounds",
         );
         let (client, mut server) = tokio::io::duplex(66_000);

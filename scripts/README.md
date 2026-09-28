@@ -46,9 +46,12 @@ uv run --project scripts --locked vcore-scripts check protocol-coverage --catalo
 
 可执行容器 suite：vmess、vless、xhttp、hysteria2、security、integration。
 `--case` 可重复、`--protocol` 可筛选；子集只证明实际执行的项目，不能签收整套。
-foundations/trojan 保留历史用例标识和断言，其旧服务端编排尚未全容器化，不能执行；
-需要 Trojan 互通时用 integration 中的真实容器路径。内部 N 前缀是稳定证据 ID，
-不表示当前开发阶段，也不重编号已有原始结果。
+foundations/trojan 保留基础用例和断言，其旧服务端编排尚未全容器化，不能执行；
+需要 Trojan 互通时用 integration 中的真实容器路径。
+
+文件、用例、事件与报告按协议或验证用途命名，例如 INTEGRATION-PAIR-SS-SS、
+SECURITY-ECH-CHROME；不再提供阶段编号或 --stage 别名。旧报告保持原样，使用
+其记录的 Git revision 复核，不重写旧证据，也不将旧名称解释为新运行结果。
 
 执行清单从 Python 的协议定义生成；不再提交重复 cases.json 或规划字段/组合表。
 `--catalog-only` 只检查可执行清单与上限引用，输出 VALID / NOT RUN，不冒充通过。
@@ -88,9 +91,9 @@ uv run --project scripts --locked python -m vcore_scripts.protocol_encryption ta
 uv run --project scripts --locked vcore-scripts check reality-hybrid --run-dir target/interop/runs/<fresh-run>
 ```
 
-shape 和公开 TLS 配置测试使用纯内存 IO；reference 是独立官方基线，不是 VCore 业务
-通过。模板、wire、主/下载身份、恢复/过期与真正容器数据面各有独立断言；不从别名、
-另一个模板或 fork 接口探针推导通过。更多参数读对应 --help，不复制阶段计划。
+指纹验证的 reference、wire、interop 三层证据及 golden 比对规则见
+[指纹验证](../tests/fingerprints/README.md)。模板、主/下载身份、恢复/过期与容器数据面
+各有独立断言；不从别名、另一个模板或 fork 接口探针推导通过。更多参数读对应 --help。
 
 ## 平台构建与产物
 

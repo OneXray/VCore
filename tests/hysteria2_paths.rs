@@ -50,7 +50,7 @@ impl DatagramTransport for Packets {
 async fn controlled_path_maps_only_its_authorized_source_and_stops_without_replay() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N6-UNIT",
+        "HYSTERIA2-UNIT",
         "controlled_path_maps_only_its_authorized_source_and_stops_without_replay",
     );
     let logical = "192.0.2.1:443".parse().unwrap();

@@ -1,4 +1,4 @@
-"""Frozen N6 requirements and exact structured assertion identities."""
+"""Frozen HYSTERIA2 requirements and exact structured assertion identities."""
 
 from __future__ import annotations
 
@@ -61,30 +61,34 @@ SECURITY = (
     "salamander-wrong-auth",
 )
 M = {
-    "N6-TCP": (
+    "HYSTERIA2-TCP": (
         "hysteria2_tcp_base",
         False,
         ["C01", "C02", "C03", "C04", "T01", "T03", "HY01"],
     ),
-    "N6-UDP": ("hysteria2_udp_base", False, ["C05", "HY06"]),
-    "N6-TCP-SALAMANDER": ("hysteria2_tcp_base", True, ["HY02", "HY03"]),
-    "N6-UDP-SALAMANDER": ("hysteria2_udp_base", True, ["HY02", "HY03", "HY06"]),
-    "N6-SECURITY": (
+    "HYSTERIA2-UDP": ("hysteria2_udp_base", False, ["C05", "HY06"]),
+    "HYSTERIA2-TCP-SALAMANDER": ("hysteria2_tcp_base", True, ["HY02", "HY03"]),
+    "HYSTERIA2-UDP-SALAMANDER": ("hysteria2_udp_base", True, ["HY02", "HY03", "HY06"]),
+    "HYSTERIA2-SECURITY": (
         "native_security_matrix",
         False,
         ["T01", "T03", "T04", "T05", "T07", "T08", "HY01", "HY02", "HY03"],
     ),
-    "N6-BANDWIDTH": ("native_bandwidth_matrix", False, ["HY04", "HY05"]),
-    "N6-CLOSE": ("native_mihomo_close_alignment", False, []),
-    "N6-CLOSE-SALAMANDER": ("native_mihomo_close_alignment", True, ["HY02", "HY03"]),
-    "N6-OWNED": ("native_owned_lifecycle", False, []),
-    "N6-DEADLINE": ("native_deadline_and_udp_budget", False, ["HY06"]),
-    "N6-LIFE": ("runtime::public_lifecycle", False, []),
-    "N6-ENTRYPOINTS": ("runtime::public_entrypoints", False, ["C05"]),
-    "N6-IPV6-GATES": ("runtime::public_ipv6_and_gates", False, ["C03", "C05"]),
-    "N6-UDP-BOUNDARIES": ("hysteria2::public_udp_boundaries", False, ["HY06"]),
-    "N6-UPSTREAM": ("hysteria2::public_concrete_upstream", False, ["C06"]),
-    "N6-GRAPH": (
+    "HYSTERIA2-BANDWIDTH": ("native_bandwidth_matrix", False, ["HY04", "HY05"]),
+    "HYSTERIA2-CLOSE": ("native_mihomo_close_alignment", False, []),
+    "HYSTERIA2-CLOSE-SALAMANDER": (
+        "native_mihomo_close_alignment",
+        True,
+        ["HY02", "HY03"],
+    ),
+    "HYSTERIA2-OWNED": ("native_owned_lifecycle", False, []),
+    "HYSTERIA2-DEADLINE": ("native_deadline_and_udp_budget", False, ["HY06"]),
+    "HYSTERIA2-LIFE": ("runtime::public_lifecycle", False, []),
+    "HYSTERIA2-ENTRYPOINTS": ("runtime::public_entrypoints", False, ["C05"]),
+    "HYSTERIA2-IPV6-GATES": ("runtime::public_ipv6_and_gates", False, ["C03", "C05"]),
+    "HYSTERIA2-UDP-BOUNDARIES": ("hysteria2::public_udp_boundaries", False, ["HY06"]),
+    "HYSTERIA2-UPSTREAM": ("hysteria2::public_concrete_upstream", False, ["C06"]),
+    "HYSTERIA2-GRAPH": (
         "hysteria2::public_graph_and_hop_snapshot",
         False,
         ["C06", "HY07", "HY08"],
@@ -93,7 +97,7 @@ M = {
 H = {
     "-".join(
         (
-            "N6-HOP",
+            "HYSTERIA2-HOP",
             "V6" if v6 else "V4",
             "OBFS" if obfs else "PLAIN",
             "RANDOM" if random else "FIXED",
@@ -105,67 +109,67 @@ H = {
 }
 H.update(
     {
-        "N6-UDP-DISABLED": dict(
+        "HYSTERIA2-UDP-DISABLED": dict(
             test="native_udp_disabled", ipv6=False, obfs=False, random_interval=False
         ),
-        "N6-HOP-PROTECT": dict(
+        "HYSTERIA2-HOP-PROTECT": dict(
             test="native_hop_protect_rejection",
             ipv6=False,
             obfs=False,
             random_interval=False,
         ),
-        "N6-HOP-STOP": dict(
+        "HYSTERIA2-HOP-STOP": dict(
             test="native_stop_during_hop", ipv6=True, obfs=True, random_interval=False
         ),
     }
 )
 GATES = {
-    "N6-CFG",
-    "N6-UNIT",
-    "N6-RELEASE",
-    "N6-REGRESSION",
-    "N6-QUALITY",
-    "N6-FEATURES",
-    "N6-SCRIPTS",
-    "N6-PLATFORMS",
+    "HYSTERIA2-CFG",
+    "HYSTERIA2-UNIT",
+    "HYSTERIA2-RELEASE",
+    "HYSTERIA2-REGRESSION",
+    "HYSTERIA2-QUALITY",
+    "HYSTERIA2-FEATURES",
+    "HYSTERIA2-SCRIPTS",
+    "HYSTERIA2-PLATFORMS",
 }
-H3 = "N6-H3-REGRESSION"
+H3 = "HYSTERIA2-H3-REGRESSION"
 
 
 def expected_events(test):
     public = {
-        "hysteria2_tcp_base": ("N6-BASE", "tcp_ipv4_ipv6_domain_and_measure"),
-        "hysteria2_udp_base": ("N6-BASE", "udp_ipv4_ipv6_domain_fragmentation"),
-        "hysteria2_client_first": ("N6-BASE", "client_first"),
+        "hysteria2_tcp_base": ("HYSTERIA2-BASE", "tcp_ipv4_ipv6_domain_and_measure"),
+        "hysteria2_udp_base": ("HYSTERIA2-BASE", "udp_ipv4_ipv6_domain_fragmentation"),
+        "hysteria2_client_first": ("HYSTERIA2-BASE", "client_first"),
     }
     if test in public:
         expected = {public[test]: 1}
         if test == "hysteria2_tcp_base":
-            expected["N6-BASE", "tcp_10mib_both_directions"] = 3
+            expected["HYSTERIA2-BASE", "tcp_10mib_both_directions"] = 3
         return expected
     if test.startswith("runtime::"):
-        result = {("N6-PUBLIC", test): 1}
+        result = {("HYSTERIA2-PUBLIC", test): 1}
         if test == "runtime::public_lifecycle":
-            result["N6-LIFE", "stop_and_remain_quiet"] = 20
+            result["HYSTERIA2-LIFE", "stop_and_remain_quiet"] = 20
         return result
     if test.startswith("hysteria2::"):
-        return {("N6-PUBLIC", test.removeprefix("hysteria2::")): 1}
+        return {("HYSTERIA2-PUBLIC", test.removeprefix("hysteria2::")): 1}
     if test == "native_security_matrix":
         return {
-            ("N6-SECURITY", test): 1,
-            **{("N6-SECURITY-CASE", name): 1 for name in SECURITY},
+            ("HYSTERIA2-SECURITY", test): 1,
+            **{("HYSTERIA2-SECURITY-CASE", name): 1 for name in SECURITY},
         }
     return {
         (
             {
-                "native_bandwidth_matrix": "N6-BANDWIDTH",
-                "native_owned_lifecycle": "N6-LIFE",
-                "native_hopping": "N6-HOP",
-                "native_udp_disabled": "N6-UDP-DISABLED",
-                "native_hop_protect_rejection": "N6-HOP",
-                "native_stop_during_hop": "N6-HOP",
-                "native_deadline_and_udp_budget": "N6-NATIVE",
-                "native_mihomo_close_alignment": "N6-NATIVE",
+                "native_bandwidth_matrix": "HYSTERIA2-BANDWIDTH",
+                "native_owned_lifecycle": "HYSTERIA2-LIFE",
+                "native_hopping": "HYSTERIA2-HOP",
+                "native_udp_disabled": "HYSTERIA2-UDP-DISABLED",
+                "native_hop_protect_rejection": "HYSTERIA2-HOP",
+                "native_stop_during_hop": "HYSTERIA2-HOP",
+                "native_deadline_and_udp_budget": "HYSTERIA2-NATIVE",
+                "native_mihomo_close_alignment": "HYSTERIA2-NATIVE",
             }[test],
             test,
         ): 20 if test == "native_owned_lifecycle" else 1
@@ -232,33 +236,33 @@ def definitions():
             rows = ["C04", "HY07", "HY08"] if test != "native_udp_disabled" else ["C05"]
         elif identifier == H3:
             kind, test = "XR", "shared-quic-h3-native-regression"
-        elif identifier == "N6-CFG":
+        elif identifier == "HYSTERIA2-CFG":
             rows = sorted(FIELDS)
         native = kind != "unit"
         substage = (
-            "N6.5"
+            "HYSTERIA2.hopping"
             if kind == "H" and test != "native_udp_disabled"
-            else "N6.3"
-            if identifier == "N6-BANDWIDTH"
-            else "N6.2"
+            else "HYSTERIA2.bandwidth"
+            if identifier == "HYSTERIA2-BANDWIDTH"
+            else "HYSTERIA2.udp"
             if "UDP" in identifier
-            else "N6.1"
+            else "HYSTERIA2.tcp"
             if identifier in M
-            else "N6.6"
+            else "HYSTERIA2.acceptance"
         )
         expected = (
             CFG
-            if identifier == "N6-CFG"
+            if identifier == "HYSTERIA2-CFG"
             else UNIT
-            if identifier == "N6-UNIT"
+            if identifier == "HYSTERIA2-UNIT"
             else CFG + UNIT
-            if identifier == "N6-RELEASE"
+            if identifier == "HYSTERIA2-RELEASE"
             else [test]
         )
         output.append(
             dict(
                 case_id=identifier,
-                stage="N6",
+                stage="HYSTERIA2",
                 substage=substage,
                 required=True,
                 row_ids=sorted(rows),
@@ -270,14 +274,14 @@ def definitions():
                 outer_family="IPv6"
                 if options.get("ipv6")
                 else "IPv4/IPv6"
-                if identifier == "N6-IPV6-GATES"
+                if identifier == "HYSTERIA2-IPV6-GATES"
                 else "IPv4",
                 inner_family="IPv4/IPv6/domain",
                 target_type="isolated synthetic origin"
                 if native
                 else "memory-only/build",
                 upstream_graph="direct/concrete/nested-select"
-                if identifier in {"N6-GRAPH", "N6-UPSTREAM"}
+                if identifier in {"HYSTERIA2-GRAPH", "HYSTERIA2-UPSTREAM"}
                 else "direct",
                 peer_kind=kind,
                 peer_config=dict(
@@ -294,7 +298,7 @@ def definitions():
                 if kind == "H"
                 else dict(
                     reason=(
-                        "XHTTP H3 shared-adapter regression uses the N5 "
+                        "XHTTP H3 shared-adapter regression uses the XHTTP "
                         "official Xray handler"
                     ),
                     source="https://github.com/XTLS/Xray-core",
@@ -312,13 +316,13 @@ def definitions():
                 else ["rust-toolchain"],
                 runner="native-hysteria2" if kind in {"M", "H"} else "hysteria2-gate",
                 timeout_seconds=3600
-                if identifier == "N6-PLATFORMS"
+                if identifier == "HYSTERIA2-PLATFORMS"
                 else 900
                 if identifier == H3
                 else 1200
                 if not native
                 else 600
-                if identifier == "N6-BANDWIDTH"
+                if identifier == "HYSTERIA2-BANDWIDTH"
                 else 300,
             )
         )

@@ -63,7 +63,7 @@ mod tests {
     async fn tcp_wire_matches_the_protocol_and_preserves_server_first_bytes() {
         #[cfg(feature = "interop-test")]
         let _case = crate::resources::case_events::Case::new(
-            "N6-UNIT",
+            "HYSTERIA2-UNIT",
             "tcp_wire_matches_the_protocol_and_preserves_server_first_bytes",
         );
         let destination = Destination::domain("x", 1).unwrap();

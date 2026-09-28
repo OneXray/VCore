@@ -85,7 +85,7 @@ fn client_with(profile: &str, list: &[u8], pin: &str, extra: serde_json::Value) 
 async fn rejected_or_wrong_key_ech_never_reaches_application_data_even_with_a_matching_pin() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N7-CONFIG-TLS",
+        "SECURITY-CONFIG-TLS",
         "rejected_or_wrong_key_ech_never_reaches_application_data_even_with_a_matching_pin",
     );
     let rcgen::CertifiedKey { cert, signing_key } =
@@ -186,7 +186,7 @@ fn outer_sni(hello: &[u8]) -> &[u8] {
 async fn client_identity_is_sent_only_after_ech_acceptance() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N7-CONFIG-TLS",
+        "SECURITY-CONFIG-TLS",
         "client_identity_is_sent_only_after_ech_acceptance",
     );
     use boring::ssl::SslVerifyMode;
@@ -274,7 +274,7 @@ async fn client_identity_is_sent_only_after_ech_acceptance() {
 async fn cancelled_ech_emits_only_public_sni_and_releases_io_for_every_backend() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N7-CONFIG-TLS",
+        "SECURITY-CONFIG-TLS",
         "cancelled_ech_emits_only_public_sni_and_releases_io_for_every_backend",
     );
     let (config, _) = material(1);
@@ -318,7 +318,7 @@ async fn cancelled_ech_emits_only_public_sni_and_releases_io_for_every_backend()
 async fn each_backend_and_hpke_suite_requires_real_ech_acceptance_before_data() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N7-CONFIG-TLS",
+        "SECURITY-CONFIG-TLS",
         "each_backend_and_hpke_suite_requires_real_ech_acceptance_before_data",
     );
     let rcgen::CertifiedKey { cert, signing_key } =

@@ -43,7 +43,7 @@ impl OutboundConnector for SuppliedStream {
 async fn vless_all_handshakes_keep_the_original_deadline_and_join_cancelled_io() {
     #[cfg(feature = "interop-test")]
     let _evidence = vcore::resources::case_events::Case::new(
-        "N4-CANCEL",
+        "VLESS-CANCEL",
         "vless_all_handshakes_keep_the_original_deadline_and_join_cancelled_io",
     );
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -146,7 +146,7 @@ fn split_xhttp_construction_fits_the_runtime_stack_and_protect_failure_has_no_fa
 async fn vless_expired_deadline_and_protect_failure_never_fall_back() {
     #[cfg(feature = "interop-test")]
     let _evidence = vcore::resources::case_events::Case::new(
-        "N4-CANCEL",
+        "VLESS-CANCEL",
         "vless_expired_deadline_and_protect_failure_never_fall_back",
     );
     let parsed = Config::parse_yaml(b"socks-port: 1080\nproxies: [{name: edge, type: vless, server: 192.0.2.1, port: 443, uuid: 07070707-0707-0707-0707-070707070707}]\nrules: ['MATCH,edge']").unwrap();

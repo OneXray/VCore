@@ -1,9 +1,11 @@
 """Offline checks of the selected-profile reference driver interface."""
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
+from vcore_scripts.builds import CORE_DIR
 from vcore_scripts.protocol_fingerprint_reference import (
     check_reference_report,
     reference_cases,
@@ -33,7 +35,11 @@ class FingerprintReferenceTest(unittest.TestCase):
     def test_invalid_selection_has_no_filesystem_or_network_effects(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "not-created"
-            for cases in ([], ["missing"], ["CF0-chrome-tcp-16-0"] * 2):
+            for cases in (
+                [],
+                ["missing"],
+                ["FINGERPRINT-REFERENCE-chrome-tcp-16-0"] * 2,
+            ):
                 with self.assertRaises(ValueError):
                     run_reference(output, cases)
                 self.assertFalse(output.exists())
@@ -61,6 +67,15 @@ class FingerprintReferenceTest(unittest.TestCase):
             )
             self.assertEqual({c["attempt"] for c in selected}, {0, 1})
         self.assertEqual({c["sni_length"] for c in cases}, {16, 80})
+        catalog = {case["id"]: case for case in cases}
+        samples = json.loads(
+            (CORE_DIR / "tests/fingerprints/mihomo-selected-v1.json").read_text()
+        )["samples"]
+        for sample in samples:
+            with self.subTest(sample=sample["case_id"]):
+                case = catalog[sample["case_id"]]
+                for field in ("profile", "context", "template"):
+                    self.assertEqual(sample[field], case[field])
 
 
 if __name__ == "__main__":

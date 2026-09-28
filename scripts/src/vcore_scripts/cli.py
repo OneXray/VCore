@@ -9,7 +9,7 @@ from pathlib import Path
 from .builds import build_android, build_apple, build_windows
 from .checks import check_c_header, check_tls_dependencies
 from .mihomo_release import SUPPORTED_TARGETS, download_mihomo
-from .protocol_catalogs import CATALOG_DIR, check_protocol_catalogs
+from .protocol_catalogs import CATALOG_DIR, SUITES, check_protocol_catalogs
 from .protocol_evidence import check_run
 from .protocol_harness import run_protocol_interop
 from .tun2socks import run_demo
@@ -68,13 +68,13 @@ def _parser() -> argparse.ArgumentParser:
     abi.add_argument("--manifest", type=Path, required=True)
     reality = checks.add_parser(
         "reality-hybrid",
-        help="run isolated N7.2 S03/D16 checks, not complete N7 acceptance",
+        help="verify isolated hybrid REALITY, not the complete security suite",
     )
     reality.add_argument("--run-dir", type=Path, required=True)
     reality.add_argument("--case", dest="identifiers", action="append")
     xhttp = checks.add_parser(
         "xhttp-peers",
-        help="probe isolated native N5 peer capabilities, not stage acceptance",
+        help="probe isolated native XHTTP peer capabilities, not suite acceptance",
     )
     xhttp.add_argument("--run-dir", type=Path, required=True)
     xhttp.add_argument(
@@ -102,35 +102,21 @@ def _parser() -> argparse.ArgumentParser:
         help="check declarations only, not implementation or behavior acceptance",
     )
     coverage_modes.add_argument(
-        "--run-dir", type=Path, help="validate a complete persisted stage run"
+        "--run-dir", type=Path, help="validate a complete persisted suite run"
     )
-    suites = {
-        "foundations": "N1",
-        "trojan": "N2",
-        "vmess": "N3",
-        "vless": "N4",
-        "xhttp": "N5",
-        "hysteria2": "N6",
-        "security": "N7",
-        "integration": "N9",
-    }
-    stages = list(suites.values())
-    coverage_selection = coverage.add_mutually_exclusive_group()
-    coverage_selection.add_argument("--suite", choices=suites, default=None)
-    coverage_selection.add_argument("--stage", choices=stages, help=argparse.SUPPRESS)
-    coverage.set_defaults(suites=suites)
+    suites = [name.lower() for name in SUITES]
+    coverage.add_argument("--suite", choices=suites, default="foundations")
     coverage.add_argument(
         "--manifest",
         type=Path,
         help="explicit frozen executable manifest for evidence checks",
     )
     protocol = checks.add_parser(
-        "protocol-interop", help="run structured stage foundations and native peers"
+        "protocol-interop", help="run a protocol or integration capability suite"
     )
-    selection = protocol.add_mutually_exclusive_group(required=True)
-    selection.add_argument("--suite", choices=suites, help="capability suite to run")
-    selection.add_argument("--stage", choices=stages, help=argparse.SUPPRESS)
-    protocol.set_defaults(suites=suites)
+    protocol.add_argument(
+        "--suite", choices=suites, required=True, help="capability suite to run"
+    )
     protocol.add_argument("--case", dest="identifiers", action="append")
     protocol.add_argument(
         "--protocol",
@@ -206,12 +192,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 else:
                     check_run(
                         args.run_dir.resolve(),
-                        args.suites[args.suite] if args.suite else (args.stage or "N1"),
+                        args.suite.upper(),
                         args.manifest,
                     )
             elif args.check == "protocol-interop":
                 run_protocol_interop(
-                    stage=args.suites[args.suite] if args.suite else args.stage,
+                    stage=args.suite.upper(),
                     identifiers=args.identifiers,
                     protocol=args.protocol,
                     list_only=args.list_only,

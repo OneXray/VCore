@@ -20,7 +20,7 @@ fn parse(options: serde_json::Value, vision: bool) -> bool {
 fn sing_mux_accepts_three_protocols_and_rejects_invalid_or_ignored_options() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "sing_mux_accepts_three_protocols_and_rejects_invalid_or_ignored_options",
     );
     for protocol in ["h2mux", "smux", "yamux"] {

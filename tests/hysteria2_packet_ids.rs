@@ -129,8 +129,10 @@ impl quinn::AsyncUdpSocket for PeerSocket {
 #[tokio::test]
 async fn completed_fragment_id_can_be_reused_without_losing_the_next_datagram() {
     #[cfg(feature = "interop-test")]
-    let _case =
-        vcore::resources::case_events::Case::new("N9-ADAPTER", "hysteria2_fragment_id_reuse");
+    let _case = vcore::resources::case_events::Case::new(
+        "INTEGRATION-ADAPTER",
+        "hysteria2_fragment_id_reuse",
+    );
     let server_address: SocketAddr = "192.0.2.1:443".parse().unwrap();
     let client_address: SocketAddr = "192.0.2.2:1234".parse().unwrap();
     let (to_server, from_client) = mpsc::channel(32);

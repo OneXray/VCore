@@ -1,4 +1,4 @@
-"""Seven-protocol N9 consumers with owned official peers and container origins."""
+"""Seven-protocol integration with owned official peers and container origins."""
 
 from __future__ import annotations
 
@@ -18,15 +18,15 @@ from .native_release import download_native
 from .protocol_containers import ContainerLab, command, frozen_image
 from .protocol_fixtures import certificates
 from .protocol_inputs import redact, sha256, source_identity
-from .protocol_n9_catalog import PAIRS
+from .protocol_integration_catalog import PAIRS
 from .protocol_peers import run_command
 
 
 def peer_configuration(protocol, server, origin, directory, *, certificate=None):
     cert, key, pin = certificate or certificates(directory)
-    listener = dict(name="n9", type=protocol, listen="::", port=23000)
+    listener = dict(name="integration", type=protocol, listen="::", port=23000)
     node = dict(name="peer", type=protocol, server=server, port=23000, udp=True)
-    password = "synthetic-n9-fixture"
+    password = "synthetic-integration-fixture"
     identity = "07070707-0707-0707-0707-070707070707"
     if protocol == "socks5":
         listener.update(
@@ -93,13 +93,15 @@ def run(
         or len(selected) != len(set(selected))
         or not set(selected) <= PAIRS.keys()
     ):
-        raise ValueError("invalid N9 pair selection")
+        raise ValueError("invalid INTEGRATION pair selection")
     output = output.resolve()
     if not output.is_relative_to((CORE_DIR / "target/interop/runs").resolve()):
-        raise ValueError("N9 evidence must stay inside the owned run directory")
+        raise ValueError(
+            "INTEGRATION evidence must stay inside the owned run directory"
+        )
     output.mkdir(parents=True, exist_ok=False)
     report = dict(
-        stage="N9",
+        stage="INTEGRATION",
         scope="ordered-pair-subset" if consumer == "ordered_pair" else "diagnostic",
         source=source_identity(),
         status="NOT RUN",
@@ -116,7 +118,7 @@ def run(
         else:
             binary, identity = supplied
             if sha256(binary) != identity["binary_sha256"]:
-                raise RuntimeError("N9 native peer identity mismatch")
+                raise RuntimeError("INTEGRATION native peer identity mismatch")
         report["peers"]["M"] = identity
         if any(PAIRS[key][1] == "trojan" for key in selected):
             if domain_peer is None:
@@ -125,12 +127,12 @@ def run(
                 )
                 domain_peer = (artifact.binary, artifact.identity)
             if sha256(domain_peer[0]) != domain_peer[1]["binary_sha256"]:
-                raise RuntimeError("N9 domain terminal identity mismatch")
+                raise RuntimeError("INTEGRATION domain terminal identity mismatch")
             report["peers"]["XR"] = domain_peer[1]
         lab = ContainerLab(report["isolation"], mtu=1500)
         for index, identifier in enumerate(selected):
             first_kind, last_kind = PAIRS[identifier]
-            print(f"N9: {identifier}", flush=True)
+            print(f"INTEGRATION: {identifier}", flush=True)
             with tempfile.TemporaryDirectory(
                 prefix="private-", dir=output
             ) as temporary:
@@ -189,7 +191,7 @@ def run(
                             != identity["binary_sha256"]
                         ):
                             raise RuntimeError(
-                                "N9 container binary differs from download"
+                                "INTEGRATION container binary differs from download"
                             )
                         node, config = peer_configuration(
                             protocol, peer.ipv4, origin.ipv4, directory
@@ -225,7 +227,7 @@ def run(
                             != domain_peer[1]["binary_sha256"]
                         ):
                             raise RuntimeError(
-                                "N9 domain container binary identity mismatch"
+                                "INTEGRATION domain container binary identity mismatch"
                             )
                         certificate = certificates(directory)
                         node, _ = peer_configuration(
@@ -260,9 +262,9 @@ def run(
                     env = dict(
                         os.environ,
                         VCORE_VLESS_INPUT=str(path),
-                        VCORE_PROTOCOL_STAGE="N9",
+                        VCORE_PROTOCOL_STAGE="INTEGRATION",
                         VCORE_CASE_EVENTS=str(events),
-                        VCORE_N9_OBSERVATIONS=str(observations),
+                        VCORE_INTEGRATION_OBSERVATIONS=str(observations),
                     )
                     argv = rust_command(consumer)
                     result = run_command(argv, cwd=CORE_DIR, env=env, timeout=300)
@@ -279,7 +281,7 @@ def run(
                         )
                     )
                     if result.returncode != 0 or not result.cleanup:
-                        raise RuntimeError("N9 ordered-pair consumer failed")
+                        raise RuntimeError("INTEGRATION ordered-pair consumer failed")
         report["status"] = "PASS"
     except BaseException as error:
         report.update(status="FAIL", failure_kind=type(error).__name__)
@@ -291,7 +293,9 @@ def run(
         )
         if not report["cleanup"] or not report["source_unchanged"]:
             report["status"] = "FAIL"
-        (output / "n9-native.json").write_text(json.dumps(report, indent=2) + "\n")
+        (output / "integration-native.json").write_text(
+            json.dumps(report, indent=2) + "\n"
+        )
     return report
 
 

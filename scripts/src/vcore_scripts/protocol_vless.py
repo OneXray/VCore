@@ -1,4 +1,4 @@
-"""N4 development mode selection, using the same container fixtures as acceptance.
+"""VLESS development mode selection, using the same container fixtures as acceptance.
 
 This entry does not execute local/build gates or sign off the complete stage.
 """
@@ -13,7 +13,7 @@ from .protocol_vless_public import CASES
 def run(output: Path, modes=None):
     modes = MODES if modes is None else modes
     if not modes or not set(modes) <= set(MODES) or len(set(modes)) != len(modes):
-        raise ValueError("invalid N4 development mode")
+        raise ValueError("invalid VLESS development mode")
     selected = [case for case, (_, mode, _, _) in CASES.items() if mode in modes]
     return run_cases(output, selected)
 

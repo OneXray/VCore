@@ -44,10 +44,10 @@ async fn native_xhttp_owned_resources() {
     )
     .unwrap();
     assert_eq!(f["isolation"], "containers");
-    let _case = Case::new("N5-XHTTP", "lifecycle::native_xhttp_owned_resources");
+    let _case = Case::new("XHTTP-XHTTP", "lifecycle::native_xhttp_owned_resources");
     tokio::time::timeout(Duration::from_secs(220), async {
         for _ in 0..20 {
-            let mut cycle = Case::new("N5-OWNED", "stop_and_remain_quiet");
+            let mut cycle = Case::new("XHTTP-OWNED", "stop_and_remain_quiet");
             let probe = ResourceProbe::default();
             cycle.checkpoint("baseline", probe.snapshot());
             probe

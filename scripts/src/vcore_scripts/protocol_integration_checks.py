@@ -1,13 +1,13 @@
-"""Raw N9 runtime observations and native isolation, independent of run status."""
+"""Raw runtime observations and native isolation, independent of run status."""
 
 from __future__ import annotations
 
 from .protocol_evidence import HEX, idle_resources, read_events, read_json
 from .protocol_hysteria2_catalog import assertions_pass
-from .protocol_n9_catalog import PROTOCOLS
-from .protocol_n9_metrics import lifetimes, rebuild, soak
-from .protocol_n9_native import rust_command
-from .protocol_n9_suite import CONSUMERS
+from .protocol_integration_catalog import PROTOCOLS
+from .protocol_integration_metrics import lifetimes, rebuild, soak
+from .protocol_integration_native import rust_command
+from .protocol_integration_suite import CONSUMERS
 
 
 def envelope(report, peers, source, digest, *, single=None):
@@ -62,7 +62,7 @@ def runtime_pass(identifier, record, directory):
     events = read_events(directory / (identifier + "-events.jsonl"))
     protocols = list(PROTOCOLS)
     expected = {(identifier, p): 1 for p in protocols}
-    if identifier == "N9-ENTRYPOINTS":
+    if identifier == "INTEGRATION-ENTRYPOINTS":
         good = value == dict(
             entrypoints=[
                 dict(
@@ -76,7 +76,7 @@ def runtime_pass(identifier, record, directory):
                 for p in protocols
             ]
         )
-    elif identifier == "N9-GRAPH":
+    elif identifier == "INTEGRATION-GRAPH":
         good = value == dict(
             protocols=protocols,
             nested_select=True,
@@ -86,7 +86,7 @@ def runtime_pass(identifier, record, directory):
             unselected_cycle=True,
             no_fallback=True,
         )
-    elif identifier == "N9-DNS-MEASURE":
+    elif identifier == "INTEGRATION-DNS-MEASURE":
         good = value == dict(
             protocols=protocols,
             controlled_dns_via_proxy=True,
@@ -94,10 +94,14 @@ def runtime_pass(identifier, record, directory):
             node_measure=True,
             group_measure_rejected=True,
         )
-    elif identifier == "N9-FAILURES":
+    elif identifier == "INTEGRATION-FAILURES":
         expected = {
             (suite, p): 1
-            for suite in (identifier, "N9-FAILURES-AUTH", "N9-FAILURES-SOURCE")
+            for suite in (
+                identifier,
+                "INTEGRATION-FAILURES-AUTH",
+                "INTEGRATION-FAILURES-SOURCE",
+            )
             for p in protocols
         }
         good = value == dict(
@@ -118,15 +122,16 @@ def runtime_pass(identifier, record, directory):
         good &= all(
             idle_resources(e.get("resources"))
             for e in events
-            if e.get("status") == "PASS" and e.get("suite") != "N9-FAILURES-AUTH"
+            if e.get("status") == "PASS"
+            and e.get("suite") != "INTEGRATION-FAILURES-AUTH"
         )
-    elif identifier in {"N9-SS-ALGORITHMS", "N9-SS-EIH"}:
-        eih = identifier == "N9-SS-EIH"
+    elif identifier in {"INTEGRATION-SS-ALGORITHMS", "INTEGRATION-SS-EIH"}:
+        eih = identifier == "INTEGRATION-SS-EIH"
         ciphers = ["2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm"] + (
             [] if eih else ["2022-blake3-chacha20-poly1305"]
         )
         expected = {(identifier, c): 1 for c in ciphers} | {
-            ("N9-BASE", "tcp_10mib_both_directions"): 8 if eih else 9
+            ("INTEGRATION-BASE", "tcp_10mib_both_directions"): 8 if eih else 9
         }
         good = value == (
             dict(
@@ -161,20 +166,20 @@ def runtime_pass(identifier, record, directory):
                 ]
             )
         )
-    elif identifier == "N9-LIFECYCLE":
+    elif identifier == "INTEGRATION-LIFECYCLE":
         expected = {(identifier, "stop_and_remain_quiet"): 100}
         good = lifetimes(value, events)
     else:
         name = (
             "forty_flows_same_session"
-            if identifier == "N9-REBUILD"
+            if identifier == "INTEGRATION-REBUILD"
             else "mixed_forty_flows"
         )
         expected = {(identifier, name): 1}
         passes = [e for e in events if e.get("status") == "PASS"]
         good = len(passes) == 1 and (
             rebuild(value, passes[0])
-            if identifier == "N9-REBUILD"
+            if identifier == "INTEGRATION-REBUILD"
             else soak(
                 value,
                 passes[0],

@@ -1,4 +1,4 @@
-"""N7 static ECH consumers against official latest isolated peers."""
+"""SECURITY static ECH consumers against official latest isolated peers."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ def catalog():
     cases = {}
 
     def add(mode, suffix, test):
-        cases[f"N7-ECH-{mode.upper()}-{suffix}"] = ("M", mode, True, test)
+        cases[f"SECURITY-ECH-{mode.upper()}-{suffix}"] = ("M", mode, True, test)
 
     modes = (
         "tcp-tls",

@@ -88,7 +88,7 @@ mod tests {
     #[tokio::test]
     async fn record_boundary_preserves_buffered_plaintext_and_coalesced_raw_tail_and_flush_order() {
         let _case = crate::resources::case_events::Case::new(
-            "N4-UNIT",
+            "VLESS-UNIT",
             "record_boundary_preserves_buffered_plaintext_and_coalesced_raw_tail_and_flush_order",
         );
         for &profile in crate::security::test_profiles() {

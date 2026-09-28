@@ -57,7 +57,8 @@ def reference_cases() -> list[dict]:
                 for attempt in range(2):
                     cases.append(
                         dict(
-                            id=f"CF0-{profile}-{context}-{len(sni)}-{attempt}",
+                            id=f"FINGERPRINT-REFERENCE-{profile}-{context}-"
+                            f"{len(sni)}-{attempt}",
                             profile=profile,
                             template=TEMPLATES.get(profile),
                             context=context,
@@ -71,7 +72,7 @@ def reference_cases() -> list[dict]:
             for attempt in range(2):
                 cases.append(
                     dict(
-                        id=f"CF0-{profile}-{context}-16-{attempt}",
+                        id=f"FINGERPRINT-REFERENCE-{profile}-{context}-16-{attempt}",
                         profile=profile,
                         template=TEMPLATES[profile],
                         context=context,
@@ -165,7 +166,7 @@ def _reference_shape(hello, case, *, expected_alpn=None, allow_psk=False):
 
 
 def check_reference_report(report: dict) -> dict:
-    """Offline CF0 gate: complete scope, raw observations and known variations."""
+    """Verify reference scope, raw observations and source-defined variations."""
     if (
         report.get("scope") != "selected-v1"
         or report.get("status") != "CAPTURED"
@@ -222,7 +223,7 @@ def check_reference_report(report: dict) -> dict:
             observed += 1
     return dict(
         scope="selected-v1",
-        stage="CF0",
+        stage="FINGERPRINT-REFERENCE",
         status="BASELINE VERIFIED",
         cases=len(cases),
         observations=observed,
@@ -310,7 +311,7 @@ def run_reference(output: Path, selected=None) -> int:
     output.mkdir(parents=True)
     report = dict(
         scope="selected-v1",
-        stage="CF0",
+        stage="FINGERPRINT-REFERENCE",
         kind="reference-clienthello-only",
         status="NOT RUN",
         production_support="UNCHANGED",
@@ -363,7 +364,7 @@ def run_reference(output: Path, selected=None) -> int:
             observer = lab.start(
                 stack,
                 observer_root,
-                "cf0-observer",
+                "fingerprint-reference-observer",
                 [
                     "env",
                     "VCORE_ISOLATED_TLS_OBSERVER=1",
@@ -391,7 +392,7 @@ def run_reference(output: Path, selected=None) -> int:
             client = lab.start(
                 stack,
                 client_root,
-                "cf0-mihomo",
+                "fingerprint-reference-mihomo",
                 [
                     "/data/fixture/mihomo",
                     "-d",

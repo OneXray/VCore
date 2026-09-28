@@ -1,4 +1,4 @@
-"""Frozen N5 cases. Independent tuning is pairwise; coupled modes remain explicit."""
+"""Frozen XHTTP cases. Independent tuning is pairwise; coupled modes remain explicit."""
 
 from __future__ import annotations
 
@@ -75,8 +75,8 @@ FIELD_IDS = {
     *(f"M{i:02}" for i in range(1, 8)),
 }
 OBSERVATIONS = {
-    "N5-CFG": UNIT_TESTS["xhttp_config"] + UNIT_TESTS["sing_mux_config"],
-    "N5-UNIT": sum(
+    "XHTTP-CFG": UNIT_TESTS["xhttp_config"] + UNIT_TESTS["sing_mux_config"],
+    "XHTTP-UNIT": sum(
         (
             UNIT_TESTS[n]
             for n in ("xhttp_requests", "xhttp_reuse", "sing_mux", "xhttp_budget")
@@ -84,22 +84,22 @@ OBSERVATIONS = {
         [],
     )
     + DRIVER_TESTS,
-    "N5-REGRESSION": PREVIOUS["N4-REGRESSION"]
-    + PREVIOUS["N4-CODEC"]
-    + PREVIOUS["N4-TRANSPORT"]
-    + PREVIOUS["N4-VISION"],
+    "XHTTP-REGRESSION": PREVIOUS["VLESS-REGRESSION"]
+    + PREVIOUS["VLESS-CODEC"]
+    + PREVIOUS["VLESS-TRANSPORT"]
+    + PREVIOUS["VLESS-VISION"],
 }
-OBSERVATIONS["N5-RELEASE"] = OBSERVATIONS["N5-CFG"] + OBSERVATIONS["N5-UNIT"]
+OBSERVATIONS["XHTTP-RELEASE"] = OBSERVATIONS["XHTTP-CFG"] + OBSERVATIONS["XHTTP-UNIT"]
 GATES = {
-    "N5-CFG",
-    "N5-UNIT",
-    "N5-REGRESSION",
-    "N5-RELEASE",
-    "N5-QUALITY",
-    "N5-FEATURES",
-    "N5-SCRIPTS",
+    "XHTTP-CFG",
+    "XHTTP-UNIT",
+    "XHTTP-REGRESSION",
+    "XHTTP-RELEASE",
+    "XHTTP-QUALITY",
+    "XHTTP-FEATURES",
+    "XHTTP-SCRIPTS",
 }
-SECURITY = {f"N5-SECURITY-{v.upper()}": v for v in ("h1", "h2", "h3")}
+SECURITY = {f"XHTTP-SECURITY-{v.upper()}": v for v in ("h1", "h2", "h3")}
 NATIVE = {}
 VERSIONS = ("h1", "h2", "h1c", "h2c", "h1r", "h2r", "h3")
 ALL_VARIANTS = variants()
@@ -107,12 +107,12 @@ ALL_VARIANTS = variants()
 
 def add(variant, suffix, test):
     if variant not in ALL_VARIANTS:
-        raise ValueError("missing frozen N5 variant")
+        raise ValueError("missing frozen XHTTP variant")
     # Case-sensitive table names need distinct stable identifiers.
     digest = hashlib.sha256(variant.encode()).hexdigest()[:8].upper()
-    identifier = f"N5-{variant.upper()}-{suffix}-{digest}"
+    identifier = f"XHTTP-{variant.upper()}-{suffix}-{digest}"
     if identifier in NATIVE:
-        raise ValueError("duplicate N5 requirement")
+        raise ValueError("duplicate XHTTP requirement")
     NATIVE[identifier] = (variant, test)
 
 
@@ -281,7 +281,7 @@ REUSE_ROWS = {
 
 
 def rows(identifier):
-    if identifier in {"N5-CFG", "N5-UNIT"}:
+    if identifier in {"XHTTP-CFG", "XHTTP-UNIT"}:
         return sorted(FIELD_IDS)
     if identifier in GATES:
         return []
@@ -339,16 +339,16 @@ def definitions():
         result.append(
             dict(
                 case_id=identifier,
-                stage="N5",
-                substage="N5.4"
+                stage="XHTTP",
+                substage="XHTTP.http3"
                 if version == "h3"
-                else "N5.3"
+                else "XHTTP.mux"
                 if "_mux" in options
-                else "N5.2"
+                else "XHTTP.download"
                 if identifier in SECURITY or "download-settings" in options
-                else "N5.1"
+                else "XHTTP.requests"
                 if native
-                else "N5.5",
+                else "XHTTP.acceptance",
                 required=True,
                 row_ids=rows(identifier),
                 protocol="vless",
@@ -371,7 +371,7 @@ def definitions():
                 gap_source=gap,
                 expected_observation=OBSERVATIONS.get(
                     identifier,
-                    SCRIPT_ASSERTIONS if identifier == "N5-SCRIPTS" else [test],
+                    SCRIPT_ASSERTIONS if identifier == "XHTTP-SCRIPTS" else [test],
                 ),
                 required_evidence=["structured-assertions", "command", "cleanup"]
                 + (["official-peer-identity", "isolated-origins"] if native else []),

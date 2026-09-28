@@ -1,4 +1,4 @@
-"""N4 container-only public consumer acceptance and independent coverage."""
+"""VLESS container-only public consumer acceptance and independent coverage."""
 
 from __future__ import annotations
 
@@ -25,19 +25,19 @@ FIELD_IDS = {
     "S02",
 }
 GATES = {
-    "N4-CFG",
-    "N4-CODEC",
-    "N4-TRANSPORT",
-    "N4-VISION",
-    "N4-REGRESSION",
-    "N4-RELEASE",
-    "N4-FEATURES",
-    "N4-SCRIPTS",
-    "N4-QUALITY",
+    "VLESS-CFG",
+    "VLESS-CODEC",
+    "VLESS-TRANSPORT",
+    "VLESS-VISION",
+    "VLESS-REGRESSION",
+    "VLESS-RELEASE",
+    "VLESS-FEATURES",
+    "VLESS-SCRIPTS",
+    "VLESS-QUALITY",
 }
 REQUIRED_IDS = set(NATIVE) | GATES
 OBSERVATIONS = {
-    "N4-CFG": [
+    "VLESS-CFG": [
         "inline_client_identity_is_validated_and_redacted_before_io",
         "vision_requires_tcp_tls13_and_xudp_before_any_io",
         "default_tcp_and_three_udp_encodings_are_accepted_without_io",
@@ -45,7 +45,7 @@ OBSERVATIONS = {
         "stream_transports_and_explicit_tls_policy_have_strict_public_fields",
         "extended_ws_and_grpc_fields_are_scoped_and_bounded",
     ],
-    "N4-CODEC": [
+    "VLESS-CODEC": [
         "stopping_before_first_udp_send_wakes_receive_and_releases_io",
         "raw_and_packetaddr_consume_wire_and_keep_cancelled_receive_progress",
         "udp_cancelled_send_and_bad_response_header_close_owned_io",
@@ -53,14 +53,14 @@ OBSERVATIONS = {
         "vless_all_handshakes_keep_the_original_deadline_and_join_cancelled_io",
         "vless_expired_deadline_and_protect_failure_never_fall_back",
     ],
-    "N4-TRANSPORT": [
+    "VLESS-TRANSPORT": [
         "http_camouflage_shutdown_releases_both_directions_without_waiting_for_peer_eof",
         "grpc_server_first_flushes_vless_request_without_an_application_write",
         "http_upgrade_consumes_early_prefix_and_requires_valid_101_even_fast_open",
         "grpc_idle_ping_is_observable_disabled_by_zero_and_joined_at_stop",
         "grpc_pool_matches_both_threshold_policies_and_keeps_other_streams_alive",
     ],
-    "N4-VISION": [
+    "VLESS-VISION": [
         "vision_fragmented_headers_content_padding_and_cancelled_reads_keep_raw_tail",
         "vision_invalid_uuid_command_and_truncation_poison_the_stream",
         "vision_bounded_partial_writes_flush_and_close_preserve_all_plaintext",
@@ -68,33 +68,36 @@ OBSERVATIONS = {
         "record_boundary_preserves_buffered_plaintext_and_coalesced_raw_tail_and_flush_order",
     ],
 }
-OBSERVATIONS["N4-REGRESSION"] = (
-    PREVIOUS_OBSERVATIONS["N3-REGRESSION"]
-    + PREVIOUS_OBSERVATIONS["N3-CFG"]
-    + PREVIOUS_OBSERVATIONS["N3-CODEC"]
-    + PREVIOUS_OBSERVATIONS["N3-CANCEL"]
+OBSERVATIONS["VLESS-REGRESSION"] = (
+    PREVIOUS_OBSERVATIONS["VMESS-REGRESSION"]
+    + PREVIOUS_OBSERVATIONS["VMESS-CFG"]
+    + PREVIOUS_OBSERVATIONS["VMESS-CODEC"]
+    + PREVIOUS_OBSERVATIONS["VMESS-CANCEL"]
     + [
         "all_two_hop_protocol_combinations_build_as_connector_graphs",
         "direct_download_constructor_reuses_or_requires_the_precise_prepared_endpoint",
         "split_node_over_a_proxy_automatically_reuses_its_parent_for_both_legs",
     ]
 )
-OBSERVATIONS["N4-RELEASE"] = sum(
-    (OBSERVATIONS[key] for key in ("N4-CFG", "N4-CODEC", "N4-TRANSPORT", "N4-VISION")),
+OBSERVATIONS["VLESS-RELEASE"] = sum(
+    (
+        OBSERVATIONS[key]
+        for key in ("VLESS-CFG", "VLESS-CODEC", "VLESS-TRANSPORT", "VLESS-VISION")
+    ),
     [],
 )
 
 
 def rows(identifier):
-    if identifier == "N4-CFG":
+    if identifier == "VLESS-CFG":
         return sorted(FIELD_IDS)
-    if identifier == "N4-CODEC":
+    if identifier == "VLESS-CODEC":
         return ["VL01", "VL02", "VL04"]
-    if identifier == "N4-TRANSPORT":
+    if identifier == "VLESS-TRANSPORT":
         return [*(f"G{i:02}" for i in range(1, 7)), "W06", "W07"]
-    if identifier == "N4-VISION":
+    if identifier == "VLESS-VISION":
         return ["VL03", "VL04", "VL05", "S01", "S02"]
-    if identifier in GATES or identifier.startswith("N4-REGRESSION"):
+    if identifier in GATES or identifier.startswith("VLESS-REGRESSION"):
         return []
     _, mode, tls, test = NATIVE[identifier]
     result = {"VL01", "VL02", "VL04", "VL05"}
@@ -131,19 +134,19 @@ def definitions():
         )
         native = identifier in NATIVE
         substage = (
-            "N4.3"
-            if mode.startswith("vision-") or identifier == "N4-VISION"
-            else "N4.1"
-            if mode in {"tcp", "tcp-tls"} or identifier == "N4-CODEC"
-            else "N4.2"
+            "VLESS.vision"
+            if mode.startswith("vision-") or identifier == "VLESS-VISION"
+            else "VLESS.tcp"
+            if mode in {"tcp", "tcp-tls"} or identifier == "VLESS-CODEC"
+            else "VLESS.transports"
             if mode.startswith(("ws", "grpc", "http", "h2", "upgrade"))
-            or identifier == "N4-TRANSPORT"
-            else "N4.4"
+            or identifier == "VLESS-TRANSPORT"
+            else "VLESS.acceptance"
         )
         cases.append(
             dict(
                 case_id=identifier,
-                stage="N4",
+                stage="VLESS",
                 substage=substage,
                 required=True,
                 row_ids=rows(identifier),
@@ -192,7 +195,7 @@ def definitions():
                 expected_observation=[test]
                 if native
                 else SCRIPT_ASSERTIONS
-                if identifier == "N4-SCRIPTS"
+                if identifier == "VLESS-SCRIPTS"
                 else OBSERVATIONS.get(identifier, [identifier]),
                 required_evidence=["structured-assertions", "command", "cleanup"]
                 + (["peer-identity", "isolated-origins"] if native else []),
@@ -211,15 +214,15 @@ def definitions():
 
 def commands(identifier):
     cargo = ["cargo", "test", "--locked", "--all-features"]
-    if identifier == "N4-CFG":
+    if identifier == "VLESS-CFG":
         return [cargo + ["--test", "vless_config"], cargo + ["--lib", "config::"]]
-    if identifier == "N4-CODEC":
+    if identifier == "VLESS-CODEC":
         return [cargo + ["--test", "vless_codec", "--test", "vless_lifecycle"]]
-    if identifier == "N4-TRANSPORT":
+    if identifier == "VLESS-TRANSPORT":
         return [cargo + ["--test", "vless_transports", "--test", "grpc_pool"]]
-    if identifier == "N4-VISION":
+    if identifier == "VLESS-VISION":
         return [cargo + ["--lib", "vision"]]
-    if identifier == "N4-RELEASE":
+    if identifier == "VLESS-RELEASE":
         return [
             cargo
             + [
@@ -237,14 +240,14 @@ def commands(identifier):
             ],
             cargo + ["--release", "--lib", "vision"],
         ]
-    if identifier == "N4-REGRESSION":
+    if identifier == "VLESS-REGRESSION":
         from .protocol_vmess_acceptance import commands as previous
 
         return (
-            previous("N3-REGRESSION")
-            + previous("N3-CFG")
-            + previous("N3-CODEC")
-            + previous("N3-CANCEL")
+            previous("VMESS-REGRESSION")
+            + previous("VMESS-CFG")
+            + previous("VMESS-CODEC")
+            + previous("VMESS-CANCEL")
             + [
                 cargo
                 + ["--lib", "outbound::vless::outbound::connector_composition_tests::"]
@@ -262,10 +265,10 @@ def commands(identifier):
                 for features in ([], ["--features", "outbound-trojan"])
             ]
         )
-    if identifier == "N4-QUALITY":
+    if identifier == "VLESS-QUALITY":
         from .protocol_vmess_acceptance import commands as previous
 
-        return previous("N3-QUALITY")
+        return previous("VMESS-QUALITY")
     return []
 
 
@@ -319,7 +322,9 @@ def native_results(cases, report, directory):
             if case["case_id"] in PUBLIC
             else observed
             == [
-                dict(schema_version=1, suite="N4-WIRE", assertion=test, status=status)
+                dict(
+                    schema_version=1, suite="VLESS-WIRE", assertion=test, status=status
+                )
                 for status in ("BEGIN", "PASS")
             ]
         )
@@ -377,7 +382,7 @@ def fields_report(cases, results):
                 status="PASS" if complete and len(owners) > 1 else "NOT RUN",
             )
         )
-    return dict(schema_version=1, stage="N4", protocol="vless", fields=fields)
+    return dict(schema_version=1, stage="VLESS", protocol="vless", fields=fields)
 
 
 def execute(cases, run, output, results):
@@ -387,7 +392,7 @@ def execute(cases, run, output, results):
         identifier = case["case_id"]
         if identifier in NATIVE:
             continue
-        if identifier == "N4-FEATURES":
+        if identifier == "VLESS-FEATURES":
             result = _features(case, run, output)
             independent = _command(
                 run,
@@ -433,7 +438,7 @@ def execute(cases, run, output, results):
                     cleanup=build.cleanup,
                 )
             results[identifier] = result
-        elif identifier == "N4-SCRIPTS":
+        elif identifier == "VLESS-SCRIPTS":
             results[identifier] = _scripts(case, run, output)
         else:
             events = []
@@ -458,7 +463,7 @@ def execute(cases, run, output, results):
 
 
 def required_command_names():
-    # The shared feature smoke includes VMess; N4 separately adds VLESS.
+    # The shared feature smoke includes VMess; VLESS separately adds VLESS.
     return {
         f"{identifier}-{i}"
         for identifier in GATES
@@ -495,7 +500,7 @@ def check(run_dir, cases, run, results, peers, paths):
         "summary.md",
     }
     if not needed <= set(paths):
-        raise ValueError("missing N4 acceptance artifacts")
+        raise ValueError("missing VLESS acceptance artifacts")
     expected = {c["case_id"]: c for c in definitions()}
     if len(cases) != len(expected) or any(
         c != expected.get(c["case_id"]) for c in cases
@@ -638,8 +643,10 @@ def check(run_dir, cases, run, results, peers, paths):
     owned = [
         e
         for e in resources
-        if e.get("suite") == "N4-OWNED" and e.get("status") == "PASS"
+        if e.get("suite") == "VLESS-OWNED" and e.get("status") == "PASS"
     ]
     if len(owned) != 80 or not all(idle_resources(e.get("resources")) for e in owned):
         raise ValueError("missing 20-round owned resource evidence per selected mode")
-    print(f"N4: PASS ({len(cases)} required cases; {len(FIELD_IDS)} VLESS field rows)")
+    print(
+        f"VLESS: PASS ({len(cases)} required cases; {len(FIELD_IDS)} VLESS field rows)"
+    )

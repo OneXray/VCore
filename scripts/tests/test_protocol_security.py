@@ -7,16 +7,16 @@ import unittest
 from pathlib import Path
 
 from vcore_scripts.protocol_evidence import load_manifest
-from vcore_scripts.protocol_n7_acceptance import (
+from vcore_scripts.protocol_security_acceptance import (
     gate_result,
     native_envelope,
     rust_command,
     vless_pass,
 )
-from vcore_scripts.protocol_n7_catalog import FIELDS, definitions, groups
+from vcore_scripts.protocol_security_catalog import FIELDS, definitions, groups
 
 
-class N7AcceptanceTest(unittest.TestCase):
+class SecurityAcceptanceTest(unittest.TestCase):
     def test_legacy_ech_gateway_keeps_response_inside_tls(self):
         from vcore_scripts.protocol_ech import legacy_gateway_command
 
@@ -34,26 +34,30 @@ class N7AcceptanceTest(unittest.TestCase):
 
     def test_frozen_scope_and_compositions(self):
         cases = definitions()
-        self.assertEqual([c for c in load_manifest() if c["stage"] == "N7"], cases)
+        self.assertEqual(
+            [c for c in load_manifest() if c["stage"] == "SECURITY"], cases
+        )
         self.assertEqual(len(cases), 43)
         self.assertEqual(set().union(*(set(c["row_ids"]) for c in cases)), FIELDS)
         self.assertEqual(len(FIELDS), 11)
         catalog = groups()
-        self.assertEqual(len(catalog["N7-ECH-STANDARD"]["selected"]), 50)
+        self.assertEqual(len(catalog["SECURITY-ECH-STANDARD"]["selected"]), 50)
         for profile in ("chrome", "chrome120", "firefox", "safari"):
             self.assertEqual(
-                catalog["N7-ECH-" + profile.upper()]["client_fingerprint"], profile
+                catalog["SECURITY-ECH-" + profile.upper()]["client_fingerprint"],
+                profile,
             )
         for security in ("ECH", "JLS", "HYBRID"):
             self.assertEqual(
-                sum(k.startswith(f"N7-{security}-ENCRYPTION-") for k in catalog), 6
+                sum(k.startswith(f"SECURITY-{security}-ENCRYPTION-") for k in catalog),
+                6,
             )
         self.assertFalse(
             any("shadow" in str(c).lower() or "restls" in str(c).lower() for c in cases)
         )
 
     def fixture(self, directory):
-        name, test = "N7-ECH-TCP-TLS-REJECT", "native_ech_fail_closed"
+        name, test = "SECURITY-ECH-TCP-TLS-REJECT", "native_ech_fail_closed"
         group = dict(runner="vless", selected=[name], ech=True)
         report = dict(
             status="PASS",
@@ -98,7 +102,7 @@ class N7AcceptanceTest(unittest.TestCase):
         )
         path = directory / (name + "-events.jsonl")
         events = [
-            dict(schema_version=1, suite="N7-WIRE", assertion=test, status=s)
+            dict(schema_version=1, suite="SECURITY-WIRE", assertion=test, status=s)
             for s in ("BEGIN", "PASS")
         ]
         path.write_text("".join(json.dumps(e) + "\n" for e in events))
@@ -115,7 +119,7 @@ class N7AcceptanceTest(unittest.TestCase):
             for samples in (
                 events[:1],
                 events * 2,
-                [dict(e, suite="N4-WIRE") for e in events],
+                [dict(e, suite="VLESS-WIRE") for e in events],
                 [dict(e, status="PASS") for e in events],
             ):
                 path.write_text("".join(json.dumps(e) + "\n" for e in samples))
@@ -145,7 +149,7 @@ class N7AcceptanceTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             directory = Path(temp)
             group, report, _, _ = self.fixture(directory)
-            name, test = "N7-ECH-GRPC-TLS-CLOSE", "native_mihomo_close_alignment"
+            name, test = "SECURITY-ECH-GRPC-TLS-CLOSE", "native_mihomo_close_alignment"
             group.update(selected=[name], client_fingerprint="safari")
             report.update(client_fingerprint="safari")
             report["cases"][0].update(
@@ -155,7 +159,10 @@ class N7AcceptanceTest(unittest.TestCase):
                 "".join(
                     json.dumps(
                         dict(
-                            schema_version=1, suite="N7-WIRE", assertion=test, status=s
+                            schema_version=1,
+                            suite="SECURITY-WIRE",
+                            assertion=test,
+                            status=s,
                         )
                     )
                     + "\n"
@@ -184,10 +191,12 @@ class N7AcceptanceTest(unittest.TestCase):
 
     def test_empty_gate_and_missing_script_proof_fail(self):
         cases = {c["case_id"]: c for c in definitions()}
-        for name in ("N7-CFG", "N7-RELEASE", "N7-SCRIPTS"):
+        for name in ("SECURITY-CFG", "SECURITY-RELEASE", "SECURITY-SCRIPTS"):
             self.assertEqual(gate_result(cases[name], [], [])["status"], "FAIL")
         record = [dict(exit_code=0, cleanup=True)]
-        self.assertEqual(gate_result(cases["N7-CFG"], record, [])["status"], "FAIL")
         self.assertEqual(
-            gate_result(cases["N7-SCRIPTS"], record, [], {})["status"], "FAIL"
+            gate_result(cases["SECURITY-CFG"], record, [])["status"], "FAIL"
+        )
+        self.assertEqual(
+            gate_result(cases["SECURITY-SCRIPTS"], record, [], {})["status"], "FAIL"
         )

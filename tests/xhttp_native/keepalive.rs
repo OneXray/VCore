@@ -8,7 +8,7 @@ async fn native_h3_keepalive_observes_each_leg_and_stop() {
     )
     .unwrap();
     let _case = vcore::resources::case_events::Case::new(
-        "N5-XHTTP",
+        "XHTTP-XHTTP",
         "keepalive::native_h3_keepalive_observes_each_leg_and_stop",
     );
     for (upload, download, seconds) in [(0, -1, 11), (-1, 1, 3), (1, 0, 11)] {

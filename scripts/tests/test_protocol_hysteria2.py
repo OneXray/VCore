@@ -1,4 +1,4 @@
-"""Offline checks of N6's evidence boundary; no sockets or protocol peers."""
+"""Offline checks of HYSTERIA2's evidence boundary; no sockets or protocol peers."""
 
 import copy
 import json
@@ -28,8 +28,10 @@ def pair(suite, assertion):
 
 
 def tcp_events():
-    outer = pair("N6-BASE", "tcp_ipv4_ipv6_domain_and_measure")
-    return outer[:1] + pair("N6-BASE", "tcp_10mib_both_directions") * 3 + outer[1:]
+    outer = pair("HYSTERIA2-BASE", "tcp_ipv4_ipv6_domain_and_measure")
+    return (
+        outer[:1] + pair("HYSTERIA2-BASE", "tcp_10mib_both_directions") * 3 + outer[1:]
+    )
 
 
 class Hysteria2AcceptanceTest(unittest.TestCase):
@@ -59,21 +61,21 @@ class Hysteria2AcceptanceTest(unittest.TestCase):
         observed = tcp_events()
         self.assertTrue(events_pass(observed, "hysteria2_tcp_base"))
         wrong = copy.deepcopy(observed)
-        wrong[1]["suite"] = "N5-BASE"
+        wrong[1]["suite"] = "XHTTP-BASE"
         for bad in (
             [],
             observed[:1],
             observed * 2,
             wrong,
-            observed + pair("N6-BASE", "unknown"),
-            pair("N6-BASE", "tcp_ipv4_ipv6_domain_and_measure"),
+            observed + pair("HYSTERIA2-BASE", "unknown"),
+            pair("HYSTERIA2-BASE", "tcp_ipv4_ipv6_domain_and_measure"),
             observed[:1] + observed[3:],
-            observed + pair("N6-BASE", "tcp_10mib_both_directions"),
+            observed + pair("HYSTERIA2-BASE", "tcp_10mib_both_directions"),
         ):
             self.assertFalse(events_pass(bad, "hysteria2_tcp_base"))
 
     def test_native_identity_cleanup_or_missing_results_fail(self):
-        case = next(c for c in definitions() if c["case_id"] == "N6-TCP")
+        case = next(c for c in definitions() if c["case_id"] == "HYSTERIA2-TCP")
         test = "hysteria2_tcp_base"
         report = dict(
             status="PASS",

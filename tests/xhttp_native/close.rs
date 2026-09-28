@@ -8,7 +8,7 @@ async fn native_mihomo_xhttp_close() {
     )
     .unwrap();
     let _case =
-        vcore::resources::case_events::Case::new("N5-XHTTP", "close::native_mihomo_xhttp_close");
+        vcore::resources::case_events::Case::new("XHTTP-XHTTP", "close::native_mihomo_xhttp_close");
     assert_eq!(fixture["close_reference"]["scope"], "same-mode");
     assert_eq!(fixture["close_reference"]["terminated"], true);
     tokio::time::timeout(Duration::from_secs(15), async {

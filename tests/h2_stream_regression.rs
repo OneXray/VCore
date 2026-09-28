@@ -52,8 +52,9 @@ async fn response_followed_by_reset(end_stream: bool) -> std::io::Result<Vec<u8>
         let mut remaining = Vec::new();
         peer_io.read_to_end(&mut remaining).await.unwrap();
     });
-    let client =
-        XHttpClient::new(XHttpConfig::new("fixture.invalid", "/n1", XHttpMode::StreamOne).unwrap());
+    let client = XHttpClient::new(
+        XHttpConfig::new("fixture.invalid", "/foundations", XHttpMode::StreamOne).unwrap(),
+    );
     let mut stream = client.connect(Box::new(client_io)).await.unwrap();
     let mut response = Vec::new();
     let result =
@@ -71,7 +72,7 @@ async fn response_followed_by_reset(end_stream: bool) -> std::io::Result<Vec<u8>
 async fn xhttp_keeps_complete_response_when_peer_resets_after_end_stream() {
     #[cfg(feature = "interop-test")]
     let _evidence = vcore::resources::case_events::Case::new(
-        "N3-REGRESSION",
+        "VMESS-REGRESSION",
         "xhttp_keeps_complete_response_when_peer_resets_after_end_stream",
     );
     let response = response_followed_by_reset(true)
@@ -84,7 +85,7 @@ async fn xhttp_keeps_complete_response_when_peer_resets_after_end_stream() {
 async fn xhttp_does_not_hide_reset_before_end_stream() {
     #[cfg(feature = "interop-test")]
     let _evidence = vcore::resources::case_events::Case::new(
-        "N3-REGRESSION",
+        "VMESS-REGRESSION",
         "xhttp_does_not_hide_reset_before_end_stream",
     );
     let error = response_followed_by_reset(false)

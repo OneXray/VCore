@@ -68,13 +68,13 @@ class SelectedFingerprintGatesTest(unittest.TestCase):
 
     def test_transport_catalog_includes_existing_native_and_upgrade_paths(self):
         for name in (
-            "N4-UPGRADE-TLS-BASE",
-            "N4-UPGRADE-FAST-TLS-BASE",
-            "N4-H2-TLS-BASE",
-            "N4-HTTP-TLS-BASE",
-            "N4-WS-ED-2048-TLS-BASE",
-            "CF5-VMESS-H2-TLS",
-            "CF5-VMESS-HTTP-TLS",
+            "VLESS-UPGRADE-TLS-BASE",
+            "VLESS-UPGRADE-FAST-TLS-BASE",
+            "VLESS-H2-TLS-BASE",
+            "VLESS-HTTP-TLS-BASE",
+            "VLESS-WS-ED-2048-TLS-BASE",
+            "FINGERPRINT-VMESS-H2-TLS",
+            "FINGERPRINT-VMESS-HTTP-TLS",
         ):
             self.assertIn(name, CASES)
         self.assertEqual(len(CASES), len(set(CASES)))

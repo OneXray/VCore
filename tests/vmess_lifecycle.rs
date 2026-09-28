@@ -43,7 +43,7 @@ impl OutboundConnector for SuppliedStream {
 async fn vmess_all_handshakes_keep_the_original_deadline_and_join_cancelled_io() {
     #[cfg(feature = "interop-test")]
     let _evidence = vcore::resources::case_events::Case::new(
-        "N3-CANCEL",
+        "VMESS-CANCEL",
         "vmess_all_handshakes_keep_the_original_deadline_and_join_cancelled_io",
     );
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -121,7 +121,7 @@ impl SocketProtector for RejectProtect {
 async fn vmess_expired_deadline_and_protect_failure_never_fall_back() {
     #[cfg(feature = "interop-test")]
     let _evidence = vcore::resources::case_events::Case::new(
-        "N3-CANCEL",
+        "VMESS-CANCEL",
         "vmess_expired_deadline_and_protect_failure_never_fall_back",
     );
     let parsed = Config::parse_yaml(b"socks-port: 1080\nproxies: [{name: edge, type: vmess, server: 192.0.2.1, port: 443, uuid: 07070707-0707-0707-0707-070707070707}]\nrules: ['MATCH,edge']").unwrap();

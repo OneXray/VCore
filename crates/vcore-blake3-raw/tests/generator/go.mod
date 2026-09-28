@@ -1,4 +1,4 @@
-module vcore-n7-vectors
+module vcore-blake3-vectors
 
 go 1.27.0
 

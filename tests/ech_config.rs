@@ -43,7 +43,7 @@ fn parse(node: serde_json::Value) -> vcore::Result<VlessOutboundConfig> {
 fn static_ech_builds_both_tls_backends_without_dns_or_io() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N7-CONFIG-TLS",
+        "SECURITY-CONFIG-TLS",
         "static_ech_builds_both_tls_backends_without_dns_or_io",
     );
     for profile in ["none", "chrome", "chrome120", "firefox", "safari"] {
@@ -59,7 +59,7 @@ fn static_ech_builds_both_tls_backends_without_dns_or_io() {
 fn static_ech_is_strict_and_never_enables_dynamic_lookup() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N7-CONFIG-TLS",
+        "SECURITY-CONFIG-TLS",
         "static_ech_is_strict_and_never_enables_dynamic_lookup",
     );
     for ech in [
@@ -101,7 +101,7 @@ fn static_ech_is_strict_and_never_enables_dynamic_lookup() {
 fn unsupported_ech_configs_fail_at_parse_before_a_client_can_emit_inner_sni() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N7-CONFIG-TLS",
+        "SECURITY-CONFIG-TLS",
         "unsupported_ech_configs_fail_at_parse_before_a_client_can_emit_inner_sni",
     );
     let valid = ech_list();
@@ -139,7 +139,7 @@ fn unsupported_ech_configs_fail_at_parse_before_a_client_can_emit_inner_sni() {
 fn ech_selection_skips_unknown_or_mandatory_configs_and_keeps_exact_supported_bytes() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N7-CONFIG-TLS",
+        "SECURITY-CONFIG-TLS",
         "ech_selection_skips_unknown_or_mandatory_configs_and_keeps_exact_supported_bytes",
     );
     use vcore::config::StaticEchConfig;
@@ -182,7 +182,7 @@ fn ech_selection_skips_unknown_or_mandatory_configs_and_keeps_exact_supported_by
 fn download_ech_inherits_replaces_or_clears_as_a_whole() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N7-CONFIG-TLS",
+        "SECURITY-CONFIG-TLS",
         "download_ech_inherits_replaces_or_clears_as_a_whole",
     );
     let mut input = node();
@@ -216,7 +216,7 @@ fn download_ech_inherits_replaces_or_clears_as_a_whole() {
 fn ech_is_standard_tls_only_with_explicit_download_clear_and_dns_inner_name() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N7-CONFIG-TLS",
+        "SECURITY-CONFIG-TLS",
         "ech_is_standard_tls_only_with_explicit_download_clear_and_dns_inner_name",
     );
     for extra in [

@@ -12,7 +12,7 @@ use vcore::{
 async fn packet_up_coalesces_small_writes_and_flushes_without_more_caller_io() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "packet_up_coalesces_small_writes_and_flushes_without_more_caller_io",
     );
     use std::{pin::Pin, task::Poll};
@@ -86,7 +86,7 @@ async fn packet_up_coalesces_small_writes_and_flushes_without_more_caller_io() {
 async fn packet_up_backpressures_bounded_batches_and_stop_cancels_the_timer() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "packet_up_backpressures_bounded_batches_and_stop_cancels_the_timer",
     );
     use std::{pin::Pin, task::Poll};
@@ -134,7 +134,7 @@ async fn packet_up_backpressures_bounded_batches_and_stop_cancels_the_timer() {
 async fn first_vless_read_never_acknowledges_or_replays_a_concurrent_packet_write() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "first_vless_read_never_acknowledges_or_replays_a_concurrent_packet_write",
     );
     use std::{pin::Pin, task::Poll};
@@ -211,7 +211,7 @@ async fn first_vless_read_never_acknowledges_or_replays_a_concurrent_packet_writ
 async fn response_codes_follow_mihomo_streaming_and_packet_rules() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "response_codes_follow_mihomo_streaming_and_packet_rules",
     );
     tokio::time::timeout(Duration::from_secs(3), async {
@@ -316,7 +316,7 @@ async fn observe_stream_request(options: serde_json::Value) -> http::Request<()>
 async fn streaming_content_type_can_be_disabled_without_disabling_padding() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "streaming_content_type_can_be_disabled_without_disabling_padding",
     );
     let request =
@@ -335,7 +335,7 @@ async fn streaming_content_type_can_be_disabled_without_disabling_padding() {
 async fn custom_semantic_headers_are_allowed_when_no_generated_field_overwrites_them() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "custom_semantic_headers_are_allowed_when_no_generated_field_overwrites_them",
     );
     let request = observe_stream_request(serde_json::json!({
@@ -354,7 +354,7 @@ async fn custom_semantic_headers_are_allowed_when_no_generated_field_overwrites_
 async fn padding_uses_the_configured_http_location_and_encoding() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "padding_uses_the_configured_http_location_and_encoding",
     );
     for placement in ["queryInHeader", "header", "query", "cookie"] {
@@ -480,7 +480,7 @@ async fn observe_packet(
 async fn packet_metadata_and_upload_methods_are_sent_in_each_supported_location() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "packet_metadata_and_upload_methods_are_sent_in_each_supported_location",
     );
     for (placement, method) in [
@@ -542,7 +542,7 @@ async fn packet_metadata_and_upload_methods_are_sent_in_each_supported_location(
 async fn packet_upload_can_move_payload_into_bounded_header_or_cookie_chunks() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "packet_upload_can_move_payload_into_bounded_header_or_cookie_chunks",
     );
     use base64::Engine as _;
@@ -602,7 +602,7 @@ async fn packet_upload_can_move_payload_into_bounded_header_or_cookie_chunks() {
 async fn http1_stream_one_is_chunked_duplex_and_shutdown_closes_both_directions() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "http1_stream_one_is_chunked_duplex_and_shutdown_closes_both_directions",
     );
     tokio::time::timeout(Duration::from_secs(2), async {
@@ -658,7 +658,7 @@ async fn http1_stream_one_is_chunked_duplex_and_shutdown_closes_both_directions(
 async fn http1_packet_up_shares_a_session_across_two_connections() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "http1_packet_up_shares_a_session_across_two_connections",
     );
     tokio::time::timeout(Duration::from_secs(2), async {
@@ -753,7 +753,7 @@ async fn http1_packet_up_shares_a_session_across_two_connections() {
 async fn http1_response_body_can_arrive_after_the_response_headers() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "http1_response_body_can_arrive_after_the_response_headers",
     );
     tokio::time::timeout(Duration::from_secs(2), async {
@@ -791,7 +791,7 @@ async fn http1_response_body_can_arrive_after_the_response_headers() {
 async fn custom_request_headers_reach_the_http_peer_without_changing_body() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N5-UNIT",
+        "XHTTP-UNIT",
         "custom_request_headers_reach_the_http_peer_without_changing_body",
     );
     tokio::time::timeout(Duration::from_secs(2), async {

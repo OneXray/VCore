@@ -1,32 +1,38 @@
-"""N9 integration requirements; no stage inherits historical PASS results."""
+"""Cross-protocol integration requirements and descriptive coverage categories."""
 
 from __future__ import annotations
 
 PROTOCOLS = ("socks5", "anytls", "ss", "trojan", "vmess", "vless", "hysteria2")
 PAIRS = {
-    f"N9-PAIR-{first.upper()}-{last.upper()}": (first, last)
+    f"INTEGRATION-PAIR-{first.upper()}-{last.upper()}": (first, last)
     for first in PROTOCOLS
     for last in PROTOCOLS
 }
 GATES = {
-    "N9-ENTRYPOINTS": 1,
-    "N9-GRAPH": 1,
-    "N9-DNS-MEASURE": 1,
-    "N9-SS-ALGORITHMS": 1,
-    "N9-SS-EIH": 1,
-    "N9-LIFECYCLE": 2,
-    "N9-REBUILD": 2,
-    "N9-FAILURES": 2,
-    "N9-SOAK": 3,
-    "N9-HY2-HOP": 3,
-    "N9-DEBUG": 4,
-    "N9-RELEASE": 4,
-    "N9-QUALITY": 4,
-    "N9-FEATURES": 4,
-    "N9-SCRIPTS": 4,
-    "N9-SHARED": 4,
+    "INTEGRATION-ENTRYPOINTS": "routing",
+    "INTEGRATION-GRAPH": "routing",
+    "INTEGRATION-DNS-MEASURE": "routing",
+    "INTEGRATION-SS-ALGORITHMS": "routing",
+    "INTEGRATION-SS-EIH": "routing",
+    "INTEGRATION-LIFECYCLE": "lifecycle",
+    "INTEGRATION-REBUILD": "lifecycle",
+    "INTEGRATION-FAILURES": "lifecycle",
+    "INTEGRATION-SOAK": "pressure",
+    "INTEGRATION-HY2-HOP": "pressure",
+    "INTEGRATION-DEBUG": "regression",
+    "INTEGRATION-RELEASE": "regression",
+    "INTEGRATION-QUALITY": "regression",
+    "INTEGRATION-FEATURES": "regression",
+    "INTEGRATION-SCRIPTS": "regression",
+    "INTEGRATION-SHARED": "regression",
 }
-LOCAL = {"N9-DEBUG", "N9-RELEASE", "N9-QUALITY", "N9-FEATURES", "N9-SCRIPTS"}
+LOCAL = {
+    "INTEGRATION-DEBUG",
+    "INTEGRATION-RELEASE",
+    "INTEGRATION-QUALITY",
+    "INTEGRATION-FEATURES",
+    "INTEGRATION-SCRIPTS",
+}
 
 
 def definitions():
@@ -37,8 +43,8 @@ def definitions():
         result.append(
             dict(
                 case_id=identifier,
-                stage="N9",
-                substage=f"N9.{GATES.get(identifier, 1)}",
+                stage="INTEGRATION",
+                substage=f"INTEGRATION.{GATES.get(identifier, 'routing')}",
                 required=True,
                 row_ids=["C06"] if pair else [],
                 protocol="integration",
@@ -53,9 +59,9 @@ def definitions():
                 peer_kind="unit"
                 if local
                 else "H"
-                if identifier == "N9-HY2-HOP"
+                if identifier == "INTEGRATION-HY2-HOP"
                 else "SS"
-                if identifier == "N9-SS-EIH"
+                if identifier == "INTEGRATION-SS-EIH"
                 else "M",
                 peer_config={"group": identifier},
                 gap_source=None,

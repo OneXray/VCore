@@ -10,41 +10,41 @@ use std::{
     time::{Duration, Instant},
 };
 use vcore::resources::case_events::Case as RecordedCase;
-// The same public consumers are reused by N5. Keep their evidence separate
-// instead of letting a current XHTTP run masquerade as historical N4 evidence.
+// The same public consumers are reused by XHTTP. Keep their evidence separate
+// instead of letting a current XHTTP run masquerade as historical VLESS evidence.
 struct Case;
 impl Case {
     fn start(suite: &'static str, assertion: &'static str) -> RecordedCase {
-        let suite = if std::env::var("VCORE_PROTOCOL_STAGE").as_deref() == Ok("N5") {
+        let suite = if std::env::var("VCORE_PROTOCOL_STAGE").as_deref() == Ok("XHTTP") {
             match suite {
-                "N4-PUBLIC" => "N5-PUBLIC",
-                "N4-BASE" => "N5-BASE",
-                "N4-LIFE" => "N5-LIFE",
-                "N4-OWNED" => "N5-OWNED",
+                "VLESS-PUBLIC" => "XHTTP-PUBLIC",
+                "VLESS-BASE" => "XHTTP-BASE",
+                "VLESS-LIFE" => "XHTTP-LIFE",
+                "VLESS-OWNED" => "XHTTP-OWNED",
                 _ => panic!("unknown public consumer suite"),
             }
-        } else if std::env::var("VCORE_PROTOCOL_STAGE").as_deref() == Ok("N6") {
+        } else if std::env::var("VCORE_PROTOCOL_STAGE").as_deref() == Ok("HYSTERIA2") {
             match suite {
-                "N4-PUBLIC" => "N6-PUBLIC",
-                "N4-BASE" => "N6-BASE",
-                "N4-LIFE" => "N6-LIFE",
-                "N4-OWNED" => "N6-OWNED",
+                "VLESS-PUBLIC" => "HYSTERIA2-PUBLIC",
+                "VLESS-BASE" => "HYSTERIA2-BASE",
+                "VLESS-LIFE" => "HYSTERIA2-LIFE",
+                "VLESS-OWNED" => "HYSTERIA2-OWNED",
                 _ => panic!("unknown public consumer suite"),
             }
-        } else if std::env::var("VCORE_PROTOCOL_STAGE").as_deref() == Ok("N7") {
+        } else if std::env::var("VCORE_PROTOCOL_STAGE").as_deref() == Ok("SECURITY") {
             match suite {
-                "N4-PUBLIC" => "N7-PUBLIC",
-                "N4-BASE" => "N7-BASE",
-                "N4-LIFE" => "N7-LIFE",
-                "N4-OWNED" => "N7-OWNED",
+                "VLESS-PUBLIC" => "SECURITY-PUBLIC",
+                "VLESS-BASE" => "SECURITY-BASE",
+                "VLESS-LIFE" => "SECURITY-LIFE",
+                "VLESS-OWNED" => "SECURITY-OWNED",
                 _ => panic!("unknown public consumer suite"),
             }
-        } else if std::env::var("VCORE_PROTOCOL_STAGE").as_deref() == Ok("N9") {
+        } else if std::env::var("VCORE_PROTOCOL_STAGE").as_deref() == Ok("INTEGRATION") {
             match suite {
-                "N4-PUBLIC" => "N9-PUBLIC",
-                "N4-BASE" => "N9-BASE",
-                "N4-LIFE" => "N9-LIFE",
-                "N4-OWNED" => "N9-OWNED",
+                "VLESS-PUBLIC" => "INTEGRATION-PUBLIC",
+                "VLESS-BASE" => "INTEGRATION-BASE",
+                "VLESS-LIFE" => "INTEGRATION-LIFE",
+                "VLESS-OWNED" => "INTEGRATION-OWNED",
                 _ => panic!("unknown public consumer suite"),
             }
         } else {
@@ -69,7 +69,7 @@ mod tun;
 
 fn fixture() -> Value {
     let value: Value = serde_json::from_slice(
-        &std::fs::read(std::env::var("VCORE_VLESS_INPUT").expect("use isolated N4 runner"))
+        &std::fs::read(std::env::var("VCORE_VLESS_INPUT").expect("use isolated VLESS runner"))
             .unwrap(),
     )
     .unwrap();
@@ -79,9 +79,9 @@ fn fixture() -> Value {
 
 #[cfg(feature = "outbound-hysteria2")]
 #[test]
-#[ignore = "isolated N6 runner"]
+#[ignore = "isolated HYSTERIA2 runner"]
 fn hysteria2_client_first() {
-    let _case = RecordedCase::new("N6-BASE", "client_first");
+    let _case = RecordedCase::new("HYSTERIA2-BASE", "client_first");
     let f = fixture();
     initialize(&f);
     let port = free_port();
@@ -92,9 +92,9 @@ fn hysteria2_client_first() {
 
 #[cfg(feature = "outbound-hysteria2")]
 #[test]
-#[ignore = "isolated N6 runner"]
+#[ignore = "isolated HYSTERIA2 runner"]
 fn hysteria2_udp_base() {
-    let _case = RecordedCase::new("N6-BASE", "udp_ipv4_ipv6_domain_fragmentation");
+    let _case = RecordedCase::new("HYSTERIA2-BASE", "udp_ipv4_ipv6_domain_fragmentation");
     let f = fixture();
     initialize(&f);
     let port = free_port();
@@ -117,9 +117,9 @@ fn hysteria2_udp_base() {
 
 #[cfg(feature = "outbound-hysteria2")]
 #[test]
-#[ignore = "isolated N6 runner"]
+#[ignore = "isolated HYSTERIA2 runner"]
 fn hysteria2_tcp_base() {
-    let _case = RecordedCase::new("N6-BASE", "tcp_ipv4_ipv6_domain_and_measure");
+    let _case = RecordedCase::new("HYSTERIA2-BASE", "tcp_ipv4_ipv6_domain_and_measure");
     let f = fixture();
     assert_eq!(f["node"]["type"], "hysteria2");
     initialize(&f);
@@ -423,7 +423,7 @@ fn echo(port: u16, f: &Value) {
     origin.marker(b'D');
 }
 fn bulk(port: u16, f: &Value, ipv6: bool, domain: bool) {
-    let _case = Case::start("N4-BASE", "tcp_10mib_both_directions");
+    let _case = Case::start("VLESS-BASE", "tcp_10mib_both_directions");
     let mut origin = Origin::new(f, 10, ipv6);
     let mut client = connect(port, origin.target, domain);
     let mut hello = [0; 5];
@@ -459,9 +459,9 @@ fn dns(config: &mut Value, origin: &Origin, via: &str) {
         json!({"enable":true,"ipv6":false,"nameserver":[format!("udp://{}#{via}",origin.target)]});
 }
 #[test]
-#[ignore = "isolated N4 runner"]
+#[ignore = "isolated VLESS runner"]
 fn public_base() {
-    let _case = Case::start("N4-PUBLIC", "public_base");
+    let _case = Case::start("VLESS-PUBLIC", "public_base");
     let f = fixture();
     initialize(&f);
     let port = free_port();
@@ -480,7 +480,7 @@ fn public_base() {
     } else {
         vec!["none", "xudp", "packetaddr"]
     } {
-        let _codec = Case::start("N4-BASE", "udp_each_codec_and_family");
+        let _codec = Case::start("VLESS-BASE", "udp_each_codec_and_family");
         // Each runtime owns a fresh DNS fixture. A previous TCP bulk transfer
         // must not consume this container origin's bounded idle lifetime.
         let mut dns_origin = Origin::new(&f, 17, false);
@@ -571,9 +571,9 @@ fn denied(node: Value, f: &Value) {
 }
 
 #[test]
-#[ignore = "isolated N7 JLS runner"]
+#[ignore = "isolated SECURITY JLS runner"]
 fn public_jls_download_identity() {
-    let _case = Case::start("N4-PUBLIC", "public_jls_download_identity");
+    let _case = Case::start("VLESS-PUBLIC", "public_jls_download_identity");
     let f = fixture();
     initialize(&f);
     let original = f["node"].clone();
@@ -606,9 +606,9 @@ fn public_jls_download_identity() {
 }
 
 #[test]
-#[ignore = "isolated N7 ECH runner"]
+#[ignore = "isolated SECURITY ECH runner"]
 fn public_ech_download_identity() {
-    let _case = Case::start("N4-PUBLIC", "public_ech_download_identity");
+    let _case = Case::start("VLESS-PUBLIC", "public_ech_download_identity");
     let f = fixture();
     initialize(&f);
     let original = f["node"].clone();
@@ -637,9 +637,9 @@ fn public_ech_download_identity() {
 }
 
 #[test]
-#[ignore = "isolated N4 runner"]
+#[ignore = "isolated VLESS runner"]
 fn public_negative() {
-    let _case = Case::start("N4-PUBLIC", "public_negative");
+    let _case = Case::start("VLESS-PUBLIC", "public_negative");
     let f = fixture();
     initialize(&f);
     let original = f["node"].clone();
@@ -727,9 +727,9 @@ fn public_negative() {
 }
 
 #[test]
-#[ignore = "isolated N4 runner"]
+#[ignore = "isolated VLESS runner"]
 fn public_tls_identity_and_verification_name() {
-    let _case = Case::start("N4-PUBLIC", "public_tls_identity_and_verification_name");
+    let _case = Case::start("VLESS-PUBLIC", "public_tls_identity_and_verification_name");
     let f = fixture();
     initialize(&f);
     let original = f["node"].clone();
@@ -769,9 +769,9 @@ fn public_tls_identity_and_verification_name() {
 }
 
 #[test]
-#[ignore = "isolated N4 runner"]
+#[ignore = "isolated VLESS runner"]
 fn public_alpn_rejection() {
-    let _case = Case::start("N4-PUBLIC", "public_alpn_rejection");
+    let _case = Case::start("VLESS-PUBLIC", "public_alpn_rejection");
     let f = fixture();
     initialize(&f);
     // The official listener advertises h2 when its gRPC entrance is enabled.
@@ -780,7 +780,7 @@ fn public_alpn_rejection() {
     control["network"] = json!("grpc");
     control["alpn"] = json!(["h2"]);
     control.as_object_mut().unwrap().remove("ws-opts");
-    control["grpc-opts"] = json!({"grpc-service-name":"n4-alpn"});
+    control["grpc-opts"] = json!({"grpc-service-name":"vless-alpn"});
     let port = free_port();
     let core = Core::start(&config(control, port));
     echo(port, &f);
@@ -789,9 +789,9 @@ fn public_alpn_rejection() {
 }
 
 #[test]
-#[ignore = "isolated N4 runner"]
+#[ignore = "isolated VLESS runner"]
 fn public_udp_first_response() {
-    let _case = Case::start("N4-PUBLIC", "public_udp_first_response");
+    let _case = Case::start("VLESS-PUBLIC", "public_udp_first_response");
     let f = fixture();
     initialize(&f);
     let port = free_port();
@@ -802,9 +802,9 @@ fn public_udp_first_response() {
 }
 
 #[test]
-#[ignore = "isolated N4 runner"]
+#[ignore = "isolated VLESS runner"]
 fn public_legacy_regression() {
-    let _case = Case::start("N4-PUBLIC", "public_legacy_regression");
+    let _case = Case::start("VLESS-PUBLIC", "public_legacy_regression");
     let f = fixture();
     initialize(&f);
     let port = free_port();
@@ -823,7 +823,7 @@ fn public_legacy_regression() {
 #[test]
 #[ignore = "owned isolated native peer required"]
 fn public_legacy_tcp() {
-    let _case = Case::start("N4-PUBLIC", "public_legacy_tcp");
+    let _case = Case::start("VLESS-PUBLIC", "public_legacy_tcp");
     let f = fixture();
     initialize(&f);
     let port = free_port();

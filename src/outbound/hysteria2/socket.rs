@@ -140,7 +140,7 @@ mod tests {
     async fn a_new_path_packet_does_not_end_the_old_receive_window() {
         #[cfg(feature = "interop-test")]
         let _case = crate::resources::case_events::Case::new(
-            "N6-UNIT",
+            "HYSTERIA2-UNIT",
             "a_new_path_packet_does_not_end_the_old_receive_window",
         );
         let (old_tx, old) = memory_socket();

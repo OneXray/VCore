@@ -1,4 +1,4 @@
-"""N3 container-only execution and independently recomputed stage acceptance."""
+"""VMESS container-only execution and independently recomputed stage acceptance."""
 
 from __future__ import annotations
 
@@ -23,14 +23,14 @@ FIELD_IDS = {
     *(f"VM{i:02}" for i in range(1, 9)),
 }
 GATES = {
-    "N3-CFG",
-    "N3-CODEC",
-    "N3-CANCEL",
-    "N3-REGRESSION",
-    "N3-RELEASE",
-    "N3-FEATURES",
-    "N3-SCRIPTS",
-    "N3-QUALITY",
+    "VMESS-CFG",
+    "VMESS-CODEC",
+    "VMESS-CANCEL",
+    "VMESS-REGRESSION",
+    "VMESS-RELEASE",
+    "VMESS-FEATURES",
+    "VMESS-SCRIPTS",
+    "VMESS-QUALITY",
 }
 SCRIPT_ASSERTIONS = [
     "offline-success",
@@ -47,13 +47,13 @@ SCRIPT_ASSERTIONS = [
 REQUIRED_IDS = set(NATIVE) | GATES
 # Frozen names, not a regex over test output and not read from the manifest.
 OBSERVATIONS = {
-    "N3-CFG": [
+    "VMESS-CFG": [
         "vmess_default_node_and_explicit_cipher_aliases_are_accepted_without_io",
         "vmess_transport_and_security_combinations_are_strict",
         "vmess_field_boundaries_and_normalized_transport_values",
         "vmess_normalized_websocket_fields_preserve_headers_and_early_data_order",
     ],
-    "N3-CODEC": [
+    "VMESS-CODEC": [
         "xudp_cancelled_send_and_bad_frame_release_io_and_cannot_resume",
         "xudp_zero_global_id_omits_the_optional_extension_like_mihomo",
         "packetaddr_has_ip_only_address_first_wire_and_rejects_truncation",
@@ -66,11 +66,11 @@ OBSERVATIONS = {
         "tags_lengths_and_nonce_exhaustion_fail_closed",
         "auto_uses_detected_hardware_not_architecture_name",
     ],
-    "N3-CANCEL": [
+    "VMESS-CANCEL": [
         "vmess_all_handshakes_keep_the_original_deadline_and_join_cancelled_io",
         "vmess_expired_deadline_and_protect_failure_never_fall_back",
     ],
-    "N3-REGRESSION": [
+    "VMESS-REGRESSION": [
         "shared_xudp_receives_frames_without_a_vless_response_header",
         "first_frame_matches_xray_mux_wire_format",
         "followup_frame_carries_each_datagrams_destination",
@@ -126,7 +126,7 @@ OBSERVATIONS = {
         "tls_close_notify_flush_has_a_five_second_bound",
         "cancelling_tls_handshake_releases_the_caller_supplied_stream",
     ],
-    "N3-RELEASE": [
+    "VMESS-RELEASE": [
         "vmess_default_node_and_explicit_cipher_aliases_are_accepted_without_io",
         "vmess_transport_and_security_combinations_are_strict",
         "vmess_field_boundaries_and_normalized_transport_values",
@@ -149,11 +149,11 @@ OBSERVATIONS = {
 
 
 def rows(identifier):
-    if identifier == "N3-CFG":
+    if identifier == "VMESS-CFG":
         return sorted(FIELD_IDS)
-    if identifier == "N3-CODEC":
+    if identifier == "VMESS-CODEC":
         return ["VM01", "VM03", "VM06", "VM07", "VM08"]
-    if identifier in GATES or identifier.startswith("N3-REGRESSION"):
+    if identifier in GATES or identifier.startswith("VMESS-REGRESSION"):
         return []
     _, mode, tls, test = NATIVE[identifier]
     result = {"VM04", "VM05"}
@@ -196,23 +196,23 @@ def definitions():
             identifier, ("unit", "memory-or-build", False, identifier)
         )
         native = identifier in NATIVE
-        substage = "N3.5"
+        substage = "VMESS.acceptance"
         if identifier in WIRE:
             substage = (
-                "N3.1"
+                "VMESS.identity"
                 if "identity" in test
-                else "N3.2"
+                else "VMESS.codec"
                 if "cipher" in test
-                else "N3.3"
+                else "VMESS.udp"
                 if "udp" in test
-                else "N3.4"
+                else "VMESS.close"
             )
-        elif identifier == "N3-CODEC":
-            substage = "N3.2"
+        elif identifier == "VMESS-CODEC":
+            substage = "VMESS.codec"
         cases.append(
             dict(
                 case_id=identifier,
-                stage="N3",
+                stage="VMESS",
                 substage=substage,
                 required=True,
                 row_ids=rows(identifier),
@@ -247,7 +247,7 @@ def definitions():
                 expected_observation=[test]
                 if native
                 else SCRIPT_ASSERTIONS
-                if identifier == "N3-SCRIPTS"
+                if identifier == "VMESS-SCRIPTS"
                 else OBSERVATIONS.get(identifier, [identifier]),
                 required_evidence=["structured-assertions", "command", "cleanup"]
                 + (["peer-identity", "isolated-origins"] if native else []),
@@ -266,13 +266,13 @@ def definitions():
 
 def commands(identifier):
     cargo = ["cargo", "test", "--locked", "--all-features"]
-    if identifier == "N3-CFG":
+    if identifier == "VMESS-CFG":
         return [cargo + ["--test", "vmess_config"], cargo + ["--lib", "config::"]]
-    if identifier == "N3-CODEC":
+    if identifier == "VMESS-CODEC":
         return [cargo + ["--test", "vmess_codec"], cargo + ["--lib", "outbound::vmess"]]
-    if identifier == "N3-CANCEL":
+    if identifier == "VMESS-CANCEL":
         return [cargo + ["--test", "vmess_lifecycle"]]
-    if identifier == "N3-RELEASE":
+    if identifier == "VMESS-RELEASE":
         return [
             cargo
             + [
@@ -286,7 +286,7 @@ def commands(identifier):
             ],
             cargo + ["--release", "--lib", "outbound::vmess"],
         ]
-    if identifier == "N3-REGRESSION":
+    if identifier == "VMESS-REGRESSION":
         return [
             cargo + ["--lib", "xudp::"],
             cargo + ["--lib", "security::tls::tests::"],
@@ -313,7 +313,7 @@ def commands(identifier):
                 "--exact",
             ],
         ]
-    if identifier == "N3-QUALITY":
+    if identifier == "VMESS-QUALITY":
         return [
             ["cargo", "fmt", "--all", "--", "--check"],
             [
@@ -388,7 +388,9 @@ def native_results(cases, report, directory):
             if case["case_id"] in PUBLIC
             else observed
             == [
-                dict(schema_version=1, suite="N3-WIRE", assertion=test, status=status)
+                dict(
+                    schema_version=1, suite="VMESS-WIRE", assertion=test, status=status
+                )
                 for status in ("BEGIN", "PASS")
             ]
         )
@@ -446,7 +448,7 @@ def fields_report(cases, results):
                 status="PASS" if complete and len(owners) > 1 else "NOT RUN",
             )
         )
-    return dict(schema_version=1, stage="N3", protocol="vmess", fields=fields)
+    return dict(schema_version=1, stage="VMESS", protocol="vmess", fields=fields)
 
 
 def execute(cases, run, output, results):
@@ -456,7 +458,7 @@ def execute(cases, run, output, results):
         identifier = case["case_id"]
         if identifier in NATIVE:
             continue
-        if identifier == "N3-FEATURES":
+        if identifier == "VMESS-FEATURES":
             result = _features(case, run, output)
             build = _command(
                 run,
@@ -481,7 +483,7 @@ def execute(cases, run, output, results):
                     cleanup=build.cleanup,
                 )
             results[identifier] = result
-        elif identifier == "N3-SCRIPTS":
+        elif identifier == "VMESS-SCRIPTS":
             results[identifier] = _scripts(case, run, output)
         else:
             events = []
@@ -518,7 +520,7 @@ def check(run_dir, cases, run, results, peers, paths):
         "summary.md",
     }
     if not needed <= set(paths):
-        raise ValueError("missing N3 acceptance artifacts")
+        raise ValueError("missing VMESS acceptance artifacts")
     expected = {c["case_id"]: c for c in definitions()}
     if len(cases) != len(expected) or any(
         c != expected.get(c["case_id"]) for c in cases
@@ -680,8 +682,10 @@ def check(run_dir, cases, run, results, peers, paths):
     owned = [
         e
         for e in resources
-        if e.get("suite") == "N3-OWNED" and e.get("status") == "PASS"
+        if e.get("suite") == "VMESS-OWNED" and e.get("status") == "PASS"
     ]
     if len(owned) != 40 or not all(idle_resources(e.get("resources")) for e in owned):
         raise ValueError("missing 20-round owned resource evidence per selected mode")
-    print(f"N3: PASS ({len(cases)} required cases; {len(FIELD_IDS)} VMess field rows)")
+    print(
+        f"VMESS: PASS ({len(cases)} required cases; {len(FIELD_IDS)} VMess field rows)"
+    )

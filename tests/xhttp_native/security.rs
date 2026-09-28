@@ -10,7 +10,7 @@ async fn native_xhttp_security() {
     )
     .unwrap();
     assert_eq!(fixture["isolation"], "containers");
-    let case = Case::new("N5-XHTTP", "security::native_xhttp_security");
+    let case = Case::new("XHTTP-XHTTP", "security::native_xhttp_security");
     let probe = ResourceProbe::default();
     probe
         .scope(async {

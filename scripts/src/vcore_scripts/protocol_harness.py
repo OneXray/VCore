@@ -81,7 +81,7 @@ def _command(
     env.pop("VCORE_CASE_EVENTS", None)
     if events:
         env["VCORE_CASE_EVENTS"] = str(events)
-    print(f"{run.get('stage', 'N1')}: {name}", flush=True)
+    print(f"{run.get('stage', 'FOUNDATIONS')}: {name}", flush=True)
     result = run_command(
         command, cwd=CORE_DIR, env=env, timeout=seconds, limit=4 * 1024 * 1024
     )
@@ -415,7 +415,7 @@ def run_protocol_interop(
                 f"{case['case_id']}\t{case['substage']}\t{case['peer_kind']}\t{case['protocol']}"
             )
         return None
-    if stage in {"N1", "N2"}:
+    if stage in {"FOUNDATIONS", "TROJAN"}:
         raise RuntimeError(
             "legacy server orchestration is not fully containerized; "
             "use check core or a current container suite"
@@ -459,11 +459,13 @@ def run_protocol_interop(
     try:
         run.update(run_identity(stage, selected, preflight_only))
         with exclusive_run(), deadline(run["suite_timeout_seconds"]):
-            if preflight_only and stage == "N9":
-                from .protocol_n9_acceptance import preflight as n9_preflight
+            if preflight_only and stage == "INTEGRATION":
+                from .protocol_integration_acceptance import (
+                    preflight as integration_preflight,
+                )
 
-                n9_preflight(output)
-            elif preflight_only and stage == "N7":
+                integration_preflight(output)
+            elif preflight_only and stage == "SECURITY":
                 _, peers = preflight(
                     output / "binaries", {"M", "XR", "V2"}, container=True
                 )
@@ -472,21 +474,21 @@ def run_protocol_interop(
                     peer["status"] != "READY" or peer.get("container_status") != "READY"
                     for peer in peers
                 ):
-                    raise RuntimeError("N7 native prerequisites are BLOCKED")
-            elif preflight_only and stage == "N6":
+                    raise RuntimeError("SECURITY native prerequisites are BLOCKED")
+            elif preflight_only and stage == "HYSTERIA2":
                 from .protocol_hysteria2_acceptance import preflight as preflight_hy2
 
                 preflight_hy2(output)
-            elif preflight_only and stage == "N5":
+            elif preflight_only and stage == "XHTTP":
                 from .protocol_xhttp_acceptance import preflight as preflight_xhttp
 
                 preflight_xhttp(output)
-            elif preflight_only and stage in {"N3", "N4"}:
-                if stage == "N3":
+            elif preflight_only and stage in {"VMESS", "VLESS"}:
+                if stage == "VMESS":
                     from .protocol_vmess_container import run as preflight_vmess
                 else:
                     from .protocol_vless_container import run as preflight_vmess
-                protocol_name = "vmess" if stage == "N3" else "vless"
+                protocol_name = "vmess" if stage == "VMESS" else "vless"
 
                 native = [
                     case["case_id"]
@@ -513,32 +515,32 @@ def run_protocol_interop(
                         "some independent peer prerequisites are BLOCKED"
                     )
             else:
-                if stage == "N2":
+                if stage == "TROJAN":
                     from .protocol_trojan_acceptance import execute
 
                     execute(selected, run, output, records)
-                elif stage == "N3":
+                elif stage == "VMESS":
                     from .protocol_vmess_acceptance import execute
 
                     execute(selected, run, output, records)
-                elif stage == "N4":
+                elif stage == "VLESS":
                     from .protocol_vless_acceptance import execute
 
                     execute(selected, run, output, records)
-                elif stage == "N5":
+                elif stage == "XHTTP":
                     from .protocol_xhttp_acceptance import execute
 
                     execute(selected, run, output, records)
-                elif stage == "N6":
+                elif stage == "HYSTERIA2":
                     from .protocol_hysteria2_acceptance import execute
 
                     execute(selected, run, output, records)
-                elif stage == "N7":
-                    from .protocol_n7_acceptance import execute
+                elif stage == "SECURITY":
+                    from .protocol_security_acceptance import execute
 
                     execute(selected, run, output, records)
-                elif stage == "N9":
-                    from .protocol_n9_acceptance import execute
+                elif stage == "INTEGRATION":
+                    from .protocol_integration_acceptance import execute
 
                     execute(selected, run, output, records)
                 else:
@@ -594,25 +596,26 @@ def run_protocol_interop(
             f"# {stage}: {status}\n\n"
             + (
                 "Trojan protocol consumer evidence; other protocols remain NOT RUN.\n\n"
-                if stage == "N2"
+                if stage == "TROJAN"
                 else "VMess protocol consumer evidence with "
                 "container-only servers and origins.\n\n"
-                if stage == "N3"
-                else "VLESS N4 consumer evidence with container-only peers; "
-                "N5/N7 remain separate gates.\n\n"
-                if stage == "N4"
-                else "VLESS N5 XHTTP/sing-mux consumer evidence; "
-                "container-only native peers, N7 remains a separate gate.\n\n"
-                if stage == "N5"
-                else "Hysteria2 N6 consumer evidence with container-only peers; "
+                if stage == "VMESS"
+                else "VLESS consumer evidence with container-only peers; "
+                "XHTTP and security remain separate suites.\n\n"
+                if stage == "VLESS"
+                else "VLESS XHTTP/sing-mux consumer evidence; "
+                "container-only native peers, security remains a separate suite.\n\n"
+                if stage == "XHTTP"
+                else "Hysteria2 consumer evidence with container-only peers; "
                 "native H server limits and platform/device gates remain explicit.\n\n"
-                if stage == "N6"
-                else "N7 selected VLESS security consumers; static ECH only, "
-                "Container-only peers; N9/N10 and devices remain separate.\n\n"
-                if stage == "N7"
-                else "N9 seven-protocol integration; container-only peers. "
+                if stage == "HYSTERIA2"
+                else "Selected VLESS security consumers; static ECH only, "
+                "container-only peers; integration, platforms and devices "
+                "remain separate.\n\n"
+                if stage == "SECURITY"
+                else "Seven-protocol integration; container-only peers. "
                 "Partial selections do not sign off lifecycle or soak gates.\n\n"
-                if stage == "N9"
+                if stage == "INTEGRATION"
                 else "Foundation-only evidence; "
                 "production protocol field consumers remain NOT RUN.\n\n"
             )

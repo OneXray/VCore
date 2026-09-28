@@ -3,9 +3,9 @@ use super::*;
 use runtime::{assert_closed, exchange, live, select};
 
 #[test]
-#[ignore = "isolated N6 runner"]
+#[ignore = "isolated HYSTERIA2 runner"]
 fn public_concrete_upstream() {
-    let _case = RecordedCase::new("N6-PUBLIC", "public_concrete_upstream");
+    let _case = RecordedCase::new("HYSTERIA2-PUBLIC", "public_concrete_upstream");
     let f = fixture();
     initialize(&f);
     let port = free_port();
@@ -24,9 +24,9 @@ fn public_concrete_upstream() {
 }
 
 #[test]
-#[ignore = "isolated N6 runner"]
+#[ignore = "isolated HYSTERIA2 runner"]
 fn public_udp_boundaries() {
-    let _case = RecordedCase::new("N6-PUBLIC", "public_udp_boundaries");
+    let _case = RecordedCase::new("HYSTERIA2-PUBLIC", "public_udp_boundaries");
     let f = fixture();
     initialize(&f);
     let port = free_port();
@@ -93,9 +93,9 @@ fn denied(port: u16, f: &Value, label: &str) {
 }
 
 #[test]
-#[ignore = "isolated N6 runner"]
+#[ignore = "isolated HYSTERIA2 runner"]
 fn public_graph_and_hop_snapshot() {
-    let _case = RecordedCase::new("N6-PUBLIC", "public_graph_and_hop_snapshot");
+    let _case = RecordedCase::new("HYSTERIA2-PUBLIC", "public_graph_and_hop_snapshot");
     let f = fixture();
     initialize(&f);
     let port = free_port();

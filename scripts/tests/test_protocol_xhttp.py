@@ -1,4 +1,4 @@
-"""Fail-closed N5 coverage and fixture checks; no host listeners."""
+"""Fail-closed XHTTP coverage and fixture checks; no host listeners."""
 
 import copy
 import unittest
@@ -54,7 +54,7 @@ class XhttpAcceptanceTest(unittest.TestCase):
                 )
 
     def test_unknown_duplicate_wrong_suite_and_partial_events_fail(self):
-        observed = pair("N5-XHTTP", "native_xhttp_request_fields")
+        observed = pair("XHTTP-XHTTP", "native_xhttp_request_fields")
         self.assertTrue(events_pass(observed, "native_xhttp_request_fields"))
         for bad in (
             [],
@@ -63,11 +63,11 @@ class XhttpAcceptanceTest(unittest.TestCase):
             observed + pair("extra", "unknown"),
         ):
             self.assertFalse(events_pass(bad, "native_xhttp_request_fields"))
-        public = pair("N5-PUBLIC", "runtime::public_graph")
+        public = pair("XHTTP-PUBLIC", "runtime::public_graph")
         self.assertTrue(public_events_pass(public, "runtime::public_graph"))
         self.assertFalse(
             public_events_pass(
-                public + pair("N5-BASE", "unknown"), "runtime::public_graph"
+                public + pair("XHTTP-BASE", "unknown"), "runtime::public_graph"
             )
         )
         bad = copy.deepcopy(public)
@@ -75,8 +75,10 @@ class XhttpAcceptanceTest(unittest.TestCase):
         self.assertFalse(public_events_pass(bad, "runtime::public_graph"))
 
     def test_unit_gate_requires_every_frozen_assertion_and_successful_command(self):
-        case = next(c for c in definitions() if c["case_id"] == "N5-CFG")
-        events = sum((pair("N5-UNIT", name) for name in OBSERVATIONS["N5-CFG"]), [])
+        case = next(c for c in definitions() if c["case_id"] == "XHTTP-CFG")
+        events = sum(
+            (pair("XHTTP-UNIT", name) for name in OBSERVATIONS["XHTTP-CFG"]), []
+        )
         records = [dict(exit_code=0, cleanup=True)]
         self.assertEqual(gate_result(case, records, events)["status"], "PASS")
         for bad in ([], events[:-1], events + events[:2]):

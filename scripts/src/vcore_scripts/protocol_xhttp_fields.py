@@ -1,4 +1,4 @@
-"""N5 request-field development checks, not the complete N5 stage gate."""
+"""XHTTP request-field development checks, not the complete XHTTP stage gate."""
 
 from __future__ import annotations
 
@@ -57,28 +57,31 @@ def native_kind(version):
 
 def public_events_pass(events, assertion):
     if assertion not in PUBLIC_TESTS or any(
-        e.get("suite") not in {"N5-PUBLIC", "N5-BASE", "N5-LIFE"} for e in events
+        e.get("suite") not in {"XHTTP-PUBLIC", "XHTTP-BASE", "XHTTP-LIFE"}
+        for e in events
     ):
         return False
     expected = {
-        ("N5-PUBLIC", assertion): 1,
+        ("XHTTP-PUBLIC", assertion): 1,
     }
     if assertion == "public_base":
         expected.update(
             {
-                ("N5-BASE", "tcp_10mib_both_directions"): 3,
-                ("N5-BASE", "udp_each_codec_and_family"): 3,
+                ("XHTTP-BASE", "tcp_10mib_both_directions"): 3,
+                ("XHTTP-BASE", "udp_each_codec_and_family"): 3,
             }
         )
     if assertion == "runtime::public_lifecycle":
-        expected[("N5-LIFE", "stop_and_remain_quiet")] = 20
+        expected[("XHTTP-LIFE", "stop_and_remain_quiet")] = 20
     if len(events) != 2 * sum(expected.values()):
         return False
     for key, count in expected.items():
         matched = [e for e in events if (e.get("suite"), e.get("assertion")) == key]
         if [e.get("status") for e in matched] != ["BEGIN", "PASS"] * count:
             return False
-    remapped = [dict(e, suite=e["suite"].replace("N5-", "N4-", 1)) for e in events]
+    remapped = [
+        dict(e, suite=e["suite"].replace("XHTTP-", "VLESS-", 1)) for e in events
+    ]
     return vless_events_pass(remapped, assertion, "xhttp")
 
 
@@ -330,7 +333,7 @@ def server_fields(fields, kind):
 def events_pass(events, assertion, *, owned=False):
     if any(e.get("schema_version") != 1 for e in events):
         return False
-    main = [event for event in events if event.get("suite") == "N5-XHTTP"]
+    main = [event for event in events if event.get("suite") == "XHTTP-XHTTP"]
     if (
         len(main) != 2
         or [e.get("status") for e in main] != ["BEGIN", "PASS"]
@@ -339,7 +342,7 @@ def events_pass(events, assertion, *, owned=False):
         return False
     if not owned:
         return len(events) == 2
-    cycles = [e for e in events if e.get("suite") == "N5-OWNED"]
+    cycles = [e for e in events if e.get("suite") == "XHTTP-OWNED"]
     if len(events) != 42 or len(cycles) != 40:
         return False
     for start, finish in zip(cycles[::2], cycles[1::2], strict=True):
@@ -426,7 +429,7 @@ def close_reference(lab, stack, root, name, node, origin, binary, output):
 
 
 def selected_profile_variants(profile):
-    """Closed CF5 risk crossings; ordinary N5 variants stay unchanged."""
+    """Named-profile download-leg crossings; ordinary XHTTP variants are unchanged."""
     other = "firefox" if profile in {"chrome", "chrome120"} else "chrome"
     result = {}
     for label, override in (
@@ -557,7 +560,11 @@ def run(
         raise ValueError("new run directory must be directly under target/interop/runs")
     output.mkdir(exist_ok=False)
     report = dict(
-        stage="N7.3-ECH" if ech else "N7.1" if encryption else "N5",
+        stage="SECURITY.ech"
+        if ech
+        else "SECURITY.encryption"
+        if encryption
+        else "XHTTP",
         ech=ech,
         jls=jls,
         encryption_profile=encryption,
@@ -733,7 +740,7 @@ def run(
                 # Xray always normalizes its handler path with a trailing slash,
                 # unlike Mihomo when both metadata fields are outside the path.
                 # Configure an explicit compatible path, without changing VCore.
-                options = dict(fields, path="/n5/" if kind == "XR" else "/n5")
+                options = dict(fields, path="/xhttp/" if kind == "XR" else "/xhttp")
                 plain = (
                     not outer_mode.endswith(("-tls", "-reality"))
                     if outer_mode
@@ -1202,7 +1209,7 @@ def run(
                             os.environ,
                             VCORE_XHTTP_INPUT=str(fixture),
                             VCORE_VLESS_INPUT=str(fixture),
-                            VCORE_PROTOCOL_STAGE="N5",
+                            VCORE_PROTOCOL_STAGE="XHTTP",
                             VCORE_CASE_EVENTS=str(events),
                         ),
                     )

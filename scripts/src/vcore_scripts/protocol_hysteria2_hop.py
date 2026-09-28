@@ -75,7 +75,7 @@ def native_binary(output):
 def packages(lab, stack, root):
     """Only package preparation has external egress; no server runs there."""
     root.mkdir()
-    peer = ContainerPeer(lab, root, "n6-packages")
+    peer = ContainerPeer(lab, root, "hysteria2-packages")
     lab.record["peers"].append(peer.record)
     stack.callback(peer.stop)
     command(
@@ -146,7 +146,7 @@ def run(
     output = output.resolve()
     output.mkdir(parents=True, exist_ok=False)
     report = dict(
-        stage="N6",
+        stage="HYSTERIA2",
         scope="incremental-native-H",
         source=source_identity(),
         status="NOT RUN",
@@ -197,7 +197,7 @@ def run(
             origin = lab.start(
                 stack,
                 origin_dir,
-                "n6-h-origin",
+                "hysteria2-h-origin",
                 [
                     "env",
                     "VCORE_ISOLATED_ORIGIN=1",
@@ -209,7 +209,7 @@ def run(
             server = lab.start(
                 stack,
                 server_dir,
-                "n6-h-peer",
+                "hysteria2-h-peer",
                 [
                     "env",
                     "HYSTERIA_FIREWALL_BACKEND=nftables",
@@ -247,7 +247,7 @@ def run(
             guest(server, "cp", "/data/fixture/hosts", "/etc/hosts")
             # Pre-DNAT observations: native Hysteria owns its separate redirect table.
             rules = (
-                "table inet vcore_n6 { chain observe { "
+                "table inet vcore_hysteria2 { chain observe { "
                 "type filter hook prerouting priority -150; policy accept; "
             )
             for port in range(23010, 23013):
@@ -341,7 +341,7 @@ def run(
                 redact(raw_log.replace(password, "<fixture-auth>"))
             )
             rules = json.loads(
-                guest(server, "nft", "-j", "list", "table", "inet", "vcore_n6")
+                guest(server, "nft", "-j", "list", "table", "inet", "vcore_hysteria2")
             )
             counts = {}
             for entry in rules["nftables"]:

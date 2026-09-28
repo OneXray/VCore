@@ -144,7 +144,7 @@ mod tests {
     async fn a_client_first_write_does_not_steal_a_pending_read_wakeup() {
         #[cfg(feature = "interop-test")]
         let _case = crate::resources::case_events::Case::new(
-            "N6-UNIT",
+            "HYSTERIA2-UNIT",
             "a_client_first_write_does_not_steal_a_pending_read_wakeup",
         );
         let (client, mut peer) = tokio::io::duplex(128);
@@ -174,7 +174,7 @@ mod tests {
     async fn application_eof_closes_both_directions_without_consuming_a_tail() {
         #[cfg(feature = "interop-test")]
         let _case = crate::resources::case_events::Case::new(
-            "N6-UNIT",
+            "HYSTERIA2-UNIT",
             "application_eof_closes_both_directions_without_consuming_a_tail",
         );
         let (client, mut peer) = tokio::io::duplex(128);
@@ -204,7 +204,7 @@ mod tests {
     async fn shutdown_wakes_an_already_pending_logical_reader() {
         #[cfg(feature = "interop-test")]
         let _case = crate::resources::case_events::Case::new(
-            "N6-UNIT",
+            "HYSTERIA2-UNIT",
             "shutdown_wakes_an_already_pending_logical_reader",
         );
         let (client, mut peer) = tokio::io::duplex(128);

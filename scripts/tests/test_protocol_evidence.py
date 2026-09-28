@@ -16,7 +16,7 @@ from vcore_scripts.protocol_evidence import (
 
 class ProtocolEvidenceTest(unittest.TestCase):
     def setUp(self):
-        self.cases = select_cases(load_manifest(), stage="N1")
+        self.cases = select_cases(load_manifest(), stage="FOUNDATIONS")
         self.results = [
             {
                 "case_id": case["case_id"],
@@ -48,7 +48,7 @@ class ProtocolEvidenceTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_results([], [])
         with self.assertRaises(ValueError):
-            select_cases(load_manifest(), stage="N8")
+            select_cases(load_manifest(), stage="WIREGUARD")
 
     def test_failure_blocked_not_run_timeout_and_cleanup_never_become_pass(self):
         for update in [
@@ -90,7 +90,9 @@ class ProtocolEvidenceTest(unittest.TestCase):
                     load_manifest(path)
 
     def test_resource_claims_require_idle_structured_snapshots(self):
-        case = next(case for case in self.cases if case["case_id"] == "N1-RESOURCES")
+        case = next(
+            case for case in self.cases if case["case_id"] == "FOUNDATIONS-RESOURCES"
+        )
         events = [
             {
                 "schema_version": 1,

@@ -2,6 +2,9 @@
 
 测试按验证目的维护，不按开发阶段累积副本。当前命令见 [scripts](../scripts/README.md)。
 
+文件名与用例 ID 使用协议或验证用途：ech_config、encryption_wire、
+protocol_security、protocol_integration；事件标签与报告采用同一套名称。
+
 | 层次 | 保留内容 | 入口 |
 | --- | --- | --- |
 | 日常 | 严格配置、feature、协议/TLS 内存 IO、局部上限、取消、FFI 边界和确定性回归 | check core --profile debug/release |
@@ -19,9 +22,10 @@
 - h2_stream_regression：完整 END_STREAM 后 RST 不丢响应，未完成响应仍报错。
 - shadowsocks_backpressure：三算法 Pending 重试长度和 server-first，不修改官方库。
 - hysteria2_packet_ids：完成后重用 16 位分片 ID，不误丢后续业务包。
-- n7_security_capabilities：公开配置经真实 SecurityClient 在主/下载腿产生实际混合 share；
+- security_capabilities：公开配置经真实 SecurityClient 在主/下载腿产生实际混合 share；
   不再重复测试 fork 的纯 API 准入。
-- fingerprints/mihomo-selected-v1.json：官方独立 ClientHello golden，不从待测实现重新生成期望。
+- fingerprints/mihomo-selected-v1.json：官方独立 ClientHello golden，不从待测实现重新生成期望；
+  [指纹验证](fingerprints/README.md)分别维护独立基线、内存报文与容器互通。
 - protocols/encryption-crypto.json 及 Go 生成器：独立密码向量；许可证和来源必须保留。
 - protocols/limits.json：实际常量、边界与越界行为；不另建一套产品配置。
 

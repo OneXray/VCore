@@ -32,7 +32,7 @@ pub(super) fn rejected(node: Value, f: &Value) {
 }
 
 #[test]
-#[ignore = "owned N9 official Mihomo container required"]
+#[ignore = "owned INTEGRATION official Mihomo container required"]
 fn algorithms() {
     let f = fixture();
     initialize(&f);
@@ -40,7 +40,7 @@ fn algorithms() {
     assert_eq!(nodes.len(), 3);
     let mut observations = Vec::new();
     for node in nodes {
-        let _case = RecordedCase::new("N9-SS-ALGORITHMS", cipher(node));
+        let _case = RecordedCase::new("INTEGRATION-SS-ALGORITHMS", cipher(node));
         let port = free_port();
         let core = Core::start(&config(node.clone(), port));
         for (ipv6, domain) in [(false, false), (true, false), (false, true)] {
@@ -67,7 +67,7 @@ fn algorithms() {
 }
 
 #[test]
-#[ignore = "owned N9 official ssserver container required"]
+#[ignore = "owned INTEGRATION official ssserver container required"]
 fn eih() {
     let f = fixture();
     initialize(&f);
@@ -75,7 +75,7 @@ fn eih() {
     assert_eq!(nodes.len(), 2);
     let mut observations = Vec::new();
     for node in nodes {
-        let _case = RecordedCase::new("N9-SS-EIH", cipher(node));
+        let _case = RecordedCase::new("INTEGRATION-SS-EIH", cipher(node));
         for outer_ipv6 in [false, true] {
             let port = free_port();
             let mut node = node.clone();

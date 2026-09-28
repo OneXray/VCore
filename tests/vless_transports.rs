@@ -68,7 +68,7 @@ fn session() -> StreamSession {
 async fn http_camouflage_shutdown_releases_both_directions_without_waiting_for_peer_eof() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N4-UNIT",
+        "VLESS-UNIT",
         "http_camouflage_shutdown_releases_both_directions_without_waiting_for_peer_eof",
     );
     tokio::time::timeout(Duration::from_secs(2), async {
@@ -120,7 +120,7 @@ async fn http_camouflage_shutdown_releases_both_directions_without_waiting_for_p
 async fn grpc_server_first_flushes_vless_request_without_an_application_write() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N4-UNIT",
+        "VLESS-UNIT",
         "grpc_server_first_flushes_vless_request_without_an_application_write",
     );
     let (io, peer) = tokio::io::duplex(4096);
@@ -184,7 +184,7 @@ async fn grpc_server_first_flushes_vless_request_without_an_application_write() 
 async fn http_upgrade_consumes_early_prefix_and_requires_valid_101_even_fast_open() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N4-UNIT",
+        "VLESS-UNIT",
         "http_upgrade_consumes_early_prefix_and_requires_valid_101_even_fast_open",
     );
     use base64::Engine as _;

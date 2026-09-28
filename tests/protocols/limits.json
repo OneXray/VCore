@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "kind": "runtime-limit-registry",
-  "scope": "N1 shared foundations through N9 integration; per-object bounds, not global admission caps",
+  "scope": "FOUNDATIONS shared foundations through INTEGRATION integration; per-object bounds, not global admission caps",
   "limits": [
     {
       "id": "shadowsocks-write-chunk",
@@ -10,7 +10,7 @@
       "owner": "limits::SHADOWSOCKS_WRITE_CHUNK",
       "saturation": "partial write then backpressure while the bounded owned chunk drains",
       "cancellation": "stream drop releases plaintext and codec; flush and shutdown drain the exact accepted chunk",
-      "boundary_cases": ["N9-DEBUG", "N9-RELEASE"]
+      "boundary_cases": ["INTEGRATION-DEBUG", "INTEGRATION-RELEASE"]
     },
     {
       "id": "xhttp-custom-header-bytes",
@@ -20,7 +20,7 @@
       "saturation": "reject aggregate custom header overflow before IO",
       "cancellation": "reject before creating runtime IO or tasks",
       "boundary_cases": [
-        "N5-CFG"
+        "XHTTP-CFG"
       ]
     },
     {
@@ -31,7 +31,7 @@
       "saturation": "reject custom header count overflow before IO",
       "cancellation": "reject before creating runtime IO or tasks",
       "boundary_cases": [
-        "N5-CFG"
+        "XHTTP-CFG"
       ]
     },
     {
@@ -42,7 +42,7 @@
       "saturation": "reject configured padding overflow before IO",
       "cancellation": "reject before creating runtime IO or tasks",
       "boundary_cases": [
-        "N5-CFG"
+        "XHTTP-CFG"
       ]
     },
     {
@@ -53,7 +53,7 @@
       "saturation": "reject post size overflow before IO; bound retained upload",
       "cancellation": "reject before creating runtime IO or tasks",
       "boundary_cases": [
-        "N5-CFG"
+        "XHTTP-CFG"
       ]
     },
     {
@@ -64,7 +64,7 @@
       "saturation": "backpressure one filling batch and one in-flight batch; never allocate the configured POST maximum",
       "cancellation": "logical drop cancels the timer/upload; node Stop joins the owned driver",
       "boundary_cases": [
-        "N5-UNIT"
+        "XHTTP-UNIT"
       ]
     },
     {
@@ -75,7 +75,7 @@
       "saturation": "reject oversized constructed request including generated metadata",
       "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
       "boundary_cases": [
-        "N5-UNIT"
+        "XHTTP-UNIT"
       ]
     },
     {
@@ -86,7 +86,7 @@
       "saturation": "reject excess constructed headers including payload chunks",
       "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
       "boundary_cases": [
-        "N5-UNIT"
+        "XHTTP-UNIT"
       ]
     },
     {
@@ -97,7 +97,7 @@
       "saturation": "retire excess idle transports without imposing active business quota",
       "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
       "boundary_cases": [
-        "N5-UNIT"
+        "XHTTP-UNIT"
       ]
     },
     {
@@ -108,7 +108,7 @@
       "saturation": "retire excess idle H1 connections; active requests keep ownership",
       "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
       "boundary_cases": [
-        "N5-UNIT"
+        "XHTTP-UNIT"
       ]
     },
     {
@@ -119,7 +119,7 @@
       "saturation": "backpressure owned H1 commands and body chunks",
       "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
       "boundary_cases": [
-        "N5-UNIT"
+        "XHTTP-UNIT"
       ]
     },
     {
@@ -130,7 +130,7 @@
       "saturation": "split streaming writes; a packet-up body uses the separately bounded xhttp-packet-batch limit",
       "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
       "boundary_cases": [
-        "N5-UNIT"
+        "XHTTP-UNIT"
       ]
     },
     {
@@ -141,7 +141,7 @@
       "saturation": "QUIC flow control bounds remote control streams",
       "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
       "boundary_cases": [
-        "N5-UNIT"
+        "XHTTP-UNIT"
       ]
     },
     {
@@ -152,7 +152,7 @@
       "saturation": "QUIC receive flow control backpressures peer per stream",
       "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
       "boundary_cases": [
-        "N5-UNIT"
+        "XHTTP-UNIT"
       ]
     },
     {
@@ -163,7 +163,7 @@
       "saturation": "QUIC aggregate receive flow control",
       "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
       "boundary_cases": [
-        "N5-UNIT"
+        "XHTTP-UNIT"
       ]
     },
     {
@@ -174,7 +174,7 @@
       "saturation": "QUIC send window backpressures pending writes",
       "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
       "boundary_cases": [
-        "N5-UNIT"
+        "XHTTP-UNIT"
       ]
     },
     {
@@ -185,7 +185,7 @@
       "saturation": "retire excess idle connections; no active business quota",
       "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
       "boundary_cases": [
-        "N5-UNIT"
+        "XHTTP-UNIT"
       ]
     },
     {
@@ -196,7 +196,7 @@
       "saturation": "backpressure smux frames and yamux opens",
       "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
       "boundary_cases": [
-        "N5-UNIT"
+        "XHTTP-UNIT"
       ]
     },
     {
@@ -207,7 +207,7 @@
       "saturation": "split frame writes at retained chunk boundary",
       "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
       "boundary_cases": [
-        "N5-UNIT"
+        "XHTTP-UNIT"
       ]
     },
     {
@@ -218,7 +218,7 @@
       "saturation": "backpressure reader; each wire frame is bounded by its u16 length",
       "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
       "boundary_cases": [
-        "N5-UNIT"
+        "XHTTP-UNIT"
       ]
     },
     {
@@ -229,7 +229,7 @@
       "saturation": "retire before library stream saturation; new transport serves new streams while old streams remain live",
       "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
       "boundary_cases": [
-        "N5-UNIT"
+        "XHTTP-UNIT"
       ]
     },
     {
@@ -240,7 +240,7 @@
       "saturation": "library receive credit window bounds physical connection retention",
       "cancellation": "runtime Stop cancels and joins node-owned drivers; drops queues and retained IO",
       "boundary_cases": [
-        "N5-UNIT"
+        "XHTTP-UNIT"
       ]
     },
     {
@@ -251,10 +251,10 @@
       "saturation": "reject oversize send before write; invalid receive closes the stream; bounded caller-budget drops never truncate",
       "cancellation": "drop partial receive buffer and poison any partially written frame on cancelled send",
       "boundary_cases": [
-        "N2-CODEC",
-        "N2-M-TCP-UDP-ISOLATION",
-        "N2-M-WS-UDP-ISOLATION",
-        "N2-M-GRPC-UDP-ISOLATION"
+        "TROJAN-CODEC",
+        "TROJAN-M-TCP-UDP-ISOLATION",
+        "TROJAN-M-WS-UDP-ISOLATION",
+        "TROJAN-M-GRPC-UDP-ISOLATION"
       ]
     },
     {
@@ -265,7 +265,7 @@
       "saturation": "reject oversized YAML",
       "cancellation": "parse owns no background work",
       "boundary_cases": [
-        "N1-SCHEMA"
+        "FOUNDATIONS-SCHEMA"
       ]
     },
     {
@@ -276,8 +276,8 @@
       "saturation": "fail entire setup at absolute deadline",
       "cancellation": "drop pending setup at cancellation",
       "boundary_cases": [
-        "N1-RESOLUTION",
-        "N1-STREAM"
+        "FOUNDATIONS-RESOLUTION",
+        "FOUNDATIONS-STREAM"
       ]
     },
     {
@@ -288,7 +288,7 @@
       "saturation": "backpressure TLS records",
       "cancellation": "drop owned IO on Stop",
       "boundary_cases": [
-        "N1-SECURITY"
+        "FOUNDATIONS-SECURITY"
       ]
     },
     {
@@ -299,7 +299,7 @@
       "saturation": "fail bounded close_notify flush",
       "cancellation": "cancel flush and release IO",
       "boundary_cases": [
-        "N1-SECURITY"
+        "FOUNDATIONS-SECURITY"
       ]
     },
     {
@@ -310,7 +310,7 @@
       "saturation": "evict retained sessions within isolated identity cache",
       "cancellation": "drop cache owner",
       "boundary_cases": [
-        "N1-SECURITY"
+        "FOUNDATIONS-SECURITY"
       ]
     },
     {
@@ -321,7 +321,7 @@
       "saturation": "split writes at chunk boundary",
       "cancellation": "drop queued chunk on cancellation",
       "boundary_cases": [
-        "N1-STREAM"
+        "FOUNDATIONS-STREAM"
       ]
     },
     {
@@ -332,7 +332,7 @@
       "saturation": "backpressure writes; reject oversized WS/gRPC message",
       "cancellation": "Stop owns driver join",
       "boundary_cases": [
-        "N1-STREAM"
+        "FOUNDATIONS-STREAM"
       ]
     },
     {
@@ -343,7 +343,7 @@
       "saturation": "reject oversized HTTP header",
       "cancellation": "drop parser and supplied IO",
       "boundary_cases": [
-        "N1-STREAM"
+        "FOUNDATIONS-STREAM"
       ]
     },
     {
@@ -354,7 +354,7 @@
       "saturation": "reject excess fields",
       "cancellation": "drop parser and supplied IO",
       "boundary_cases": [
-        "N1-STREAM"
+        "FOUNDATIONS-STREAM"
       ]
     },
     {
@@ -365,7 +365,7 @@
       "saturation": "reject invalid option, put excess initial bytes in data frames",
       "cancellation": "no separate task",
       "boundary_cases": [
-        "N1-STREAM"
+        "FOUNDATIONS-STREAM"
       ]
     },
     {
@@ -376,7 +376,7 @@
       "saturation": "reject oversized metadata before body allocation",
       "cancellation": "drop persistent partial frame on association close",
       "boundary_cases": [
-        "N1-XUDP"
+        "FOUNDATIONS-XUDP"
       ]
     },
     {
@@ -387,8 +387,8 @@
       "saturation": "yield before processing another control/discard burst",
       "cancellation": "cooperative cancellation between polls",
       "boundary_cases": [
-        "N1-STREAM",
-        "N1-DATAGRAM"
+        "FOUNDATIONS-STREAM",
+        "FOUNDATIONS-DATAGRAM"
       ]
     },
     {
@@ -399,7 +399,7 @@
       "saturation": "WouldBlock TX; pause RX, plus one in-flight send",
       "cancellation": "cancel and join owner; clear queues",
       "boundary_cases": [
-        "N1-QUIC"
+        "FOUNDATIONS-QUIC"
       ]
     },
     {
@@ -410,7 +410,7 @@
       "saturation": "time out upstream close",
       "cancellation": "drop transport after bounded close and join task",
       "boundary_cases": [
-        "N1-QUIC"
+        "FOUNDATIONS-QUIC"
       ]
     },
     {
@@ -421,8 +421,8 @@
       "saturation": "reject insufficient directional path budget before QUIC",
       "cancellation": "no QUIC task created on rejection",
       "boundary_cases": [
-        "N1-QUIC",
-        "N1-DATAGRAM"
+        "FOUNDATIONS-QUIC",
+        "FOUNDATIONS-DATAGRAM"
       ]
     },
     {
@@ -433,7 +433,7 @@
       "saturation": "reject dependency recursion/depth, no system fallback",
       "cancellation": "shared deadline and runtime cancellation",
       "boundary_cases": [
-        "N1-RESOLUTION"
+        "FOUNDATIONS-RESOLUTION"
       ]
     },
     {
@@ -444,7 +444,7 @@
       "saturation": "retain existing per-object queue/cache/buffer policy in docs/runtime-resource-policy.md",
       "cancellation": "existing runtime-owned cancellation and Stop barrier",
       "boundary_cases": [
-        "N1-REGRESSION"
+        "FOUNDATIONS-REGRESSION"
       ]
     },
     {
@@ -455,7 +455,7 @@
       "saturation": "retain existing per-object queue/cache/buffer policy in docs/runtime-resource-policy.md",
       "cancellation": "existing runtime-owned cancellation and Stop barrier",
       "boundary_cases": [
-        "N1-REGRESSION"
+        "FOUNDATIONS-REGRESSION"
       ]
     },
     {
@@ -466,7 +466,7 @@
       "saturation": "retain existing per-object queue/cache/buffer policy in docs/runtime-resource-policy.md",
       "cancellation": "existing runtime-owned cancellation and Stop barrier",
       "boundary_cases": [
-        "N1-REGRESSION"
+        "FOUNDATIONS-REGRESSION"
       ]
     },
     {
@@ -477,7 +477,7 @@
       "saturation": "retain existing per-object queue/cache/buffer policy in docs/runtime-resource-policy.md",
       "cancellation": "existing runtime-owned cancellation and Stop barrier",
       "boundary_cases": [
-        "N1-REGRESSION"
+        "FOUNDATIONS-REGRESSION"
       ]
     },
     {
@@ -488,7 +488,7 @@
       "saturation": "retain existing per-object queue/cache/buffer policy in docs/runtime-resource-policy.md",
       "cancellation": "existing runtime-owned cancellation and Stop barrier",
       "boundary_cases": [
-        "N1-REGRESSION"
+        "FOUNDATIONS-REGRESSION"
       ]
     },
     {
@@ -499,7 +499,7 @@
       "saturation": "retain existing per-object queue/cache/buffer policy in docs/runtime-resource-policy.md",
       "cancellation": "existing runtime-owned cancellation and Stop barrier",
       "boundary_cases": [
-        "N1-REGRESSION"
+        "FOUNDATIONS-REGRESSION"
       ]
     },
     {
@@ -510,7 +510,7 @@
       "saturation": "retain existing per-object queue/cache/buffer policy in docs/runtime-resource-policy.md",
       "cancellation": "existing runtime-owned cancellation and Stop barrier",
       "boundary_cases": [
-        "N1-REGRESSION"
+        "FOUNDATIONS-REGRESSION"
       ]
     },
     {
@@ -521,7 +521,7 @@
       "saturation": "retain existing per-object queue/cache/buffer policy in docs/runtime-resource-policy.md",
       "cancellation": "existing runtime-owned cancellation and Stop barrier",
       "boundary_cases": [
-        "N1-REGRESSION"
+        "FOUNDATIONS-REGRESSION"
       ]
     },
     {
@@ -532,7 +532,7 @@
       "saturation": "retain existing per-object queue/cache/buffer policy in docs/runtime-resource-policy.md",
       "cancellation": "existing runtime-owned cancellation and Stop barrier",
       "boundary_cases": [
-        "N1-REGRESSION"
+        "FOUNDATIONS-REGRESSION"
       ]
     },
     {
@@ -543,7 +543,7 @@
       "saturation": "retain existing per-object queue/cache/buffer policy in docs/runtime-resource-policy.md",
       "cancellation": "existing runtime-owned cancellation and Stop barrier",
       "boundary_cases": [
-        "N1-REGRESSION"
+        "FOUNDATIONS-REGRESSION"
       ]
     },
     {
@@ -554,7 +554,7 @@
       "saturation": "retain existing per-object queue/cache/buffer policy in docs/runtime-resource-policy.md",
       "cancellation": "existing runtime-owned cancellation and Stop barrier",
       "boundary_cases": [
-        "N1-REGRESSION"
+        "FOUNDATIONS-REGRESSION"
       ]
     },
     {
@@ -565,8 +565,8 @@
       "saturation": "reject malformed or oversized chunk before payload allocation",
       "cancellation": "drop owned stream; never reuse nonce after a partial send",
       "boundary_cases": [
-        "N3-CODEC",
-        "N3-RELEASE"
+        "VMESS-CODEC",
+        "VMESS-RELEASE"
       ]
     },
     {
@@ -577,8 +577,8 @@
       "saturation": "bounded TCP segmentation with backpressure",
       "cancellation": "cancel owned stream and join driver",
       "boundary_cases": [
-        "N3-CODEC",
-        "N3-PUBLIC-TCP-PLAIN-BASE"
+        "VMESS-CODEC",
+        "VMESS-PUBLIC-TCP-PLAIN-BASE"
       ]
     },
     {
@@ -589,8 +589,8 @@
       "saturation": "reject max+1 without partial delivery; intersect the caller budget",
       "cancellation": "close association and release upstream IO",
       "boundary_cases": [
-        "N3-CODEC",
-        "N3-PUBLIC-TCP-UDP-ISOLATION"
+        "VMESS-CODEC",
+        "VMESS-PUBLIC-TCP-UDP-ISOLATION"
       ]
     },
     {
@@ -601,7 +601,7 @@
       "saturation": "reject length beyond u16 payload and prefix",
       "cancellation": "drop owned buffers and join cancelled node drivers",
       "boundary_cases": [
-        "N4-CODEC"
+        "VLESS-CODEC"
       ]
     },
     {
@@ -612,7 +612,7 @@
       "saturation": "split writes; retain one bounded frame",
       "cancellation": "drop owned buffers and join cancelled node drivers",
       "boundary_cases": [
-        "N4-VISION"
+        "VLESS-VISION"
       ]
     },
     {
@@ -623,7 +623,7 @@
       "saturation": "fail malformed outer TLS; stop inner classification",
       "cancellation": "drop owned buffers and join cancelled node drivers",
       "boundary_cases": [
-        "N4-VISION"
+        "VLESS-VISION"
       ]
     },
     {
@@ -634,7 +634,7 @@
       "saturation": "disable inner hello classification at cap",
       "cancellation": "drop owned buffers and join cancelled node drivers",
       "boundary_cases": [
-        "N4-VISION"
+        "VLESS-VISION"
       ]
     },
     {
@@ -645,7 +645,7 @@
       "saturation": "retire excess idle; no active business cap",
       "cancellation": "drop owned buffers and join cancelled node drivers",
       "boundary_cases": [
-        "N4-TRANSPORT"
+        "VLESS-TRANSPORT"
       ]
     },
     {
@@ -656,7 +656,7 @@
       "saturation": "close a physical transport if its PING is unanswered",
       "cancellation": "drop owned buffers and join cancelled node drivers",
       "boundary_cases": [
-        "N4-TRANSPORT"
+        "VLESS-TRANSPORT"
       ]
     },
     {
@@ -667,8 +667,8 @@
       "saturation": "reject max+1 before sending a business fragment",
       "cancellation": "owned logical close or physical session Stop releases retained state and joins drivers",
       "boundary_cases": [
-        "N6-UNIT",
-        "N6-OWNED"
+        "HYSTERIA2-UNIT",
+        "HYSTERIA2-OWNED"
       ]
     },
     {
@@ -679,8 +679,8 @@
       "saturation": "drop full inbound queue without blocking sibling associations",
       "cancellation": "owned logical close or physical session Stop releases retained state and joins drivers",
       "boundary_cases": [
-        "N6-UNIT",
-        "N6-OWNED"
+        "HYSTERIA2-UNIT",
+        "HYSTERIA2-OWNED"
       ]
     },
     {
@@ -691,8 +691,8 @@
       "saturation": "drop excess partial packets; retain bounded completion tombstones",
       "cancellation": "owned logical close or physical session Stop releases retained state and joins drivers",
       "boundary_cases": [
-        "N6-UNIT",
-        "N6-OWNED"
+        "HYSTERIA2-UNIT",
+        "HYSTERIA2-OWNED"
       ]
     },
     {
@@ -703,8 +703,8 @@
       "saturation": "reject fragment retaining overflow",
       "cancellation": "owned logical close or physical session Stop releases retained state and joins drivers",
       "boundary_cases": [
-        "N6-UNIT",
-        "N6-OWNED"
+        "HYSTERIA2-UNIT",
+        "HYSTERIA2-OWNED"
       ]
     },
     {
@@ -715,8 +715,8 @@
       "saturation": "expire missing fragments on the owned cleanup timer",
       "cancellation": "owned logical close or physical session Stop releases retained state and joins drivers",
       "boundary_cases": [
-        "N6-UNIT",
-        "N6-OWNED"
+        "HYSTERIA2-UNIT",
+        "HYSTERIA2-OWNED"
       ]
     },
     {
@@ -727,8 +727,8 @@
       "saturation": "cancel and join the old path before another hop",
       "cancellation": "owned logical close or physical session Stop releases retained state and joins drivers",
       "boundary_cases": [
-        "N6-UNIT",
-        "N6-OWNED"
+        "HYSTERIA2-UNIT",
+        "HYSTERIA2-OWNED"
       ]
     },
     {
@@ -739,8 +739,8 @@
       "saturation": "intersect controlled path payload budget including obfs overhead",
       "cancellation": "owned logical close or physical session Stop releases retained state and joins drivers",
       "boundary_cases": [
-        "N6-UNIT",
-        "N6-OWNED"
+        "HYSTERIA2-UNIT",
+        "HYSTERIA2-OWNED"
       ]
     },
     {
@@ -751,8 +751,8 @@
       "saturation": "QUIC flow control bounds remote control streams",
       "cancellation": "owned logical close or physical session Stop releases retained state and joins drivers",
       "boundary_cases": [
-        "N6-UNIT",
-        "N6-OWNED"
+        "HYSTERIA2-UNIT",
+        "HYSTERIA2-OWNED"
       ]
     },
     {
@@ -763,8 +763,8 @@
       "saturation": "QUIC receive flow control",
       "cancellation": "owned logical close or physical session Stop releases retained state and joins drivers",
       "boundary_cases": [
-        "N6-UNIT",
-        "N6-OWNED"
+        "HYSTERIA2-UNIT",
+        "HYSTERIA2-OWNED"
       ]
     },
     {
@@ -775,8 +775,8 @@
       "saturation": "QUIC aggregate send and receive flow control",
       "cancellation": "owned logical close or physical session Stop releases retained state and joins drivers",
       "boundary_cases": [
-        "N6-UNIT",
-        "N6-OWNED"
+        "HYSTERIA2-UNIT",
+        "HYSTERIA2-OWNED"
       ]
     },
     {
@@ -787,8 +787,8 @@
       "saturation": "QUIC bounds retained datagram queues",
       "cancellation": "owned logical close or physical session Stop releases retained state and joins drivers",
       "boundary_cases": [
-        "N6-UNIT",
-        "N6-OWNED"
+        "HYSTERIA2-UNIT",
+        "HYSTERIA2-OWNED"
       ]
     },
     {
@@ -799,8 +799,8 @@
       "saturation": "reject excess HTTP3 response headers",
       "cancellation": "owned logical close or physical session Stop releases retained state and joins drivers",
       "boundary_cases": [
-        "N6-UNIT",
-        "N6-OWNED"
+        "HYSTERIA2-UNIT",
+        "HYSTERIA2-OWNED"
       ]
     },
     {
@@ -811,8 +811,8 @@
       "saturation": "reject oversized TCP response message before allocation",
       "cancellation": "owned logical close or physical session Stop releases retained state and joins drivers",
       "boundary_cases": [
-        "N6-UNIT",
-        "N6-OWNED"
+        "HYSTERIA2-UNIT",
+        "HYSTERIA2-OWNED"
       ]
     },
     {
@@ -823,8 +823,8 @@
       "saturation": "reject oversized TCP response padding before allocation",
       "cancellation": "owned logical close or physical session Stop releases retained state and joins drivers",
       "boundary_cases": [
-        "N6-UNIT",
-        "N6-OWNED"
+        "HYSTERIA2-UNIT",
+        "HYSTERIA2-OWNED"
       ]
     }
   ]

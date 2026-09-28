@@ -1,4 +1,4 @@
-"""N4 wire cases against official latest peers and entirely isolated origins."""
+"""VLESS wire cases against official latest peers and entirely isolated origins."""
 
 from __future__ import annotations
 
@@ -60,7 +60,7 @@ def close_reference(mode, node, config, certificate, private_key, pin):
         baseline = json.loads(json.dumps(config["listeners"][0]))
         baseline.pop("reality-config")
         baseline.update(
-            name="n4-ws-close-baseline",
+            name="vless-ws-close-baseline",
             port=23003,
             certificate=str(certificate),
             **{"private-key": str(private_key)},
@@ -113,9 +113,9 @@ def run(
         raise ValueError("unsupported named client profile")
     public_cases = PUBLIC_CASES | (
         {
-            "F5-ANYTLS": ("M", "anytls", True, "public_legacy_regression"),
+            "FINGERPRINT-ANYTLS": ("M", "anytls", True, "public_legacy_regression"),
             **{
-                f"CF5-VMESS-{network.upper()}-TLS": (
+                f"FINGERPRINT-VMESS-{network.upper()}-TLS": (
                     "V2",
                     f"vmess-{network}",
                     True,
@@ -166,7 +166,7 @@ def run(
         or len(set(selected)) != len(selected)
         or not set(selected) <= all_cases.keys()
     ):
-        raise ValueError("invalid N4 native selection")
+        raise ValueError("invalid VLESS native selection")
     if client_fingerprint and any(not all_cases[case][2] for case in selected):
         raise ValueError("named client profiles require TLS cases")
     output.mkdir(parents=True, exist_ok=False)
@@ -178,15 +178,15 @@ def run(
             for kind in sorted(kinds)
         ]
     report = dict(
-        stage="N7.3-ECH"
+        stage="SECURITY.ech"
         if ech
-        else "N7.4-JLS"
+        else "SECURITY.jls"
         if jls
-        else "N7.1"
+        else "SECURITY.encryption"
         if encryption
-        else "F5"
+        else "FINGERPRINT-INTEROP"
         if client_fingerprint
-        else "N4",
+        else "VLESS",
         jls=jls,
         ech=ech,
         encryption_profile=encryption,
@@ -659,9 +659,9 @@ def run(
                                 VCORE_VLESS_ORIGIN_V4=origin.ipv4,
                                 VCORE_VLESS_INPUT=str(fixture),
                                 VCORE_CASE_EVENTS=str(events),
-                                VCORE_PROTOCOL_STAGE="N7"
+                                VCORE_PROTOCOL_STAGE="SECURITY"
                                 if encryption or jls or ech
-                                else "N4",
+                                else "VLESS",
                             ),
                         )
                         (output / f"{case}.log").write_text(
@@ -681,16 +681,18 @@ def run(
                                     observed,
                                     test,
                                     mode,
-                                    stage="N7" if encryption or jls or ech else "N4",
+                                    stage="SECURITY"
+                                    if encryption or jls or ech
+                                    else "VLESS",
                                 )
                                 if case in public_cases
                                 else observed
                                 == [
                                     dict(
                                         schema_version=1,
-                                        suite="N7-WIRE"
+                                        suite="SECURITY-WIRE"
                                         if encryption or jls or ech
-                                        else "N4-WIRE",
+                                        else "VLESS-WIRE",
                                         assertion=test,
                                         status=status,
                                     )

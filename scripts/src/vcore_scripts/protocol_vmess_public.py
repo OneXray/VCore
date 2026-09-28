@@ -3,14 +3,14 @@
 from .protocol_evidence import idle_resources
 
 CASES = {
-    "N3-PUBLIC-UDP-FIRST": ("M", "tcp", False, "public_udp_first_response"),
-    "N3-PUBLIC-BODY-OPTIONS": ("M", "tcp", False, "public_body_options"),
+    "VMESS-PUBLIC-UDP-FIRST": ("M", "tcp", False, "public_udp_first_response"),
+    "VMESS-PUBLIC-BODY-OPTIONS": ("M", "tcp", False, "public_body_options"),
 }
-CASES["N3-PUBLIC-WS-ALPN"] = ("M", "ws-alpn", True, "public_alpn_rejection")
+CASES["VMESS-PUBLIC-WS-ALPN"] = ("M", "ws-alpn", True, "public_alpn_rejection")
 for mode in ("tcp", "ws", "grpc", "http", "h2"):
     kind = "V2" if mode in {"http", "h2"} else "M"
     for tls in (False, True):
-        label = f"N3-PUBLIC-{mode.upper()}-{'TLS' if tls else 'PLAIN'}"
+        label = f"VMESS-PUBLIC-{mode.upper()}-{'TLS' if tls else 'PLAIN'}"
         for suffix, test in (
             ("BASE", "public_base"),
             ("NEG", "public_negative"),
@@ -24,15 +24,15 @@ for mode in ("tcp", "grpc"):
         ("LIFE", "runtime::public_lifecycle"),
         ("OWNED", "runtime::owned_resources"),
     ):
-        CASES[f"N3-PUBLIC-{mode.upper()}-{suffix}"] = ("M", mode, True, test)
+        CASES[f"VMESS-PUBLIC-{mode.upper()}-{suffix}"] = ("M", mode, True, test)
 for mode in ("tcp", "ws", "grpc"):
-    CASES[f"N3-REGRESSION-TROJAN-{mode.upper()}"] = (
+    CASES[f"VMESS-REGRESSION-TROJAN-{mode.upper()}"] = (
         "M",
         "trojan-" + mode,
         True,
         "public_legacy_regression",
     )
-    CASES[f"N3-PUBLIC-{mode.upper()}-UDP-ISOLATION"] = (
+    CASES[f"VMESS-PUBLIC-{mode.upper()}-UDP-ISOLATION"] = (
         "M",
         mode,
         True,
@@ -40,7 +40,7 @@ for mode in ("tcp", "ws", "grpc"):
     )
 for mode in ("ws-ed-1", "ws-ed-2048", "ws-header", "ws-path", "grpc-custom"):
     kind = "V2" if mode in {"ws-header", "ws-path"} else "M"
-    CASES[f"N3-PUBLIC-{mode.upper()}"] = (kind, mode, True, "public_base")
+    CASES[f"VMESS-PUBLIC-{mode.upper()}"] = (kind, mode, True, "public_base")
 
 
 def node_config(mode, tls, host, pin):
@@ -70,7 +70,7 @@ def node_config(mode, tls, host, pin):
         node["alpn"] = ["h2" if network in {"grpc", "h2"} else "http/1.1"]
     if network == "ws":
         node["ws-opts"] = {
-            "path": "/n3-ws",
+            "path": "/vmess-ws",
             "headers": {"Host": "localhost", "X-Fixture": "exact-value"},
         }
         if mode == "ws-alpn":
@@ -80,7 +80,7 @@ def node_config(mode, tls, host, pin):
         elif mode in {"ws-header", "ws-path"}:
             node["ws-opts"].update(
                 {
-                    "path": "/n3-ws/",
+                    "path": "/vmess-ws/",
                     "max-early-data": 2048,
                     "early-data-header-name": "X-Vcore-Ed"
                     if mode == "ws-header"
@@ -89,16 +89,18 @@ def node_config(mode, tls, host, pin):
             )
     elif network == "grpc":
         node["grpc-opts"] = {
-            "grpc-service-name": "/n3-grpc/Tun" if mode == "grpc-custom" else "n3-grpc"
+            "grpc-service-name": "/vmess-grpc/Tun"
+            if mode == "grpc-custom"
+            else "vmess-grpc"
         }
     elif network == "http":
         node["http-opts"] = {
             "method": "POST",
-            "path": ["/n3-http"],
+            "path": ["/vmess-http"],
             "headers": {"Host": ["localhost"], "X-Fixture": ["exact-value"]},
         }
     elif network == "h2":
-        node["h2-opts"] = {"host": ["localhost"], "path": "/n3-h2"}
+        node["h2-opts"] = {"host": ["localhost"], "path": "/vmess-h2"}
     return node
 
 
@@ -113,8 +115,8 @@ def pairs(events, suite, assertion, count):
 
 
 def events_pass(events, test):
-    main = [event for event in events if event.get("suite") == "N3-PUBLIC"]
-    if len(main) != 2 or not pairs(main, "N3-PUBLIC", test, 1):
+    main = [event for event in events if event.get("suite") == "VMESS-PUBLIC"]
+    if len(main) != 2 or not pairs(main, "VMESS-PUBLIC", test, 1):
         return False
     if any(
         event.get("schema_version") != 1 or event.get("status") not in {"BEGIN", "PASS"}
@@ -122,12 +124,12 @@ def events_pass(events, test):
     ):
         return False
     if test == "public_base" and not (
-        pairs(events, "N3-BASE", "tcp_10mib_both_directions", 3)
-        and pairs(events, "N3-BASE", "udp_each_codec_and_family", 3)
+        pairs(events, "VMESS-BASE", "tcp_10mib_both_directions", 3)
+        and pairs(events, "VMESS-BASE", "udp_each_codec_and_family", 3)
     ):
         return False
     if test in {"runtime::public_lifecycle", "runtime::owned_resources"}:
-        suite = "N3-LIFE" if test.endswith("public_lifecycle") else "N3-OWNED"
+        suite = "VMESS-LIFE" if test.endswith("public_lifecycle") else "VMESS-OWNED"
         if not pairs(events, suite, "stop_and_remain_quiet", 20):
             return False
         for end in [
@@ -135,7 +137,7 @@ def events_pass(events, test):
         ]:
             if end.get("seconds", 0) < 5:
                 return False
-            if suite == "N3-OWNED":
+            if suite == "VMESS-OWNED":
                 checkpoints = end.get("checkpoints", [])
                 points = {p["phase"]: p["resources"] for p in checkpoints}
                 if (
@@ -147,5 +149,5 @@ def events_pass(events, test):
                 ):
                     return False
     return test != "public_body_options" or pairs(
-        events, "N3-BODY", "config_controls_aead_body", 14
+        events, "VMESS-BODY", "config_controls_aead_body", 14
     )

@@ -2,6 +2,19 @@
 
 保留官方 Mihomo/uTLS 原始 ClientHello golden；开发阶段计划不再作为测试输入。
 
+## 验证分层
+
+| 报告标签 | 脚本入口 | 证明范围 |
+| --- | --- | --- |
+| FINGERPRINT-REFERENCE | protocol_fingerprint_reference | 官方客户端的独立基线，不是 VCore 互通 |
+| FINGERPRINT-WIRE | protocol_fingerprint_shape | 公开配置的内存 TLS 报文、恢复与过期 |
+| FINGERPRINT-INTEROP | protocol_fingerprint | 命名指纹在真实容器协议链路中的行为 |
+
+命令统一见 [定向安全验证](../../scripts/README.md#定向安全验证)。用例、容器与报告
+按用途命名，不使用开发阶段编号。golden 中的 `case_id` 是当前用例标签；原始 TLS
+字节、解析结果、来源版本及原报告 hash 保持独立采集时的值，不表示重新抓包。
+历史运行报告不改写，按其记录的 Git revision 复核；各层结果不能互相代替。
+
 ## Independent wire baseline
 
 `mihomo-selected-v1.json` retains eight small synthetic, raw TLS observations:

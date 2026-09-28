@@ -96,7 +96,7 @@ fn session(destination: Destination) -> StreamSession {
 }
 
 pub(super) fn budget_pair(f: &Value) -> Value {
-    let mut case = RecordedCase::new("N9-PAIR", "directional_budget");
+    let mut case = RecordedCase::new("INTEGRATION-PAIR", "directional_budget");
     let probe = ResourceProbe::default();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -163,7 +163,7 @@ impl OutboundConnector for NoDatagrams {
 
 pub(super) fn carrier_pair(f: &Value) -> Value {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    let mut case = RecordedCase::new("N9-PAIR", "carrier_capability");
+    let mut case = RecordedCase::new("INTEGRATION-PAIR", "carrier_capability");
     let probe = ResourceProbe::default();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -246,7 +246,7 @@ impl SocketProtector for RejectProtect {
 }
 
 #[test]
-#[ignore = "owned N9 container fixture required"]
+#[ignore = "owned INTEGRATION container fixture required"]
 fn protect_failure() {
     use base64::{Engine as _, engine::general_purpose::STANDARD};
     let f = fixture();
@@ -256,7 +256,7 @@ fn protect_failure() {
         .build()
         .unwrap();
     for protocol in PROTOCOLS {
-        let mut case = RecordedCase::new("N9-FAILURES", protocol);
+        let mut case = RecordedCase::new("INTEGRATION-FAILURES", protocol);
         let probe = ResourceProbe::default();
         let mut origin = Origin::new(&f, 13, false);
         runtime.block_on(probe.scope(async {
@@ -279,7 +279,7 @@ fn protect_failure() {
         assert!(probe.snapshot().is_idle());
         case.resources(probe.snapshot());
         {
-            let _case = RecordedCase::new("N9-FAILURES-AUTH", protocol);
+            let _case = RecordedCase::new("INTEGRATION-FAILURES-AUTH", protocol);
             let mut bad = f["nodes"][protocol].clone();
             if matches!(protocol, "vmess" | "vless") {
                 bad["uuid"] = json!("08080808-0808-0808-0808-080808080808");
@@ -297,7 +297,7 @@ fn protect_failure() {
             }
         }
         {
-            let mut case = RecordedCase::new("N9-FAILURES-SOURCE", protocol);
+            let mut case = RecordedCase::new("INTEGRATION-FAILURES-SOURCE", protocol);
             let port = free_port();
             let probe = ResourceProbe::default();
             let core =

@@ -740,7 +740,7 @@ mod tests {
     async fn authenticated_continuation_keeps_group_choice_but_has_a_new_io_deadline() {
         #[cfg(feature = "interop-test")]
         let _case = crate::resources::case_events::Case::new(
-            "N6-UNIT",
+            "HYSTERIA2-UNIT",
             "authenticated_continuation_keeps_group_choice_but_has_a_new_io_deadline",
         );
         let selection = Arc::new(AtomicUsize::new(0));

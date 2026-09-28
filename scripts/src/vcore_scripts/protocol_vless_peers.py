@@ -1,4 +1,4 @@
-"""N4 isolated native fixtures. No host service or reference checkout is used."""
+"""VLESS isolated native fixtures. No host service or reference checkout is used."""
 
 from pathlib import Path
 
@@ -67,17 +67,17 @@ def configuration(mode, server, origin, cert: Path, key: Path):
             network="xhttp",
             **{
                 "xhttp-opts": dict(
-                    path="/n4", host="localhost", mode=base.removeprefix("xhttp-")
+                    path="/vless", host="localhost", mode=base.removeprefix("xhttp-")
                 )
             },
         )
         if separate_download:
             node["xhttp-opts"]["download-settings"] = {}
     elif base.startswith(("ws", "upgrade")):
-        ws = dict(path="/n4-ws", headers={"Host": "localhost"})
+        ws = dict(path="/vless-ws", headers={"Host": "localhost"})
         if base in {"ws-header", "ws-path"}:
             ws.update(
-                path="/n4-ws/",
+                path="/vless-ws/",
                 **{
                     "max-early-data": 2048,
                     "early-data-header-name": "X-Vcore-Ed"
@@ -102,10 +102,10 @@ def configuration(mode, server, origin, cert: Path, key: Path):
             **{
                 "grpc-opts": dict(
                     **{
-                        "grpc-service-name": "/n4-grpc/Tun"
+                        "grpc-service-name": "/vless-grpc/Tun"
                         if base == "grpc-path"
-                        else "n4-grpc",
-                        "grpc-user-agent": "VCore-N4",
+                        else "vless-grpc",
+                        "grpc-user-agent": "VCore-VLESS",
                         "ping-interval": 1,
                     }
                 )
@@ -116,17 +116,17 @@ def configuration(mode, server, origin, cert: Path, key: Path):
             network="http",
             **{
                 "http-opts": dict(
-                    method="POST", path=["/n4-http"], headers={"Host": ["localhost"]}
+                    method="POST", path=["/vless-http"], headers={"Host": ["localhost"]}
                 )
             },
         )
     elif base == "h2":
         node.update(
-            network="h2", **{"h2-opts": dict(host=["localhost"], path="/n4-h2")}
+            network="h2", **{"h2-opts": dict(host=["localhost"], path="/vless-h2")}
         )
     if kind == "M":
         listener = dict(
-            name="n4",
+            name="vless",
             type="vless",
             listen="::",
             port=23000,
@@ -152,14 +152,14 @@ def configuration(mode, server, origin, cert: Path, key: Path):
             }
             node["reality-opts"] = {"public-key": PUBLIC_KEY, "short-id": SHORT_ID}
         if node.get("network") == "ws":
-            listener["ws-path"] = "/n4-ws"
+            listener["ws-path"] = "/vless-ws"
         if base in {"grpc", "grpc-path"}:
-            listener["grpc-service-name"] = "n4-grpc"
+            listener["grpc-service-name"] = "vless-grpc"
         if base == "ws-alpn":
             node["alpn"] = ["h2", "http/1.1"]
-            listener["grpc-service-name"] = "n4-alpn"
+            listener["grpc-service-name"] = "vless-alpn"
         if base.startswith("xhttp-"):
-            listener["xhttp-config"] = dict(path="/n4", mode="auto")
+            listener["xhttp-config"] = dict(path="/vless", mode="auto")
         listeners = [listener]
         if mode.startswith("vision-"):
             # Mihomo permits an explicit empty flow even for a Vision user.
@@ -167,7 +167,7 @@ def configuration(mode, server, origin, cert: Path, key: Path):
             listeners.append(
                 dict(
                     listener,
-                    name="n4-flow-rejection",
+                    name="vless-flow-rejection",
                     port=23004,
                     users=[dict(user, flow="") for user in listener["users"]],
                 )
@@ -183,17 +183,17 @@ def configuration(mode, server, origin, cert: Path, key: Path):
     stream = dict(network="tcp", security="tls" if encrypted else "none")
     if base == "http":
         stream["tcpSettings"] = dict(
-            header=dict(type="http", request=dict(path=["/n4-http"]))
+            header=dict(type="http", request=dict(path=["/vless-http"]))
         )
     elif base == "h2":
         stream.update(
-            network="http", httpSettings=dict(host=["localhost"], path="/n4-h2")
+            network="http", httpSettings=dict(host=["localhost"], path="/vless-h2")
         )
     else:
         stream.update(
             network="ws",
             wsSettings=dict(
-                path="/n4-ws/",
+                path="/vless-ws/",
                 maxEarlyData=2048,
                 earlyDataHeaderName="X-Vcore-Ed" if base == "ws-header" else "",
             ),

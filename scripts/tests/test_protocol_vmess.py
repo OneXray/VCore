@@ -34,7 +34,7 @@ def pair(suite, name):
 class VmessEvidenceTest(unittest.TestCase):
     def test_required_manifest_cannot_drop_or_downgrade_behavior(self):
         original = load_manifest()
-        index = next(i for i, case in enumerate(original) if case["stage"] == "N3")
+        index = next(i for i, case in enumerate(original) if case["stage"] == "VMESS")
         for mutation in ("drop", "required", "observation", "row"):
             cases = copy.deepcopy(original)
             if mutation == "drop":
@@ -108,7 +108,7 @@ class VmessEvidenceTest(unittest.TestCase):
                 self.assertEqual(gate_result(case, [record], events)["status"], "FAIL")
 
     def test_native_summary_cannot_hide_absent_events_changed_source_or_cleanup(self):
-        case = next(c for c in definitions() if c["case_id"] == "N3-M-IDENTITY")
+        case = next(c for c in definitions() if c["case_id"] == "VMESS-M-IDENTITY")
         test = case["peer_config"]["test"]
         record = dict(
             case_id=case["case_id"],
@@ -136,7 +136,7 @@ class VmessEvidenceTest(unittest.TestCase):
             path = Path(root)
             self.assertEqual(native_results([case], report, path)[0]["status"], "FAIL")
             (path / (case["case_id"] + "-events.jsonl")).write_text(
-                "".join(json.dumps(e) + "\n" for e in pair("N3-WIRE", test))
+                "".join(json.dumps(e) + "\n" for e in pair("VMESS-WIRE", test))
             )
             self.assertEqual(native_results([case], report, path)[0]["status"], "PASS")
             for key in ("cleanup", "source_unchanged"):
@@ -162,15 +162,17 @@ class VmessEvidenceTest(unittest.TestCase):
 
     def test_public_base_requires_every_family_codec_and_body_option(self):
         test = "public_base"
-        events = pair("N3-PUBLIC", test)
+        events = pair("VMESS-PUBLIC", test)
         self.assertFalse(events_pass(events, test))
         for name in ("tcp_10mib_both_directions", "udp_each_codec_and_family"):
-            events += [e for _ in range(3) for e in pair("N3-BASE", name)]
+            events += [e for _ in range(3) for e in pair("VMESS-BASE", name)]
         self.assertTrue(events_pass(events, test))
         self.assertFalse(events_pass(events[:-2], test))
         self.assertFalse(events_pass(events + events[-2:], test))
-        body = pair("N3-PUBLIC", "public_body_options") + [
-            e for _ in range(14) for e in pair("N3-BODY", "config_controls_aead_body")
+        body = pair("VMESS-PUBLIC", "public_body_options") + [
+            e
+            for _ in range(14)
+            for e in pair("VMESS-BODY", "config_controls_aead_body")
         ]
         self.assertTrue(events_pass(body, "public_body_options"))
         self.assertFalse(events_pass(body[:-2], "public_body_options"))
@@ -182,9 +184,9 @@ class VmessEvidenceTest(unittest.TestCase):
             ]
         )
         test = "runtime::owned_resources"
-        events = pair("N3-PUBLIC", test)
+        events = pair("VMESS-PUBLIC", test)
         for _ in range(20):
-            cycle = pair("N3-OWNED", "stop_and_remain_quiet")
+            cycle = pair("VMESS-OWNED", "stop_and_remain_quiet")
             cycle[-1].update(
                 seconds=5,
                 resources=snapshot,

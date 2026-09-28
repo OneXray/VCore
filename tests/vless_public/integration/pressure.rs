@@ -61,7 +61,7 @@ fn payload(generation: usize, index: usize, wave: usize, udp: bool) -> Vec<u8> {
 
 fn close_peer(f: &Value) {
     let mut client = socket(f["peer_controller"].as_str().unwrap().parse().unwrap());
-    client.write_all(b"DELETE /connections HTTP/1.1\r\nHost: fixture\r\nAuthorization: Bearer synthetic-n9-control\r\nConnection: close\r\n\r\n").unwrap();
+    client.write_all(b"DELETE /connections HTTP/1.1\r\nHost: fixture\r\nAuthorization: Bearer synthetic-integration-control\r\nConnection: close\r\n\r\n").unwrap();
     let mut response = Vec::new();
     client.read_to_end(&mut response).unwrap();
     assert!(response.starts_with(b"HTTP/1.1 204"));
@@ -151,13 +151,13 @@ fn stop_quiet(
 }
 
 #[test]
-#[ignore = "owned N9 container fixture required"]
+#[ignore = "owned INTEGRATION container fixture required"]
 fn rebuild() {
     run_rebuild(100);
 }
 
 #[test]
-#[ignore = "owned N9 container fixture required; development subset only"]
+#[ignore = "owned INTEGRATION container fixture required; development subset only"]
 fn rebuild_tracer() {
     run_rebuild(3);
 }
@@ -184,7 +184,7 @@ fn run_rebuild(count: usize) {
     initialize(&f);
     let probe = ResourceProbe::default();
     let (cold_fd, baseline) = idle_baseline();
-    let mut case = RecordedCase::new("N9-REBUILD", "forty_flows_same_session");
+    let mut case = RecordedCase::new("INTEGRATION-REBUILD", "forty_flows_same_session");
     case.checkpoint("baseline", probe.snapshot());
     let (core, port, controller) = start(&f, &probe);
     let mut cycles = Vec::new();
@@ -197,7 +197,7 @@ fn run_rebuild(count: usize) {
         let setup = flows.setup_us.clone();
         drop(flows);
         cycles.push(json!({"generation":generation,"tcp":20,"udp":20,"per_protocol_tcp":5,"per_protocol_udp":5,"active":active,"setup_us":setup,"fault":"owned-peer-connections-closed","new_clients":true,"after_clients":sample(&probe)}));
-        println!("N9 rebuild: {}/{count}", generation + 1);
+        println!("INTEGRATION rebuild: {}/{count}", generation + 1);
     }
     let stopped = stop_quiet(core, &probe, port, controller, baseline);
     case.resources(probe.snapshot());
@@ -214,7 +214,7 @@ fn median(values: impl Iterator<Item = u64>) -> u64 {
 }
 
 fn append_sample(value: &Value) {
-    let path = std::env::var("VCORE_N9_OBSERVATIONS").unwrap() + ".jsonl";
+    let path = std::env::var("VCORE_INTEGRATION_OBSERVATIONS").unwrap() + ".jsonl";
     let mut file = std::fs::OpenOptions::new()
         .append(true)
         .create(true)
@@ -224,13 +224,13 @@ fn append_sample(value: &Value) {
 }
 
 #[test]
-#[ignore = "owned N9 container fixture required; at least 1800 seconds"]
+#[ignore = "owned INTEGRATION container fixture required; at least 1800 seconds"]
 fn soak() {
     run_soak(1800);
 }
 
 #[test]
-#[ignore = "owned N9 container fixture required; development subset only"]
+#[ignore = "owned INTEGRATION container fixture required; development subset only"]
 fn soak_tracer() {
     run_soak(65);
 }
@@ -240,7 +240,7 @@ fn run_soak(seconds: u64) {
     initialize(&f);
     let (cold_fd, baseline) = idle_baseline();
     let probe = ResourceProbe::default();
-    let mut case = RecordedCase::new("N9-SOAK", "mixed_forty_flows");
+    let mut case = RecordedCase::new("INTEGRATION-SOAK", "mixed_forty_flows");
     case.checkpoint("baseline", probe.snapshot());
     let (core, port, controller) = start(&f, &probe);
     let mut flows = Flows::open(&f, port, controller, 0);
@@ -280,7 +280,7 @@ fn run_soak(seconds: u64) {
             samples.push(point);
             next_sample += 60;
             println!(
-                "N9 soak: {:.1}/{seconds}s, waves={waves}, faults={}",
+                "INTEGRATION soak: {:.1}/{seconds}s, waves={waves}, faults={}",
                 start.elapsed().as_secs_f64(),
                 faults.len()
             );
@@ -309,7 +309,7 @@ fn run_soak(seconds: u64) {
         observe(report.clone());
         assert!(
             last_heap <= first_heap + allowed,
-            "heap growth exceeds N9 bound"
+            "heap growth exceeds INTEGRATION bound"
         );
         for kind in 0..8 {
             let maximum = |points: &[Value]| {

@@ -14,7 +14,7 @@ use vcore::{
 async fn twenty_quic_lifetimes_return_owned_resources_to_zero_then_remain_quiet() {
     #[cfg(feature = "interop-test")]
     let mut _case = vcore::resources::case_events::Case::new(
-        "N1-RESOURCES",
+        "FOUNDATIONS-RESOURCES",
         "twenty_quic_lifetimes_return_owned_resources_to_zero_then_remain_quiet",
     );
     let probe = ResourceProbe::default();
@@ -69,7 +69,7 @@ async fn twenty_quic_lifetimes_return_owned_resources_to_zero_then_remain_quiet(
 async fn physical_tcp_guard_survives_connect_and_releases_on_stream_drop() {
     #[cfg(feature = "interop-test")]
     let mut _case = vcore::resources::case_events::Case::new(
-        "N1-RESOURCES",
+        "FOUNDATIONS-RESOURCES",
         "physical_tcp_guard_survives_connect_and_releases_on_stream_drop",
     );
     let probe = Arc::new(ResourceProbe::default());
@@ -98,7 +98,7 @@ async fn physical_tcp_guard_survives_connect_and_releases_on_stream_drop() {
 async fn twenty_stream_lifetimes_and_cancelled_setups_remain_quiet() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let mut case = vcore::resources::case_events::Case::new(
-        "N1-RESOURCES",
+        "FOUNDATIONS-RESOURCES",
         "twenty_stream_lifetimes_and_cancelled_setups_remain_quiet",
     );
     let probe = ResourceProbe::default();

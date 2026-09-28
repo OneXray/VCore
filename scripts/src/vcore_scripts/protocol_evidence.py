@@ -1,4 +1,4 @@
-"""Frozen N1 executable requirements and fail-closed structured result checks."""
+"""Executable requirements and fail-closed structured result checks."""
 
 from __future__ import annotations
 
@@ -9,34 +9,34 @@ from pathlib import Path
 
 from .protocol_catalogs import (
     CATALOG_DIR,
+    CATEGORIES,
     FIELD_IDS,
-    STAGES,
-    WORK_PACKAGES,
+    SUITES,
     _unique_object,
 )
 
-N1_REQUIRED_IDS = {
-    "N1-SCHEMA",
-    "N1-LIMITS",
-    "N1-STREAM",
-    "N1-DATAGRAM",
-    "N1-QUIC",
-    "N1-RESOLUTION",
-    "N1-RESOURCES",
-    "N1-SECURITY",
-    "N1-XUDP",
-    "N1-REGRESSION",
-    "N1-M-WS",
-    "N1-M-WSS",
-    "N1-M-GRPC",
-    "N1-M-GRPC-TLS",
-    "N1-M-WS-ED",
-    "N1-V2-HTTP",
-    "N1-V2-H2",
-    "N1-V2-WS-HEADER",
-    "N1-V2-WS-PATH",
-    "N1-FEATURES",
-    "N1-SCRIPTS",
+FOUNDATIONS_REQUIRED_IDS = {
+    "FOUNDATIONS-SCHEMA",
+    "FOUNDATIONS-LIMITS",
+    "FOUNDATIONS-STREAM",
+    "FOUNDATIONS-DATAGRAM",
+    "FOUNDATIONS-QUIC",
+    "FOUNDATIONS-RESOLUTION",
+    "FOUNDATIONS-RESOURCES",
+    "FOUNDATIONS-SECURITY",
+    "FOUNDATIONS-XUDP",
+    "FOUNDATIONS-REGRESSION",
+    "FOUNDATIONS-M-WS",
+    "FOUNDATIONS-M-WSS",
+    "FOUNDATIONS-M-GRPC",
+    "FOUNDATIONS-M-GRPC-TLS",
+    "FOUNDATIONS-M-WS-ED",
+    "FOUNDATIONS-V2-HTTP",
+    "FOUNDATIONS-V2-H2",
+    "FOUNDATIONS-V2-WS-HEADER",
+    "FOUNDATIONS-V2-WS-PATH",
+    "FOUNDATIONS-FEATURES",
+    "FOUNDATIONS-SCRIPTS",
 }
 HEX = re.compile(r"[0-9a-f]{64}")
 RESOURCE_KINDS = {
@@ -92,8 +92,8 @@ def read_json(path: Path):
 def executable_cases() -> list[dict]:
     """Single source: retained foundation fixtures plus current protocol catalogs."""
     from .protocol_hysteria2_catalog import definitions as hysteria2
-    from .protocol_n7_catalog import definitions as security
-    from .protocol_n9_catalog import definitions as integration
+    from .protocol_integration_catalog import definitions as integration
+    from .protocol_security_catalog import definitions as security
     from .protocol_vless_acceptance import definitions as vless
     from .protocol_vmess_acceptance import definitions as vmess
     from .protocol_xhttp_acceptance import definitions as xhttp
@@ -164,8 +164,8 @@ def load_manifest(path: Path | None = None) -> list[dict]:
             raise ValueError("invalid or duplicate executable case ID")
         seen.add(identifier)
         if (
-            case["stage"] not in STAGES
-            or case["substage"] not in WORK_PACKAGES
+            case["stage"] not in SUITES
+            or case["substage"] not in CATEGORIES
             or not case["substage"].startswith(case["stage"] + ".")
         ):
             raise ValueError("invalid case ownership")
@@ -195,15 +195,19 @@ def load_manifest(path: Path | None = None) -> list[dict]:
         ):
             raise ValueError("invalid case bounds or configuration reference")
     if {
-        case["case_id"] for case in cases if case["stage"] == "N1" and case["required"]
-    } != N1_REQUIRED_IDS:
-        raise ValueError("N1 required set was removed, renamed or downgraded")
+        case["case_id"]
+        for case in cases
+        if case["stage"] == "FOUNDATIONS" and case["required"]
+    } != FOUNDATIONS_REQUIRED_IDS:
+        raise ValueError("FOUNDATIONS required set was removed, renamed or downgraded")
     from .protocol_trojan_acceptance import REQUIRED_IDS
 
     if {
-        case["case_id"] for case in cases if case["stage"] == "N2" and case["required"]
+        case["case_id"]
+        for case in cases
+        if case["stage"] == "TROJAN" and case["required"]
     } != REQUIRED_IDS:
-        raise ValueError("N2 required set was removed, renamed or downgraded")
+        raise ValueError("TROJAN required set was removed, renamed or downgraded")
     if cases != expected:
         raise ValueError("manifest differs from the current executable catalog")
     return cases
@@ -298,7 +302,16 @@ def validate_results(required: list[dict], results: list[dict]) -> None:
             or result.get("scope")
             != (
                 "protocol-consumer"
-                if case["stage"] in {"N2", "N3", "N4", "N5", "N6", "N7", "N9"}
+                if case["stage"]
+                in {
+                    "TROJAN",
+                    "VMESS",
+                    "VLESS",
+                    "XHTTP",
+                    "HYSTERIA2",
+                    "SECURITY",
+                    "INTEGRATION",
+                }
                 else "foundation-only"
             )
         ):
@@ -344,7 +357,8 @@ def new_result(case: dict) -> dict:
         "row_ids": case["row_ids"],
         "peer_kind": case["peer_kind"],
         "scope": "protocol-consumer"
-        if case["stage"] in {"N2", "N3", "N4", "N5", "N6", "N7", "N9"}
+        if case["stage"]
+        in {"TROJAN", "VMESS", "VLESS", "XHTTP", "HYSTERIA2", "SECURITY", "INTEGRATION"}
         else "foundation-only",
         "status": "NOT RUN",
         "assertions": {},
@@ -398,21 +412,29 @@ def check_run(run_dir: Path, stage: str, manifest: Path | None = None) -> None:
     paths = [entry["path"] for entry in artifacts]
     if len(paths) != len(set(paths)):
         raise ValueError("duplicate evidence artifact")
-    if stage in {"N2", "N3", "N4", "N5", "N6", "N7", "N9"}:
-        if stage == "N2":
+    if stage in {
+        "TROJAN",
+        "VMESS",
+        "VLESS",
+        "XHTTP",
+        "HYSTERIA2",
+        "SECURITY",
+        "INTEGRATION",
+    }:
+        if stage == "TROJAN":
             from .protocol_trojan_acceptance import check
-        elif stage == "N3":
+        elif stage == "VMESS":
             from .protocol_vmess_acceptance import check
-        elif stage == "N4":
+        elif stage == "VLESS":
             from .protocol_vless_acceptance import check
-        elif stage == "N5":
+        elif stage == "XHTTP":
             from .protocol_xhttp_acceptance import check
-        elif stage == "N6":
+        elif stage == "HYSTERIA2":
             from .protocol_hysteria2_acceptance import check
-        elif stage == "N7":
-            from .protocol_n7_acceptance import check
+        elif stage == "SECURITY":
+            from .protocol_security_acceptance import check
         else:
-            from .protocol_n9_acceptance import check
+            from .protocol_integration_acceptance import check
 
         for evidence in artifacts:
             artifact(run_dir, evidence["path"], evidence["sha256"])
@@ -512,7 +534,8 @@ def check_run(run_dir: Path, stage: str, manifest: Path | None = None) -> None:
     resource_passes = [
         event
         for event in rust_events
-        if event.get("suite") == "N1-RESOURCES" and event.get("status") == "PASS"
+        if event.get("suite") == "FOUNDATIONS-RESOURCES"
+        and event.get("status") == "PASS"
     ]
     for event in resource_passes:
         checkpoints = event.get("checkpoints", [])

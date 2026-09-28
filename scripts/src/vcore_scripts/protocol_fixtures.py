@@ -69,7 +69,7 @@ def certificate_chain(directory):
             "-days",
             "2",
             "-subj",
-            "/CN=n2-root",
+            "/CN=trojan-root",
             "-addext",
             "basicConstraints=critical,CA:TRUE",
             "-keyout",
@@ -125,7 +125,7 @@ def trojan_peer_config(kind, mode, port, password, cert, key):
     mode = mode.removesuffix("-ipv6").removesuffix("-ca")
     if kind == "M":
         listener = {
-            "name": "n2",
+            "name": "trojan",
             "type": "trojan",
             "listen": host,
             "port": port,
@@ -134,9 +134,9 @@ def trojan_peer_config(kind, mode, port, password, cert, key):
             "private-key": str(key),
         }
         if mode.startswith("ws"):
-            listener["ws-path"] = "cover.example/n2-ws"
+            listener["ws-path"] = "cover.example/trojan-ws"
         if mode.startswith("grpc"):
-            listener["grpc-service-name"] = "n2-grpc"
+            listener["grpc-service-name"] = "trojan-grpc"
         if mode == "ws-alpn":
             listener["grpc-service-name"] = "unrelated-service"
         return {
@@ -155,7 +155,7 @@ def trojan_peer_config(kind, mode, port, password, cert, key):
         },
     }
     if mode.startswith("ws"):
-        stream.update(network="ws", wsSettings={"path": "/n2-ws/"})
+        stream.update(network="ws", wsSettings={"path": "/trojan-ws/"})
         stream["tlsSettings"]["alpn"] = ["http/1.1"]
         if kind == "V2":
             stream["wsSettings"].update(
@@ -163,7 +163,7 @@ def trojan_peer_config(kind, mode, port, password, cert, key):
                 earlyDataHeaderName="x-vcore-ed" if mode == "ws-header" else "",
             )
     if mode == "grpc":
-        stream.update(network="grpc", grpcSettings={"serviceName": "n2-grpc"})
+        stream.update(network="grpc", grpcSettings={"serviceName": "trojan-grpc"})
         stream["tlsSettings"]["alpn"] = ["h2"]
     return {
         "log": {"loglevel": "none"},

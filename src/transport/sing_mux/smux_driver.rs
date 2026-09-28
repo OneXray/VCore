@@ -324,7 +324,7 @@ mod tests {
     async fn malformed_smux_headers_close_the_owned_driver_before_reading_a_body() {
         #[cfg(feature = "interop-test")]
         let _case = crate::resources::case_events::Case::new(
-            "N5-UNIT",
+            "XHTTP-UNIT",
             "malformed_smux_headers_close_the_owned_driver_before_reading_a_body",
         );
         for (version, command, length) in [(2, 2, 0), (1, 0, 0), (1, 4, 0), (1, 1, 1), (1, 3, 1)] {

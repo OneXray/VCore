@@ -1,4 +1,4 @@
-"""N7 JLS public consumers against official latest Mihomo in isolated containers."""
+"""JLS public consumers against official latest Mihomo in isolated containers."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ def catalog():
     cases = {}
 
     def add(mode, suffix, test):
-        cases[f"N7-JLS-{mode.removesuffix('-tls').upper()}-{suffix}"] = (
+        cases[f"SECURITY-JLS-{mode.removesuffix('-tls').upper()}-{suffix}"] = (
             "M",
             mode,
             True,

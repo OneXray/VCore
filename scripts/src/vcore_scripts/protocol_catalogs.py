@@ -9,11 +9,27 @@ from typing import Any
 CATALOG_DIR = Path(__file__).resolve().parents[3] / "tests" / "protocols"
 PROTOCOLS = {"trojan", "vmess", "vless", "hysteria2"}
 PEERS = {"M", "H", "XR", "V2"}
-STAGES = {f"N{index}" for index in range(11)} - {"N8"}
-WORK_PACKAGES = {
-    f"N{stage}.{package}"
-    for stage, count in enumerate((0, 6, 4, 5, 4, 5, 6, 5, 0, 4, 4))
-    for package in range(1, count + 1)
+SUITES = {
+    "FOUNDATIONS": (
+        "schema",
+        "security",
+        "streams",
+        "datagrams",
+        "features",
+        "regression",
+    ),
+    "TROJAN": ("codec", "configuration", "cancellation", "acceptance"),
+    "VMESS": ("identity", "codec", "udp", "close", "acceptance"),
+    "VLESS": ("tcp", "transports", "vision", "acceptance"),
+    "XHTTP": ("requests", "download", "mux", "http3", "acceptance"),
+    "HYSTERIA2": ("tcp", "udp", "bandwidth", "salamander", "hopping", "acceptance"),
+    "SECURITY": ("encryption", "reality", "ech", "jls", "acceptance"),
+    "INTEGRATION": ("routing", "lifecycle", "pressure", "regression"),
+}
+CATEGORIES = {
+    f"{suite}.{category}"
+    for suite, categories in SUITES.items()
+    for category in categories
 }
 # Stable evidence tags; field semantics live in docs/config.yaml, not a planning mirror.
 FIELD_IDS = {

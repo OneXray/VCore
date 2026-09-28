@@ -51,7 +51,7 @@ impl vcore::outbound::OutboundConnector for IpBoundary {
 async fn measurement_domain_resolution_reaches_both_final_and_upstream_ip_boundaries() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N1-RESOLUTION",
+        "FOUNDATIONS-RESOLUTION",
         "measurement_domain_resolution_reaches_both_final_and_upstream_ip_boundaries",
     );
     use vcore::{
@@ -114,7 +114,7 @@ impl Resolver for ChainedBootstrap {
 async fn resolver_dependency_depth_is_bounded_independently_of_concurrent_lookups() {
     #[cfg(feature = "interop-test")]
     let mut _case = vcore::resources::case_events::Case::new(
-        "N1-RESOLUTION",
+        "FOUNDATIONS-RESOLUTION",
         "resolver_dependency_depth_is_bounded_independently_of_concurrent_lookups",
     );
     let calls = Arc::new(AtomicUsize::new(0));
@@ -149,7 +149,7 @@ impl Resolver for Bootstrap {
 async fn runtime_uses_configured_dns_and_weak_binding_releases_owner() {
     #[cfg(feature = "interop-test")]
     let mut _case = vcore::resources::case_events::Case::new(
-        "N1-RESOLUTION",
+        "FOUNDATIONS-RESOLUTION",
         "runtime_uses_configured_dns_and_weak_binding_releases_owner",
     );
     use vcore::{
@@ -246,7 +246,7 @@ impl vcore::dispatch::Dispatcher for RecursiveEgress {
 async fn recursive_dns_dependency_fails_before_connecting_or_joining_its_own_flight() {
     #[cfg(feature = "interop-test")]
     let mut _case = vcore::resources::case_events::Case::new(
-        "N1-RESOLUTION",
+        "FOUNDATIONS-RESOLUTION",
         "recursive_dns_dependency_fails_before_connecting_or_joining_its_own_flight",
     );
     use vcore::{
@@ -307,7 +307,7 @@ impl Resolver for PendingBootstrap {
 async fn lookup_deadline_and_stop_cancel_pending_resolver_without_retaining_waiters() {
     #[cfg(feature = "interop-test")]
     let mut _case = vcore::resources::case_events::Case::new(
-        "N1-RESOLUTION",
+        "FOUNDATIONS-RESOLUTION",
         "lookup_deadline_and_stop_cancel_pending_resolver_without_retaining_waiters",
     );
     let active = Arc::new(AtomicUsize::new(0));
@@ -341,7 +341,7 @@ async fn lookup_deadline_and_stop_cancel_pending_resolver_without_retaining_wait
 async fn standalone_measurement_resolves_only_at_ip_boundary_with_address_policy_and_stop() {
     #[cfg(feature = "interop-test")]
     let mut _case = vcore::resources::case_events::Case::new(
-        "N1-RESOLUTION",
+        "FOUNDATIONS-RESOLUTION",
         "standalone_measurement_resolves_only_at_ip_boundary_with_address_policy_and_stop",
     );
     let bootstrap = Arc::new(Bootstrap(AtomicUsize::new(0)));
@@ -367,7 +367,7 @@ async fn standalone_measurement_resolves_only_at_ip_boundary_with_address_policy
 async fn unbound_and_disabled_runtime_resolution_never_fall_back_to_system_dns() {
     #[cfg(feature = "interop-test")]
     let mut _case = vcore::resources::case_events::Case::new(
-        "N1-RESOLUTION",
+        "FOUNDATIONS-RESOLUTION",
         "unbound_and_disabled_runtime_resolution_never_fall_back_to_system_dns",
     );
     let resolution = ResolutionContext::runtime(false);

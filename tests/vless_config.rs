@@ -6,7 +6,7 @@ use vcore::config::Config;
 fn inline_client_identity_is_validated_and_redacted_before_io() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N4-UNIT",
+        "VLESS-UNIT",
         "inline_client_identity_is_validated_and_redacted_before_io",
     );
     use base64::Engine as _;
@@ -41,7 +41,7 @@ fn document(extra: Value) -> Vec<u8> {
 fn vision_requires_tcp_tls13_and_xudp_before_any_io() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N4-UNIT",
+        "VLESS-UNIT",
         "vision_requires_tcp_tls13_and_xudp_before_any_io",
     );
     use vcore::config::{ProxyProtocol, SecurityConfig};
@@ -71,7 +71,7 @@ fn vision_requires_tcp_tls13_and_xudp_before_any_io() {
 fn default_tcp_and_three_udp_encodings_are_accepted_without_io() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N4-UNIT",
+        "VLESS-UNIT",
         "default_tcp_and_three_udp_encodings_are_accepted_without_io",
     );
     let config = Config::parse_yaml(&document(json!({}))).expect("default plaintext TCP");
@@ -91,7 +91,7 @@ fn default_tcp_and_three_udp_encodings_are_accepted_without_io() {
 fn tcp_and_existing_xhttp_reject_mismatched_and_future_options() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N4-UNIT",
+        "VLESS-UNIT",
         "tcp_and_existing_xhttp_reject_mismatched_and_future_options",
     );
     for fields in [
@@ -139,7 +139,7 @@ fn tcp_and_existing_xhttp_reject_mismatched_and_future_options() {
 fn stream_transports_and_explicit_tls_policy_have_strict_public_fields() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N4-UNIT",
+        "VLESS-UNIT",
         "stream_transports_and_explicit_tls_policy_have_strict_public_fields",
     );
     for transport in [
@@ -190,7 +190,7 @@ fn stream_transports_and_explicit_tls_policy_have_strict_public_fields() {
 fn extended_ws_and_grpc_fields_are_scoped_and_bounded() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
-        "N4-UNIT",
+        "VLESS-UNIT",
         "extended_ws_and_grpc_fields_are_scoped_and_bounded",
     );
     for fields in [

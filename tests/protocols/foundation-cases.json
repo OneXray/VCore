@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
   "kind": "executable-case-manifest",
-  "scope": "Frozen N1 foundations, N2-N7 consumer requirements and N9 integration. Declarations contain no run results; each stage requires its own complete evidence.",
+  "scope": "Frozen FOUNDATIONS foundations, TROJAN-SECURITY consumer requirements and INTEGRATION integration. Declarations contain no run results; each stage requires its own complete evidence.",
   "cases": [
     {
-      "case_id": "N1-SCHEMA",
-      "stage": "N1",
-      "substage": "N1.1",
+      "case_id": "FOUNDATIONS-SCHEMA",
+      "stage": "FOUNDATIONS",
+      "substage": "FOUNDATIONS.schema",
       "required": true,
       "row_ids": [
         "C01"
@@ -44,9 +44,9 @@
       "timeout_seconds": 300
     },
     {
-      "case_id": "N1-LIMITS",
-      "stage": "N1",
-      "substage": "N1.1",
+      "case_id": "FOUNDATIONS-LIMITS",
+      "stage": "FOUNDATIONS",
+      "substage": "FOUNDATIONS.schema",
       "required": true,
       "row_ids": [],
       "protocol": "foundation",
@@ -80,9 +80,9 @@
       "timeout_seconds": 300
     },
     {
-      "case_id": "N1-STREAM",
-      "stage": "N1",
-      "substage": "N1.3",
+      "case_id": "FOUNDATIONS-STREAM",
+      "stage": "FOUNDATIONS",
+      "substage": "FOUNDATIONS.streams",
       "required": true,
       "row_ids": [
         "W01",
@@ -143,9 +143,9 @@
       "timeout_seconds": 300
     },
     {
-      "case_id": "N1-DATAGRAM",
-      "stage": "N1",
-      "substage": "N1.4",
+      "case_id": "FOUNDATIONS-DATAGRAM",
+      "stage": "FOUNDATIONS",
+      "substage": "FOUNDATIONS.datagrams",
       "required": true,
       "row_ids": [
         "C05",
@@ -186,9 +186,9 @@
       "timeout_seconds": 300
     },
     {
-      "case_id": "N1-QUIC",
-      "stage": "N1",
-      "substage": "N1.4",
+      "case_id": "FOUNDATIONS-QUIC",
+      "stage": "FOUNDATIONS",
+      "substage": "FOUNDATIONS.datagrams",
       "required": true,
       "row_ids": [
         "C06",
@@ -230,9 +230,9 @@
       "timeout_seconds": 300
     },
     {
-      "case_id": "N1-RESOLUTION",
-      "stage": "N1",
-      "substage": "N1.4",
+      "case_id": "FOUNDATIONS-RESOLUTION",
+      "stage": "FOUNDATIONS",
+      "substage": "FOUNDATIONS.datagrams",
       "required": true,
       "row_ids": [
         "C03",
@@ -275,9 +275,9 @@
       "timeout_seconds": 300
     },
     {
-      "case_id": "N1-RESOURCES",
-      "stage": "N1",
-      "substage": "N1.1",
+      "case_id": "FOUNDATIONS-RESOURCES",
+      "stage": "FOUNDATIONS",
+      "substage": "FOUNDATIONS.schema",
       "required": true,
       "row_ids": [],
       "protocol": "foundation",
@@ -314,9 +314,9 @@
       "timeout_seconds": 300
     },
     {
-      "case_id": "N1-SECURITY",
-      "stage": "N1",
-      "substage": "N1.2",
+      "case_id": "FOUNDATIONS-SECURITY",
+      "stage": "FOUNDATIONS",
+      "substage": "FOUNDATIONS.security",
       "required": true,
       "row_ids": [
         "T01",
@@ -368,9 +368,9 @@
       "timeout_seconds": 300
     },
     {
-      "case_id": "N1-XUDP",
-      "stage": "N1",
-      "substage": "N1.3",
+      "case_id": "FOUNDATIONS-XUDP",
+      "stage": "FOUNDATIONS",
+      "substage": "FOUNDATIONS.streams",
       "required": true,
       "row_ids": [
         "VM06",
@@ -415,9 +415,9 @@
       "timeout_seconds": 300
     },
     {
-      "case_id": "N1-REGRESSION",
-      "stage": "N1",
-      "substage": "N1.6",
+      "case_id": "FOUNDATIONS-REGRESSION",
+      "stage": "FOUNDATIONS",
+      "substage": "FOUNDATIONS.regression",
       "required": true,
       "row_ids": [],
       "protocol": "legacy",
@@ -454,9 +454,9 @@
       "timeout_seconds": 900
     },
     {
-      "case_id": "N1-M-WS",
-      "stage": "N1",
-      "substage": "N1.3",
+      "case_id": "FOUNDATIONS-M-WS",
+      "stage": "FOUNDATIONS",
+      "substage": "FOUNDATIONS.streams",
       "required": true,
       "row_ids": [
         "W01",
@@ -506,9 +506,9 @@
       "timeout_seconds": 60
     },
     {
-      "case_id": "N1-M-WSS",
-      "stage": "N1",
-      "substage": "N1.3",
+      "case_id": "FOUNDATIONS-M-WSS",
+      "stage": "FOUNDATIONS",
+      "substage": "FOUNDATIONS.streams",
       "required": true,
       "row_ids": [
         "W01",
@@ -558,9 +558,9 @@
       "timeout_seconds": 60
     },
     {
-      "case_id": "N1-M-GRPC",
-      "stage": "N1",
-      "substage": "N1.3",
+      "case_id": "FOUNDATIONS-M-GRPC",
+      "stage": "FOUNDATIONS",
+      "substage": "FOUNDATIONS.streams",
       "required": true,
       "row_ids": [
         "G01"
@@ -608,9 +608,9 @@
       "timeout_seconds": 60
     },
     {
-      "case_id": "N1-M-GRPC-TLS",
-      "stage": "N1",
-      "substage": "N1.3",
+      "case_id": "FOUNDATIONS-M-GRPC-TLS",
+      "stage": "FOUNDATIONS",
+      "substage": "FOUNDATIONS.streams",
       "required": true,
       "row_ids": [
         "G01"
@@ -658,9 +658,9 @@
       "timeout_seconds": 60
     },
     {
-      "case_id": "N1-M-WS-ED",
-      "stage": "N1",
-      "substage": "N1.3",
+      "case_id": "FOUNDATIONS-M-WS-ED",
+      "stage": "FOUNDATIONS",
+      "substage": "FOUNDATIONS.streams",
       "required": true,
       "row_ids": [
         "W01",
@@ -712,9 +712,9 @@
       "timeout_seconds": 60
     },
     {
-      "case_id": "N1-V2-HTTP",
-      "stage": "N1",
-      "substage": "N1.3",
+      "case_id": "FOUNDATIONS-V2-HTTP",
+      "stage": "FOUNDATIONS",
+      "substage": "FOUNDATIONS.streams",
       "required": true,
       "row_ids": [
         "H01",
@@ -765,9 +765,9 @@
       "timeout_seconds": 60
     },
     {
-      "case_id": "N1-V2-H2",
-      "stage": "N1",
-      "substage": "N1.3",
+      "case_id": "FOUNDATIONS-V2-H2",
+      "stage": "FOUNDATIONS",
+      "substage": "FOUNDATIONS.streams",
       "required": true,
       "row_ids": [
         "H05",
@@ -816,9 +816,9 @@
       "timeout_seconds": 60
     },
     {
-      "case_id": "N1-V2-WS-HEADER",
-      "stage": "N1",
-      "substage": "N1.3",
+      "case_id": "FOUNDATIONS-V2-WS-HEADER",
+      "stage": "FOUNDATIONS",
+      "substage": "FOUNDATIONS.streams",
       "required": true,
       "row_ids": [
         "W01",
@@ -870,9 +870,9 @@
       "timeout_seconds": 60
     },
     {
-      "case_id": "N1-V2-WS-PATH",
-      "stage": "N1",
-      "substage": "N1.3",
+      "case_id": "FOUNDATIONS-V2-WS-PATH",
+      "stage": "FOUNDATIONS",
+      "substage": "FOUNDATIONS.streams",
       "required": true,
       "row_ids": [
         "W01",
@@ -924,9 +924,9 @@
       "timeout_seconds": 60
     },
     {
-      "case_id": "N1-FEATURES",
-      "stage": "N1",
-      "substage": "N1.5",
+      "case_id": "FOUNDATIONS-FEATURES",
+      "stage": "FOUNDATIONS",
+      "substage": "FOUNDATIONS.features",
       "required": true,
       "row_ids": [],
       "protocol": "foundation",
@@ -963,9 +963,9 @@
       "timeout_seconds": 1200
     },
     {
-      "case_id": "N1-SCRIPTS",
-      "stage": "N1",
-      "substage": "N1.6",
+      "case_id": "FOUNDATIONS-SCRIPTS",
+      "stage": "FOUNDATIONS",
+      "substage": "FOUNDATIONS.regression",
       "required": true,
       "row_ids": [],
       "protocol": "foundation",
@@ -1008,9 +1008,9 @@
       "timeout_seconds": 300
     },
     {
-      "case_id": "N2-CODEC",
-      "stage": "N2",
-      "substage": "N2.1",
+      "case_id": "TROJAN-CODEC",
+      "stage": "TROJAN",
+      "substage": "TROJAN.codec",
       "required": true,
       "row_ids": [
         "TR01",
@@ -1049,15 +1049,15 @@
         "cleanup"
       ],
       "prerequisites": [
-        "N1-shared-foundations"
+        "FOUNDATIONS-shared-foundations"
       ],
       "runner": "rust",
       "timeout_seconds": 600
     },
     {
-      "case_id": "N2-CFG",
-      "stage": "N2",
-      "substage": "N2.2",
+      "case_id": "TROJAN-CFG",
+      "stage": "TROJAN",
+      "substage": "TROJAN.configuration",
       "required": true,
       "row_ids": [
         "C01",
@@ -1108,15 +1108,15 @@
         "cleanup"
       ],
       "prerequisites": [
-        "N1-shared-foundations"
+        "FOUNDATIONS-shared-foundations"
       ],
       "runner": "rust",
       "timeout_seconds": 600
     },
     {
-      "case_id": "N2-CANCEL",
-      "stage": "N2",
-      "substage": "N2.3",
+      "case_id": "TROJAN-CANCEL",
+      "stage": "TROJAN",
+      "substage": "TROJAN.cancellation",
       "required": true,
       "row_ids": [
         "C06",
@@ -1155,15 +1155,15 @@
         "resources"
       ],
       "prerequisites": [
-        "N1-shared-foundations"
+        "FOUNDATIONS-shared-foundations"
       ],
       "runner": "rust",
       "timeout_seconds": 600
     },
     {
-      "case_id": "N2-M-TCP",
-      "stage": "N2",
-      "substage": "N2.4",
+      "case_id": "TROJAN-M-TCP",
+      "stage": "TROJAN",
+      "substage": "TROJAN.acceptance",
       "required": true,
       "row_ids": [
         "C01",
@@ -1205,16 +1205,16 @@
         "peer-identity"
       ],
       "prerequisites": [
-        "N1-shared-foundations"
+        "FOUNDATIONS-shared-foundations"
       ],
       "runner": "native-trojan",
       "timeout_seconds": 240,
-      "event_suite": "N2-NATIVE"
+      "event_suite": "TROJAN-NATIVE"
     },
     {
-      "case_id": "N2-M-WS",
-      "stage": "N2",
-      "substage": "N2.4",
+      "case_id": "TROJAN-M-WS",
+      "stage": "TROJAN",
+      "substage": "TROJAN.acceptance",
       "required": true,
       "row_ids": [
         "C01",
@@ -1260,16 +1260,16 @@
         "peer-identity"
       ],
       "prerequisites": [
-        "N1-shared-foundations"
+        "FOUNDATIONS-shared-foundations"
       ],
       "runner": "native-trojan",
       "timeout_seconds": 240,
-      "event_suite": "N2-NATIVE"
+      "event_suite": "TROJAN-NATIVE"
     },
     {
-      "case_id": "N2-M-GRPC",
-      "stage": "N2",
-      "substage": "N2.4",
+      "case_id": "TROJAN-M-GRPC",
+      "stage": "TROJAN",
+      "substage": "TROJAN.acceptance",
       "required": true,
       "row_ids": [
         "C01",
@@ -1313,16 +1313,16 @@
         "peer-identity"
       ],
       "prerequisites": [
-        "N1-shared-foundations"
+        "FOUNDATIONS-shared-foundations"
       ],
       "runner": "native-trojan",
       "timeout_seconds": 240,
-      "event_suite": "N2-NATIVE"
+      "event_suite": "TROJAN-NATIVE"
     },
     {
-      "case_id": "N2-M-WS-ED-1",
-      "stage": "N2",
-      "substage": "N2.4",
+      "case_id": "TROJAN-M-WS-ED-1",
+      "stage": "TROJAN",
+      "substage": "TROJAN.acceptance",
       "required": true,
       "row_ids": [
         "C01",
@@ -1370,16 +1370,16 @@
         "peer-identity"
       ],
       "prerequisites": [
-        "N1-shared-foundations"
+        "FOUNDATIONS-shared-foundations"
       ],
       "runner": "native-trojan",
       "timeout_seconds": 240,
-      "event_suite": "N2-NATIVE"
+      "event_suite": "TROJAN-NATIVE"
     },
     {
-      "case_id": "N2-M-WS-ED-2048",
-      "stage": "N2",
-      "substage": "N2.4",
+      "case_id": "TROJAN-M-WS-ED-2048",
+      "stage": "TROJAN",
+      "substage": "TROJAN.acceptance",
       "required": true,
       "row_ids": [
         "C01",
@@ -1427,16 +1427,16 @@
         "peer-identity"
       ],
       "prerequisites": [
-        "N1-shared-foundations"
+        "FOUNDATIONS-shared-foundations"
       ],
       "runner": "native-trojan",
       "timeout_seconds": 240,
-      "event_suite": "N2-NATIVE"
+      "event_suite": "TROJAN-NATIVE"
     },
     {
-      "case_id": "N2-M-WS-POLICY",
-      "stage": "N2",
-      "substage": "N2.4",
+      "case_id": "TROJAN-M-WS-POLICY",
+      "stage": "TROJAN",
+      "substage": "TROJAN.acceptance",
       "required": true,
       "row_ids": [
         "C01",
@@ -1486,16 +1486,16 @@
         "peer-identity"
       ],
       "prerequisites": [
-        "N1-shared-foundations"
+        "FOUNDATIONS-shared-foundations"
       ],
       "runner": "native-trojan",
       "timeout_seconds": 240,
-      "event_suite": "N2-NATIVE"
+      "event_suite": "TROJAN-NATIVE"
     },
     {
-      "case_id": "N2-M-GRPC-POLICY",
-      "stage": "N2",
-      "substage": "N2.4",
+      "case_id": "TROJAN-M-GRPC-POLICY",
+      "stage": "TROJAN",
+      "substage": "TROJAN.acceptance",
       "required": true,
       "row_ids": [
         "C01",
@@ -1543,16 +1543,16 @@
         "peer-identity"
       ],
       "prerequisites": [
-        "N1-shared-foundations"
+        "FOUNDATIONS-shared-foundations"
       ],
       "runner": "native-trojan",
       "timeout_seconds": 240,
-      "event_suite": "N2-NATIVE"
+      "event_suite": "TROJAN-NATIVE"
     },
     {
-      "case_id": "N2-M-WS-NEGATIVE",
-      "stage": "N2",
-      "substage": "N2.4",
+      "case_id": "TROJAN-M-WS-NEGATIVE",
+      "stage": "TROJAN",
+      "substage": "TROJAN.acceptance",
       "required": true,
       "row_ids": [
         "C01",
@@ -1598,16 +1598,16 @@
         "peer-identity"
       ],
       "prerequisites": [
-        "N1-shared-foundations"
+        "FOUNDATIONS-shared-foundations"
       ],
       "runner": "native-trojan",
       "timeout_seconds": 240,
-      "event_suite": "N2-NATIVE"
+      "event_suite": "TROJAN-NATIVE"
     },
     {
-      "case_id": "N2-M-GRPC-NEGATIVE",
-      "stage": "N2",
-      "substage": "N2.4",
+      "case_id": "TROJAN-M-GRPC-NEGATIVE",
+      "stage": "TROJAN",
+      "substage": "TROJAN.acceptance",
       "required": true,
       "row_ids": [
         "C01",
@@ -1651,16 +1651,16 @@
         "peer-identity"
       ],
       "prerequisites": [
-        "N1-shared-foundations"
+        "FOUNDATIONS-shared-foundations"
       ],
       "runner": "native-trojan",
       "timeout_seconds": 240,
-      "event_suite": "N2-NATIVE"
+      "event_suite": "TROJAN-NATIVE"
     },
     {
-      "case_id": "N2-M-ALPN-NEGATIVE",
-      "stage": "N2",
-      "substage": "N2.4",
+      "case_id": "TROJAN-M-ALPN-NEGATIVE",
+      "stage": "TROJAN",
+      "substage": "TROJAN.acceptance",
       "required": true,
       "row_ids": [
         "C01",
@@ -1706,16 +1706,16 @@
         "peer-identity"
       ],
       "prerequisites": [
-        "N1-shared-foundations"
+        "FOUNDATIONS-shared-foundations"
       ],
       "runner": "native-trojan",
       "timeout_seconds": 240,
-      "event_suite": "N2-NATIVE"
+      "event_suite": "TROJAN-NATIVE"
     },
     {
-      "case_id": "N2-V2-WS-HEADER",
-      "stage": "N2",
-      "substage": "N2.4",
+      "case_id": "TROJAN-V2-WS-HEADER",
+      "stage": "TROJAN",
+      "substage": "TROJAN.acceptance",
       "required": true,
       "row_ids": [
         "C01",
@@ -1766,16 +1766,16 @@
         "peer-identity"
       ],
       "prerequisites": [
-        "N1-shared-foundations"
+        "FOUNDATIONS-shared-foundations"
       ],
       "runner": "native-trojan",
       "timeout_seconds": 240,
-      "event_suite": "N2-NATIVE"
+      "event_suite": "TROJAN-NATIVE"
     },
     {
-      "case_id": "N2-V2-WS-PATH",
-      "stage": "N2",
-      "substage": "N2.4",
+      "case_id": "TROJAN-V2-WS-PATH",
+      "stage": "TROJAN",
+      "substage": "TROJAN.acceptance",
       "required": true,
       "row_ids": [
         "C01",
@@ -1826,16 +1826,16 @@
         "peer-identity"
       ],
       "prerequisites": [
-        "N1-shared-foundations"
+        "FOUNDATIONS-shared-foundations"
       ],
       "runner": "native-trojan",
       "timeout_seconds": 240,
-      "event_suite": "N2-NATIVE"
+      "event_suite": "TROJAN-NATIVE"
     },
     {
-      "case_id": "N2-M-TCP-POLICY",
-      "stage": "N2",
-      "substage": "N2.4",
+      "case_id": "TROJAN-M-TCP-POLICY",
+      "stage": "TROJAN",
+      "substage": "TROJAN.acceptance",
       "required": true,
       "row_ids": [
         "C01",
@@ -1881,16 +1881,16 @@
         "peer-identity"
       ],
       "prerequisites": [
-        "N1-shared-foundations"
+        "FOUNDATIONS-shared-foundations"
       ],
       "runner": "native-trojan",
       "timeout_seconds": 240,
-      "event_suite": "N2-NATIVE"
+      "event_suite": "TROJAN-NATIVE"
     },
     {
-      "case_id": "N2-XR-UDP-DOMAIN",
-      "stage": "N2",
-      "substage": "N2.4",
+      "case_id": "TROJAN-XR-UDP-DOMAIN",
+      "stage": "TROJAN",
+      "substage": "TROJAN.acceptance",
       "required": true,
       "row_ids": [
         "C01",
@@ -1923,7 +1923,7 @@
       },
       "gap_source": {
         "url": "https://github.com/MetaCubeX/mihomo/blob/Meta/transport/trojan/trojan.go",
-        "limitation": "WaitReadFrom calls socks5.Addr.UDPAddr(), which returns nil for a domain; actual M failure retained in N2-tcp.md; Xray owns domain UDP supplement."
+        "limitation": "WaitReadFrom calls socks5.Addr.UDPAddr(), which returns nil for a domain; actual M failure retained in TROJAN-tcp.md; Xray owns domain UDP supplement."
       },
       "expected_observation": [
         "public_trojan_native_udp_domain"
@@ -1935,16 +1935,16 @@
         "peer-identity"
       ],
       "prerequisites": [
-        "N1-shared-foundations"
+        "FOUNDATIONS-shared-foundations"
       ],
       "runner": "native-trojan",
       "timeout_seconds": 240,
-      "event_suite": "N2-NATIVE"
+      "event_suite": "TROJAN-NATIVE"
     },
     {
-      "case_id": "N2-XR-WS-UDP-DOMAIN",
-      "stage": "N2",
-      "substage": "N2.4",
+      "case_id": "TROJAN-XR-WS-UDP-DOMAIN",
+      "stage": "TROJAN",
+      "substage": "TROJAN.acceptance",
       "required": true,
       "row_ids": [
         "C01",
@@ -1981,7 +1981,7 @@
       },
       "gap_source": {
         "url": "https://github.com/MetaCubeX/mihomo/blob/Meta/transport/trojan/trojan.go",
-        "limitation": "WaitReadFrom calls socks5.Addr.UDPAddr(), which returns nil for a domain; actual M failure retained in N2-tcp.md; Xray owns domain UDP supplement."
+        "limitation": "WaitReadFrom calls socks5.Addr.UDPAddr(), which returns nil for a domain; actual M failure retained in TROJAN-tcp.md; Xray owns domain UDP supplement."
       },
       "expected_observation": [
         "public_trojan_native_udp_domain"
@@ -1993,16 +1993,16 @@
         "peer-identity"
       ],
       "prerequisites": [
-        "N1-shared-foundations"
+        "FOUNDATIONS-shared-foundations"
       ],
       "runner": "native-trojan",
       "timeout_seconds": 240,
-      "event_suite": "N2-NATIVE"
+      "event_suite": "TROJAN-NATIVE"
     },
     {
-      "case_id": "N2-XR-GRPC-UDP-DOMAIN",
-      "stage": "N2",
-      "substage": "N2.4",
+      "case_id": "TROJAN-XR-GRPC-UDP-DOMAIN",
+      "stage": "TROJAN",
+      "substage": "TROJAN.acceptance",
       "required": true,
       "row_ids": [
         "C01",
@@ -2037,7 +2037,7 @@
       },
       "gap_source": {
         "url": "https://github.com/MetaCubeX/mihomo/blob/Meta/transport/trojan/trojan.go",
-        "limitation": "WaitReadFrom calls socks5.Addr.UDPAddr(), which returns nil for a domain; actual M failure retained in N2-tcp.md; Xray owns domain UDP supplement."
+        "limitation": "WaitReadFrom calls socks5.Addr.UDPAddr(), which returns nil for a domain; actual M failure retained in TROJAN-tcp.md; Xray owns domain UDP supplement."
       },
       "expected_observation": [
         "public_trojan_native_udp_domain"
@@ -2049,16 +2049,16 @@
         "peer-identity"
       ],
       "prerequisites": [
-        "N1-shared-foundations"
+        "FOUNDATIONS-shared-foundations"
       ],
       "runner": "native-trojan",
       "timeout_seconds": 240,
-      "event_suite": "N2-NATIVE"
+      "event_suite": "TROJAN-NATIVE"
     },
     {
-      "case_id": "N2-M-TCP-LIFE",
-      "stage": "N2",
-      "substage": "N2.4",
+      "case_id": "TROJAN-M-TCP-LIFE",
+      "stage": "TROJAN",
+      "substage": "TROJAN.acceptance",
       "required": true,
       "row_ids": [
         "C01",
@@ -2101,16 +2101,16 @@
         "twenty-quiet-cycles"
       ],
       "prerequisites": [
-        "N1-shared-foundations"
+        "FOUNDATIONS-shared-foundations"
       ],
       "runner": "native-trojan",
       "timeout_seconds": 240,
-      "event_suite": "N2-NATIVE"
+      "event_suite": "TROJAN-NATIVE"
     },
     {
-      "case_id": "N2-M-TCP-ENTRYPOINTS",
-      "stage": "N2",
-      "substage": "N2.4",
+      "case_id": "TROJAN-M-TCP-ENTRYPOINTS",
+      "stage": "TROJAN",
+      "substage": "TROJAN.acceptance",
       "required": true,
       "row_ids": [
         "C01",
@@ -2152,16 +2152,16 @@
         "peer-identity"
       ],
       "prerequisites": [
-        "N1-shared-foundations"
+        "FOUNDATIONS-shared-foundations"
       ],
       "runner": "native-trojan",
       "timeout_seconds": 240,
-      "event_suite": "N2-NATIVE"
+      "event_suite": "TROJAN-NATIVE"
     },
     {
-      "case_id": "N2-M-TCP-UDP-ISOLATION",
-      "stage": "N2",
-      "substage": "N2.4",
+      "case_id": "TROJAN-M-TCP-UDP-ISOLATION",
+      "stage": "TROJAN",
+      "substage": "TROJAN.acceptance",
       "required": true,
       "row_ids": [
         "C01",
@@ -2203,16 +2203,16 @@
         "peer-identity"
       ],
       "prerequisites": [
-        "N1-shared-foundations"
+        "FOUNDATIONS-shared-foundations"
       ],
       "runner": "native-trojan",
       "timeout_seconds": 240,
-      "event_suite": "N2-NATIVE"
+      "event_suite": "TROJAN-NATIVE"
     },
     {
-      "case_id": "N2-M-TCP-IPV6",
-      "stage": "N2",
-      "substage": "N2.4",
+      "case_id": "TROJAN-M-TCP-IPV6",
+      "stage": "TROJAN",
+      "substage": "TROJAN.acceptance",
       "required": true,
       "row_ids": [
         "C01",
@@ -2254,16 +2254,16 @@
         "peer-identity"
       ],
       "prerequisites": [
-        "N1-shared-foundations"
+        "FOUNDATIONS-shared-foundations"
       ],
       "runner": "native-trojan",
       "timeout_seconds": 240,
-      "event_suite": "N2-NATIVE"
+      "event_suite": "TROJAN-NATIVE"
     },
     {
-      "case_id": "N2-M-TCP-OWNED",
-      "stage": "N2",
-      "substage": "N2.4",
+      "case_id": "TROJAN-M-TCP-OWNED",
+      "stage": "TROJAN",
+      "substage": "TROJAN.acceptance",
       "required": true,
       "row_ids": [
         "C01",
@@ -2307,16 +2307,16 @@
         "twenty-quiet-cycles"
       ],
       "prerequisites": [
-        "N1-shared-foundations"
+        "FOUNDATIONS-shared-foundations"
       ],
       "runner": "native-trojan",
       "timeout_seconds": 240,
-      "event_suite": "N2-NATIVE"
+      "event_suite": "TROJAN-NATIVE"
     },
     {
-      "case_id": "N2-M-TCP-CERTIFICATE",
-      "stage": "N2",
-      "substage": "N2.4",
+      "case_id": "TROJAN-M-TCP-CERTIFICATE",
+      "stage": "TROJAN",
+      "substage": "TROJAN.acceptance",
       "required": true,
       "row_ids": [
         "C01",
@@ -2361,16 +2361,16 @@
         "peer-identity"
       ],
       "prerequisites": [
-        "N1-shared-foundations"
+        "FOUNDATIONS-shared-foundations"
       ],
       "runner": "native-trojan",
       "timeout_seconds": 240,
-      "event_suite": "N2-NATIVE"
+      "event_suite": "TROJAN-NATIVE"
     },
     {
-      "case_id": "N2-M-WS-LIFE",
-      "stage": "N2",
-      "substage": "N2.4",
+      "case_id": "TROJAN-M-WS-LIFE",
+      "stage": "TROJAN",
+      "substage": "TROJAN.acceptance",
       "required": true,
       "row_ids": [
         "C01",
@@ -2417,16 +2417,16 @@
         "twenty-quiet-cycles"
       ],
       "prerequisites": [
-        "N1-shared-foundations"
+        "FOUNDATIONS-shared-foundations"
       ],
       "runner": "native-trojan",
       "timeout_seconds": 240,
-      "event_suite": "N2-NATIVE"
+      "event_suite": "TROJAN-NATIVE"
     },
     {
-      "case_id": "N2-M-WS-ENTRYPOINTS",
-      "stage": "N2",
-      "substage": "N2.4",
+      "case_id": "TROJAN-M-WS-ENTRYPOINTS",
+      "stage": "TROJAN",
+      "substage": "TROJAN.acceptance",
       "required": true,
       "row_ids": [
         "C01",
@@ -2472,16 +2472,16 @@
         "peer-identity"
       ],
       "prerequisites": [
-        "N1-shared-foundations"
+        "FOUNDATIONS-shared-foundations"
       ],
       "runner": "native-trojan",
       "timeout_seconds": 240,
-      "event_suite": "N2-NATIVE"
+      "event_suite": "TROJAN-NATIVE"
     },
     {
-      "case_id": "N2-M-WS-UDP-ISOLATION",
-      "stage": "N2",
-      "substage": "N2.4",
+      "case_id": "TROJAN-M-WS-UDP-ISOLATION",
+      "stage": "TROJAN",
+      "substage": "TROJAN.acceptance",
       "required": true,
       "row_ids": [
         "C01",
@@ -2527,16 +2527,16 @@
         "peer-identity"
       ],
       "prerequisites": [
-        "N1-shared-foundations"
+        "FOUNDATIONS-shared-foundations"
       ],
       "runner": "native-trojan",
       "timeout_seconds": 240,
-      "event_suite": "N2-NATIVE"
+      "event_suite": "TROJAN-NATIVE"
     },
     {
-      "case_id": "N2-M-WS-IPV6",
-      "stage": "N2",
-      "substage": "N2.4",
+      "case_id": "TROJAN-M-WS-IPV6",
+      "stage": "TROJAN",
+      "substage": "TROJAN.acceptance",
       "required": true,
       "row_ids": [
         "C01",
@@ -2582,16 +2582,16 @@
         "peer-identity"
       ],
       "prerequisites": [
-        "N1-shared-foundations"
+        "FOUNDATIONS-shared-foundations"
       ],
       "runner": "native-trojan",
       "timeout_seconds": 240,
-      "event_suite": "N2-NATIVE"
+      "event_suite": "TROJAN-NATIVE"
     },
     {
-      "case_id": "N2-M-WS-OWNED",
-      "stage": "N2",
-      "substage": "N2.4",
+      "case_id": "TROJAN-M-WS-OWNED",
+      "stage": "TROJAN",
+      "substage": "TROJAN.acceptance",
       "required": true,
       "row_ids": [
         "C01",
@@ -2639,16 +2639,16 @@
         "twenty-quiet-cycles"
       ],
       "prerequisites": [
-        "N1-shared-foundations"
+        "FOUNDATIONS-shared-foundations"
       ],
       "runner": "native-trojan",
       "timeout_seconds": 240,
-      "event_suite": "N2-NATIVE"
+      "event_suite": "TROJAN-NATIVE"
     },
     {
-      "case_id": "N2-M-WS-CERTIFICATE",
-      "stage": "N2",
-      "substage": "N2.4",
+      "case_id": "TROJAN-M-WS-CERTIFICATE",
+      "stage": "TROJAN",
+      "substage": "TROJAN.acceptance",
       "required": true,
       "row_ids": [
         "C01",
@@ -2697,16 +2697,16 @@
         "peer-identity"
       ],
       "prerequisites": [
-        "N1-shared-foundations"
+        "FOUNDATIONS-shared-foundations"
       ],
       "runner": "native-trojan",
       "timeout_seconds": 240,
-      "event_suite": "N2-NATIVE"
+      "event_suite": "TROJAN-NATIVE"
     },
     {
-      "case_id": "N2-M-GRPC-LIFE",
-      "stage": "N2",
-      "substage": "N2.4",
+      "case_id": "TROJAN-M-GRPC-LIFE",
+      "stage": "TROJAN",
+      "substage": "TROJAN.acceptance",
       "required": true,
       "row_ids": [
         "C01",
@@ -2751,16 +2751,16 @@
         "twenty-quiet-cycles"
       ],
       "prerequisites": [
-        "N1-shared-foundations"
+        "FOUNDATIONS-shared-foundations"
       ],
       "runner": "native-trojan",
       "timeout_seconds": 240,
-      "event_suite": "N2-NATIVE"
+      "event_suite": "TROJAN-NATIVE"
     },
     {
-      "case_id": "N2-M-GRPC-ENTRYPOINTS",
-      "stage": "N2",
-      "substage": "N2.4",
+      "case_id": "TROJAN-M-GRPC-ENTRYPOINTS",
+      "stage": "TROJAN",
+      "substage": "TROJAN.acceptance",
       "required": true,
       "row_ids": [
         "C01",
@@ -2804,16 +2804,16 @@
         "peer-identity"
       ],
       "prerequisites": [
-        "N1-shared-foundations"
+        "FOUNDATIONS-shared-foundations"
       ],
       "runner": "native-trojan",
       "timeout_seconds": 240,
-      "event_suite": "N2-NATIVE"
+      "event_suite": "TROJAN-NATIVE"
     },
     {
-      "case_id": "N2-M-GRPC-UDP-ISOLATION",
-      "stage": "N2",
-      "substage": "N2.4",
+      "case_id": "TROJAN-M-GRPC-UDP-ISOLATION",
+      "stage": "TROJAN",
+      "substage": "TROJAN.acceptance",
       "required": true,
       "row_ids": [
         "C01",
@@ -2857,16 +2857,16 @@
         "peer-identity"
       ],
       "prerequisites": [
-        "N1-shared-foundations"
+        "FOUNDATIONS-shared-foundations"
       ],
       "runner": "native-trojan",
       "timeout_seconds": 240,
-      "event_suite": "N2-NATIVE"
+      "event_suite": "TROJAN-NATIVE"
     },
     {
-      "case_id": "N2-M-GRPC-IPV6",
-      "stage": "N2",
-      "substage": "N2.4",
+      "case_id": "TROJAN-M-GRPC-IPV6",
+      "stage": "TROJAN",
+      "substage": "TROJAN.acceptance",
       "required": true,
       "row_ids": [
         "C01",
@@ -2910,16 +2910,16 @@
         "peer-identity"
       ],
       "prerequisites": [
-        "N1-shared-foundations"
+        "FOUNDATIONS-shared-foundations"
       ],
       "runner": "native-trojan",
       "timeout_seconds": 240,
-      "event_suite": "N2-NATIVE"
+      "event_suite": "TROJAN-NATIVE"
     },
     {
-      "case_id": "N2-M-GRPC-OWNED",
-      "stage": "N2",
-      "substage": "N2.4",
+      "case_id": "TROJAN-M-GRPC-OWNED",
+      "stage": "TROJAN",
+      "substage": "TROJAN.acceptance",
       "required": true,
       "row_ids": [
         "C01",
@@ -2965,16 +2965,16 @@
         "twenty-quiet-cycles"
       ],
       "prerequisites": [
-        "N1-shared-foundations"
+        "FOUNDATIONS-shared-foundations"
       ],
       "runner": "native-trojan",
       "timeout_seconds": 240,
-      "event_suite": "N2-NATIVE"
+      "event_suite": "TROJAN-NATIVE"
     },
     {
-      "case_id": "N2-M-GRPC-CERTIFICATE",
-      "stage": "N2",
-      "substage": "N2.4",
+      "case_id": "TROJAN-M-GRPC-CERTIFICATE",
+      "stage": "TROJAN",
+      "substage": "TROJAN.acceptance",
       "required": true,
       "row_ids": [
         "C01",
@@ -3021,16 +3021,16 @@
         "peer-identity"
       ],
       "prerequisites": [
-        "N1-shared-foundations"
+        "FOUNDATIONS-shared-foundations"
       ],
       "runner": "native-trojan",
       "timeout_seconds": 240,
-      "event_suite": "N2-NATIVE"
+      "event_suite": "TROJAN-NATIVE"
     },
     {
-      "case_id": "N2-M-GRPC-CUSTOM",
-      "stage": "N2",
-      "substage": "N2.4",
+      "case_id": "TROJAN-M-GRPC-CUSTOM",
+      "stage": "TROJAN",
+      "substage": "TROJAN.acceptance",
       "required": true,
       "row_ids": [
         "C01",
@@ -3074,16 +3074,16 @@
         "peer-identity"
       ],
       "prerequisites": [
-        "N1-shared-foundations"
+        "FOUNDATIONS-shared-foundations"
       ],
       "runner": "native-trojan",
       "timeout_seconds": 240,
-      "event_suite": "N2-NATIVE"
+      "event_suite": "TROJAN-NATIVE"
     },
     {
-      "case_id": "N2-FEATURES",
-      "stage": "N2",
-      "substage": "N2.4",
+      "case_id": "TROJAN-FEATURES",
+      "stage": "TROJAN",
+      "substage": "TROJAN.acceptance",
       "required": true,
       "row_ids": [],
       "protocol": "trojan",
@@ -3118,12 +3118,12 @@
       ],
       "runner": "features",
       "timeout_seconds": 1200,
-      "event_suite": "N1-FEATURES"
+      "event_suite": "FOUNDATIONS-FEATURES"
     },
     {
-      "case_id": "N2-SCRIPTS",
-      "stage": "N2",
-      "substage": "N2.4",
+      "case_id": "TROJAN-SCRIPTS",
+      "stage": "TROJAN",
+      "substage": "TROJAN.acceptance",
       "required": true,
       "row_ids": [],
       "protocol": "trojan",
@@ -3164,12 +3164,12 @@
       ],
       "runner": "scripts",
       "timeout_seconds": 300,
-      "event_suite": "N1-SCRIPTS"
+      "event_suite": "FOUNDATIONS-SCRIPTS"
     },
     {
-      "case_id": "N2-REGRESSION",
-      "stage": "N2",
-      "substage": "N2.4",
+      "case_id": "TROJAN-REGRESSION",
+      "stage": "TROJAN",
+      "substage": "TROJAN.acceptance",
       "required": true,
       "row_ids": [],
       "protocol": "trojan",
@@ -3204,7 +3204,7 @@
       ],
       "runner": "mihomo-legacy",
       "timeout_seconds": 900,
-      "event_suite": "N1-REGRESSION"
+      "event_suite": "FOUNDATIONS-REGRESSION"
     }
   ]
 }

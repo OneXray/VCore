@@ -1,4 +1,4 @@
-"""Container-only N3 UDP differential; not public-runtime or stage acceptance."""
+"""Container-only VMESS UDP differential; not public-runtime or stage acceptance."""
 
 from __future__ import annotations
 
@@ -48,9 +48,9 @@ def client_config(matrix, mode, encrypted, server, origin, client, pin):
         if encrypted:
             node.update(servername="localhost", fingerprint=pin)
         if mode == "ws":
-            node["ws-opts"] = dict(path="/n3-ws", headers={"Host": "localhost"})
+            node["ws-opts"] = dict(path="/vmess-ws", headers={"Host": "localhost"})
         if mode == "grpc":
-            node["grpc-opts"] = {"grpc-service-name": "n3-grpc"}
+            node["grpc-opts"] = {"grpc-service-name": "vmess-grpc"}
         nodes.append(node)
         listeners.append(
             dict(
@@ -104,7 +104,7 @@ def run(args):
             "Send, origin observation and reply each retain their 1s deadline.",
             "Origin now echoes autonomously and reports exact received bytes via TCP.",
             "Failed associations stop without retries; loopback protection unchanged.",
-            "Virtual IPv6 and wire diagnostic do not prove device or N3 acceptance.",
+            "Virtual IPv6 and wire diagnostic do not prove device or VMESS acceptance.",
         ],
     )
     try:

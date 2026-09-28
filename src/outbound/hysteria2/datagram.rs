@@ -410,7 +410,7 @@ mod tests {
     fn udp_wire_round_trips_at_budget_and_bounds_malformed_fragments() {
         #[cfg(feature = "interop-test")]
         let _case = crate::resources::case_events::Case::new(
-            "N6-UNIT",
+            "HYSTERIA2-UNIT",
             "udp_wire_round_trips_at_budget_and_bounds_malformed_fragments",
         );
         let peer = Destination::domain("x", 1).unwrap();
@@ -457,7 +457,7 @@ mod tests {
     fn udp_reassembly_isolates_sources_duplicates_counts_bytes_and_expiry() {
         #[cfg(feature = "interop-test")]
         let _case = crate::resources::case_events::Case::new(
-            "N6-UNIT",
+            "HYSTERIA2-UNIT",
             "udp_reassembly_isolates_sources_duplicates_counts_bytes_and_expiry",
         );
         let now = Instant::now();
