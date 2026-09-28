@@ -6,7 +6,8 @@ mod memory_quic;
 use bytes::{Buf, Bytes};
 use memory_quic::{MemoryPackets, MemoryUpstream, PeerSocket};
 use std::{
-    future::poll_fn,
+    future::{Future, poll_fn},
+    io,
     net::SocketAddr,
     pin::Pin,
     sync::{
@@ -19,6 +20,7 @@ use std::{
 use tokio::{
     io::{AsyncWrite, AsyncWriteExt},
     sync::mpsc,
+    task::JoinSet,
 };
 use vcore::{
     config::{Config, ProxyProtocol},
@@ -27,9 +29,60 @@ use vcore::{
     session::{Datagram, Destination, InboundKind, StreamSession},
 };
 
+#[derive(Debug)]
+struct PeerRuntime {
+    tasks: Mutex<Option<JoinSet<()>>>,
+}
+
+impl PeerRuntime {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            tasks: Mutex::new(Some(JoinSet::new())),
+        })
+    }
+
+    async fn stop(&self) {
+        // Close task admission before aborting, so a retiring driver cannot
+        // leave new background work outside this join barrier.
+        let Some(mut tasks) = self.tasks.lock().unwrap().take() else {
+            return;
+        };
+        tasks.abort_all();
+        while let Some(result) = tasks.join_next().await {
+            if let Err(error) = result {
+                assert!(
+                    error.is_cancelled(),
+                    "memory QUIC peer task failed: {error}"
+                );
+            }
+        }
+    }
+}
+
+impl quinn::Runtime for PeerRuntime {
+    fn new_timer(&self, instant: std::time::Instant) -> Pin<Box<dyn quinn::AsyncTimer>> {
+        quinn::Runtime::new_timer(&quinn::TokioRuntime, instant)
+    }
+
+    fn spawn(&self, future: Pin<Box<dyn Future<Output = ()> + Send>>) {
+        if let Some(tasks) = self.tasks.lock().unwrap().as_mut() {
+            tasks.spawn(future);
+        }
+    }
+
+    fn wrap_udp_socket(
+        &self,
+        _: std::net::UdpSocket,
+    ) -> io::Result<Arc<dyn quinn::AsyncUdpSocket>> {
+        Err(io::ErrorKind::PermissionDenied.into())
+    }
+}
+
 struct SlowPackets {
     inner: MemoryPackets,
     state: Arc<AtomicU8>,
+    handshake_delay: Option<Duration>,
+    delayed_receive: Option<(Datagram, Pin<Box<tokio::time::Sleep>>)>,
 }
 #[async_trait::async_trait]
 impl DatagramTransport for SlowPackets {
@@ -45,7 +98,16 @@ impl DatagramTransport for SlowPackets {
         self.inner.send(packet).await
     }
     async fn receive(&mut self) -> Result<Datagram, DispatchError> {
-        self.inner.receive().await
+        if self.delayed_receive.is_none() {
+            let packet = self.inner.receive().await?;
+            let Some(delay) = self.handshake_delay.take() else {
+                return Ok(packet);
+            };
+            // Keep the packet and timer across cancelled receive futures.
+            self.delayed_receive = Some((packet, Box::pin(tokio::time::sleep(delay))));
+        }
+        self.delayed_receive.as_mut().unwrap().1.as_mut().await;
+        Ok(self.delayed_receive.take().unwrap().0)
     }
     async fn close(&mut self) -> Result<(), DispatchError> {
         self.inner.close().await
@@ -62,24 +124,33 @@ enum Closing {
 #[tokio::test]
 async fn h3_shutdown_does_not_cancel_the_last_upload() {
     for mode in ["stream-one", "stream-up"] {
-        exercise(mode, Closing::Normal).await;
+        exercise(mode, Closing::Normal, None).await;
+    }
+}
+
+#[tokio::test]
+async fn h3_shutdown_cleanup_joins_peer_after_a_delayed_handshake() {
+    for mode in ["stream-one", "stream-up"] {
+        // Inflate the peer's RTT/PTO before uploading. Its normal QUIC close
+        // retention can then exceed the fixture's two-second cleanup budget.
+        exercise(mode, Closing::Normal, Some(Duration::from_millis(500))).await;
     }
 }
 
 #[tokio::test]
 async fn h3_stalled_upload_is_bounded_and_owner_stop_joins_it() {
     for closing in [Closing::Deadline, Closing::Stop] {
-        exercise("stream-one", closing).await;
+        exercise("stream-one", closing, None).await;
     }
 }
 
-async fn exercise(mode: &str, closing: Closing) {
-    tokio::time::timeout(Duration::from_secs(6), run(mode, closing))
+async fn exercise(mode: &str, closing: Closing, handshake_delay: Option<Duration>) {
+    tokio::time::timeout(Duration::from_secs(6), run(mode, closing, handshake_delay))
         .await
         .expect("memory QUIC fixture exceeded its cleanup bound");
 }
 
-async fn run(mode: &str, closing: Closing) {
+async fn run(mode: &str, closing: Closing, handshake_delay: Option<Duration>) {
     let server_address: SocketAddr = "192.0.2.1:443".parse().unwrap();
     let client_address: SocketAddr = "192.0.2.2:1234".parse().unwrap();
     let (to_server, from_client) = mpsc::channel(32);
@@ -107,11 +178,12 @@ async fn run(mode: &str, closing: Closing) {
     Arc::get_mut(&mut server_config.transport)
         .unwrap()
         .mtu_discovery_config(None);
+    let peer_runtime = PeerRuntime::new();
     let endpoint = quinn::Endpoint::new_with_abstract_socket(
         quinn::EndpointConfig::default(),
         Some(server_config),
         socket,
-        Arc::new(quinn::TokioRuntime),
+        peer_runtime.clone(),
     )
     .unwrap();
     let (started, ready) = tokio::sync::oneshot::channel();
@@ -149,9 +221,6 @@ async fn run(mode: &str, closing: Closing) {
         let _ = cleaned.await;
         drop(h3);
         endpoint.close(0_u32.into(), b"");
-        tokio::time::timeout(Duration::from_secs(2), endpoint.wait_idle())
-            .await
-            .unwrap();
         received
     });
     let config = serde_json::json!({
@@ -174,6 +243,8 @@ async fn run(mode: &str, closing: Closing) {
         UpstreamPath::proxy(Arc::new(MemoryUpstream(Mutex::new(Some(SlowPackets {
             inner: client_io,
             state: state.clone(),
+            handshake_delay,
+            delayed_receive: None,
         }))))),
     )
     .unwrap();
@@ -215,6 +286,12 @@ async fn run(mode: &str, closing: Closing) {
     let _ = cleanup.send(());
     let received = reader.await.unwrap();
     outbound.shutdown().await;
+    // QUIC retains closed connections for 3 * PTO, which depends on RTT and
+    // can legitimately exceed two seconds. After the upload and client Stop,
+    // reclaim the fixture's tasks explicitly instead of timing its draining.
+    tokio::time::timeout(Duration::from_secs(2), peer_runtime.stop())
+        .await
+        .expect("memory QUIC peer tasks did not join");
     if closing == Closing::Normal {
         assert!(
             received.ends_with(&[b'x'; 16384]),
