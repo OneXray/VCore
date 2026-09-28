@@ -459,7 +459,11 @@ def run_protocol_interop(
     try:
         run.update(run_identity(stage, selected, preflight_only))
         with exclusive_run(), deadline(run["suite_timeout_seconds"]):
-            if preflight_only and stage == "UOT":
+            if preflight_only and stage == "TUIC":
+                from .protocol_tuic_acceptance import preflight as tuic_preflight
+
+                tuic_preflight(output)
+            elif preflight_only and stage == "UOT":
                 from .protocol_uot_acceptance import preflight as uot_preflight
 
                 uot_preflight(output)
@@ -561,6 +565,10 @@ def run_protocol_interop(
                     from .protocol_uot_acceptance import execute
 
                     execute(selected, run, output, records)
+                elif stage == "TUIC":
+                    from .protocol_tuic_acceptance import execute
+
+                    execute(selected, run, output, records)
                 else:
                     _execute(selected, run, output, records)
     except BaseException as caught:
@@ -642,6 +650,10 @@ def run_protocol_interop(
                 "Native unsupported peers are negative cases; "
                 "devices remain separate.\n\n"
                 if stage == "UOT"
+                else "TUIC v5 TCP/native UDP/quic UDP; isolated official Mihomo. "
+                "Shared Hysteria2 and XHTTP H3 regressions included; "
+                "devices remain separate.\n\n"
+                if stage == "TUIC"
                 else "Foundation-only evidence; "
                 "production protocol field consumers remain NOT RUN.\n\n"
             )

@@ -44,6 +44,8 @@ TARGETS = (
     "uot_config",
     "shadowsocks_uot",
     "hysteria2_packet_ids",
+    "tuic_config",
+    "tuic_memory",
 )
 LIB_FILTERS = (
     "security::",
@@ -53,6 +55,7 @@ LIB_FILTERS = (
     "outbound::shadowsocks::tests::official_tcp_",
     "outbound::anytls::",
     "outbound::uot::",
+    "outbound::tuic::",
     "transport::h2_write::tests::",
     "transport::sing_mux::smux_driver::tests::",
     "transport::sing_mux::tests::",

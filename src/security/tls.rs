@@ -139,7 +139,11 @@ impl std::fmt::Debug for StandardTlsClient {
 }
 
 impl StandardTlsClient {
-    #[cfg(any(feature = "outbound-vless", feature = "outbound-hysteria2"))]
+    #[cfg(any(
+        feature = "outbound-vless",
+        feature = "outbound-hysteria2",
+        feature = "outbound-tuic"
+    ))]
     pub(crate) fn quic_config(&self) -> io::Result<(Arc<ClientConfig>, String)> {
         match &self.connector {
             StandardConnector::Rustls(connector) => {

@@ -48,6 +48,17 @@ pub(super) fn node(
         ProxyProtocol::Vmess(c) => Arc::new(VmessOutbound::new_with_path(c, path).unwrap()),
         ProxyProtocol::Vless(c) => Arc::new(VlessOutbound::new_with_path(c, path).unwrap()),
         ProxyProtocol::Hysteria2(c) => Arc::new(Hysteria2Outbound::new_with_path(c, path).unwrap()),
+        ProxyProtocol::Tuic(c) => {
+            #[cfg(feature = "outbound-tuic")]
+            {
+                Arc::new(vcore::outbound::tuic::TuicOutbound::new_with_path(c, path).unwrap())
+            }
+            #[cfg(not(feature = "outbound-tuic"))]
+            {
+                let _ = c;
+                panic!("TUIC is not compiled");
+            }
+        }
         ProxyProtocol::AnyTls(c) => {
             let tls = StandardTlsClient::with_options(
                 &SecurityContext::new(),

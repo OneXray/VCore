@@ -39,6 +39,13 @@ def resources(value, *, active=False):
 
 def sample(value, *, active=True):
     queues = value.get("queues", [])
+    # The retained seven-protocol pressure fixture does not exercise TUIC.
+    # Its new counter must be exactly inactive; this is not TUIC pressure proof.
+    if len(queues) == 5:
+        inactive = [q for q in queues if q.get("kind") == "tuic_udp"]
+        if inactive != [dict(kind="tuic_udp", capacity=0, peak=0)]:
+            return False
+        queues = [q for q in queues if q.get("kind") != "tuic_udp"]
     return (
         integer(value.get("heap_in_use"), 1)
         and integer(value.get("rss_kib"), 1)

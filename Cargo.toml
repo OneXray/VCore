@@ -39,6 +39,7 @@ default = [
     "outbound-vmess",
     "outbound-vless",
     "outbound-hysteria2",
+    "outbound-tuic",
     "shadow-tls-v3",
 ]
 inbound-http = []
@@ -52,6 +53,7 @@ outbound-vmess = ["stream-transport", "tls-fingerprint", "dep:aes", "dep:crc32fa
 tls-fingerprint = ["dep:boring", "dep:tokio-boring"]
 shadow-tls-v3 = ["tls-fingerprint", "boring/shadow-tls-v3", "dep:ring", "dep:zeroize"]
 outbound-hysteria2 = ["quic-transport", "dep:quinn-proto", "dep:h3", "dep:h3-quinn", "dep:blake2"]
+outbound-tuic = ["quic-transport"]
 stream-transport = ["dep:tokio-tungstenite", "dep:httparse", "dep:log"]
 quic-transport = ["dep:quinn"]
 # Enables local interoperability-only trust-root injection. Release build
@@ -70,6 +72,7 @@ tun = [
     "outbound-vmess",
     "outbound-vless",
     "outbound-hysteria2",
+    "outbound-tuic",
     "shadow-tls-v3",
 ]
 

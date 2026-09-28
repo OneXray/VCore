@@ -66,6 +66,9 @@ mod runtime;
 #[cfg(feature = "shadow-tls-v3")]
 #[path = "vless_public/shadowtls.rs"]
 mod shadowtls;
+#[cfg(feature = "outbound-tuic")]
+#[path = "vless_public/tuic.rs"]
+mod tuic;
 #[cfg(target_os = "macos")]
 #[path = "vmess_public/tun.rs"]
 mod tun;

@@ -151,6 +151,43 @@ pacer；这是混淆不是认证，错误密钥由 QUIC 拒绝，短包有界丢
 官方 Hysteria 已验证版本的 4096 字节回包缓冲包含头，更大回包可能在分片前丢弃。
 原生测试记录实际版本和限制，VCore 完整 4096 字节另对 Mihomo 验证，不修改第三方。
 
+## TUIC v5
+
+固定 QUIC/TLS 1.3，复用官方 Quinn、rustls/ring 与共享受控数据报适配器。
+仅 v5；必填标准 UUID 与原样 UTF-8 password，后者可空、最长 65,535 字节。
+SNI 缺省 server，ALPN 缺省 h3；显式空列表拒绝，非空有序列表必须实际协商命中。
+使用共享 pin/skip/独立验证名；无命名 TCP 指纹、mTLS、ECH、0-RTT 或跨节点恢复。
+拥塞使用官方 Quinn cubic（默认）、new_reno 或 bbr，不承诺与其他实现的吞吐相同。
+
+认证使用当前真实 TLS 会话 exporter，UUID 为 label，原样 password 为 context。
+Authenticate 与 Connect 没有成功 ACK；本地 open 成功不是密码通过证明，错误身份
+必须由最终拒绝和原站零业务验证。Connect 为双向 QUIC 流，不引入 HTTP/3 请求。
+流关闭结束该逻辑双向通道，与 Mihomo 对齐，不影响兄弟流。
+
+业务 udp 默认 false，但外层 QUIC 始终需要有效双向至少 1200 字节的数据报路径。
+未开放 DATAGRAM、预算不足、protect 失败或只支持 TCP 的上游均失败，不回退 TCP
+或 DIRECT。`udp` 业务路由开关不替代上游实际数据报能力和预算检查。
+SS UoT、AnyTLS 与支持 UDP ASSOCIATE 的 SOCKS5 可作为上游；组快照绑定物理会话。
+
+`udp-relay-mode` 为 native（默认）或 quic。native 使用 DATAGRAM，按实际容量拆为
+最多 255 片；quic 每包使用一条单向流，不受单 DATAGRAM MTU 限制，也不是 UoT。
+两者逐包携带 IPv4/IPv6/域名，业务负载取 u16 和调用方双向预算交集，超限不截断。
+未知关联不分配状态；每关联最多 64 个未完成包、256 KiB 分片负载、TTL 5 秒和
+32 项完成包交付队列。重复相同片忽略、冲突片丢弃；完成后释放 Packet ID，可回绕，
+不做业务去重。发送过的关联关闭时发送有界 Dissociate，未发包关闭不创建对端状态。
+
+每节点按需共享物理会话，流 credit 等待沿用调用方原期限。关联 ID 在同一物理会话
+不重用；65,536 个 ID 用尽后新业务新建会话，旧流继续，最后一个旧所有者退出即回收。
+TCP shutdown 立即完成逻辑关闭，发送所有权保留到 FIN/数据确认或最多 5 秒，防止
+退役池提前丢弃已接受的末尾上传；该等待归节点所有，Stop 直接取消并 join。
+切组不迁移已有池；故障后只有新业务可创建新池，已发送业务不自动重放。
+
+每流接收窗口 256 KiB，连接收发各 1 MiB，DATAGRAM 收发各 256 KiB；最多 32 条
+入站单向控制流，半条控制流最长 5 秒；拒绝服务端主动双向流。QUIC payload 最大
+1400 并取路径预算交集，PMTUD 关闭。保活/Heartbeat 每 10 秒，空闲 30 秒；两种
+UDP 模式的 Heartbeat 均用 DATAGRAM。Stop 等待认证、收发、重组、心跳及上游释放，
+关闭交换最多一秒；这些都是局部结构限制，不是全局业务会话额度。
+
 ## Shadowsocks 2022
 
 原样复用官方 shadowsocks-rust，仅三算法：

@@ -27,6 +27,7 @@ SUITES = {
     "INTEGRATION": ("routing", "lifecycle", "pressure", "regression"),
     "SHADOWTLS": ("configuration", "stream", "interop", "regression"),
     "UOT": ("configuration", "datagrams", "interop", "regression"),
+    "TUIC": ("configuration", "datagrams", "interop", "regression"),
 }
 CATEGORIES = {
     f"{suite}.{category}"

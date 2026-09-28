@@ -82,6 +82,11 @@ QUIC双向可用payload至少1,200字节；endpoint必须显式把QUIC MTU限制
 
 QUIC owner.stop先取消并等待驱动，再关闭并释放上游；上游close最多1秒。Driver Drop仅为取消/abort兜底，不能作为同步Stop验收。队列容量是单连接局部界限，不是全局QUIC连接准入数。
 
+TUIC 与 Hysteria2 共用这一接点；TUIC 的独立会话、关联 ID 退役、控制流、分片负载
+及交付队列边界见 [TUIC v5](outbounds.md#tuic-v5)。旧池的待建流也持有所有权，
+不能在等待 credit 时被当成空闲池回收。TUIC 业务 UDP 队列使用独立观测类别，
+旧七协议压力 fixture 中该类别为零不代表 TUIC 压力通过。
+
 ## DNS
 
 - 不设置固定的活动请求或活动传输总许可数。

@@ -133,6 +133,7 @@ def _parser() -> argparse.ArgumentParser:
             "vmess",
             "vless",
             "hysteria2",
+            "tuic",
         ],
     )
     modes = protocol.add_mutually_exclusive_group()

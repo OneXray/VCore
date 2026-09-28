@@ -54,6 +54,16 @@ pub const HY2_DATAGRAM_BUFFER: usize = 256 * 1024;
 pub const HY2_AUTH_HEADERS: usize = 16384;
 pub const HY2_RESPONSE_MESSAGE: usize = 2048;
 pub const HY2_RESPONSE_PADDING: usize = 4096;
+pub const TUIC_QUIC_PAYLOAD: usize = 1400;
+pub const TUIC_UNI_STREAMS: usize = 32;
+pub const TUIC_STREAM_WINDOW: usize = 256 * 1024;
+pub const TUIC_CONNECTION_WINDOW: usize = 1024 * 1024;
+pub const TUIC_DATAGRAM_BUFFER: usize = 256 * 1024;
+pub const TUIC_UDP_QUEUE: usize = 32;
+pub const TUIC_PENDING_PACKETS: usize = 64;
+pub const TUIC_PENDING_BYTES: usize = 256 * 1024;
+pub const TUIC_FRAGMENT_TTL_SECONDS: usize = 5;
+pub const TUIC_FIN_GRACE_SECONDS: usize = 5;
 
 /// Historical iOS TUN footprint target retained for best-effort telemetry.
 ///

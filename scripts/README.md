@@ -45,7 +45,7 @@ uv run --project scripts --locked vcore-scripts check protocol-coverage --suite 
 uv run --project scripts --locked vcore-scripts check protocol-coverage --catalog-only
 ```
 
-可执行容器 suite：vmess、vless、xhttp、hysteria2、security、integration、shadowtls。
+可执行容器 suite：vmess、vless、xhttp、hysteria2、security、integration、shadowtls、uot、tuic。
 `--case` 可重复、`--protocol` 可筛选；子集只证明实际执行的项目，不能签收整套。
 foundations/trojan 保留基础用例和断言，其旧服务端编排尚未全容器化，不能执行；
 需要 Trojan 互通时用 integration 中的真实容器路径。
@@ -73,6 +73,12 @@ uot 验证 SS v2 三算法 × 裸流/v3 的六组合，分别经直连、TCP-onl
 旁路。错误密钥/v3 身份及原样 ssserver 不支持是独立负例。内存检查另验 u16 上限、
 预算、首包门控、DNS、取消与 Stop；AnyTLS、裸 SS、精简 feature 和 Apple/Android
 是同轮必需回归。使用 protocol-interop / check protocol-coverage 的 `--suite uot`。
+
+tuic 覆盖 v5 的双向 TCP、native/quic UDP、三种官方拥塞算法、认证/TLS 负例和
+SOCKS5/SS UoT/AnyTLS 六种上游组合。服务端与上游分容器，避免触发 Mihomo 的
+同进程回环检测；不关闭对端检测或修改其源码。会话重用/重建、嵌套组、node-only 测速、
+回滚与 Stop 独立取证；本轮包含 HY2/H3 共享回归及 Apple/Android 构建。
+内存 u16 上限不当成对端端到端容量，旧七协议压力结果不替代 TUIC 混合压力。
 
 ### 新协议对端能力预检
 

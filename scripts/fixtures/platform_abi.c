@@ -30,8 +30,8 @@ int main(int argc, char **argv) {
         char *response = invoke("{\"apiVersion\":5,\"method\":\"version\",\"payload\":{}}");
         int valid = response && strstr(response, "\"success\":true")
             && strstr(response, "\"apiVersion\":5")
-            && strstr(response, "\"configVersion\":29")
-            && strstr(response, "VCore;engine=rust;coreVersion=0.1.0;invokeApiVersion=5;configVersion=29");
+            && strstr(response, "\"configVersion\":30")
+            && strstr(response, "VCore;engine=rust;coreVersion=0.1.0;invokeApiVersion=5;configVersion=30");
         release(response);
         if (!valid) return 20;
     }

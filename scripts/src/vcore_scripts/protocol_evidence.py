@@ -95,6 +95,7 @@ def executable_cases() -> list[dict]:
     from .protocol_integration_catalog import definitions as integration
     from .protocol_security_catalog import definitions as security
     from .protocol_shadowtls_catalog import definitions as shadowtls
+    from .protocol_tuic_catalog import definitions as tuic
     from .protocol_uot_catalog import definitions as uot
     from .protocol_vless_acceptance import definitions as vless
     from .protocol_vmess_acceptance import definitions as vmess
@@ -112,6 +113,7 @@ def executable_cases() -> list[dict]:
             integration,
             shadowtls,
             uot,
+            tuic,
         )
         for case in define()
     ]
@@ -324,6 +326,7 @@ def validate_results(required: list[dict], results: list[dict]) -> None:
                     "INTEGRATION",
                     "SHADOWTLS",
                     "UOT",
+                    "TUIC",
                 }
                 else "foundation-only"
             )
@@ -381,6 +384,7 @@ def new_result(case: dict) -> dict:
             "INTEGRATION",
             "SHADOWTLS",
             "UOT",
+            "TUIC",
         }
         else "foundation-only",
         "status": "NOT RUN",
@@ -445,6 +449,7 @@ def check_run(run_dir: Path, stage: str, manifest: Path | None = None) -> None:
         "INTEGRATION",
         "SHADOWTLS",
         "UOT",
+        "TUIC",
     }:
         if stage == "TROJAN":
             from .protocol_trojan_acceptance import check
@@ -462,6 +467,8 @@ def check_run(run_dir: Path, stage: str, manifest: Path | None = None) -> None:
             from .protocol_shadowtls_acceptance import check
         elif stage == "UOT":
             from .protocol_uot_acceptance import check
+        elif stage == "TUIC":
+            from .protocol_tuic_acceptance import check
         else:
             from .protocol_integration_acceptance import check
 

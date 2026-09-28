@@ -41,6 +41,10 @@ HY2 已完成分片 ID 重用等确定性回归。单纯复用实现生成期望
   调用方双向预算和该对端实际包上限分别取证，不相互替代。
 - 静态 ECH、JLS、Encryption 与混合 REALITY 是选定能力集；动态 ECH、Restls、
   ShadowTLS v1/v2、WireGuard 不在当前范围。
+- TUIC v5 的 native/quic、三算法、身份拒绝、三地址族与上游组合对 Mihomo 验证；
+  认证没有 ACK，不以本地 SOCKS 成功当作密码通过。独立内存 QUIC 验 u16、分片/ID
+  退役、credit、窗口和同步 Stop，网络包大小以实际链路为准。TUIC suite 包含
+  Hysteria2 和 XHTTP H3 受影响回归，不代表新的八协议完整压力或设备验收。
 
 ## 当前证据如何使用
 

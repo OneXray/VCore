@@ -38,6 +38,9 @@ protocol_security、protocol_integration；事件标签与报告采用同一套�
   Mihomo 六组合、上游/切组及无原生 UDP 回退，不把 ssserver 作为 UoT 正向服务端。
 - security_capabilities：公开配置经真实 SecurityClient 在主/下载腿产生实际混合 share；
   不再重复测试 fork 的纯 API 准入。
+- tuic_config/tuic_memory 与 outbound::tuic：严格 v5、当前 TLS exporter、无 ACK、
+  双 UDP wire、分片/重组、关联 ID 退役、窗口/credit、Heartbeat 和 Stop；tuic suite
+  验官方 Mihomo 数据与身份负例、独立上游容器、嵌套组/重建/测速，并回归 HY2/H3。
 - fingerprints/mihomo-selected-v1.json：官方独立 ClientHello golden，不从待测实现重新生成期望；
   [指纹验证](fingerprints/README.md)分别维护独立基线、内存报文与容器互通。
 - protocols/encryption-crypto.json 及 Go 生成器：独立密码向量；许可证和来源必须保留。
