@@ -3,7 +3,12 @@
 use async_trait::async_trait;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use shadowsocks::{
-    config::ServerType, context::Context, relay::tcprelay::proxy_stream::ProxyServerStream,
+    config::ServerType,
+    context::Context,
+    relay::tcprelay::{
+        crypto_io::{CryptoRead, CryptoStream, CryptoWrite, StreamType},
+        proxy_stream::{ProxyServerStream, protocol::TcpRequestHeader},
+    },
 };
 use std::{
     future::poll_fn,
@@ -131,7 +136,7 @@ async fn growing_caller_buffer_after_backpressure_never_loses_plaintext() {
 }
 
 #[tokio::test]
-async fn server_first_over_buffered_upstream_delivers_handshake() {
+async fn read_first_flushes_the_official_header_over_a_buffered_upstream() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(
         "INTEGRATION-ADAPTER",
@@ -172,9 +177,11 @@ async fn server_first_over_buffered_upstream_delivers_handshake() {
             .await
             .unwrap()
             .io;
-        let mut decoder = ProxyServerStream::from_stream(
-            Context::new_shared(ServerType::Server),
+        let context = Context::new_shared(ServerType::Server);
+        let mut decoder = CryptoStream::from_stream(
+            &context,
             peer,
+            StreamType::Server,
             cipher.as_str().parse().unwrap(),
             &key,
         );
@@ -186,13 +193,81 @@ async fn server_first_over_buffered_upstream_delivers_handshake() {
                     assert_eq!(&greeting, b"hello");
                 },
                 async {
-                    decoder.handshake().await.unwrap();
-                    decoder.write_all(b"hello").await.unwrap();
-                    decoder.flush().await.unwrap();
+                    // Exercise only the adapter's flush contract. The official
+                    // client randomly chooses zero padding for an empty request,
+                    // which its strict server rejects. Parse with its codec here;
+                    // the deterministic test below separately locks that rejection.
+                    let mut bytes = [0; 1024];
+                    let mut buffer = tokio::io::ReadBuf::new(&mut bytes);
+                    poll_fn(|cx| {
+                        Pin::new(&mut decoder).poll_read_decrypted(cx, &context, &mut buffer)
+                    })
+                    .await
+                    .unwrap();
+                    let mut plaintext = buffer.filled();
+                    let header = TcpRequestHeader::read_from(
+                        cipher.as_str().parse().unwrap(),
+                        &mut plaintext,
+                    )
+                    .await
+                    .unwrap();
+                    assert_eq!(header.addr(), ("target.invalid".to_owned(), 80).into());
+                    assert!(plaintext.is_empty());
+                    let request_nonce = decoder.received_nonce().unwrap().to_vec();
+                    decoder.set_request_nonce(&request_nonce);
+                    poll_fn(|cx| Pin::new(&mut decoder).poll_write_encrypted(cx, b"hello"))
+                        .await
+                        .unwrap();
+                    poll_fn(|cx| decoder.poll_flush(cx)).await.unwrap();
                 }
             );
         })
         .await
         .expect("server-first greeting must arrive without application writes");
+    }
+}
+
+#[tokio::test]
+async fn official_server_rejects_zero_padding_without_payload_deterministically() {
+    for cipher in [
+        ShadowsocksCipher::Aes128Gcm,
+        ShadowsocksCipher::Aes256Gcm,
+        ShadowsocksCipher::Chacha20Poly1305,
+    ] {
+        for padding_size in [0, 1] {
+            let method = cipher.as_str().parse().unwrap();
+            let key = vec![7; cipher.key_len()];
+            let context = Context::new_shared(ServerType::Local);
+            let (client, peer) = tokio::io::duplex(4096);
+            let mut writer =
+                CryptoStream::from_stream(&context, client, StreamType::Client, method, &key);
+            let target: shadowsocks::relay::socks5::Address =
+                ("target.invalid".to_owned(), 80).into();
+            let mut header = Vec::new();
+            target.write_to_buf(&mut header);
+            header.extend_from_slice(&u16::to_be_bytes(padding_size));
+            header.resize(header.len() + usize::from(padding_size), 0);
+            poll_fn(|cx| Pin::new(&mut writer).poll_write_encrypted(cx, &header))
+                .await
+                .unwrap();
+            poll_fn(|cx| writer.poll_flush(cx)).await.unwrap();
+            let mut decoder = ProxyServerStream::from_stream(
+                Context::new_shared(ServerType::Server),
+                peer,
+                method,
+                &key,
+            );
+            let result = tokio::time::timeout(Duration::from_secs(2), decoder.handshake())
+                .await
+                .unwrap();
+            if padding_size == 0 {
+                assert_eq!(
+                    result.unwrap_err().to_string(),
+                    "no payload in first data chunk, and padding is 0"
+                );
+            } else {
+                assert_eq!(result.unwrap(), ("target.invalid".to_owned(), 80).into());
+            }
+        }
     }
 }

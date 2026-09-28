@@ -18,6 +18,7 @@ use tokio::{
     time::{Instant, timeout_at},
 };
 
+use super::h2_write::{Payload, Receipt, Sender, Writes};
 use super::{STREAM_BUFFER_BYTES as LIMIT, STREAM_CHUNK_BYTES as CHUNK};
 use crate::dispatch::BoxStream;
 
@@ -132,6 +133,7 @@ async fn connect(
     let request = request
         .body(())
         .map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?;
+    let (stream, writes) = Writes::wrap(stream);
     let (sender, connection) = timeout_at(
         deadline,
         h2::client::Builder::new()
@@ -187,6 +189,7 @@ async fn connect(
             close,
             Some(abort),
             None,
+            writes,
         )),
         owner,
     ))
@@ -199,7 +202,9 @@ struct Grpc {
     upload_closed: bool,
     response: Option<ResponseFuture>,
     receive: Option<RecvStream>,
-    send: SendStream<Bytes>,
+    send: SendStream<Payload>,
+    writes: Writes,
+    pending: Option<Receipt>,
     deadline: Pin<Box<tokio::time::Sleep>>,
     frame: Bytes,
     wire: BytesMut,
@@ -213,7 +218,7 @@ struct Grpc {
 }
 
 pub(super) async fn pooled_stream(
-    sender: h2::client::SendRequest<Bytes>,
+    sender: Sender,
     uri: &str,
     user_agent: &str,
     deadline: Instant,
@@ -227,7 +232,8 @@ pub(super) async fn pooled_stream(
         .header("user-agent", user_agent)
         .body(())
         .map_err(|_| invalid())?;
-    let mut sender = timeout_at(deadline, sender.ready())
+    let writes = sender.writes;
+    let mut sender = timeout_at(deadline, sender.request.ready())
         .await
         .map_err(|_| io::Error::from(io::ErrorKind::TimedOut))?
         .map_err(|_| io::Error::from(io::ErrorKind::ConnectionAborted))?;
@@ -243,6 +249,7 @@ pub(super) async fn pooled_stream(
         Arc::default(),
         None,
         Some(lease),
+        writes,
     )))
 }
 
@@ -258,11 +265,9 @@ impl Drop for Grpc {
 
 /// sing-mux uses plain HTTP/2 CONNECT streams, not gRPC records.
 #[cfg(feature = "outbound-vless")]
-pub(super) async fn mux_stream(
-    sender: h2::client::SendRequest<Bytes>,
-    deadline: Instant,
-) -> io::Result<BoxStream> {
-    let mut sender = sender.ready().await.map_err(|_| invalid())?;
+pub(super) async fn mux_stream(sender: Sender, deadline: Instant) -> io::Result<BoxStream> {
+    let writes = sender.writes;
+    let mut sender = sender.request.ready().await.map_err(|_| invalid())?;
     let request = http::Request::builder()
         .method("CONNECT")
         .uri("https://localhost")
@@ -278,6 +283,7 @@ pub(super) async fn mux_stream(
         Arc::default(),
         None,
         None,
+        writes,
     )))
 }
 
@@ -293,13 +299,14 @@ impl Grpc {
     #[allow(clippy::too_many_arguments)]
     fn new(
         response: ResponseFuture,
-        send: SendStream<Bytes>,
+        send: SendStream<Payload>,
         framing: Framing,
         half_close: bool,
         deadline: Instant,
         close: Arc<Close>,
         abort: Option<AbortHandle>,
         lease: Option<super::grpc_pool::Lease>,
+        writes: Writes,
     ) -> Self {
         Self {
             _observation: crate::resources::observation::track(
@@ -312,6 +319,8 @@ impl Grpc {
             receive: None,
             send,
             deadline: Box::pin(tokio::time::sleep_until(deadline)),
+            writes,
+            pending: None,
             frame: Bytes::new(),
             wire: BytesMut::new(),
             payload: Bytes::new(),
@@ -327,7 +336,16 @@ impl Grpc {
         if self.stopped() {
             return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
         }
+        // Register for connection failure even while waiting on a write receipt:
+        // queued DATA can remain owned by a SendStream after its driver stops.
+        if self.send.poll_reset(cx).is_ready() {
+            return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
+        }
         for _ in 0..crate::limits::IO_POLL_BUDGET {
+            if let Some(pending) = &mut self.pending {
+                ready!(Pin::new(pending).poll(cx)).map_err(|_| io::ErrorKind::BrokenPipe)??;
+                self.pending = None;
+            }
             if self.queued.is_empty() {
                 self.send.reserve_capacity(0);
                 return Poll::Ready(Ok(()));
@@ -340,9 +358,11 @@ impl Grpc {
                 continue;
             }
             let count = count.min(self.queued.len());
+            let (payload, receipt) = self.writes.payload(self.queued.split_to(count));
             self.send
-                .send_data(self.queued.split_to(count), false)
+                .send_data(payload, false)
                 .map_err(|_| io::Error::from(io::ErrorKind::BrokenPipe))?;
+            self.pending = Some(receipt);
         }
         cx.waker().wake_by_ref();
         Poll::Pending
@@ -542,18 +562,21 @@ impl AsyncWrite for Grpc {
         self.drain(cx)
     }
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        if self.upload_closed {
+            return Poll::Ready(Ok(()));
+        }
         if self.half_close {
-            if !self.upload_closed {
-                ready!(self.drain(cx))?;
-                self.send
-                    .send_data(Bytes::new(), true)
-                    .map_err(|_| invalid())?;
-                self.upload_closed = true;
-            }
+            ready!(self.drain(cx))?;
+            self.send
+                .send_data(Payload::empty(), true)
+                .map_err(|_| invalid())?;
+            self.upload_closed = true;
             return Poll::Ready(Ok(()));
         }
         // Close the logical byte stream. A pooled physical connection belongs
         // to the node and must survive another stream's RST_STREAM.
+        ready!(self.drain(cx))?;
+        self.upload_closed = true;
         self.close.stop();
         self.send.send_reset(h2::Reason::CANCEL);
         self.response = None;

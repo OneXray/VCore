@@ -65,7 +65,11 @@ impl XHttpConfig {
     ) -> io::Result<Self> {
         let host = host.into();
         let path = path.into();
-        if host.is_empty() || host.len() > 253 || host.bytes().any(|byte| byte.is_ascii_control()) {
+        if host.is_empty()
+            || host.len() > 253
+            || host.contains('@')
+            || host.parse::<http::uri::Authority>().is_err()
+        {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "invalid XHTTP host",

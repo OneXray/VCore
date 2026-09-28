@@ -9,7 +9,7 @@ REALITY、JLS、静态 ECH 的身份规则见 [VLESS](vless.md)，实际验证�
 
 H1/H2 可使用明文、标准 TLS 1.3、REALITY（经典默认、显式混合模式）或 JLS。H3 必须使用标准 TLS 1.3，不允许同腿明文、REALITY 或 JLS。QUIC 收发走受控数据报，上游有效预算小于 1200 字节即拒绝，不绕开代理、protect 或接口绑定；路径 MTU 探测关闭。
 
-`xhttp-opts.mode` 接受 `auto`（默认）、`packet-up`、`stream-up`、`stream-one`。auto 在 REALITY 无下载配置时选择 stream-one，有下载配置时选择 stream-up，其余选择 packet-up。stream-one 是一条双工 POST，不允许 `download-settings`；其余模式以同一会话 ID 关联上传与下载。`path` 默认 `/`，`host` 显式非空优先，否则使用该腿 servername/server；IPv6 authority 使用方括号。
+`xhttp-opts.mode` 接受 `auto`（默认）、`packet-up`、`stream-up`、`stream-one`。auto 在 REALITY 无下载配置时选择 stream-one，有下载配置时选择 stream-up，其余选择 packet-up。stream-one 是一条双工 POST，不允许 `download-settings`；其余模式以同一会话 ID 关联上传与下载。`path` 默认 `/`，`host` 显式非空优先，否则使用该腿 servername/server；IPv6 authority 使用方括号。主腿与下载腿的 host 均禁止 userinfo（`@`）。
 
 ## 请求字段
 
@@ -80,6 +80,9 @@ packet-up 在发送间隔内聚合小块写入，而不是把每个 write 变成
 节点级 `smux` 接受 enabled、protocol、max-connections、min-streams、max-streams、padding、only-tcp。enabled 默认 false；protocol 默认 h2mux，也支持 smux v1/yamux。计数是 0–i32::MAX 整数；正 max-connections 与正 max-streams 互斥。padding、only-tcp 默认 false。Vision 与启用的 sing-mux 互斥。
 
 空闲物理会话优先复用；max-connections>0 分支按连接数量与 min-streams 扩容，否则按 max-streams 阈值复用。max-connections=max-streams=0 时 min-streams 归一为 8，但不会将其解释为所有调度分支的硬额度。单流关闭不关闭兄弟流，节点 Stop 才取消和等待所有自有驱动。
+
+smux 单流 shutdown 先等待已接受帧写入并 flush，再安排 FIN；h2mux 同样等待数据
+到达上游 IO 的 flush 边界再 reset。节点 Stop 或 Drop 可取消待写，不承诺异常终止交付。
 
 yamux 的内部资源边界是单物理连接累计分配 64 个流后退役；旧流继续，新请求另建连接，空闲即回收。该边界避免逻辑取消与库内 reset 回收不同步时误关兄弟流，不是全节点额度，详见 [资源策略](runtime-resource-policy.md)。
 

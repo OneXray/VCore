@@ -13,7 +13,7 @@
 | 平台构建 / ABI | 同一锁文件、产物架构/身份/hash、原生 C/Swift 消费者与打包依赖 | 物理 TUN、签名安装 |
 | 设备 / 发布 | 真机网络、protect/物理绑定、正式宿主生命周期、签名安装及商店门禁 | 其他平台或后续 revision |
 
-保留独立 ClientHello golden、Encryption 密码向量、H2 完整响应后 RST、SS 背压/服务器先发、
+保留独立 ClientHello golden、Encryption 密码向量、H2 完整响应后 RST、SS 背压/读先于写的刷新、
 HY2 已完成分片 ID 重用等确定性回归。单纯复用实现生成期望值、声明字段数量或找到 PASS
 文本，不能替代行为验证。ignored、未运行、基础设施失败和清理失败均不得计为通过。
 
@@ -29,7 +29,8 @@ HY2 已完成分片 ID 重用等确定性回归。单纯复用实现生成期望
   网关、会话处理器和解码端，不能宣称单个原生服务端直接支持全部能力。
 - 官方 Hysteria 回包缓冲包含协议头；V2Ray 部分 VMess 返回路径也有更小缓冲。
   原生夹具上限不改变 VCore 的协议预算。
-- SS 原样上游 padding 未初始化风险仍未修补。官方 ssserver 单层 EIH 终结与自有
+- SS 原样上游 padding 未初始化风险及空首包随机零 padding 被严格服务端拒绝的限制
+  仍未修补。codec 级刷新回归不证明 server-first 互通。官方 ssserver 单层 EIH 终结与自有
   1/2 层身份中继是不同证据，不能据此宣称任意多层原生 EIH。详见[出站](outbounds.md#shadowsocks-2022)。
 - 静态 ECH、JLS、Encryption 与混合 REALITY 是选定能力集；动态 ECH、Restls、
   ShadowTLS、WireGuard 不在当前范围。JLS 内部使用 fork hook 不构成 ShadowTLS 支持。

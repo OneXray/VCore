@@ -171,6 +171,33 @@ class ContainerTests(unittest.TestCase):
                 peer.stop()
             command.assert_not_called()
 
+    def test_inventory_failure_still_closes_log_capture(self):
+        for error in [
+            RuntimeError("isolated container operation failed: list"),
+            TimeoutError("inventory query timed out"),
+            json.JSONDecodeError("invalid inventory", "not-json", 0),
+            KeyboardInterrupt(),
+        ]:
+            with self.subTest(error=type(error).__name__):
+                peer = ContainerPeer(
+                    SimpleNamespace(run_id="fixture"), Path("fixture"), "server"
+                )
+                peer.capture = MagicMock(record={"joined": True})
+                with (
+                    patch(
+                        "vcore_scripts.protocol_containers.listing", side_effect=error
+                    ) as listing,
+                    patch("vcore_scripts.protocol_containers.command") as command,
+                    self.assertRaises(type(error)) as raised,
+                ):
+                    peer.stop()
+                self.assertIs(raised.exception, error)
+                peer.capture.__exit__.assert_called_once_with(None, None, None)
+                self.assertTrue(peer.record["log_cleanup"])
+                self.assertFalse(peer.record["joined"])
+                listing.assert_called_once_with()
+                command.assert_not_called()
+
     def test_cleanup_only_owned_vm_and_verifies_absence(self):
         lab = SimpleNamespace(run_id="fixture")
         with tempfile.TemporaryDirectory() as root:

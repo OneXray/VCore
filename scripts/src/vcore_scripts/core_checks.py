@@ -34,6 +34,7 @@ TARGETS = (
     "xhttp_budget",
     "h2_stream_regression",
     "stream_foundations",
+    "stream_shutdown",
     "hysteria2_paths",
     "hysteria2_config",
     "shadowsocks_backpressure",
@@ -46,6 +47,8 @@ LIB_FILTERS = (
     "outbound::hysteria2::",
     "outbound::shadowsocks::tests::official_tcp_",
     "outbound::anytls::",
+    "transport::h2_write::tests::",
+    "transport::sing_mux::smux_driver::tests::",
 )
 EXACT_LIB_TESTS = (
     "outbound::connector::tests::authenticated_continuation_keeps_group_choice_but_has_a_new_io_deadline",

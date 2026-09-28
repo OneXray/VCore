@@ -2210,7 +2210,11 @@ impl RawXHttpSettings {
                 |address| format!("[{address}]"),
             )
         });
-        if host.is_empty() || host.len() > 253 || host.parse::<http::uri::Authority>().is_err() {
+        if host.is_empty()
+            || host.len() > 253
+            || host.contains('@')
+            || host.parse::<http::uri::Authority>().is_err()
+        {
             return invalid("xhttp-opts.host must be a valid HTTP authority");
         }
 
@@ -2325,7 +2329,11 @@ impl RawXHttpDownloadSettings {
                     .parse::<std::net::Ipv6Addr>()
                     .map_or_else(|_| server_name.clone(), |address| format!("[{address}]"))
             });
-        if host.is_empty() || host.len() > 253 || host.parse::<http::uri::Authority>().is_err() {
+        if host.is_empty()
+            || host.len() > 253
+            || host.contains('@')
+            || host.parse::<http::uri::Authority>().is_err()
+        {
             return invalid("xhttp-opts.download-settings.host must be a valid HTTP authority");
         }
         let reality = match reality_opts {

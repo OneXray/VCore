@@ -3,6 +3,7 @@
 import contextlib
 import io
 import unittest
+from unittest.mock import patch
 
 from vcore_scripts import cli
 from vcore_scripts.core_checks import commands, validate_execution
@@ -11,6 +12,21 @@ from vcore_scripts.protocol_evidence import check_limit_references, load_manifes
 
 
 class CoreChecksTest(unittest.TestCase):
+    def test_legacy_server_suites_fail_before_acquiring_resources(self):
+        for suite in ("foundations", "trojan"):
+            with (
+                self.subTest(suite=suite),
+                patch("vcore_scripts.protocol_harness.tempfile.mkdtemp") as create_run,
+                patch("subprocess.Popen") as spawn,
+                contextlib.redirect_stderr(io.StringIO()) as error,
+            ):
+                self.assertEqual(
+                    cli.main(["check", "protocol-interop", "--suite", suite]), 1
+                )
+                self.assertIn("not fully containerized", error.getvalue())
+                create_run.assert_not_called()
+                spawn.assert_not_called()
+
     def test_catalog_validity_does_not_claim_executed_behavior(self):
         with contextlib.redirect_stdout(io.StringIO()) as output:
             check_protocol_catalogs()

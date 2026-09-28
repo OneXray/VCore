@@ -5,8 +5,81 @@ use crate::{
     session::InboundKind,
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use shadowsocks::relay::tcprelay::proxy_stream::ProxyServerStream;
+use shadowsocks::relay::tcprelay::proxy_stream::{ProxyServerStream, protocol::TcpRequestHeader};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+// A lower-level codec peer, deliberately not a conforming SS server. It keeps
+// adapter scheduling/half-close checks independent of upstream's randomized
+// zero-padding rejection. Strict acceptance and rejection have separate,
+// deterministic fixtures in tests/shadowsocks_backpressure.rs.
+struct CodecPeer {
+    stream: shadowsocks::relay::tcprelay::crypto_io::CryptoStream<tokio::io::DuplexStream>,
+    context: Arc<Context>,
+}
+impl CodecPeer {
+    fn new(
+        raw: tokio::io::DuplexStream,
+        method: shadowsocks::crypto::CipherKind,
+        key: &[u8],
+    ) -> Self {
+        let context = Context::new_shared(ServerType::Server);
+        Self {
+            stream: shadowsocks::relay::tcprelay::crypto_io::CryptoStream::from_stream(
+                &context,
+                raw,
+                shadowsocks::relay::tcprelay::crypto_io::StreamType::Server,
+                method,
+                key,
+            ),
+            context,
+        }
+    }
+    async fn header(&mut self) -> shadowsocks::relay::socks5::Address {
+        let header = TcpRequestHeader::read_from(self.stream.method(), self)
+            .await
+            .unwrap();
+        let nonce = self.stream.received_nonce().unwrap().to_vec();
+        self.stream.set_request_nonce(&nonce);
+        header.addr()
+    }
+}
+impl tokio::io::AsyncRead for CodecPeer {
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        out: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<io::Result<()>> {
+        use shadowsocks::relay::tcprelay::crypto_io::CryptoRead;
+        let this = self.get_mut();
+        std::pin::Pin::new(&mut this.stream)
+            .poll_read_decrypted(cx, &this.context, out)
+            .map_err(Into::into)
+    }
+}
+impl tokio::io::AsyncWrite for CodecPeer {
+    fn poll_write(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        data: &[u8],
+    ) -> std::task::Poll<io::Result<usize>> {
+        use shadowsocks::relay::tcprelay::crypto_io::CryptoWrite;
+        std::pin::Pin::new(&mut self.stream)
+            .poll_write_encrypted(cx, data)
+            .map_err(Into::into)
+    }
+    fn poll_flush(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<io::Result<()>> {
+        self.stream.poll_flush(cx).map_err(Into::into)
+    }
+    fn poll_shutdown(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<io::Result<()>> {
+        self.stream.poll_shutdown(cx).map_err(Into::into)
+    }
+}
 
 fn config(cipher: ShadowsocksCipher) -> ShadowsocksOutboundConfig {
     ShadowsocksOutboundConfig {
@@ -18,7 +91,7 @@ fn config(cipher: ShadowsocksCipher) -> ShadowsocksOutboundConfig {
 }
 
 #[tokio::test]
-async fn official_tcp_all_ciphers_first_payload_server_first_and_backpressure() {
+async fn official_tcp_codecs_all_ciphers_first_payload_read_first_and_backpressure() {
     for cipher in [
         ShadowsocksCipher::Aes128Gcm,
         ShadowsocksCipher::Aes256Gcm,
@@ -39,12 +112,7 @@ async fn official_tcp_all_ciphers_first_payload_server_first_and_backpressure() 
                 address(&target),
             );
             let mut client = stream::SsStream::new(inner);
-            let mut server = ProxyServerStream::from_stream(
-                Context::new_shared(ServerType::Server),
-                server,
-                method,
-                &key,
-            );
+            let mut server = CodecPeer::new(server, method, &key);
             tokio::time::timeout(std::time::Duration::from_secs(5), async {
                 tokio::join!(
                     async {
@@ -62,7 +130,7 @@ async fn official_tcp_all_ciphers_first_payload_server_first_and_backpressure() 
                         assert_eq!(result, b"response");
                     },
                     async {
-                        assert_eq!(server.handshake().await.unwrap(), address(&target));
+                        assert_eq!(server.header().await, address(&target));
                         if server_first {
                             server.write_all(b"hello").await.unwrap();
                         }
@@ -81,7 +149,7 @@ async fn official_tcp_all_ciphers_first_payload_server_first_and_backpressure() 
 }
 
 #[tokio::test]
-async fn official_tcp_all_ciphers_empty_half_close_keeps_server_response() {
+async fn official_tcp_codecs_all_ciphers_empty_half_close_keeps_response() {
     use std::{future::poll_fn, pin::Pin, task::Poll};
     use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
@@ -129,12 +197,7 @@ async fn official_tcp_all_ciphers_empty_half_close_keeps_server_response() {
                     assert_eq!(prefill, [0x5a; 4095]);
                 }
                 client.shutdown().await.unwrap();
-                let mut server = ProxyServerStream::from_stream(
-                    Context::new_shared(ServerType::Server),
-                    peer,
-                    method,
-                    &vec![7; cipher.key_len()],
-                );
+                let mut server = CodecPeer::new(peer, method, &vec![7; cipher.key_len()]);
                 tokio::join!(
                     async {
                         let mut response = Vec::new();
@@ -142,7 +205,7 @@ async fn official_tcp_all_ciphers_empty_half_close_keeps_server_response() {
                         assert_eq!(response, b"hello");
                     },
                     async {
-                        assert_eq!(server.handshake().await.unwrap(), address(&target));
+                        assert_eq!(server.header().await, address(&target));
                         let mut payload = Vec::new();
                         server.read_to_end(&mut payload).await.unwrap();
                         assert!(payload.is_empty());

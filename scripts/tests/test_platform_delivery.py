@@ -12,10 +12,55 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from vcore_scripts import builds, platform_delivery
 from vcore_scripts.cli import main
 
 
 class PlatformDeliveryTest(unittest.TestCase):
+    def test_android_delivery_replaces_stale_abis_without_touching_other_outputs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            ndk = root / "ndk"
+            ndk.mkdir()
+            (ndk / "source.properties").write_text("Pkg.Revision = fixture")
+            output = root / "dist/android"
+            stale = output / "armeabi-v7a/libvcore.so"
+            stale.parent.mkdir(parents=True)
+            stale.write_bytes(b"stale")
+            (output / "vcore-delivery.json").write_text("old manifest")
+            unrelated = root / "dist/apple/keep"
+            unrelated.parent.mkdir(parents=True)
+            unrelated.write_bytes(b"keep")
+
+            def build():
+                self.assertFalse(stale.exists())
+                self.assertFalse((output / "vcore-delivery.json").exists())
+                for abi, machine in [("arm64-v8a", 183), ("x86_64", 62)]:
+                    for name in ("libvcore.so", "libc++_shared.so"):
+                        path = output / abi / name
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        path.write_bytes(
+                            b"\x7fELF\x02\x01\x01"
+                            + bytes(9)
+                            + b"\x03\x00"
+                            + machine.to_bytes(2, "little")
+                            + builds.EXPECTED_IDENTITY
+                        )
+
+            with (
+                patch.dict(os.environ, {"ANDROID_NDK_HOME": str(ndk)}, clear=True),
+                patch.object(builds, "CORE_DIR", root),
+                patch.object(builds, "build_android", side_effect=build),
+                patch.object(builds, "_android_toolchain", return_value=ndk),
+                patch.object(
+                    platform_delivery, "_source", return_value={"fixture": True}
+                ),
+                patch.object(platform_delivery, "_output", return_value="fixture"),
+            ):
+                platform_delivery.build_delivery("android")
+                platform_delivery.check_delivery([output / "vcore-delivery.json"])
+            self.assertEqual(unrelated.read_bytes(), b"keep")
+
     def test_delivery_rejects_debug_before_starting_a_build(self):
         with patch.dict(os.environ, {"VCORE_BUILD_PROFILE": "debug"}):
             self.assertEqual(main(["build", "android", "--delivery"]), 1)

@@ -209,8 +209,8 @@ class ContainerPeer:
         raise TimeoutError("container service readiness failed")
 
     def stop(self):
-        owned = next((item for item in listing() if item["id"] == self.name), None)
         try:
+            owned = next((item for item in listing() if item["id"] == self.name), None)
             if owned is not None:
                 labels = owned["configuration"].get("labels", {})
                 if (

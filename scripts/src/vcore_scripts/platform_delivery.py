@@ -315,7 +315,15 @@ def build_delivery(platform_name: str) -> None:
     if platform_name == "windows":
         output /= architecture
     manifest = output / "vcore-delivery.json"
-    manifest.unlink(missing_ok=True)
+    if platform_name == "android":
+        # Development builds can leave additional ABIs in the same ignored
+        # directory. Never mix those artifacts into a fresh delivery manifest.
+        if output.parent.is_symlink() or output.is_symlink():
+            raise ValueError("delivery output must not be a symlink")
+        if output.exists():
+            shutil.rmtree(output)
+    else:
+        manifest.unlink(missing_ok=True)
     started = datetime.now(UTC).isoformat()
     {
         "apple": builds.build_apple,

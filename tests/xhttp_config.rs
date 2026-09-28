@@ -15,6 +15,42 @@ fn document(options: Value) -> Vec<u8> {
 }
 
 #[test]
+fn xhttp_authorities_reject_userinfo_on_both_legs_without_echoing_it() {
+    for host in [
+        "synthetic-secret@cover.example",
+        "name:synthetic-secret@cover.example:443",
+        "@cover.example",
+    ] {
+        for options in [
+            json!({"host":host}),
+            json!({"download-settings":{"host":host}}),
+        ] {
+            let error = Config::parse_yaml(&document(options))
+                .unwrap_err()
+                .to_string();
+            assert!(!error.contains(host));
+            assert!(!error.contains("synthetic-secret"));
+        }
+        assert!(
+            vcore::transport::xhttp::XHttpConfig::new(
+                host,
+                "/",
+                vcore::transport::xhttp::XHttpMode::StreamOne
+            )
+            .is_err()
+        );
+    }
+    for host in ["cover.example:443", "192.0.2.1:8443", "[2001:db8::1]:443"] {
+        for options in [
+            json!({"host":host}),
+            json!({"download-settings":{"host":host}}),
+        ] {
+            assert!(Config::parse_yaml(&document(options)).is_ok());
+        }
+    }
+}
+
+#[test]
 fn xhttp_fields_reject_wrong_types_null_and_every_range_boundary_before_io() {
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new(

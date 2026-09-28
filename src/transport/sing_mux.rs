@@ -50,7 +50,7 @@ struct Connection {
 }
 #[derive(Clone)]
 enum Sender {
-    H2(h2::client::SendRequest<Bytes>),
+    H2(super::h2_write::Sender),
     Yamux(yamux_driver::Client),
     Smux(smux_driver::Client),
 }

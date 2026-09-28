@@ -121,7 +121,8 @@ VCORE_ANDROID_API、VCORE_ANDROID_TARGETS、VCORE_ANDROID_OUTPUT_DIR。默认值
 交付禁用隐藏覆盖、测试 feature、非 Release profile，标准 feature 集合显式包含所有支持协议。
 
 --delivery 绑定 commit/tree、lockfile、API/schema、features、toolchain/SDK/NDK、架构及
-全部文件大小/hash；开始前清旧记录，失败不签收。platform-artifacts 拒绝缺失/额外文件、
+全部文件大小/hash；开始前清旧记录，失败不签收。Android 交付还会清空标准 dist/android
+构建输出，避免纳入开发构建遗留的额外 ABI。platform-artifacts 拒绝缺失/额外文件、
 错架构/身份及缺 C++ runtime；可重复 --manifest，--complete 要求 Apple、Android、
 原生 Windows ARM64/x64，仍只证明构建。--source-dir 须显式指定同一候选 checkout。
 platform-abi 在原生 macOS/Windows 链接/加载并执行 C ABI；Windows 另验 snapshot/

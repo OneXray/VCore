@@ -1,7 +1,7 @@
 //! Node-owned gRPC physical connections. Policy matches Mihomo's two threshold
 //! branches; bounded idle retention does not impose a business-flow quota.
+use super::h2_write::{Sender, Writes};
 use crate::{config::GrpcOptions, dispatch::BoxStream};
-use bytes::Bytes;
 use std::{
     future::Future,
     io,
@@ -97,6 +97,7 @@ impl GrpcPool {
     }
     async fn establish(&self, raw: BoxStream) -> io::Result<Connection> {
         let last_read = Arc::new(SyncMutex::new(Instant::now()));
+        let (raw, writes) = Writes::wrap(raw);
         let (sender, mut connection) = h2::client::Builder::new()
             .enable_push(false)
             .initial_window_size(super::STREAM_BUFFER_BYTES as u32)
@@ -106,7 +107,7 @@ impl GrpcPool {
             .max_concurrent_streams(0)
             .max_send_buffer_size(super::STREAM_CHUNK_BYTES)
             .handshake(ActivityIo {
-                raw,
+                raw: Box::new(raw),
                 last_read: last_read.clone(),
             })
             .await
@@ -148,7 +149,10 @@ impl GrpcPool {
             }
         }));
         Ok(Connection {
-            sender,
+            sender: Sender {
+                request: sender,
+                writes,
+            },
             closed,
             active: Arc::default(),
             token,
@@ -173,17 +177,14 @@ impl Drop for GrpcPool {
     }
 }
 struct Connection {
-    sender: h2::client::SendRequest<Bytes>,
+    sender: Sender,
     active: Arc<AtomicUsize>,
     closed: Arc<AtomicBool>,
     token: CancellationToken,
     _observation: crate::resources::observation::Guard,
 }
 impl Connection {
-    fn reserve(
-        &self,
-        pool: &Arc<SyncMutex<Vec<Connection>>>,
-    ) -> io::Result<(h2::client::SendRequest<Bytes>, Lease)> {
+    fn reserve(&self, pool: &Arc<SyncMutex<Vec<Connection>>>) -> io::Result<(Sender, Lease)> {
         self.active
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
                 count.checked_add(1)

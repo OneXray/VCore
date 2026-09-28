@@ -309,7 +309,11 @@ impl AsyncWrite for Stream {
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         self.flush_pending(cx)
     }
-    fn poll_shutdown(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        if self.close.is_cancelled() {
+            return Poll::Ready(Ok(()));
+        }
+        ready!(self.flush_pending(cx))?;
         self.stop();
         Poll::Ready(Ok(()))
     }
@@ -319,6 +323,44 @@ impl AsyncWrite for Stream {
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    #[tokio::test]
+    async fn shutdown_flushes_the_pending_frame_before_fin() {
+        tokio::time::timeout(Duration::from_secs(2), async {
+            let (raw, mut peer) = tokio::io::duplex(16);
+            let (client, driver) = new(Box::new(raw));
+            let task = tokio::spawn(driver);
+            let mut stream = client.open().await.unwrap();
+            let mut syn = [0; 8];
+            peer.read_exact(&mut syn).await.unwrap();
+            let receive = tokio::spawn(async move {
+                let mut received = Vec::new();
+                loop {
+                    let mut header = [0; 8];
+                    peer.read_exact(&mut header).await.unwrap();
+                    assert_eq!(&header[4..], &syn[4..]);
+                    if header[1] == 1 {
+                        break;
+                    }
+                    assert_eq!(header[1], 2);
+                    let size = u16::from_le_bytes([header[2], header[3]]) as usize;
+                    let mut data = vec![0; size];
+                    peer.read_exact(&mut data).await.unwrap();
+                    received.extend(data);
+                }
+                received
+            });
+            let payload = vec![b'x'; 1024];
+            stream.write_all(&payload).await.unwrap();
+            stream.shutdown().await.unwrap();
+            let received = receive.await.unwrap();
+            task.await.unwrap();
+            assert_eq!(received.len(), payload.len());
+            assert_eq!(received, payload);
+        })
+        .await
+        .unwrap();
+    }
 
     #[tokio::test]
     async fn malformed_smux_headers_close_the_owned_driver_before_reading_a_body() {

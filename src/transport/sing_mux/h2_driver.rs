@@ -1,14 +1,11 @@
 //! Caller-owned h2mux with Mihomo's 30-second read-idle PING policy.
 use super::*;
+use crate::transport::h2_write::{Sender, Writes};
 use std::time::Duration;
 
-pub(super) async fn new(
-    raw: BoxStream,
-) -> io::Result<(
-    h2::client::SendRequest<Bytes>,
-    impl Future<Output = ()> + Send,
-)> {
+pub(super) async fn new(raw: BoxStream) -> io::Result<(Sender, impl Future<Output = ()> + Send)> {
     let last_read = Arc::new(Mutex::new(Instant::now()));
+    let (raw, writes) = Writes::wrap(raw);
     let (sender, mut connection) = h2::client::Builder::new()
         .enable_push(false)
         .initial_window_size(65536)
@@ -18,30 +15,36 @@ pub(super) async fn new(
         .max_concurrent_streams(0)
         .max_send_buffer_size(16384)
         .handshake(ActivityIo {
-            raw,
+            raw: Box::new(raw),
             last_read: last_read.clone(),
         })
         .await
         .map_err(|_| io::ErrorKind::ConnectionAborted)?;
     let mut ping = connection.ping_pong().expect("single sing-mux PING owner");
-    Ok((sender, async move {
-        let interval = Duration::from_secs(30);
-        loop {
-            let at = *last_read.lock().unwrap() + interval;
-            tokio::select! {
-                _ = &mut connection => break,
-                () = tokio::time::sleep_until(at) => {
-                    if Instant::now() < *last_read.lock().unwrap() + interval {continue;}
-                    tokio::select! {
-                        _ = &mut connection => break,
-                        result = tokio::time::timeout(Duration::from_secs(15), ping.ping(h2::Ping::opaque())) => {
-                            if !matches!(result, Ok(Ok(_))) {break;}
+    Ok((
+        Sender {
+            request: sender,
+            writes,
+        },
+        async move {
+            let interval = Duration::from_secs(30);
+            loop {
+                let at = *last_read.lock().unwrap() + interval;
+                tokio::select! {
+                    _ = &mut connection => break,
+                    () = tokio::time::sleep_until(at) => {
+                        if Instant::now() < *last_read.lock().unwrap() + interval {continue;}
+                        tokio::select! {
+                            _ = &mut connection => break,
+                            result = tokio::time::timeout(Duration::from_secs(15), ping.ping(h2::Ping::opaque())) => {
+                                if !matches!(result, Ok(Ok(_))) {break;}
+                            }
                         }
                     }
                 }
             }
-        }
-    }))
+        },
+    ))
 }
 
 struct ActivityIo {
