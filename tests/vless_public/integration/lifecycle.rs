@@ -1,6 +1,19 @@
 use super::*;
 
-const NEW_PROTOCOLS: [&str; 4] = ["trojan", "vmess", "vless", "hysteria2"];
+const GROUPS: [&str; 12] = [
+    "socks5",
+    "anytls",
+    "ss",
+    "trojan",
+    "vmess",
+    "vless",
+    "hysteria2",
+    "tuic",
+    "ss-v3",
+    "ss-uot",
+    "ss-uot-v3",
+    "httpupgrade",
+];
 
 pub(super) fn fd_count() -> usize {
     std::fs::read_dir("/dev/fd").unwrap().count()
@@ -30,7 +43,8 @@ fn lifecycle_tracer() {
 fn lifetimes(count: usize) {
     let f = fixture();
     initialize(&f);
-    for protocol in NEW_PROTOCOLS {
+    for group in GROUPS {
+        let protocol = f["profile_groups"][group][0].as_str().unwrap();
         let port = free_port();
         let core = Core::start(&config(f["nodes"][protocol].clone(), port));
         echo(port, &f);
@@ -38,7 +52,11 @@ fn lifetimes(count: usize) {
     }
     let mut observations = Vec::new();
     for cycle in 0..count {
-        let protocol = NEW_PROTOCOLS[(cycle / 5) % NEW_PROTOCOLS.len()];
+        let group = GROUPS[(cycle / 5) % GROUPS.len()];
+        let options = f["profile_groups"][group].as_array().unwrap();
+        let protocol = options[(cycle / (5 * GROUPS.len())) % options.len()]
+            .as_str()
+            .unwrap();
         let mode = cycle % 5;
         let mut case = RecordedCase::new("INTEGRATION-LIFECYCLE", "stop_and_remain_quiet");
         let probe = ResourceProbe::default();
@@ -52,7 +70,15 @@ fn lifetimes(count: usize) {
         let mut occupied = None;
         let mut node = f["nodes"][protocol].clone();
         if mode == 2 {
-            let origin = Origin::new(&f, if protocol == "hysteria2" { 20 } else { 15 }, false);
+            let origin = Origin::new(
+                &f,
+                if matches!(group, "hysteria2" | "tuic") {
+                    20
+                } else {
+                    15
+                },
+                false,
+            );
             node["server"] = json!(origin.target.ip().to_string());
             node["port"] = json!(origin.target.port());
             blackhole = Some(origin);
@@ -123,7 +149,7 @@ fn lifetimes(count: usize) {
             association.client.set_nonblocking(true).unwrap();
         }
         if let Some(origin) = &mut blackhole
-            && protocol != "hysteria2"
+            && !matches!(group, "hysteria2" | "tuic")
         {
             origin.marker(b'D');
         }
@@ -161,7 +187,7 @@ fn lifetimes(count: usize) {
         drop((tcp, udp, blackhole, rebound_tcp, rebound_udp));
         let end = fd_count();
         assert!(end <= baseline);
-        observations.push(json!({"cycle":cycle,"protocol":protocol,"mode":mode,"baseline_fd":baseline,"retained_fixture_fd":retained,"after_stop_fd":after_stop,"final_fd":end,"stop_ms":stop_ms,"quiet_seconds":quiet_seconds,"active":active,"after_stop":stopped,"quiet":probe.snapshot(),"ports_rebound":true}));
+        observations.push(json!({"cycle":cycle,"group":group,"profile":protocol,"mode":mode,"baseline_fd":baseline,"retained_fixture_fd":retained,"after_stop_fd":after_stop,"final_fd":end,"stop_ms":stop_ms,"quiet_seconds":quiet_seconds,"active":active,"after_stop":stopped,"quiet":probe.snapshot(),"ports_rebound":true}));
         println!("INTEGRATION lifecycle: {}/{count}", cycle + 1);
     }
     observe(json!({"count":count,"cycles":observations}));

@@ -44,7 +44,7 @@ fn algorithms() {
         let port = free_port();
         let core = Core::start(&config(node.clone(), port));
         for (ipv6, domain) in [(false, false), (true, false), (false, true)] {
-            bulk(port, &f, ipv6, domain);
+            bulk_client_first(port, &f, ipv6, domain);
             let mut udp = Association::new(&f, port, ipv6, domain);
             for size in [1, 64, 512, 1200, 4096] {
                 for sequence in 0..100_u8 {
@@ -84,7 +84,7 @@ fn eih() {
             }
             let core = Core::start(&config(node, port));
             for ipv6 in [false, true] {
-                bulk(port, &f, ipv6, false);
+                bulk_client_first(port, &f, ipv6, false);
                 let mut udp = Association::new(&f, port, ipv6, false);
                 for size in [1, 64, 512, 1200, 4096] {
                     println!("EIH UDP: outer_ipv6={outer_ipv6}, inner_ipv6={ipv6}, size={size}");

@@ -181,8 +181,8 @@ pub(super) fn carrier_pair(f: &Value) -> Value {
         .build()
         .unwrap();
     let kind = f["last"]["type"].as_str().unwrap();
-    let tcp_allowed = kind != "hysteria2";
-    let udp_allowed = !matches!(kind, "socks5" | "ss" | "hysteria2");
+    let tcp_allowed = !matches!(kind, "hysteria2" | "tuic");
+    let udp_allowed = !matches!(kind, "socks5" | "ss" | "hysteria2" | "tuic");
     runtime.block_on(probe.scope(async {
         let first = node(&f["first"], None, Dialer::default());
         let controlled = Arc::new(NoDatagrams {
@@ -311,6 +311,10 @@ fn protect_failure() {
             let mut case = RecordedCase::new("INTEGRATION-FAILURES-SOURCE", protocol);
             let port = free_port();
             let probe = ResourceProbe::default();
+            if protocol == "tuic" {
+                runtime.block_on(probe.scope(transmit_budget(&f["nodes"][protocol], &f)));
+                assert!(probe.snapshot().is_idle());
+            }
             let core =
                 probe.scope_sync(|| Core::start(&config(f["nodes"][protocol].clone(), port)));
             let mut first = Association::new(&f, port, false, false);
@@ -322,11 +326,16 @@ fn protect_failure() {
                 .send_to(&first.packet(b"unauthorized-source"), first.relay)
                 .unwrap();
             first.origin.quiet();
-            first
-                .client
-                .send_to(&first.packet(&vec![0; 65246]), first.relay)
-                .unwrap();
-            first.origin.quiet();
+            // Retain the older codecs' wire-limit negative. TUIC fragments
+            // this otherwise valid payload: 65245 is the SOCKS reply limit,
+            // not a universal transmit cap. Its explicit budget is tested above.
+            if protocol != "tuic" {
+                first
+                    .client
+                    .send_to(&first.packet(&vec![0; 65246]), first.relay)
+                    .unwrap();
+                first.origin.quiet();
+            }
             second.exchange(b"survives-foreign-and-oversize");
             drop(first);
             second.exchange(b"survives-single-association-cancel");
@@ -337,6 +346,42 @@ fn protect_failure() {
         }
     }
     observe(
-        json!({"protect_rejected":PROTOCOLS,"auth_rejected":PROTOCOLS,"certificate_pin_rejected":["anytls","trojan","vmess","vless","hysteria2"],"source_and_oversize_isolated":PROTOCOLS,"cancel_preserves_sibling":PROTOCOLS,"no_origin_bytes":true,"stop_idle":true}),
+        json!({"protect_rejected":PROTOCOLS,"auth_rejected":PROTOCOLS,"certificate_pin_rejected":["anytls","trojan","vmess","vless","hysteria2","tuic"],"source_and_oversize_isolated":PROTOCOLS,"tuic_transmit_budget":{"limit":128,"rejected":129,"following_roundtrip":128},"cancel_preserves_sibling":PROTOCOLS,"no_origin_bytes":true,"stop_idle":true}),
     );
+}
+
+async fn transmit_budget(raw: &Value, f: &Value) {
+    let outbound = node(raw, None, Dialer::default());
+    let mut udp = outbound
+        .open_datagram(
+            request().with_budget(DatagramBudget::new(128, 128)),
+            &EstablishContext::default(),
+        )
+        .await
+        .unwrap();
+    let mut origin = Origin::new(f, 4, false);
+    let target = origin.target;
+    let packet = |size| Datagram {
+        remote: target.into(),
+        payload: vec![7; size].into(),
+        sniffed_domain: None,
+    };
+    assert_eq!(
+        udp.payload_budget(&origin.target.into()),
+        DatagramBudget::new(128, 128)
+    );
+    assert!(udp.send(packet(129)).await.is_err());
+    origin.quiet();
+    udp.send(packet(128)).await.unwrap();
+    let response = tokio::time::timeout(TIMEOUT, udp.receive())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(response.remote, origin.target.into());
+    assert_eq!(&response.payload[..], &[7; 128]);
+    origin.udp(&[7; 128]);
+    udp.close().await.unwrap();
+    drop(udp);
+    outbound.begin_shutdown();
+    outbound.shutdown().await;
 }

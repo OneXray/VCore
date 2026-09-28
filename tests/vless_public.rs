@@ -315,9 +315,16 @@ fn reply(client: &mut TcpStream) -> SocketAddr {
     SocketAddr::new(ip, u16::from_be_bytes(port))
 }
 fn connect(port: u16, target: SocketAddr, domain: bool) -> TcpStream {
+    connect_with_initial(port, target, domain, &[])
+}
+fn connect_with_initial(port: u16, target: SocketAddr, domain: bool, initial: &[u8]) -> TcpStream {
     let mut client = login(port);
     let mut request = vec![5, 1, 0];
     request.extend(address(target, domain));
+    // Queue actual application bytes with CONNECT before the relay can poll
+    // its read side. Waiting for the SOCKS reply first is not a guaranteed
+    // nonempty first write at the SS adapter, even for a client-first origin.
+    request.extend(initial);
     client.write_all(&request).unwrap();
     reply(&mut client);
     client
@@ -434,8 +441,7 @@ impl Association {
 }
 fn echo(port: u16, f: &Value) {
     let mut origin = Origin::new(f, 13, false);
-    let mut client = connect(port, origin.target, false);
-    client.write_all(b"client-first").unwrap();
+    let mut client = connect_with_initial(port, origin.target, false, b"client-first");
     let mut bytes = [0; 12];
     client.read_exact(&mut bytes).unwrap();
     assert_eq!(&bytes, b"client-first");
@@ -444,15 +450,24 @@ fn echo(port: u16, f: &Value) {
     origin.marker(b'D');
 }
 fn bulk(port: u16, f: &Value, ipv6: bool, domain: bool) {
+    bulk_start(port, f, ipv6, domain, true);
+}
+fn bulk_client_first(port: u16, f: &Value, ipv6: bool, domain: bool) {
+    bulk_start(port, f, ipv6, domain, false);
+}
+fn bulk_start(port: u16, f: &Value, ipv6: bool, domain: bool, server_first: bool) {
     let _case = Case::start("VLESS-BASE", "tcp_10mib_both_directions");
-    let mut origin = Origin::new(f, 10, ipv6);
-    let mut client = connect(port, origin.target, domain);
-    let mut hello = [0; 5];
-    client.read_exact(&mut hello).unwrap();
-    assert_eq!(&hello, b"hello");
-    origin.marker(b'A');
+    let mut origin = Origin::new(f, if server_first { 10 } else { 22 }, ipv6);
     let data = vec![0x5a; 10 * 1024 * 1024];
-    for fragment in data.chunks(4093) {
+    let initial_length = if server_first { 0 } else { 4093 };
+    let mut client = connect_with_initial(port, origin.target, domain, &data[..initial_length]);
+    if server_first {
+        let mut hello = [0; 5];
+        client.read_exact(&mut hello).unwrap();
+        assert_eq!(&hello, b"hello");
+    }
+    origin.marker(b'A');
+    for fragment in data[initial_length..].chunks(4093) {
         client.write_all(fragment).unwrap();
     }
     let mut hash = Sha256::new();

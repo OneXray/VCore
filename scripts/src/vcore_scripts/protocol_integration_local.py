@@ -16,7 +16,13 @@ def commands(identifier):
     }:
         return core_commands(identifier.removeprefix("INTEGRATION-").lower())
     if identifier == "INTEGRATION-QUALITY":
-        return hysteria2_commands("HYSTERIA2-QUALITY") + [
+        # Behavioral integration also runs with the approved local boring fork.
+        # Strict release-source audit remains a separate mandatory PR/delivery gate.
+        return [
+            row
+            for row in hysteria2_commands("HYSTERIA2-QUALITY")
+            if row != ["vcore-scripts", "check", "tls-dependencies"]
+        ] + [
             ["vcore-scripts", "check", "protocol-coverage", "--catalog-only"],
             ["vcore-scripts", "build", "apple"],
             ["vcore-scripts", "build", "android"],
@@ -74,7 +80,7 @@ def passed(identifier, records, events, script=None):
     if identifier == "INTEGRATION-FEATURES":
         good &= assertions_pass(
             [e for e in events if e.get("suite") == "INTEGRATION-FEATURE"],
-            {("INTEGRATION-FEATURE", p): 7 for p in PROTOCOLS},
+            {("INTEGRATION-FEATURE", p): 8 for p in PROTOCOLS},
         )
     if identifier == "INTEGRATION-SCRIPTS":
         rows = (script or {}).get("cases", [])
@@ -87,6 +93,7 @@ def passed(identifier, records, events, script=None):
                 "test_list_contains_all_ordered_pairs_and_remaining_gates",
                 "test_pressure_evidence_is_recomputed_not_inferred",
                 "test_native_source_identity_and_cleanup_are_required",
+                "test_integration_quality_separates_release_source_policy",
             )
         }
         good &= (

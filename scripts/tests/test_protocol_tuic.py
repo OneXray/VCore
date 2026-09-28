@@ -101,7 +101,7 @@ class TuicAcceptanceTest(unittest.TestCase):
                     broken["cases"][0][key] = value
                     self.assertFalse(wire_pass(name, root, broken))
 
-    def test_legacy_pressure_allows_only_an_exactly_inactive_tuic_counter(self):
+    def test_mixed_pressure_requires_active_tuic_and_inactive_hysteria2(self):
         from vcore_scripts.protocol_evidence import RESOURCE_KINDS
         from vcore_scripts.protocol_integration_metrics import QUEUES, sample
 
@@ -112,15 +112,23 @@ class TuicAcceptanceTest(unittest.TestCase):
             resources=dict(
                 counts=[dict(kind=k, current=1, peak=1) for k in RESOURCE_KINDS]
             ),
-            queues=[dict(kind=k, capacity=v, peak=1) for k, v in QUEUES.items()],
+            queues=[
+                dict(kind=k, capacity=v, peak=int(v > 0)) for k, v in QUEUES.items()
+            ],
         )
         self.assertTrue(sample(value))
-        value["queues"].append(dict(kind="tuic_udp", capacity=0, peak=0))
-        self.assertTrue(sample(value))
-        for mutation in (dict(capacity=32), dict(peak=1), dict(kind="unknown")):
+        for kind, mutation in (
+            ("tuic_udp", dict(capacity=0, peak=0)),
+            ("tuic_udp", dict(peak=33)),
+            ("hysteria2_udp", dict(capacity=32)),
+            ("hysteria2_udp", dict(peak=1)),
+            ("quic_incoming", dict(kind="unknown")),
+        ):
             broken = copy.deepcopy(value)
-            broken["queues"][-1].update(mutation)
+            next(q for q in broken["queues"] if q["kind"] == kind).update(mutation)
             self.assertFalse(sample(broken))
+        value["queues"].pop()
+        self.assertFalse(sample(value))
 
     def test_anytls_fixture_uses_listener_password_map(self):
         client, peer = upstream_pair(

@@ -6,7 +6,7 @@ import json
 
 from .protocol_evidence import read_events, read_json
 from .protocol_hysteria2_catalog import assertions_pass
-from .protocol_integration_catalog import LOCAL, PAIRS, definitions
+from .protocol_integration_catalog import CHAINS, LOCAL, ORDERED, PAIRS, definitions
 from .protocol_integration_checks import envelope, runtime_pass
 from .protocol_integration_local import commands, passed
 from .protocol_integration_shared import hops_pass, shared_pass
@@ -16,7 +16,7 @@ from .protocol_security_acceptance import result
 def pair_pass(identifier, record, directory):
     from .protocol_integration_native import rust_command
 
-    first, last = PAIRS[identifier]
+    first, last = ORDERED[identifier]
     targets = 2 if last == "trojan" else 3
     events = read_events(directory / (identifier + "-events.jsonl"))
     observation = read_json(directory / (identifier + "-observations.json"))
@@ -29,9 +29,14 @@ def pair_pass(identifier, record, directory):
             udp_target_kinds=targets,
             udp_packets=targets * 400,
             udp_sizes=[1, 64, 512, 1200],
-            server_first=True,
+            server_first=last != "ss",
             client_first=True,
             ports_rebound=True,
+            **(
+                {"server_first_limitation": "official-ss2022-empty-first-write"}
+                if last == "ss"
+                else {}
+            ),
         )
         for v6 in (False, True)
         for group in (False, True)
@@ -78,10 +83,11 @@ def pair_pass(identifier, record, directory):
             ),
             carrier_capability=dict(
                 upstream_datagrams="rejected",
-                tcp_allowed=last != "hysteria2",
-                udp_allowed=last not in {"ss", "socks5", "hysteria2"},
+                tcp_allowed=last not in {"hysteria2", "tuic"},
+                udp_allowed=last not in {"ss", "socks5", "hysteria2", "tuic"},
                 no_bypass=True,
             ),
+            **({"variant": CHAINS[identifier]} if identifier in CHAINS else {}),
         )
         and assertions_pass(
             events,
@@ -105,6 +111,8 @@ def execute(cases, run, output, results):
     from .protocol_containers import frozen_image
     from .protocol_harness import _command
     from .protocol_hysteria2_acceptance import prepare
+    from .protocol_integration_coupled import passed as coupled_pass
+    from .protocol_integration_coupled import run as coupled_run
     from .protocol_integration_native import run as run_pairs
     from .protocol_integration_shared import hops_run, shared_run
     from .protocol_integration_suite import CONSUMERS
@@ -160,7 +168,7 @@ def execute(cases, run, output, results):
             kinds = {"M"}
             if "INTEGRATION-SHARED" in by_id:
                 kinds |= {"XR", "V2"}
-            if any(PAIRS[i][1] == "trojan" for i in by_id.keys() & PAIRS.keys()):
+            if any(ORDERED[i][1] == "trojan" for i in by_id.keys() & ORDERED.keys()):
                 kinds.add("XR")
             if "INTEGRATION-HY2-HOP" in by_id:
                 kinds.add("H")
@@ -169,7 +177,7 @@ def execute(cases, run, output, results):
             digest = snapshot["digest"]
             # Each group is rerun from this source/image/peer scope. Historical
             # reports are never imported into results.
-            selected = sorted(by_id.keys() & PAIRS.keys())
+            selected = sorted(by_id.keys() & ORDERED.keys())
             if selected:
                 directory = output / "pairs"
                 report = run_pairs(
@@ -188,6 +196,12 @@ def execute(cases, run, output, results):
                         and pair_pass(identifier, record, directory),
                         report["cleanup"],
                     )
+            if "INTEGRATION-COUPLED" in by_id:
+                coupled_run(output / "coupled", supplied["M"], snapshot)
+                save(
+                    "INTEGRATION-COUPLED",
+                    coupled_pass(output / "coupled", peers, source, digest),
+                )
             selected = sorted(
                 by_id.keys() & CONSUMERS.keys(),
                 key=lambda k: (k == "INTEGRATION-SOAK", k),
@@ -229,6 +243,7 @@ def check(run_dir, cases, run, results, peers, paths):
     from .protocol_containers import IMAGE
     from .protocol_evidence import HEX
     from .protocol_inputs import redact
+    from .protocol_integration_coupled import passed as coupled_pass
     from .protocol_integration_suite import CONSUMERS
 
     observed_paths = {
@@ -285,7 +300,7 @@ def check(run_dir, cases, run, results, peers, paths):
         key=lambda k: (k == "INTEGRATION-SOAK", k),
     )
     if (
-        [r.get("case_id") for r in pair_report.get("cases", [])] != sorted(PAIRS)
+        [r.get("case_id") for r in pair_report.get("cases", [])] != sorted(ORDERED)
         or [r.get("case_id") for r in runtime_report.get("cases", [])]
         != expected_runtime
         or set(pair_report.get("peers", {})) != {"M", "XR"}
@@ -325,8 +340,8 @@ def check(run_dir, cases, run, results, peers, paths):
                 if identifier == "INTEGRATION-SCRIPTS"
                 else None,
             )
-        elif identifier in PAIRS or identifier in CONSUMERS:
-            pair = identifier in PAIRS
+        elif identifier in ORDERED or identifier in CONSUMERS:
+            pair = identifier in ORDERED
             report = pair_report if pair else runtime_report
             record = next(r for r in report["cases"] if r["case_id"] == identifier)
             directory = run_dir / ("pairs" if pair else "runtime")
@@ -335,12 +350,15 @@ def check(run_dir, cases, run, results, peers, paths):
             )(identifier, record, directory)
         elif identifier == "INTEGRATION-HY2-HOP":
             good = hops_pass(run_dir / "hop", peers, source, digest)
+        elif identifier == "INTEGRATION-COUPLED":
+            good = coupled_pass(run_dir / "coupled", peers, source, digest)
         else:
             good = shared_pass(run_dir / "shared", peers, source, digest)
         if not good or result(case, good, True) != actual[identifier]:
             raise ValueError("INTEGRATION raw evidence does not pass: " + identifier)
     print(
-        f"INTEGRATION: PASS ({len(cases)} required gates; 49 pairs, "
+        f"INTEGRATION: PASS ({len(cases)} required gates; {len(PAIRS)} pairs, "
+        f"{len(CHAINS)} TUIC/ShadowTLS chains, retained UoT/TUIC chains, "
         "100 lifetimes, 100 rebuilds, 1800-second soak)"
     )
 

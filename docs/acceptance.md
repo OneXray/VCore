@@ -9,13 +9,22 @@
 | --- | --- | --- |
 | 离线 / 纯内存 | 严格配置与 feature、DAG/组快照、协议向量、TLS 身份/签名/pin、取消与局部上限、FFI 所有权 | 网络互通、设备 |
 | 容器互通 | 公开配置和消费者、真实认证及负例、传输关闭、UDP 来源与边界、受控 DNS/上游 | 任意字段组合或公网服务 |
-| 集成 / 压力 | 七出站的有序两跳、运行时切组、Stop/回滚/测速、重建、持续流量与静默窗口 | 无扰动吞吐基准或整机内存保证 |
+| 集成 / 压力 | 八出站 64 有序两跳、SS v3/UoT/TUIC 强耦合链、运行时切组、Stop/回滚/测速、混合重建与长测 | 无扰动吞吐基准或整机内存保证 |
 | 平台构建 / ABI | 同一锁文件、产物架构/身份/hash、原生 C/Swift 消费者与打包依赖 | 物理 TUN、签名安装 |
 | 设备 / 发布 | 真机网络、protect/物理绑定、正式宿主生命周期、签名安装及商店门禁 | 其他平台或后续 revision |
 
 保留独立 ClientHello golden、Encryption 密码向量、H2 完整响应后 RST、SS 背压/读先于写的刷新、
 HY2 已完成分片 ID 重用等确定性回归。单纯复用实现生成期望值、声明字段数量或找到 PASS
 文本，不能替代行为验证。ignored、未运行、基础设施失败和清理失败均不得计为通过。
+
+integration 另含 TUIC 双模式到 SS v3 三算法的六条链，复跑 TCP-only SOCKS5 到
+SS UoT/v3、SS UoT 到 TUIC 等既有消费者。100 次生命周期覆盖基础协议及扩展组合；
+100 轮重建和至少 1800 秒长测每轮保持 20 TCP + 20 UDP，TCP 使用 SOCKS5、SS v3、
+TUIC、HTTPUpgrade 四组，UDP 使用 SS UoT、SS UoT+v3、TUIC、HTTPUpgrade 四组，
+每组五条并轮换算法/模式。原七协议和 HY2 连续跳端口回归仍保留。
+Stop 返回时资源必须归零、FD 回基线，后续五秒静默不作清理宽限。预热五分钟后，
+逐分钟独立记录堆、RSS、活对象和队列；后十分钟堆中位数增长上限为 max(1 MiB, 5%)，
+建链中位数上限为首次两倍。短 tracer 或单协议 suite 均不能替代整轮验收。
 
 ## 对端与已知限制
 
@@ -30,7 +39,10 @@ HY2 已完成分片 ID 重用等确定性回归。单纯复用实现生成期望
 - 官方 Hysteria 回包缓冲包含协议头；V2Ray 部分 VMess 返回路径也有更小缓冲。
   原生夹具上限不改变 VCore 的协议预算。
 - SS 原样上游 padding 未初始化风险及空首包随机零 padding 被严格服务端拒绝的限制
-  仍未修补。codec 级刷新回归不证明 server-first 互通。官方 ssserver 单层 EIH 终结与自有
+  仍未修补。裸 SS、EIH 与 SS v3 TCP 的空首包/server-first 明确不在必过正例内，
+  不计作互通成功；保留确定性拒绝负例。TCP 改验非空首段的 client-first，仍须三地址族、
+  双向各 10 MiB 摘要、认证和关闭；其他协议的 server-first 与 SS UoT 首写门控不变。
+  codec 级刷新回归不证明 server-first 互通。官方 ssserver 单层 EIH 终结与自有
   1/2 层身份中继是不同证据，不能据此宣称任意多层原生 EIH。详见[出站](outbounds.md#shadowsocks-2022)。
 - ShadowTLS 只支持 SS2022 的 strict v3/TLS1.3 TCP 包装，原生 UDP 单独验证。
   主对端为 Mihomo，官方 ShadowTLS + 原样 ssserver 为补充对照；内存中的 cover

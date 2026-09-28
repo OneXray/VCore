@@ -1398,6 +1398,11 @@ mod tests {
                 ", password: fixture",
                 cfg!(feature = "outbound-hysteria2"),
             ),
+            (
+                "tuic",
+                ", uuid: 08080808-0808-0808-0808-080808080808, password: fixture",
+                cfg!(feature = "outbound-tuic"),
+            ),
         ];
         for (protocol, fields, enabled) in variants {
             let _case = crate::resources::case_events::Case::new("INTEGRATION-FEATURE", protocol);

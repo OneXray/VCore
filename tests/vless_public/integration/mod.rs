@@ -35,8 +35,19 @@ fn resource_tracer() {
         let udp_queue = &queues[QueueKind::SocksUdp as usize];
         assert_eq!(udp_queue.capacity, 16);
         assert!((1..=16).contains(&udp_queue.peak));
-        if protocol == "hysteria2" {
-            assert!(queues.iter().all(|q| q.peak > 0 && q.peak <= q.capacity));
+        if matches!(protocol, "hysteria2" | "tuic") {
+            let inactive = if protocol == "tuic" {
+                QueueKind::Hysteria2Udp
+            } else {
+                QueueKind::TuicUdp
+            };
+            for (index, queue) in queues.iter().enumerate() {
+                if index == inactive as usize {
+                    assert_eq!((queue.capacity, queue.peak), (0, 0));
+                } else {
+                    assert!(queue.peak > 0 && queue.peak <= queue.capacity);
+                }
+            }
         }
         case.checkpoint("active", active);
         core.stop();
@@ -54,7 +65,7 @@ fn resource_tracer() {
     observe(json!({"protocols":PROTOCOLS,"active_observed":true,"stop_idle":true}));
 }
 
-const PROTOCOLS: [&str; 7] = [
+const PROTOCOLS: [&str; 8] = [
     "socks5",
     "anytls",
     "ss",
@@ -62,6 +73,7 @@ const PROTOCOLS: [&str; 7] = [
     "vmess",
     "vless",
     "hysteria2",
+    "tuic",
 ];
 
 fn observe(value: Value) {
@@ -103,7 +115,7 @@ fn graph() {
         runtime::select(controller, "REJECT");
         runtime::exchange(&mut old, b"old-transport-snapshot");
         udp.exchange(b"old-udp-snapshot");
-        if protocol == "hysteria2" {
+        if matches!(protocol, "hysteria2" | "tuic") {
             echo(port, &f); // Reuse is allowed only on the old physical session.
         } else {
             // AnyTLS reuses idle sessions, not a session with an active stream;
@@ -161,8 +173,11 @@ fn dns_measure() {
         ]);
         let core = Core::start(&yaml);
         let mut origin = Origin::new(&f, 13, false);
-        let mut client = connect(port, origin.target, true);
-        runtime::exchange(&mut client, b"controlled-dns-route");
+        let payload = b"controlled-dns-route";
+        let mut client = connect_with_initial(port, origin.target, true, payload);
+        let mut response = vec![0; payload.len()];
+        client.read_exact(&mut response).unwrap();
+        assert_eq!(&response, payload);
         origin.marker(b'A');
         let mut header = [0; 4];
         dns_origin.observer.read_exact(&mut header).unwrap();
@@ -231,7 +246,7 @@ fn ss_bulk_stress() {
     let core =
         Core::start(&json!({"socks-port":port,"proxies":[last,first],"rules":["MATCH,peer"]}));
     for _ in 0..50 {
-        bulk(port, &f, false, false);
+        bulk_client_first(port, &f, false, false);
     }
     core.stop();
 }
@@ -250,6 +265,13 @@ fn ordered_pair() {
     let _case = RecordedCase::new("INTEGRATION-PAIR", "ordered_pair");
     let f = fixture();
     initialize(&f);
+    if let Some(variant) = f.get("variant") {
+        assert_eq!(f["first"]["udp-relay-mode"], variant["udp_mode"]);
+        assert_eq!(f["last"]["cipher"], variant["cipher"]);
+        assert_eq!(f["last"]["plugin"], "shadow-tls");
+        assert_eq!(f["last"]["plugin-opts"]["version"], 3);
+        assert!(f["last"].get("udp-over-tcp").is_none());
+    }
     let mut observations = Vec::new();
     for outer_ipv6 in [false, true] {
         for grouped in [false, true] {
@@ -271,8 +293,9 @@ fn ordered_pair() {
                 ]);
             }
             let core = Core::start(&yaml);
+            let server_first = f["last"]["type"] != "ss";
             for (ipv6, domain) in [(false, false), (true, false), (false, true)] {
-                bulk(port, &f, ipv6, domain);
+                bulk_start(port, &f, ipv6, domain, server_first);
             }
             echo(port, &f);
             // Keep source tuples alive until Stop. Trojan's documented Mihomo
@@ -298,20 +321,23 @@ fn ordered_pair() {
             drop(associations);
             let _tcp = TcpListener::bind((Ipv4Addr::LOCALHOST, port)).unwrap();
             let _udp = UdpSocket::bind((Ipv4Addr::LOCALHOST, port)).unwrap();
-            observations.push(json!({
+            let mut path = json!({
                 "outer_ipv6":outer_ipv6,"nested_select":grouped,
                 "tcp_target_kinds":3,"tcp_bytes_each_direction":3*10*1024*1024,
                 "udp_target_kinds":target_count,"udp_packets":target_count*400,"udp_sizes":[1,64,512,1200],
-                "server_first":true,"client_first":true,"ports_rebound":true
-            }));
+                "server_first":server_first,"client_first":true,"ports_rebound":true
+            });
+            if !server_first {
+                path["server_first_limitation"] = json!("official-ss2022-empty-first-write");
+            }
+            observations.push(path);
         }
     }
-    std::fs::write(
-        std::env::var("VCORE_INTEGRATION_OBSERVATIONS").unwrap(),
-        json!({"first":f["first"]["type"],"last":f["last"]["type"],"paths":observations,"domain_native":domain_terminal(&f),"budgets":connector::budget_pair(&f),"routed_udp":routed_udp_pair(&f),"carrier_capability":connector::carrier_pair(&f)})
-            .to_string(),
-    )
-    .unwrap();
+    let mut value = json!({"first":f["first"]["type"],"last":f["last"]["type"],"paths":observations,"domain_native":domain_terminal(&f),"budgets":connector::budget_pair(&f),"routed_udp":routed_udp_pair(&f),"carrier_capability":connector::carrier_pair(&f)});
+    if let Some(variant) = f.get("variant") {
+        value["variant"] = variant.clone();
+    }
+    observe(value);
 }
 
 fn routed_udp_pair(f: &Value) -> Value {

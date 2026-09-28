@@ -14,7 +14,16 @@ from .protocol_peers import run_command
 FEATURE_TEST = (
     "runtime::tests::integration_feature_admission_is_explicit_without_opening_sockets"
 )
-PROTOCOLS = ("socks5", "anytls", "shadowsocks", "trojan", "vmess", "vless", "hysteria2")
+PROTOCOLS = (
+    "socks5",
+    "anytls",
+    "shadowsocks",
+    "trojan",
+    "vmess",
+    "vless",
+    "hysteria2",
+    "tuic",
+)
 TARGETS = (
     "ech_config",
     "ech_tls",

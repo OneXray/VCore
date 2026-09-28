@@ -1,4 +1,4 @@
-"""Seven-protocol integration with owned official peers and container origins."""
+"""Eight-protocol integration with owned official peers and container origins."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from .native_release import download_native
 from .protocol_containers import ContainerLab, command, frozen_image
 from .protocol_fixtures import certificates
 from .protocol_inputs import redact, sha256, source_identity
-from .protocol_integration_catalog import PAIRS
+from .protocol_integration_catalog import CHAINS, ORDERED
 from .protocol_peers import run_command
 
 
@@ -38,6 +38,16 @@ def peer_configuration(protocol, server, origin, directory, *, certificate=None)
         cipher = "2022-blake3-aes-128-gcm"
         listener.update(type="shadowsocks", udp=True, cipher=cipher, password=password)
         node.update(cipher=cipher, password=password)
+    elif protocol == "tuic":
+        listener.update(users={identity: password}, alpn=["h3"])
+        node.update(
+            uuid=identity,
+            password=password,
+            sni="localhost",
+            fingerprint=pin,
+            alpn=["h3"],
+            **{"udp-relay-mode": "native"},
+        )
     elif protocol in {"trojan", "anytls", "hysteria2"}:
         node.update(password=password, sni="localhost", fingerprint=pin)
         listener["users"] = (
@@ -91,7 +101,7 @@ def run(
     if (
         not selected
         or len(selected) != len(set(selected))
-        or not set(selected) <= PAIRS.keys()
+        or not set(selected) <= ORDERED.keys()
     ):
         raise ValueError("invalid INTEGRATION pair selection")
     output = output.resolve()
@@ -120,7 +130,7 @@ def run(
             if sha256(binary) != identity["binary_sha256"]:
                 raise RuntimeError("INTEGRATION native peer identity mismatch")
         report["peers"]["M"] = identity
-        if any(PAIRS[key][1] == "trojan" for key in selected):
+        if any(ORDERED[key][1] == "trojan" for key in selected):
             if domain_peer is None:
                 artifact = download_native(
                     "XR", output / "binary-xray", "linux-arm64", defer_version=True
@@ -131,7 +141,8 @@ def run(
             report["peers"]["XR"] = domain_peer[1]
         lab = ContainerLab(report["isolation"], mtu=1500)
         for index, identifier in enumerate(selected):
-            first_kind, last_kind = PAIRS[identifier]
+            first_kind, last_kind = ORDERED[identifier]
+            variant = CHAINS.get(identifier)
             print(f"INTEGRATION: {identifier}", flush=True)
             with tempfile.TemporaryDirectory(
                 prefix="private-", dir=output
@@ -144,20 +155,35 @@ def run(
                         Path(__file__).with_name("container_udp_origin.py"),
                         origin_dir / "origin.py",
                     )
+                    origin_command = ["env", "VCORE_ISOLATED_ORIGIN=1"]
+                    cover_certificate = None
+                    if variant:
+                        cover_certificate = certificates(origin_dir)
+                        shutil.copyfile(
+                            Path(__file__).with_name("container_shadowtls_peer.py"),
+                            origin_dir / "cover.py",
+                        )
+                        origin_command += [
+                            "VCORE_ORIGIN_CERT=/data/fixture/cert.pem",
+                            "VCORE_ORIGIN_KEY=/data/fixture/key.pem",
+                        ]
+                    origin_command += [
+                        "python",
+                        "-B",
+                        "/data/fixture/cover.py"
+                        if variant
+                        else "/data/fixture/origin.py",
+                    ]
                     origin = lab.start(
                         stack,
                         origin_dir,
                         f"{index}-origin",
-                        [
-                            "env",
-                            "VCORE_ISOLATED_ORIGIN=1",
-                            "python",
-                            "-B",
-                            "/data/fixture/origin.py",
-                        ],
+                        origin_command,
                     )
                     origin.release()
                     origin.wait_tcp(24000)
+                    if variant:
+                        origin.wait_tcp(24001)
                     fixture = dict(
                         isolation="containers",
                         origin_control=f"{origin.ipv4}:24000",
@@ -165,6 +191,8 @@ def run(
                         origin_ipv6=origin.ipv6,
                         data_dir=str(root / "core"),
                     )
+                    if variant:
+                        fixture["variant"] = variant
                     for role, protocol in (("first", first_kind), ("last", last_kind)):
                         directory = root / role
                         directory.mkdir()
@@ -196,6 +224,25 @@ def run(
                         node, config = peer_configuration(
                             protocol, peer.ipv4, origin.ipv4, directory
                         )
+                        if variant and role == "first":
+                            node["udp-relay-mode"] = variant["udp_mode"]
+                        elif variant:
+                            from .protocol_completion_peers import PeerCase
+                            from .protocol_completion_peers import (
+                                peer_configuration as profile,
+                            )
+
+                            node, listener = profile(
+                                PeerCase(
+                                    identifier, "ss", variant["cipher"], shadow_tls=True
+                                ),
+                                server=peer.ipv4,
+                                cover=f"{origin.ipv4}:24001",
+                                port=23000,
+                                certificate=cover_certificate,
+                            )
+                            node["name"] = "peer"
+                            config["listeners"] = [listener]
                         (directory / "config.json").write_text(json.dumps(config))
                         fixture[role], fixture[role + "_ipv6"] = node, peer.ipv6
                         peer.release()
@@ -302,4 +349,4 @@ def run(
 if __name__ == "__main__":
     output = Path(sys.argv[1]).resolve()
     with exclusive_run(), frozen_image(None):
-        run(output, sys.argv[2:] or list(PAIRS))
+        run(output, sys.argv[2:] or list(ORDERED))

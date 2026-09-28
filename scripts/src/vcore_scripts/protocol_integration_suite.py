@@ -1,4 +1,4 @@
-"""INTEGRATION public-runtime gates against seven listeners in an owned native peer."""
+"""INTEGRATION public-runtime and mixed-profile gates in owned native peers."""
 
 from __future__ import annotations
 
@@ -21,6 +21,8 @@ from .protocol_fixtures import certificates
 from .protocol_inputs import redact, sha256, source_identity
 from .protocol_integration_catalog import PROTOCOLS
 from .protocol_integration_native import peer_configuration, rust_command
+from .protocol_integration_profiles import PROFILE_IDS
+from .protocol_integration_profiles import configuration as profiles
 from .protocol_peers import run_command
 
 CONSUMERS = {
@@ -79,9 +81,14 @@ def run(output: Path, selected, *, supplied=None):
             with contextlib.ExitStack() as stack:
                 origin_dir = root / "origin"
                 origin_dir.mkdir()
+                certificate = certificates(origin_dir)
                 shutil.copyfile(
                     Path(__file__).with_name("container_udp_origin.py"),
                     origin_dir / "origin.py",
+                )
+                shutil.copyfile(
+                    Path(__file__).with_name("container_shadowtls_peer.py"),
+                    origin_dir / "cover.py",
                 )
                 origin = lab.start(
                     stack,
@@ -91,13 +98,16 @@ def run(output: Path, selected, *, supplied=None):
                         "env",
                         "VCORE_ISOLATED_ORIGIN=1",
                         "VCORE_ORIGIN_PROFILE=INTEGRATION",
+                        "VCORE_ORIGIN_CERT=/data/fixture/cert.pem",
+                        "VCORE_ORIGIN_KEY=/data/fixture/key.pem",
                         "python",
                         "-B",
-                        "/data/fixture/origin.py",
+                        "/data/fixture/cover.py",
                     ],
                 )
                 origin.release()
                 origin.wait_tcp(24000)
+                origin.wait_tcp(24001)
                 upstream_dir = root / "upstream"
                 upstream_dir.mkdir()
                 shutil.copy2(binary, upstream_dir / "peer")
@@ -156,7 +166,8 @@ def run(output: Path, selected, *, supplied=None):
                     raise RuntimeError(
                         "INTEGRATION container binary differs from download"
                     )
-                certificate = certificates(directory)
+                for path in certificate[:2]:
+                    shutil.copy2(path, directory / path.name)
                 nodes, listeners = {}, []
                 config = None
                 for index, protocol in enumerate(PROTOCOLS):
@@ -195,6 +206,11 @@ def run(output: Path, selected, *, supplied=None):
                         )
                     )
                     ss_nodes.append(node)
+                extra_nodes, extra_listeners = profiles(
+                    peer.ipv4, f"{origin.ipv4}:24001", certificate
+                )
+                nodes.update(extra_nodes)
+                listeners.extend(extra_listeners)
                 config.update(
                     listeners=listeners,
                     **{
@@ -211,6 +227,16 @@ def run(output: Path, selected, *, supplied=None):
                     origin_ipv4=origin.ipv4,
                     origin_ipv6=origin.ipv6,
                     nodes=nodes,
+                    profile_groups={
+                        name: PROFILE_IDS.get(name, [name])
+                        for name in (
+                            *PROTOCOLS,
+                            "ss-v3",
+                            "ss-uot",
+                            "ss-uot-v3",
+                            "httpupgrade",
+                        )
+                    },
                     ss_nodes=ss_nodes,
                     hop=hop,
                     server_ipv6=peer.ipv6,

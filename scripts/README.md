@@ -45,7 +45,7 @@ uv run --project scripts --locked vcore-scripts check protocol-coverage --suite 
 uv run --project scripts --locked vcore-scripts check protocol-coverage --catalog-only
 ```
 
-可执行容器 suite：vmess、vless、xhttp、hysteria2、security、integration、shadowtls、uot、tuic。
+可执行容器 suite：vmess、vless、xhttp、hysteria2、security、integration、shadowtls、uot、tuic、httpupgrade。
 `--case` 可重复、`--protocol` 可筛选；子集只证明实际执行的项目，不能签收整套。
 foundations/trojan 保留基础用例和断言，其旧服务端编排尚未全容器化，不能执行；
 需要 Trojan 互通时用 integration 中的真实容器路径。
@@ -86,6 +86,18 @@ httpupgrade 覆盖 VMess 明文/TLS、Trojan TLS × 普通/fast-open 六种模�
 回复截断计为成功。共享配置/内存握手、VLESS Upgrade/WS、其他 VMess/Trojan
 传输、精简 feature 和 Apple/Android 构建均为同轮必需组。
 使用 `protocol-interop` / `protocol-coverage` 的 `--suite httpupgrade`。
+
+integration 保留 64 个八协议有序配对，另加 TUIC 双模式 → SS v3 三算法六条链，
+复跑 UoT 的 TCP-only 上游/嵌套组及 TUIC 上游消费者。公开入站/TUN、DNS/测速、
+回滚和 100 次生命周期与 100 轮 40-flow 重建、1800 秒混合长测属于同一完整门禁。
+TCP 为 SOCKS5/SS v3/TUIC/HTTPUpgrade 各五条，UDP 为 SS UoT/SS UoT+v3/
+TUIC/HTTPUpgrade 各五条，轮换算法与模式；独立核对逐轮实际配置、资源和静默证据。
+Debug/Release、精简 feature、脚本、netstack、HY2 跳端口和共享安全/传输回归同源重跑。
+integration 可在获准的本地 boring 开发态执行，不替代 release 来源审计；PR/交付候选
+仍须切回 release 分支，在干净 checkout 单独通过 `check tls-dependencies` 并重跑集成。
+SS TCP 数据用客户端预先提交的非空首段验证；SS 叶节点的配对记录明确包含
+`server_first:false` 和上游空首包限制，其他叶节点仍须 server-first。此范围调整不
+减小双向数据量、不移除确定性空首包拒绝回归，也不通过重试取得成功。
 
 ### 新协议对端能力预检
 

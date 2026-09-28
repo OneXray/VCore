@@ -12,6 +12,26 @@ from vcore_scripts import cli
 
 
 class IntegrationAcceptanceTest(unittest.TestCase):
+    def test_integration_quality_separates_release_source_policy(self):
+        from vcore_scripts.protocol_integration_local import commands
+
+        rows = commands("INTEGRATION-QUALITY")
+        self.assertNotIn(["vcore-scripts", "check", "tls-dependencies"], rows)
+        self.assertIn(["vcore-scripts", "check", "c-header"], rows)
+        self.assertIn(
+            [
+                "cargo",
+                "test",
+                "--locked",
+                "--manifest-path",
+                "crates/vcore-netstack/Cargo.toml",
+                "--all-targets",
+            ],
+            rows,
+        )
+        self.assertIn(["vcore-scripts", "build", "apple"], rows)
+        self.assertIn(["vcore-scripts", "build", "android"], rows)
+
     def test_native_source_identity_and_cleanup_are_required(self):
         from vcore_scripts.protocol_integration_checks import envelope
 
@@ -63,11 +83,15 @@ class IntegrationAcceptanceTest(unittest.TestCase):
     def test_pressure_evidence_is_recomputed_not_inferred(self):
         from vcore_scripts.protocol_evidence import RESOURCE_KINDS
         from vcore_scripts.protocol_integration_metrics import (
-            NEW,
             QUEUES,
             lifetimes,
             rebuild,
             soak,
+        )
+        from vcore_scripts.protocol_integration_profiles import (
+            TCP_GROUPS,
+            UDP_GROUPS,
+            expected_flows,
         )
 
         def snapshot(current):
@@ -84,7 +108,9 @@ class IntegrationAcceptanceTest(unittest.TestCase):
                 rss_kib=50_000,
                 fd=100 if active else 6,
                 resources=snapshot(int(active)),
-                queues=[dict(kind=k, capacity=v, peak=1) for k, v in QUEUES.items()],
+                queues=[
+                    dict(kind=k, capacity=v, peak=int(v > 0)) for k, v in QUEUES.items()
+                ],
             )
 
         event = dict(resources=snapshot(0))
@@ -100,8 +126,9 @@ class IntegrationAcceptanceTest(unittest.TestCase):
                 generation=i,
                 tcp=20,
                 udp=20,
-                per_protocol_tcp=5,
-                per_protocol_udp=5,
+                per_group_tcp=5,
+                per_group_udp=5,
+                flow_profiles=expected_flows(i),
                 active=sample(),
                 setup_us=[1000] * 40,
                 fault="owned-peer-connections-closed",
@@ -113,7 +140,8 @@ class IntegrationAcceptanceTest(unittest.TestCase):
         value = dict(
             count=100,
             same_running_session=True,
-            protocols=NEW,
+            tcp_groups=list(TCP_GROUPS),
+            udp_groups=list(UDP_GROUPS),
             cold_fd=4,
             baseline_fd=6,
             cycles=rows,
@@ -125,6 +153,8 @@ class IntegrationAcceptanceTest(unittest.TestCase):
             lambda d: d.update(same_running_session=False),
             lambda d: d["cycles"][0].update(tcp=0),
             lambda d: d["cycles"][0].update(setup_us=[]),
+            lambda d: d["cycles"][0]["flow_profiles"]["tcp"].pop(),
+            lambda d: d["cycles"][1].update(flow_profiles=expected_flows(0)),
             lambda d: d["stopped"].update(stop_ms=5001),
             lambda d: d["stopped"].update(quiet_seconds=0),
             lambda d: d["stopped"]["after_stop"].update(fd=7),
@@ -140,11 +170,14 @@ class IntegrationAcceptanceTest(unittest.TestCase):
         value = dict(
             requested_seconds=1800,
             seconds=1800.2,
-            protocols=NEW,
+            tcp_groups=list(TCP_GROUPS),
+            udp_groups=list(UDP_GROUPS),
             tcp=20,
             udp=20,
-            per_protocol_tcp=5,
-            per_protocol_udp=5,
+            per_group_tcp=5,
+            per_group_udp=5,
+            first_profiles=expected_flows(0),
+            last_profiles=expected_flows(29),
             waves=1000,
             normal_verified_bytes=1000 * 20 * 2 * 2 * 257,
             normal_corruption=0,
@@ -280,6 +313,10 @@ class IntegrationAcceptanceTest(unittest.TestCase):
                 lambda d: d["paths"].append(d["paths"][0]),
                 lambda d: d["paths"][0].update(udp_packets=799),
                 lambda d: d["paths"][0].update(ports_rebound=False),
+                lambda d: d["paths"][0].update(server_first=False),
+                lambda d: d["paths"][0].update(
+                    server_first_limitation="official-ss2022-empty-first-write"
+                ),
                 lambda d: d.update(last="vmess"),
                 lambda d: d["budgets"][0].update(packets=99),
                 lambda d: d["carrier_capability"].update(no_bypass=False),
@@ -291,6 +328,37 @@ class IntegrationAcceptanceTest(unittest.TestCase):
             data_path.write_text(json.dumps(observation))
             event_path.write_text("".join(json.dumps(e) + "\n" for e in events[:-1]))
             self.assertFalse(pair_pass(identifier, record, root))
+            identifier = "INTEGRATION-CHAIN-TUIC-QUIC-SS-V3-AES-256-GCM"
+            record["case_id"] = identifier
+            observation.update(
+                first="tuic",
+                last="ss",
+                variant=dict(udp_mode="quic", cipher="2022-blake3-aes-256-gcm"),
+            )
+            observation["carrier_capability"]["udp_allowed"] = False
+            for path in observation["paths"]:
+                path.update(
+                    server_first=False,
+                    server_first_limitation="official-ss2022-empty-first-write",
+                )
+            event_path = root / (identifier + "-events.jsonl")
+            data_path = root / (identifier + "-observations.json")
+            event_path.write_text("".join(json.dumps(e) + "\n" for e in events))
+            data_path.write_text(json.dumps(observation))
+            self.assertTrue(pair_pass(identifier, record, root))
+            for mutate in (
+                lambda d: d.pop("variant"),
+                lambda d: d["variant"].update(udp_mode="native"),
+                lambda d: d["variant"].update(cipher="2022-blake3-aes-128-gcm"),
+                lambda d: d["paths"][0].update(server_first=True),
+                lambda d: d["paths"][0].pop("server_first_limitation"),
+                lambda d: d["paths"][0].update(client_first=False),
+                lambda d: d["paths"][0].update(tcp_bytes_each_direction=1),
+            ):
+                broken = copy.deepcopy(observation)
+                mutate(broken)
+                data_path.write_text(json.dumps(broken))
+                self.assertFalse(pair_pass(identifier, record, root))
 
     def test_list_contains_all_ordered_pairs_and_remaining_gates(self):
         output = io.StringIO()
@@ -302,14 +370,31 @@ class IntegrationAcceptanceTest(unittest.TestCase):
                 0,
             )
         identifiers = [line.split("\t")[0] for line in output.getvalue().splitlines()]
-        protocols = {"SOCKS5", "ANYTLS", "SS", "TROJAN", "VMESS", "VLESS", "HYSTERIA2"}
+        protocols = {
+            "SOCKS5",
+            "ANYTLS",
+            "SS",
+            "TROJAN",
+            "VMESS",
+            "VLESS",
+            "HYSTERIA2",
+            "TUIC",
+        }
         expected = {
             f"INTEGRATION-PAIR-{first}-{last}"
             for first in protocols
             for last in protocols
         }
-        self.assertEqual(len(expected), 49)
+        self.assertEqual(len(expected), 64)
         self.assertEqual({key for key in identifiers if "-PAIR-" in key}, expected)
+        self.assertEqual(
+            {key for key in identifiers if "-CHAIN-" in key},
+            {
+                f"INTEGRATION-CHAIN-TUIC-{mode}-SS-V3-{cipher}"
+                for mode in ("NATIVE", "QUIC")
+                for cipher in ("AES-128-GCM", "AES-256-GCM", "CHACHA20-POLY1305")
+            },
+        )
         self.assertEqual(len(identifiers), len(set(identifiers)))
         self.assertTrue(
             {
@@ -329,6 +414,7 @@ class IntegrationAcceptanceTest(unittest.TestCase):
                 "INTEGRATION-FEATURES",
                 "INTEGRATION-SCRIPTS",
                 "INTEGRATION-SHARED",
+                "INTEGRATION-COUPLED",
             }
             <= set(identifiers)
         )
