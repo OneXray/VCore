@@ -35,6 +35,7 @@ TARGETS = (
     "h2_stream_regression",
     "stream_foundations",
     "stream_shutdown",
+    "xhttp_h3_shutdown",
     "hysteria2_paths",
     "hysteria2_config",
     "shadowsocks_backpressure",

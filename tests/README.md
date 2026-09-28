@@ -20,7 +20,9 @@ protocol_security、protocol_integration；事件标签与报告采用同一套�
 ## 必要回归与独立输入
 
 - h2_stream_regression：完整 END_STREAM 后 RST 不丢响应，未完成响应仍报错。
-- stream_shutdown：gRPC/legacy H2/池化 gRPC 在有界、带缓冲 IO 上先送完再关闭；Stop 可取消待写。
+- stream_shutdown：gRPC/legacy H2/池化 gRPC 和 XHTTP H1/H2 在有界、带缓冲 IO 上先送完
+  再关闭；Stop 可取消待写，XHTTP 关闭有一秒上限。
+- xhttp_h3_shutdown：纯内存 QUIC 背压下的上传完成屏障，不用下载尾包证明关闭。
 - shadowsocks_backpressure：三算法 Pending 重试长度、读先于写时的 codec 刷新，以及
   官方服务端对空首包零 padding 的确定性拒绝；不修改官方库，不把 codec 夹具当作互通。
 - hysteria2_packet_ids：完成后重用 16 位分片 ID，不误丢后续业务包。

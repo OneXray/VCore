@@ -1,5 +1,6 @@
 //! HTTP/2 idle PING ownership over an already protected byte stream.
 use super::{BoxStream, ConnectionGuard, DriverOwner, SendRequest, io_other};
+use crate::transport::h2_write::{Sender, Writes};
 use std::{
     io,
     pin::Pin,
@@ -19,12 +20,13 @@ pub(super) async fn connect(
     owner: &DriverOwner,
 ) -> io::Result<(SendRequest, Arc<ConnectionGuard>)> {
     let last_read = Arc::new(Mutex::new(Instant::now()));
+    let (raw, writes) = Writes::wrap(raw);
     let (sender, mut connection) = h2::client::Builder::new()
         .max_header_list_size(super::MAX_H2_HEADER_LIST_SIZE)
         .max_send_buffer_size(send_buffer)
         .enable_push(false)
         .handshake(ActivityIo {
-            raw,
+            raw: Box::new(raw),
             last_read: last_read.clone(),
         })
         .await
@@ -49,7 +51,13 @@ pub(super) async fn connect(
             }
         }
     })?;
-    Ok((SendRequest::H2(sender), Arc::new(driver)))
+    Ok((
+        SendRequest::H2(Sender {
+            request: sender,
+            writes,
+        }),
+        Arc::new(driver),
+    ))
 }
 
 struct ActivityIo {

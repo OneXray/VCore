@@ -21,6 +21,7 @@ use tokio::{
 use crate::dispatch::BoxStream;
 mod h2_driver;
 mod h3_driver;
+mod h3_upload;
 pub(crate) use h3_driver::QuicTransport;
 mod http_io;
 mod packet_up;
@@ -943,6 +944,7 @@ impl AsyncWrite for StreamOne {
         }
 
         let requested = input.len().min(self.upload_chunk_size);
+        std::task::ready!(self.upload.poll_flush(cx))?;
         self.upload.reserve_capacity(requested);
         let capacity = self.upload.capacity();
         let capacity = if capacity == 0 {
@@ -966,16 +968,16 @@ impl AsyncWrite for StreamOne {
         Poll::Ready(Ok(count))
     }
 
-    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Poll::Ready(Ok(()))
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        self.upload.poll_flush(cx)
     }
 
-    fn poll_shutdown(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         if !self.send_closed {
             self.upload.send_data(Bytes::new(), true)?;
             self.send_closed = true;
         }
-        Poll::Ready(Ok(()))
+        self.upload.poll_finish(cx)
     }
 }
 
@@ -1096,6 +1098,7 @@ impl AsyncWrite for StreamUp {
         }
 
         let requested = input.len().min(self.upload_chunk_size);
+        std::task::ready!(self.upload.poll_flush(cx))?;
         self.upload.reserve_capacity(requested);
         let capacity = self.upload.capacity();
         let capacity = if capacity == 0 {
@@ -1123,7 +1126,7 @@ impl AsyncWrite for StreamUp {
         if let Err(error) = self.upload_response.poll_error(cx) {
             return Poll::Ready(Err(error));
         }
-        Poll::Ready(Ok(()))
+        self.upload.poll_flush(cx)
     }
 
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
@@ -1134,7 +1137,7 @@ impl AsyncWrite for StreamUp {
             self.upload.send_data(Bytes::new(), true)?;
             self.send_closed = true;
         }
-        Poll::Ready(Ok(()))
+        self.upload.poll_finish(cx)
     }
 }
 

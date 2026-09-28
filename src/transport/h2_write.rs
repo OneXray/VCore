@@ -1,4 +1,4 @@
-//! Per-write completion at the supplied IO's flush boundary, not h2 enqueue.
+//! Per-write completion at the supplied IO's flush boundary, not H1/H2 enqueue.
 //! Each logical writer keeps at most one outstanding payload/receipt. No extra
 //! driver, protocol decoder, socket, or connection-wide admission limit.
 use crate::dispatch::BoxStream;
@@ -17,16 +17,16 @@ use tokio::{
 pub(super) type Receipt = oneshot::Receiver<io::Result<()>>;
 type Completion = oneshot::Sender<io::Result<()>>;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(super) struct Sender {
     pub request: h2::client::SendRequest<Payload>,
     pub writes: Writes,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub(super) struct Writes(Arc<Mutex<State>>);
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct State {
     closed: bool,
     encoded: Vec<Completion>,

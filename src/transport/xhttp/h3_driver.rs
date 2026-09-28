@@ -19,7 +19,7 @@ pub(crate) struct QuicTransport {
 
 #[derive(Clone)]
 pub(super) struct Sender {
-    pub requests: h3::client::SendRequest<h3_quinn::OpenStreams, Bytes>,
+    pub requests: h3::client::SendRequest<super::h3_upload::OpenStreams, Bytes>,
     pub runtime: Arc<OwnedRuntime>,
     #[cfg(feature = "interop-test")]
     pub observation: quinn::Connection,
@@ -91,7 +91,7 @@ pub(super) async fn connect(
                     .map_err(failure)?;
                 let (mut control, requests) = h3::client::builder()
                     .max_field_section_size(u64::from(super::MAX_H2_HEADER_LIST_SIZE))
-                    .build(h3_quinn::Connection::new(connected.clone()))
+                    .build(super::h3_upload::Connection::new(connected.clone()))
                     .await
                     .map_err(failure)?;
                 // h3 closes the connection when its last request sender is dropped,

@@ -10,6 +10,169 @@ use vcore::{
 };
 
 #[tokio::test]
+async fn xhttp_shutdown_flushes_the_last_upload_before_dropping_its_driver() {
+    use vcore::transport::xhttp::{XHttpClient, XHttpConfig, XHttpMode};
+
+    for mode in [XHttpMode::StreamOne, XHttpMode::StreamUp] {
+        for buffered in [false, true] {
+            for explicit_flush in [false, true] {
+                tokio::time::timeout(Duration::from_secs(3), async {
+                    let (client, mut peer) = tokio::io::duplex(64);
+                    let reader = tokio::spawn(async move {
+                        let mut preface = [0; 24];
+                        peer.read_exact(&mut preface).await.unwrap();
+                        peer.write_all(&[0, 0, 0, 4, 0, 0, 0, 0, 0]).await.unwrap();
+                        let mut received = Vec::new();
+                        loop {
+                            let mut header = [0; 9];
+                            if peer.read_exact(&mut header).await.is_err() {
+                                break;
+                            }
+                            let size =
+                                u32::from_be_bytes([0, header[0], header[1], header[2]]) as usize;
+                            assert!(size <= 16384);
+                            let mut data = vec![0; size];
+                            if peer.read_exact(&mut data).await.is_err() {
+                                break;
+                            }
+                            if header[3] == 0 {
+                                received.extend_from_slice(&data);
+                            }
+                        }
+                        received
+                    });
+                    let raw: BoxStream = if buffered {
+                        Box::new(BufWriter::new(client))
+                    } else {
+                        Box::new(client)
+                    };
+                    let owner = XHttpClient::new(
+                        XHttpConfig::new("fixture.invalid", "/stream", mode).unwrap(),
+                    );
+                    let mut stream = owner.connect(raw).await.unwrap();
+                    stream.write_all(&[b'x'; 1024]).await.unwrap();
+                    if explicit_flush {
+                        stream.flush().await.unwrap();
+                    }
+                    stream.shutdown().await.unwrap();
+                    stream.shutdown().await.unwrap();
+                    assert!(stream.read(&mut [0]).await.is_err());
+                    let received = reader.await.unwrap();
+                    owner.stop().await;
+                    assert_eq!(
+                        received.len(),
+                        1024,
+                        "mode={mode:?}, buffered={buffered}, explicit_flush={explicit_flush}"
+                    );
+                    assert!(received.iter().all(|byte| *byte == b'x'));
+                })
+                .await
+                .unwrap();
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn xhttp_http1_shutdown_flushes_the_last_chunk() {
+    use tokio::io::{AsyncBufReadExt, BufReader};
+    use vcore::{
+        config::XHttpVersion,
+        transport::xhttp::{XHttpClient, XHttpConfig, XHttpMode},
+    };
+
+    for buffered in [false, true] {
+        tokio::time::timeout(Duration::from_secs(3), async {
+            let (raw, peer) = tokio::io::duplex(64);
+            let reader = tokio::spawn(async move {
+                let mut peer = BufReader::new(peer);
+                loop {
+                    let mut line = String::new();
+                    if peer.read_line(&mut line).await.unwrap() == 0 {
+                        return Vec::new();
+                    }
+                    if line == "\r\n" {
+                        break;
+                    }
+                }
+                let mut received = Vec::new();
+                loop {
+                    let mut line = String::new();
+                    if peer.read_line(&mut line).await.unwrap() == 0 {
+                        break;
+                    }
+                    let len = usize::from_str_radix(line.trim(), 16).unwrap();
+                    if len == 0 {
+                        break;
+                    }
+                    assert!(len <= 16384);
+                    let mut chunk = vec![0; len];
+                    if peer.read_exact(&mut chunk).await.is_err() {
+                        break;
+                    }
+                    received.extend_from_slice(&chunk);
+                    peer.read_exact(&mut [0; 2]).await.unwrap();
+                }
+                received
+            });
+            let mut config =
+                XHttpConfig::new("fixture.invalid", "/stream", XHttpMode::StreamOne).unwrap();
+            config.http_version = XHttpVersion::Http1;
+            let owner = XHttpClient::new(config);
+            let raw: BoxStream = if buffered {
+                Box::new(BufWriter::new(raw))
+            } else {
+                Box::new(raw)
+            };
+            let mut stream = owner.connect(raw).await.unwrap();
+            stream.write_all(&[b'x'; 1024]).await.unwrap();
+            stream.flush().await.unwrap();
+            stream.shutdown().await.unwrap();
+            let received = reader.await.unwrap();
+            owner.stop().await;
+            assert_eq!(received.len(), 1024, "buffered={buffered}");
+            assert!(received.iter().all(|byte| *byte == b'x'));
+        })
+        .await
+        .unwrap();
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn xhttp_stalled_upload_has_a_close_deadline_and_stop_cancels_it() {
+    use std::{future::poll_fn, pin::Pin, task::Poll};
+    use vcore::{
+        config::XHttpVersion,
+        transport::xhttp::{XHttpClient, XHttpConfig, XHttpMode},
+    };
+    for version in [XHttpVersion::Http1, XHttpVersion::Http2] {
+        for stop in [false, true] {
+            let (raw, _unread_peer) = tokio::io::duplex(64);
+            let mut config =
+                XHttpConfig::new("fixture.invalid", "/stream", XHttpMode::StreamOne).unwrap();
+            config.http_version = version;
+            let owner = XHttpClient::new(config);
+            let mut stream = owner.connect(Box::new(raw)).await.unwrap();
+            stream.write_all(&[b'x'; 1024]).await.unwrap();
+            assert!(
+                poll_fn(|cx| Poll::Ready(Pin::new(&mut stream).poll_shutdown(cx)))
+                    .await
+                    .is_pending()
+            );
+            if stop {
+                owner.stop().await;
+            }
+            tokio::time::timeout(Duration::from_millis(1100), stream.shutdown())
+                .await
+                .expect("shutdown exceeded its bound")
+                .ok();
+            assert!(stream.read(&mut [0]).await.is_err());
+            owner.stop().await;
+        }
+    }
+}
+
+#[tokio::test]
 async fn whole_stream_shutdown_sends_the_last_write_before_closing() {
     for mode in ["grpc", "legacy-h2", "pooled-grpc"] {
         for buffered in [false, true] {
