@@ -45,7 +45,7 @@ uv run --project scripts --locked vcore-scripts check protocol-coverage --suite 
 uv run --project scripts --locked vcore-scripts check protocol-coverage --catalog-only
 ```
 
-可执行容器 suite：vmess、vless、xhttp、hysteria2、security、integration。
+可执行容器 suite：vmess、vless、xhttp、hysteria2、security、integration、shadowtls。
 `--case` 可重复、`--protocol` 可筛选；子集只证明实际执行的项目，不能签收整套。
 foundations/trojan 保留基础用例和断言，其旧服务端编排尚未全容器化，不能执行；
 需要 Trojan 互通时用 integration 中的真实容器路径。
@@ -62,6 +62,11 @@ SECURITY-ECH-CHROME；不再提供阶段编号或 --stage 别名。旧报告保�
 每轮新建 target/interop/runs 子目录；不得运行中修改源码。合成凭据/私有日志放临时
 目录并清理，不进入报告。Stop 时和后续静默窗口分别采样；短 tracer 不代替完整长测。
 容器不可用即 BLOCKED，不能退回宿主。完整规则见[测试隔离](../docs/testing-isolation.md)。
+
+shadowtls 包含配置/feature、真实 TLS 内存负例、三算法与五种握手模式、ALPN/HRR、
+记录故障、Stop/测速期限和原生 UDP 分流；主对端为 Mihomo，官方 ShadowTLS +
+原样 ssserver 另作 TCP 对照。裸 SS、共享 TLS/REALITY/JLS、独立指纹 golden 与
+Apple/Android 编译是同轮必需组；不签收 UoT、实机或旧 SS 空首包风险。
 
 ### 新协议对端能力预检
 

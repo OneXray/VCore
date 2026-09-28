@@ -23,7 +23,8 @@
 
 AnyTLS、Trojan、VMess + TLS、VLESS + TLS/REALITY/JLS 使用同一共享连接器。
 TCP、WS、gRPC、HTTP 首包伪装、legacy H2、Vision、XHTTP H1/H2 仍遵守各自的协议约束。
-关闭 TLS 时不能携带该字段。SOCKS5、SS 2022 不接入 TLS 指纹。
+关闭 TLS 时不能携带该字段。SS2022 + ShadowTLS v3 复用上述模板，作用于 cover
+握手并强制 TLS1.3；其未命名握手也由 boring 执行。SOCKS5 和裸 SS 不接入 TLS 指纹。
 
 XHTTP `download-settings.client-fingerprint` 缺省继承主腿，显式名称覆盖，`none` / 空串清除。
 下载腿即使与主腿使用同一服务器，也拥有独立的 TLS 策略、身份和缓存。

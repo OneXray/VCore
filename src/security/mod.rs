@@ -12,9 +12,15 @@ mod context;
 #[cfg(feature = "outbound-vless")]
 mod ech;
 mod resumption;
+#[cfg(feature = "shadow-tls-v3")]
+mod shadow_tls;
+#[cfg(all(test, feature = "shadow-tls-v3"))]
+mod shadow_tls_tests;
 mod stream;
 mod tls;
 mod verifier;
+#[cfg(feature = "shadow-tls-v3")]
+pub use shadow_tls::ShadowTlsClient;
 #[cfg(feature = "outbound-vless")]
 pub(crate) mod vision;
 

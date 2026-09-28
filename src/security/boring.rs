@@ -40,14 +40,12 @@ struct JlsCredentials {
 
 #[derive(Clone)]
 enum Connector {
-    #[cfg(feature = "outbound-vless")]
     Default(SslConnector),
     Named(FingerprintConnector),
 }
 impl Connector {
     fn configure(&self, alpn: &[u8]) -> Result<ConnectConfiguration, boring::error::ErrorStack> {
         match self {
-            #[cfg(feature = "outbound-vless")]
             Self::Default(connector) => {
                 let mut config = connector.configure()?;
                 config.set_alpn_protos(alpn)?;
@@ -145,11 +143,15 @@ impl BoringTlsClient {
             builder.set_private_key(&key).map_err(|_| invalid())?;
             builder.check_private_key().map_err(|_| invalid())?;
         }
-        let profile = profile(options.client_fingerprint.ok_or_else(invalid)?);
-        let connector = FingerprintConnector::new(builder, profile).map_err(|_| invalid())?;
+        let connector = match options.client_fingerprint {
+            Some(value) => Connector::Named(
+                FingerprintConnector::new(builder, profile(value)).map_err(|_| invalid())?,
+            ),
+            None => Connector::Default(builder.build()),
+        };
         let alpn = wire_alpn(&options.alpn)?;
         Ok(Self {
-            connector: Connector::Named(connector),
+            connector,
             server_name: server_name.to_owned(),
             alpn,
             required_alpn: options.required_alpn.clone(),
@@ -280,6 +282,14 @@ impl BoringTlsClient {
         &self,
         stream: S,
     ) -> io::Result<tokio_boring::SslStream<KeepOpen<S>>> {
+        self.handshake_configured(stream, |_| Ok(())).await
+    }
+
+    pub(super) async fn handshake_configured<S: AsyncRead + AsyncWrite + Unpin>(
+        &self,
+        stream: S,
+        configure: impl FnOnce(&mut ConnectConfiguration) -> io::Result<()>,
+    ) -> io::Result<tokio_boring::SslStream<KeepOpen<S>>> {
         let mut config = self
             .connector
             .configure(&self.alpn)
@@ -303,6 +313,7 @@ impl BoringTlsClient {
                 .set_jls_client(&jls.username, &jls.password)
                 .map_err(|_| invalid())?;
         }
+        configure(&mut config)?;
         let tls = tokio_boring::connect(config, &self.server_name, KeepOpen(stream))
             .await
             .map_err(|_| io::Error::other("TLS handshake failed"))?;

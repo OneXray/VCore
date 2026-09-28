@@ -63,6 +63,9 @@ mod hysteria2;
 mod integration;
 #[path = "vless_public/runtime.rs"]
 mod runtime;
+#[cfg(feature = "shadow-tls-v3")]
+#[path = "vless_public/shadowtls.rs"]
+mod shadowtls;
 #[cfg(target_os = "macos")]
 #[path = "vmess_public/tun.rs"]
 mod tun;

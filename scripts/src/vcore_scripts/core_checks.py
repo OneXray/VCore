@@ -39,6 +39,8 @@ TARGETS = (
     "hysteria2_paths",
     "hysteria2_config",
     "shadowsocks_backpressure",
+    "shadowtls_config",
+    "shadowtls_stream",
     "hysteria2_packet_ids",
 )
 LIB_FILTERS = (
@@ -91,6 +93,7 @@ def commands(profile: str) -> list[list[str]]:
                     *features,
                     "stream-transport",
                     "quic-transport",
+                    "shadow-tls-v3",
                     "tun",
                     "ffi",
                 ]

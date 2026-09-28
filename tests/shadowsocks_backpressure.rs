@@ -69,6 +69,7 @@ async fn growing_caller_buffer_after_backpressure_never_loses_plaintext() {
             port: 443,
             cipher,
             password: STANDARD.encode(&key),
+            shadow_tls: None,
         };
         let (client, peer) = tokio::io::duplex(4096);
         let outbound = ShadowsocksOutbound::new_with_path(
@@ -153,6 +154,7 @@ async fn read_first_flushes_the_official_header_over_a_buffered_upstream() {
             port: 443,
             cipher,
             password: STANDARD.encode(&key),
+            shadow_tls: None,
         };
         let (client, peer) = tokio::io::duplex(4096);
         // Buffered carriers may acknowledge the complete SS header before

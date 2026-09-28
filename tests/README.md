@@ -31,6 +31,8 @@ protocol_security、protocol_integration；事件标签与报告采用同一套�
 - shadowsocks_backpressure：三算法 Pending 重试长度、读先于写时的 codec 刷新，以及
   官方服务端对空首包零 padding 的确定性拒绝；不修改官方库，不把 codec 夹具当作互通。
 - hysteria2_packet_ids：完成后重用 16 位分片 ID，不误丢后续业务包。
+- shadowtls_config/stream 与 security::shadow_tls_tests：严格 v3、原生签名/Finished、
+  残留 cover、背压/flush、读取取消和关闭期限；shadowtls suite 另验官方容器对端。
 - security_capabilities：公开配置经真实 SecurityClient 在主/下载腿产生实际混合 share；
   不再重复测试 fork 的纯 API 准入。
 - fingerprints/mihomo-selected-v1.json：官方独立 ClientHello golden，不从待测实现重新生成期望；

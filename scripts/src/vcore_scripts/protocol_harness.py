@@ -459,7 +459,13 @@ def run_protocol_interop(
     try:
         run.update(run_identity(stage, selected, preflight_only))
         with exclusive_run(), deadline(run["suite_timeout_seconds"]):
-            if preflight_only and stage == "INTEGRATION":
+            if preflight_only and stage == "SHADOWTLS":
+                from .protocol_shadowtls_acceptance import (
+                    preflight as shadowtls_preflight,
+                )
+
+                shadowtls_preflight(output)
+            elif preflight_only and stage == "INTEGRATION":
                 from .protocol_integration_acceptance import (
                     preflight as integration_preflight,
                 )
@@ -543,6 +549,10 @@ def run_protocol_interop(
                     from .protocol_integration_acceptance import execute
 
                     execute(selected, run, output, records)
+                elif stage == "SHADOWTLS":
+                    from .protocol_shadowtls_acceptance import execute
+
+                    execute(selected, run, output, records)
                 else:
                     _execute(selected, run, output, records)
     except BaseException as caught:
@@ -616,6 +626,10 @@ def run_protocol_interop(
                 else "Seven-protocol integration; container-only peers. "
                 "Partial selections do not sign off lifecycle or soak gates.\n\n"
                 if stage == "INTEGRATION"
+                else "SS2022 ShadowTLS v3; official Mihomo and native peers "
+                "in isolated containers. "
+                "UoT and device delivery remain separate gates.\n\n"
+                if stage == "SHADOWTLS"
                 else "Foundation-only evidence; "
                 "production protocol field consumers remain NOT RUN.\n\n"
             )

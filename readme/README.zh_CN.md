@@ -4,9 +4,11 @@
   <a href="../README.md">English</a> · 简体中文 · <a href="./README.ru.md">Русский</a>
 </p>
 
-VCore 是独立且不绑定特定宿主应用的 Rust 客户端代理 core。它通过严格 YAML 配置和 Invoke API v5 提供代理图、静态 `select` 代理组、DNS、规则、GeoData、HTTP/SOCKS5 listener、TUN 数据面与回环 Controller。内部配置 schema revision 为 27；revision 只出现在 `version` 响应和 `buildIdentity` 中，不写入 YAML。
+VCore 是独立且不绑定特定宿主应用的 Rust 客户端代理 core。它通过严格 YAML 配置和 Invoke API v5 提供代理图、静态 `select` 代理组、DNS、规则、GeoData、HTTP/SOCKS5 listener、TUN 数据面与回环 Controller。内部配置 schema revision 为 28；revision 只出现在 `version` 响应和 `buildIdentity` 中，不写入 YAML。
 
 ## 能力
+
+SS2022 另支持 [strict ShadowTLS v3](../docs/outbounds.md#shadowtls-v3) TCP 包装；原生 UDP 仍走独立路径。
 
 - Outbound：[VLESS TCP/WS/gRPC/HTTP/H2/XHTTP、TLS/REALITY 与 Vision](../docs/vless.md)、SOCKS5 CONNECT/UDP ASSOCIATE、AnyTLS TCP/UoT、Shadowsocks 2022、[Trojan TCP/UDP（TLS/WS/gRPC）](../docs/outbounds.md#trojan)、[VMess AEAD（TCP/WS/gRPC/HTTP/H2）](../docs/outbounds.md#vmess-aead)、[Hysteria2 TCP/UDP、带宽、Salamander 与端口跳跃](../docs/outbounds.md#hysteria2)、DIRECT。
 - 代理链：`dialer-proxy` 组成任意长度的有向无环图；节点 A 指向 B 时，物理路径为 `client -> B -> A -> target`。

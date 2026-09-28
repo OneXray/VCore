@@ -26,7 +26,7 @@ pub use hysteria2::{Hysteria2Hopping, Hysteria2OutboundConfig};
 mod jls;
 pub use jls::JlsConfig;
 mod shadowsocks;
-pub use shadowsocks::{ShadowsocksCipher, ShadowsocksOutboundConfig};
+pub use shadowsocks::{ShadowTlsConfig, ShadowsocksCipher, ShadowsocksOutboundConfig};
 mod trojan;
 pub use trojan::{TrojanOutboundConfig, TrojanTransport};
 mod vless;
@@ -876,6 +876,20 @@ enum RawOutbound {
         port: u16,
         cipher: String,
         password: String,
+        #[serde(default, deserialize_with = "deserialize_present_option")]
+        plugin: Option<String>,
+        #[serde(
+            rename = "plugin-opts",
+            default,
+            deserialize_with = "shadowsocks::deserialize_plugin"
+        )]
+        plugin_opts: Option<shadowsocks::RawShadowTls>,
+        #[serde(
+            rename = "client-fingerprint",
+            default,
+            deserialize_with = "deserialize_present_option"
+        )]
+        client_fingerprint: Option<String>,
         #[serde(default)]
         udp: bool,
         #[serde(
@@ -1944,14 +1958,16 @@ impl RawOutbound {
                 port,
                 cipher,
                 password,
+                plugin,
+                plugin_opts,
+                client_fingerprint,
                 udp,
                 dialer_proxy,
-            } => (
-                name,
-                dialer_proxy,
-                udp,
-                ProxyProtocol::Shadowsocks(shadowsocks::normalize(server, port, cipher, password)?),
-            ),
+            } => {
+                let mut config = shadowsocks::normalize(server, port, cipher, password)?;
+                config.shadow_tls = shadowsocks::plugin(plugin, plugin_opts, client_fingerprint)?;
+                (name, dialer_proxy, udp, ProxyProtocol::Shadowsocks(config))
+            }
             Self::Vless(raw) => raw.normalize()?,
             Self::Socks5 {
                 name,

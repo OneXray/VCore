@@ -8,7 +8,7 @@ PR/发布前由 `check tls-dependencies` 审核，不在文档复制一份易失
 | 用途 | 来源 / 约束 |
 | --- | --- |
 | 普通无指纹 TLS、QUIC、共享 WebPKI | crates.io 官方 rustls/tokio-rustls，仅 ring |
-| 命名 ClientHello、REALITY、JLS | 自有 OneXray/boring；开发用本地路径，PR/发布用 release 分支并由 lockfile 固定完整 revision |
+| 命名 ClientHello、REALITY、JLS、ShadowTLS v3 | 自有 OneXray/boring；开发用本地路径，PR/发布用 release 分支并由 lockfile 固定完整 revision |
 | SS 2022 | crates.io shadowsocks 版本依赖，原样官方库，仅 aead-cipher-2022 |
 | Encryption 原语 | 同一 boring 的公共 X25519、ML-KEM、AEAD、AES-CTR；官方 blake3 |
 | 静态 ECH | 官方 hpke，经 rustls 公开 HPKE trait；命名模板使用 boring 既有 ECH 接口 |
@@ -41,7 +41,8 @@ REALITY 使用同一 X25519 临时密钥生成 share、ECDH 和 session ID；连
 模板与 ALPS 限制见[TLS 指纹](tls-client-fingerprint.md)，线格式见[REALITY](reality-wire-protocol.md)。
 
 JLS hook 认证真正的 hello，保留 TLS 签名/Finished/记录保护；不可重试失败前清零，
-非阻塞重试保留必要材料。其内部 ShadowTLS hook 依赖不等于支持 ShadowTLS。
+非阻塞重试保留必要材料。ShadowTLS v3 复用原生 ClientHello hook 和完整 TLS1.3
+认证，VCore 只包装受控 IO 的 relay 记录；未命名 cover 同样由 boring 执行。
 Restls 不支持。所有 fork 补丁由 feature 控制，原始 BoringSSL 子模块不直接改写。
 
 Encryption 的固定文本 context 使用官方 Rust blake3；二进制 context 使用

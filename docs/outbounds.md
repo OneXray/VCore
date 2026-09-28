@@ -164,6 +164,27 @@ pacer；这是混淆不是认证，错误密钥由 QUIC 拒绝，短包有界丢
 标准 Base64 可省末尾 padding；空段/非法编码/长度错误拒绝，凭据不 trim。
 官方库只包装已有 TCP 流，UDP codec 单包有界交接，不调用其 socket 工厂。
 
+### ShadowTLS v3
+
+SS 三算法的 TCP 可配置 `plugin: shadow-tls` 与完整 `plugin-opts`，不是新的代理类型。
+仅整数 version 3，始终 strict/TLS 1.3；不提供 v1/v2、弱认证或版本回退。
+host 为独立 cover DNS 名/IP，不参与拨号或业务解析；password 保留原始 UTF-8。
+ALPN 缺省 `[h2, http/1.1]`、空列表不发送；共享 pin/skip/name-cert-verify 与
+节点 client-fingerprint 只影响 cover，不能替代 ShadowTLS 密码。
+
+顺序为受控上游流 → 原生完整 TLS 握手与 relay 认证 → v3 记录流 → 官方 SS2022。
+借用原建链期限、取消和组快照，握手失败不发送 SS 目标或业务；pin/skip 不绕过
+CertificateVerify 或 Finished。独立 TLS 策略，不恢复 cover 会话。
+记录增量认证、未认证内容不交付；每次写最多 16 KiB，背压最多保留一条记录。
+flush 排空，关闭最多五秒，不在已切换的 SS 通道中发送 TLS close_notify。
+
+原生 SS UDP 仍走独立受控 UDP 路径，**不经过 ShadowTLS**；TCP-only v3 服务端不会
+自动得到 UDP 或 UoT。裸 SS 拒绝 client-fingerprint。默认与 TUN 构建启用
+shadow-tls-v3，精简构建可单独移除；无 feature 的插件配置在 IO 前拒绝。
+v3 的额外四字节记录特征仍存在，完整认证和互通不等于不可识别。
+
+### 共享 SS 流与数据报行为
+
 - TCP 每次最多交付 16 KiB；读或关闭先于首次写时，完成并刷新官方空首写以支持
   server-first/半关闭。Pending 继续同次握手，已有首写不重复目标头。
 - 背压适配最多暂存一个 16 KiB 原文块并立即报告接受；后续保持同缓冲完成写入，

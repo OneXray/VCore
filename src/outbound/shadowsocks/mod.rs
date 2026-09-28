@@ -23,6 +23,8 @@ pub struct ShadowsocksOutbound {
     config: Arc<ServerConfig>,
     context: shadowsocks::context::SharedContext,
     upstream: UpstreamPath,
+    #[cfg(feature = "shadow-tls-v3")]
+    shadow_tls: Option<crate::security::ShadowTlsClient>,
 }
 
 impl std::fmt::Debug for ShadowsocksOutbound {
@@ -37,6 +39,19 @@ impl ShadowsocksOutbound {
         config: &ShadowsocksOutboundConfig,
         upstream: UpstreamPath,
     ) -> io::Result<Self> {
+        Self::with_security(
+            config,
+            upstream,
+            #[cfg(feature = "shadow-tls-v3")]
+            None,
+        )
+    }
+
+    pub(crate) fn with_security(
+        config: &ShadowsocksOutboundConfig,
+        upstream: UpstreamPath,
+        #[cfg(feature = "shadow-tls-v3")] security: Option<&crate::security::SecurityContext>,
+    ) -> io::Result<Self> {
         config.validate().map_err(|_| {
             io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -44,6 +59,15 @@ impl ShadowsocksOutbound {
             )
         })?;
         let server = server_destination(&config.address, config.port)?;
+        #[cfg(feature = "shadow-tls-v3")]
+        let shadow_tls = config
+            .shadow_tls
+            .as_ref()
+            .map(|options| {
+                let context = security.cloned().unwrap_or_default();
+                crate::security::ShadowTlsClient::new(&context, options)
+            })
+            .transpose()?;
         let method = config.cipher.as_str().parse().map_err(|_| {
             io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -66,6 +90,8 @@ impl ShadowsocksOutbound {
             config: Arc::new(config),
             context: Context::new_shared(ServerType::Local),
             upstream,
+            #[cfg(feature = "shadow-tls-v3")]
+            shadow_tls,
         })
     }
 }
@@ -82,9 +108,18 @@ impl OutboundConnector for ShadowsocksOutbound {
             .upstream
             .connect_server(session, &self.server, context)
             .await?;
+        let io = connected.io;
+        #[cfg(feature = "shadow-tls-v3")]
+        let io = if let Some(shadow_tls) = &self.shadow_tls {
+            context
+                .run_io("Shadowsocks ShadowTLS handshake", shadow_tls.connect(io))
+                .await?
+        } else {
+            io
+        };
         let stream = shadowsocks::ProxyClientStream::from_stream(
             self.context.clone(),
-            connected.io,
+            io,
             &self.config,
             address(&target),
         );

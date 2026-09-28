@@ -32,8 +32,11 @@ HY2 已完成分片 ID 重用等确定性回归。单纯复用实现生成期望
 - SS 原样上游 padding 未初始化风险及空首包随机零 padding 被严格服务端拒绝的限制
   仍未修补。codec 级刷新回归不证明 server-first 互通。官方 ssserver 单层 EIH 终结与自有
   1/2 层身份中继是不同证据，不能据此宣称任意多层原生 EIH。详见[出站](outbounds.md#shadowsocks-2022)。
+- ShadowTLS 只支持 SS2022 的 strict v3/TLS1.3 TCP 包装，原生 UDP 单独验证。
+  主对端为 Mihomo，官方 ShadowTLS + 原样 ssserver 为补充对照；内存中的 cover
+  server-first 不代表官方 SS 空首包限制已解决，额外四字节记录特征仍存在。
 - 静态 ECH、JLS、Encryption 与混合 REALITY 是选定能力集；动态 ECH、Restls、
-  ShadowTLS、WireGuard 不在当前范围。JLS 内部使用 fork hook 不构成 ShadowTLS 支持。
+  ShadowTLS v1/v2、WireGuard 不在当前范围。
 
 ## 当前证据如何使用
 

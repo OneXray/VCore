@@ -19,6 +19,7 @@ def envelope(report, peers, source, digest, *, single=None):
         "XR": "XTLS/Xray-core",
         "V2": "v2fly/v2ray-core",
         "SS": "shadowsocks/shadowsocks-rust",
+        "ST": "ihciah/shadow-tls",
         "H": "HyNetworks/hysteria",
     }
     return bool(

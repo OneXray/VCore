@@ -179,6 +179,6 @@ HTTP/H2/扩展 WS 可用 Xray TLS 网关 → V2Ray transport；需 UDP/Encryptio
 Mihomo 解码。网关使用官方 XRAY_BUF_SPLICE=disable，避免下行 raw splice 绕过 TLS；
 不代表 V2Ray 直接支持 ECH。无指纹 JLS/gRPC 及 Safari ECH/gRPC 的官方对照缺口采用
 明确标注的 Chrome 关闭参照；VCore 原配置的数据面单独验证，不声称同配置差分。
-动态 ECH、ShadowTLS、Restls 不支持，配置严格拒绝。
+VLESS 不接受动态 ECH、ShadowTLS 或 Restls 配置；ShadowTLS v3 仅用于 SS2022 插件。
 
 WS + REALITY（普通 WS、HTTPUpgrade、fast-open）的数据及认证使用真实 Mihomo listener；关闭验证采用明确标注的分层参照。当前 Mihomo WS 客户端分支未接入 REALITY，不能作为同组合对照，因此使用标准 TLS 的同种传输客户端关闭基线，并独立验证 REALITY。不得将该结果写成 Mihomo WS + REALITY 客户端互通或同组合差分通过。
