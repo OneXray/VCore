@@ -41,6 +41,9 @@ protocol_security、protocol_integration；事件标签与报告采用同一套�
 - tuic_config/tuic_memory 与 outbound::tuic：严格 v5、当前 TLS exporter、无 ACK、
   双 UDP wire、分片/重组、关联 ID 退役、窗口/credit、Heartbeat 和 Stop；tuic suite
   验官方 Mihomo 数据与身份负例、独立上游容器、嵌套组/重建/测速，并回归 HY2/H3。
+- httpupgrade_config/httpupgrade_memory：类型化普通/fast-open、ED 边界、严格 101、
+  部分写、首包恰好一次和原期限；httpupgrade suite 另验 VMess/Trojan 真实消费者、
+  UDP、Mihomo 关闭对照、命名 TLS 模板及既有 Upgrade/WS/其他传输。
 - fingerprints/mihomo-selected-v1.json：官方独立 ClientHello golden，不从待测实现重新生成期望；
   [指纹验证](fingerprints/README.md)分别维护独立基线、内存报文与容器互通。
 - protocols/encryption-crypto.json 及 Go 生成器：独立密码向量；许可证和来源必须保留。

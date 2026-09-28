@@ -91,6 +91,7 @@ def read_json(path: Path):
 
 def executable_cases() -> list[dict]:
     """Single source: retained foundation fixtures plus current protocol catalogs."""
+    from .protocol_httpupgrade_catalog import definitions as httpupgrade
     from .protocol_hysteria2_catalog import definitions as hysteria2
     from .protocol_integration_catalog import definitions as integration
     from .protocol_security_catalog import definitions as security
@@ -114,6 +115,7 @@ def executable_cases() -> list[dict]:
             shadowtls,
             uot,
             tuic,
+            httpupgrade,
         )
         for case in define()
     ]
@@ -327,6 +329,7 @@ def validate_results(required: list[dict], results: list[dict]) -> None:
                     "SHADOWTLS",
                     "UOT",
                     "TUIC",
+                    "HTTPUPGRADE",
                 }
                 else "foundation-only"
             )
@@ -385,6 +388,7 @@ def new_result(case: dict) -> dict:
             "SHADOWTLS",
             "UOT",
             "TUIC",
+            "HTTPUPGRADE",
         }
         else "foundation-only",
         "status": "NOT RUN",
@@ -450,6 +454,7 @@ def check_run(run_dir: Path, stage: str, manifest: Path | None = None) -> None:
         "SHADOWTLS",
         "UOT",
         "TUIC",
+        "HTTPUPGRADE",
     }:
         if stage == "TROJAN":
             from .protocol_trojan_acceptance import check
@@ -469,6 +474,8 @@ def check_run(run_dir: Path, stage: str, manifest: Path | None = None) -> None:
             from .protocol_uot_acceptance import check
         elif stage == "TUIC":
             from .protocol_tuic_acceptance import check
+        elif stage == "HTTPUPGRADE":
+            from .protocol_httpupgrade_acceptance import check
         else:
             from .protocol_integration_acceptance import check
 

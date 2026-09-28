@@ -459,7 +459,13 @@ def run_protocol_interop(
     try:
         run.update(run_identity(stage, selected, preflight_only))
         with exclusive_run(), deadline(run["suite_timeout_seconds"]):
-            if preflight_only and stage == "TUIC":
+            if preflight_only and stage == "HTTPUPGRADE":
+                from .protocol_httpupgrade_acceptance import (
+                    preflight as upgrade_preflight,
+                )
+
+                upgrade_preflight(output)
+            elif preflight_only and stage == "TUIC":
                 from .protocol_tuic_acceptance import preflight as tuic_preflight
 
                 tuic_preflight(output)
@@ -569,6 +575,10 @@ def run_protocol_interop(
                     from .protocol_tuic_acceptance import execute
 
                     execute(selected, run, output, records)
+                elif stage == "HTTPUPGRADE":
+                    from .protocol_httpupgrade_acceptance import execute
+
+                    execute(selected, run, output, records)
                 else:
                     _execute(selected, run, output, records)
     except BaseException as caught:
@@ -654,6 +664,10 @@ def run_protocol_interop(
                 "Shared Hysteria2 and XHTTP H3 regressions included; "
                 "devices remain separate.\n\n"
                 if stage == "TUIC"
+                else "VMess/Trojan HTTPUpgrade normal/fast-open; "
+                "official isolated peers and existing transport regressions. "
+                "Device delivery is separate.\n\n"
+                if stage == "HTTPUPGRADE"
                 else "Foundation-only evidence; "
                 "production protocol field consumers remain NOT RUN.\n\n"
             )

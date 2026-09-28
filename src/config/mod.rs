@@ -30,7 +30,7 @@ pub use jls::JlsConfig;
 mod shadowsocks;
 pub use shadowsocks::{ShadowTlsConfig, ShadowsocksCipher, ShadowsocksOutboundConfig};
 mod trojan;
-pub use trojan::{TrojanOutboundConfig, TrojanTransport};
+pub use trojan::{TrojanOutboundConfig, TrojanTransport, WebSocketHandshake};
 mod vless;
 pub use vless::{GrpcOptions, SingMuxConfig, SingMuxProtocol, VlessStreamOptions};
 pub(crate) mod xhttp;

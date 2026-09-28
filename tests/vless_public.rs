@@ -47,6 +47,14 @@ impl Case {
                 "VLESS-OWNED" => "INTEGRATION-OWNED",
                 _ => panic!("unknown public consumer suite"),
             }
+        } else if std::env::var("VCORE_PROTOCOL_STAGE").as_deref() == Ok("HTTPUPGRADE") {
+            match suite {
+                "VLESS-PUBLIC" => "HTTPUPGRADE-PUBLIC",
+                "VLESS-BASE" => "HTTPUPGRADE-BASE",
+                "VLESS-LIFE" => "HTTPUPGRADE-LIFE",
+                "VLESS-OWNED" => "HTTPUPGRADE-OWNED",
+                _ => panic!("unknown public consumer suite"),
+            }
         } else {
             suite
         };
@@ -55,6 +63,10 @@ impl Case {
 }
 const TIMEOUT: Duration = Duration::from_secs(10);
 const DOMAIN: &str = "vcore-fixture.test";
+
+#[cfg(all(feature = "outbound-vmess", feature = "outbound-trojan"))]
+#[path = "vless_public/httpupgrade.rs"]
+mod httpupgrade;
 
 #[cfg(feature = "outbound-hysteria2")]
 #[path = "vless_public/hysteria2.rs"]

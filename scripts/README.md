@@ -80,6 +80,13 @@ SOCKS5/SS UoT/AnyTLS 六种上游组合。服务端与上游分容器，避免�
 回滚与 Stop 独立取证；本轮包含 HY2/H3 共享回归及 Apple/Android 构建。
 内存 u16 上限不当成对端端到端容量，旧七协议压力结果不替代 TUIC 混合压力。
 
+httpupgrade 覆盖 VMess 明文/TLS、Trojan TLS × 普通/fast-open 六种模式；
+包含双向数据、既有 UDP 编码、ED、身份负例、四个命名 TLS 模板及 Mihomo 关闭对照。
+域名 Trojan UDP 用原生 Xray 补验；VMess 与 Xray 的空包限制分别记录，不把超限
+回复截断计为成功。共享配置/内存握手、VLESS Upgrade/WS、其他 VMess/Trojan
+传输、精简 feature 和 Apple/Android 构建均为同轮必需组。
+使用 `protocol-interop` / `protocol-coverage` 的 `--suite httpupgrade`。
+
 ### 新协议对端能力预检
 
 ```sh

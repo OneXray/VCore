@@ -55,7 +55,8 @@ begin_shutdown 同步禁止新流、清空空闲并取消所有会话；shutdown
 
 ## Trojan
 
-固定 TLS，network 为 tcp/标准 ws/grpc，默认 tcp。密码为非空原始 UTF-8，不 trim，
+固定 TLS，network 为 tcp/ws/grpc，默认 tcp。ws 可选标准 WebSocket 或 HTTPUpgrade。
+密码为非空原始 UTF-8，不 trim，
 认证为 SHA-224 小写十六进制。无认证 ACK：本地建链成功不代表密码通过，负例须检查
 原站零业务字节。
 
@@ -65,6 +66,12 @@ WS http/1.1、gRPC h2，显式列表及实际协商均须满足传输，不能�
 WS path 默认 /，可带 query；头字段不得覆盖握手保留头或大小写重复。early-data
 0–2048 字节，启用时默认 Sec-WebSocket-Protocol，可自定义；空头名表示路径后缀，
 此时禁止 query。禁用时不能附 ED 头名。首请求头与剩余数据只按序发送一次。
+`ws-opts.v2ray-http-upgrade:true` 使用原始 HTTPUpgrade 流，不发送 WebSocket 帧。
+普通模式在有效 101 后发送剩余认证前缀；`v2ray-http-upgrade-fast-open:true` 提前
+发送该前缀，但仍须在原建链期限内收到有效 101 才返回成功。fast-open 需要 upgrade。
+Upgrade 的 ED 仅允许默认 Sec-WebSocket-Protocol 头（大小写不敏感），不支持
+自定义头或路径 ED。101/头限额/截断失败不重放前缀，响应头后的字节保留给协议。
+这些选项同样适用于 VMess 的明文和标准 TLS；不改变各协议认证、UDP 编码或关闭责任。
 gRPC service-name 必填，普通名映射 /name/Tun，以 / 开头则为完整路径；不开放池参数。
 
 TCP 保留半关闭；gRPC duplex 发送 END_STREAM，不用 RST_STREAM 提前结束读侧。
@@ -72,6 +79,9 @@ UDP 使用同一已认证流上的地址/长度/CRLF 帧，无额外 socket/读�
 payload 最多 8192 字节，待解析最多 8455 字节，并与调用方收发预算分别取交集。
 非法/截断帧关闭，合法超接收预算整包丢弃；取消读取保留进度，部分发送取消使关联失效。
 运行时先取消并 join 入站所有者，再等待节点 gRPC 驱动。
+Mihomo 的 Trojan listener 仅支持 IP 形式的 UDP 目标；域名互通另用原生 Xray。
+Mihomo IP 路径可传空包；Xray 不转发空包，且域名回复的 8192 字节总帧预算需扣除
+地址和帧头。这些是对端限制，不降低 VCore 的独立帧解析上限。
 
 ## VMess AEAD
 
@@ -84,7 +94,7 @@ network 默认 tcp，另支持 ws/grpc/http/h2；均可明文或标准 TLS。tls
 关闭时禁止 TLS 字段，即便空串、空列表或 false。认证名依次为 servername、WS Host
 去端口、server；HTTP 伪装 Host/H2 authority 不替代认证名。WS 需 http/1.1，gRPC/H2 需 h2。
 
-- WS ED/路径/头约束同 Trojan。
+- WS ED/路径/头及 HTTPUpgrade 普通/fast-open 约束同 Trojan。
 - gRPC service-name 必填，普通名/完整路径规则同 Trojan，无额外池调度器。
 - http 是 TCP 首包伪装：method 默认 GET，path 列表省略/空为 /，按 URL.Path 转义；
   头为字符串列表，每次握手独立选择路径/头值，Host 默认物理 server authority。
@@ -106,6 +116,7 @@ UDP packet-encoding 默认空串（raw），外层仍 TCP：
 UDP body 最多 15,000 字节；packetaddr 另扣 IPv4 7 / IPv6 19 字节，未解析域名按 19
 预检；超限一字节即写前失败，不拆业务包。对端可能更小，V2Ray 部分返回路径总缓冲
 仅 2048 字节，不能当作 VCore 上限。body wire 解析最多 16 KiB，响应头/XUDP 元数据有界。
+三种 UDP 编码均不接受零长度业务包；HTTPUpgrade 不改变这个边界。
 TCP 写块最多 4 KiB 以适配 Mihomo 拷贝边界；UDP 不按此切块。16 位帧计数耗尽前关闭，
 不重复 nonce。半帧发送取消关闭，接收取消保留进度；认证/地址/标签错误使关联失效。
 gRPC/H2 driver 由节点跟踪并同步退出，无全局会话额度或历史表。

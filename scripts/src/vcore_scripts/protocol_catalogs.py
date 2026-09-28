@@ -28,6 +28,7 @@ SUITES = {
     "SHADOWTLS": ("configuration", "stream", "interop", "regression"),
     "UOT": ("configuration", "datagrams", "interop", "regression"),
     "TUIC": ("configuration", "datagrams", "interop", "regression"),
+    "HTTPUPGRADE": ("configuration", "stream", "interop", "regression"),
 }
 CATEGORIES = {
     f"{suite}.{category}"

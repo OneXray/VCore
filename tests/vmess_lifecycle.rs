@@ -47,14 +47,33 @@ async fn vmess_all_handshakes_keep_the_original_deadline_and_join_cancelled_io()
         "vmess_all_handshakes_keep_the_original_deadline_and_join_cancelled_io",
     );
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    for mode in ["tcp", "tls", "ws", "grpc", "http", "h2"] {
-        let mut node = serde_json::json!({"name":"edge","type":"vmess","server":"fixture.invalid","port":443,"uuid":"07070707-0707-0707-0707-070707070707","network":if mode=="tls" {"tcp"}else{mode}});
+    for mode in [
+        "tcp",
+        "tls",
+        "ws",
+        "grpc",
+        "http",
+        "h2",
+        "upgrade",
+        "upgrade-fast",
+    ] {
+        let network = if mode == "tls" {
+            "tcp"
+        } else if mode.starts_with("upgrade") {
+            "ws"
+        } else {
+            mode
+        };
+        let mut node = serde_json::json!({"name":"edge","type":"vmess","server":"fixture.invalid","port":443,"uuid":"07070707-0707-0707-0707-070707070707","network":network});
         match mode {
             "tls" => {
                 node["tls"] = serde_json::json!(true);
             }
             "grpc" => node["grpc-opts"] = serde_json::json!({"grpc-service-name":"edge"}),
             "h2" => node["h2-opts"] = serde_json::json!({"host":["fixture.invalid"]}),
+            "upgrade" | "upgrade-fast" => {
+                node["ws-opts"] = serde_json::json!({"v2ray-http-upgrade":true,"v2ray-http-upgrade-fast-open":mode=="upgrade-fast"})
+            }
             _ => {}
         }
         let parsed = Config::parse_yaml(

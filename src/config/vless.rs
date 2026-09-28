@@ -278,6 +278,10 @@ impl RawVless {
                 stream_options.http_upgrade = ws.http_upgrade;
                 stream_options.fast_open = ws.fast_open;
                 Ok(RawWs {
+                    // VLESS also carries the mode alongside Encryption's
+                    // initial-data choice; keep that existing ownership path.
+                    http_upgrade: false,
+                    fast_open: false,
                     path: ws.path,
                     headers: ws.headers,
                     max_early_data: ws.max_early_data,

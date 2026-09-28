@@ -25,6 +25,7 @@ pub enum StreamTransport {
         headers: BTreeMap<String, String>,
         max_early_data: u16,
         early_data_header_name: String,
+        handshake: super::WebSocketHandshake,
     },
     Grpc {
         uri: String,
@@ -64,12 +65,19 @@ impl StreamTransport {
             headers,
             max_early_data,
             early_data_header_name,
+            handshake,
         } = self
         else {
             return Ok(None);
         };
-        super::trojan::websocket_options(uri, headers, *max_early_data, early_data_header_name)
-            .map(Some)
+        super::trojan::websocket_options(
+            uri,
+            headers,
+            *max_early_data,
+            early_data_header_name,
+            *handshake,
+        )
+        .map(Some)
     }
     #[cfg(feature = "stream-transport")]
     pub fn http_options(&self) -> std::io::Result<Option<crate::transport::HttpObfsOptions>> {
@@ -114,6 +122,10 @@ fn http_options<'a>(
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct RawWs {
+    #[serde(rename = "v2ray-http-upgrade", default)]
+    pub(super) http_upgrade: bool,
+    #[serde(rename = "v2ray-http-upgrade-fast-open", default)]
+    pub(super) fast_open: bool,
     #[serde(default, deserialize_with = "deserialize_present_option")]
     pub(super) path: Option<String>,
     #[serde(default)]
@@ -426,6 +438,11 @@ pub(super) fn normalize_transport(
                 }
             }
             let transport = StreamTransport::WebSocket {
+                handshake: super::trojan::websocket_handshake(
+                    ws.http_upgrade,
+                    ws.fast_open,
+                    ws.early_data_header_name.as_deref(),
+                )?,
                 uri: uri(
                     if tls { "wss" } else { "ws" },
                     &authority,

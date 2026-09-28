@@ -46,6 +46,9 @@ TARGETS = (
     "hysteria2_packet_ids",
     "tuic_config",
     "tuic_memory",
+    "httpupgrade_config",
+    "httpupgrade_memory",
+    "vmess_lifecycle",
 )
 LIB_FILTERS = (
     "security::",
