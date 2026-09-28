@@ -283,17 +283,14 @@ impl AsyncRead for ResponseStream {
             return Poll::Ready(Ok(()));
         }
         if !self.response {
+            // A pooled physical connection does not extend this logical
+            // stream's setup deadline, including an already-buffered status.
+            if self.deadline.as_mut().poll(cx).is_ready() {
+                return Poll::Ready(Err(io::ErrorKind::TimedOut.into()));
+            }
             let mut status = [0];
             let mut buf = ReadBuf::new(&mut status);
-            match Pin::new(self.raw.as_mut().unwrap()).poll_read(cx, &mut buf) {
-                Poll::Pending => {
-                    if self.deadline.as_mut().poll(cx).is_ready() {
-                        return Poll::Ready(Err(io::ErrorKind::TimedOut.into()));
-                    }
-                    return Poll::Pending;
-                }
-                Poll::Ready(result) => result?,
-            }
+            ready!(Pin::new(self.raw.as_mut().unwrap()).poll_read(cx, &mut buf))?;
             if buf.filled() != [0] {
                 self.raw.take();
                 self.lease.take();
@@ -325,5 +322,51 @@ impl AsyncWrite for ResponseStream {
         self.raw.take();
         self.lease.take();
         Poll::Ready(Ok(()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::AsyncReadExt;
+
+    #[tokio::test(start_paused = true)]
+    async fn lazy_status_obeys_setup_deadline_but_established_reads_do_not() {
+        for timing in ["late-first-poll", "late-after-pending", "established"] {
+            let (raw, mut peer) = tokio::io::duplex(16);
+            let mut stream = ResponseStream {
+                raw: Some(Box::new(raw)),
+                lease: None,
+                response: false,
+                deadline: Box::pin(tokio::time::sleep(std::time::Duration::from_secs(1))),
+            };
+            if timing == "late-after-pending" {
+                assert!(futures_util::poll!(std::pin::pin!(stream.read_u8())).is_pending());
+                tokio::time::advance(std::time::Duration::from_secs(2)).await;
+            }
+            peer.write_all(b"\x00a").await.unwrap();
+            if timing == "established" {
+                assert_eq!(stream.read_u8().await.unwrap(), b'a');
+            }
+            if timing != "late-after-pending" {
+                tokio::time::advance(std::time::Duration::from_secs(2)).await;
+            }
+            assert_eq!(stream.read(&mut []).await.unwrap(), 0);
+            peer.write_all(b"b").await.unwrap();
+            if timing == "established" {
+                assert_eq!(stream.read_u8().await.unwrap(), b'b');
+            } else {
+                assert_eq!(
+                    stream.read_u8().await.unwrap_err().kind(),
+                    io::ErrorKind::TimedOut,
+                    "{timing}"
+                );
+                // A late response cannot revive a stream after a timeout.
+                assert_eq!(
+                    stream.read_u8().await.unwrap_err().kind(),
+                    io::ErrorKind::TimedOut
+                );
+            }
+        }
     }
 }

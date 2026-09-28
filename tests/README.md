@@ -20,6 +20,8 @@ protocol_security、protocol_integration；事件标签与报告采用同一套�
 ## 必要回归与独立输入
 
 - h2_stream_regression：完整 END_STREAM 后 RST 不丢响应，未完成响应仍报错。
+- stream_foundations 与 sing-mux 单元回归：延迟响应已就绪仍遵守原建链期限，
+  先前 Pending 或首次延迟读取均不能绕过；确认建立后允许继续读取。
 - stream_shutdown：gRPC/legacy H2/池化 gRPC 和 XHTTP H1/H2 在有界、带缓冲 IO 上先送完
   再关闭；Stop 可取消待写，XHTTP 关闭有一秒上限。
 - xhttp_h3_shutdown：纯内存 QUIC 背压下的上传完成屏障，不用下载尾包证明关闭。

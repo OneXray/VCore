@@ -50,6 +50,7 @@ LIB_FILTERS = (
     "outbound::anytls::",
     "transport::h2_write::tests::",
     "transport::sing_mux::smux_driver::tests::",
+    "transport::sing_mux::tests::",
 )
 EXACT_LIB_TESTS = (
     "outbound::connector::tests::authenticated_continuation_keeps_group_choice_but_has_a_new_io_deadline",

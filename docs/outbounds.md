@@ -9,6 +9,8 @@ VLESS/Vision/Encryption/JLS/ECH 见 [VLESS](vless.md)，XHTTP/sing-mux 见[专�
   传输包装器只消费 IO，不另建 socket 或系统 resolver。
 - `dialer-proxy` 可引用节点或静态 select 组；与业务路由共享选择，完整 DAG 在配置期验证。
   一次建链使用组快照和同一绝对期限；已有连接不随切组迁移，无自动 failover 或 DIRECT 回落。
+- gRPC/legacy H2 首次读取延迟响应头时先检查原建链期限，即使响应已就绪也不能绕过
+  超时；响应头已确认后的业务读取不再受该期限限制。
 - HTTP、SOCKS5、TUN、DNS 选路及 node-only `measureDelay` 使用同一连接器。
   UDP 默认为 false；收发预算分别逐层扣封装开销，超限不截断交付。
 - TLS 使用共享 WebPKI、叶证书 pin/非叶信任锚与 skip 策略。pin 不匹配不能被 skip 绕过，

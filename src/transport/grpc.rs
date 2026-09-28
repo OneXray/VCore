@@ -416,6 +416,11 @@ impl AsyncRead for Grpc {
             return Poll::Ready(Ok(()));
         }
         if let Some(response) = &mut this.response {
+            // Lazy setup still uses the original deadline, even when headers
+            // are already queued. Established reads are not setup operations.
+            if this.deadline.as_mut().poll(cx).is_ready() {
+                return Poll::Ready(Err(io::ErrorKind::TimedOut.into()));
+            }
             match Pin::new(response).poll(cx) {
                 Poll::Ready(result) => {
                     let response = result.map_err(|_| invalid())?;
@@ -436,12 +441,7 @@ impl AsyncRead for Grpc {
                     this.response = None;
                     this.receive = Some(response.into_body());
                 }
-                Poll::Pending => {
-                    if this.deadline.as_mut().poll(cx).is_ready() {
-                        return Poll::Ready(Err(io::ErrorKind::TimedOut.into()));
-                    }
-                    return Poll::Pending;
-                }
+                Poll::Pending => return Poll::Pending,
             }
         }
         if this.framing == Framing::Plain {

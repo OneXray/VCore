@@ -8,6 +8,7 @@ import os
 import platform
 import plistlib
 import shutil
+import stat
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
@@ -314,12 +315,27 @@ def build_delivery(platform_name: str) -> None:
     output = builds.CORE_DIR / "dist" / platform_name
     if platform_name == "windows":
         output /= architecture
+    # Check the lexical path before resolving, unlinking a manifest, or letting
+    # a builder clean output. CORE_DIR is the canonical, trusted checkout root;
+    # Windows junctions and other reparse points can redirect descendants too.
+    current = builds.CORE_DIR
+    for part in output.relative_to(builds.CORE_DIR).parts:
+        current /= part
+        try:
+            metadata = current.lstat()
+        except FileNotFoundError:
+            break
+        if stat.S_ISLNK(metadata.st_mode) or (
+            getattr(metadata, "st_file_attributes", 0)
+            & stat.FILE_ATTRIBUTE_REPARSE_POINT
+        ):
+            raise ValueError(
+                "delivery output must not contain symlinks or reparse points"
+            )
     manifest = output / "vcore-delivery.json"
     if platform_name == "android":
         # Development builds can leave additional ABIs in the same ignored
         # directory. Never mix those artifacts into a fresh delivery manifest.
-        if output.parent.is_symlink() or output.is_symlink():
-            raise ValueError("delivery output must not be a symlink")
         if output.exists():
             shutil.rmtree(output)
     else:

@@ -81,6 +81,9 @@ packet-up 在发送间隔内聚合小块写入，而不是把每个 write 变成
 
 空闲物理会话优先复用；max-connections>0 分支按连接数量与 min-streams 扩容，否则按 max-streams 阈值复用。max-connections=max-streams=0 时 min-streams 归一为 8，但不会将其解释为所有调度分支的硬额度。单流关闭不关闭兄弟流，节点 Stop 才取消和等待所有自有驱动。
 
+每条逻辑流的状态字节沿用该次建链的绝对期限；读取前先检查超时，状态已缓冲也不例外。
+物理连接复用不重置期限；状态已确认后的业务读取不受原建链期限限制。
+
 smux 单流 shutdown 先等待已接受帧写入并 flush，再安排 FIN；h2mux 同样等待数据
 到达上游 IO 的 flush 边界再 reset。节点 Stop 或 Drop 可取消待写，不承诺异常终止交付。
 

@@ -1,4 +1,4 @@
-"""PLATFORM production delivery commands, without network servers or platform mocks."""
+"""Offline delivery validation with real temporary output trees."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from vcore_scripts import builds, platform_delivery
@@ -17,6 +18,84 @@ from vcore_scripts.cli import main
 
 
 class PlatformDeliveryTest(unittest.TestCase):
+    def test_all_delivery_platforms_reject_linked_output_before_mutation(self):
+        for platform_name in ("apple", "windows", "android"):
+            relative = Path("dist") / platform_name
+            if platform_name == "windows":
+                relative /= "x64"
+            for depth in range(1, len(relative.parts) + 1):
+                with (
+                    self.subTest(platform=platform_name, depth=depth),
+                    tempfile.TemporaryDirectory() as directory,
+                ):
+                    fixture = Path(directory)
+                    root = fixture / "checkout"
+                    root.mkdir()
+                    external = fixture / "external"
+                    external.mkdir()
+                    link = root.joinpath(*relative.parts[:depth])
+                    link.parent.mkdir(parents=True, exist_ok=True)
+                    if os.name == "nt":
+                        # Junctions need no symlink privilege on Windows CI.
+                        subprocess.run(
+                            ["cmd", "/c", "mklink", "/J", str(link), str(external)],
+                            check=True,
+                            capture_output=True,
+                        )
+                    else:
+                        link.symlink_to(external, target_is_directory=True)
+                    output = external.joinpath(*relative.parts[depth:])
+                    output.mkdir(parents=True, exist_ok=True)
+                    manifest = output / "vcore-delivery.json"
+                    manifest.write_text("original manifest")
+                    sentinel = output / "keep"
+                    sentinel.write_bytes(b"original artifact")
+                    ndk = fixture / "ndk"
+                    ndk.mkdir()
+                    (ndk / "source.properties").write_text("fixture")
+                    with (
+                        patch.dict(
+                            os.environ, {"ANDROID_NDK_HOME": str(ndk)}, clear=True
+                        ),
+                        patch.object(Path, "home", return_value=fixture),
+                        patch.object(
+                            platform_delivery,
+                            "os",
+                            SimpleNamespace(
+                                name="nt" if platform_name == "windows" else "posix",
+                                environ=os.environ,
+                            ),
+                        ),
+                        patch.object(builds, "CORE_DIR", root),
+                        patch.object(
+                            builds, "_windows_architecture", return_value="x64"
+                        ),
+                        patch.object(
+                            builds, "_windows_msvc_environment", return_value={}
+                        ),
+                        patch.object(builds, "_android_toolchain", return_value=ndk),
+                        patch.object(
+                            platform_delivery, "_source", return_value={"fixture": True}
+                        ),
+                        patch.object(
+                            platform_delivery, "_output", return_value="fixture"
+                        ),
+                        patch.object(
+                            builds,
+                            f"build_{platform_name}",
+                            side_effect=AssertionError("unsafe path reached build"),
+                        ) as build,
+                    ):
+                        try:
+                            with self.assertRaisesRegex(ValueError, "symlink|reparse"):
+                                platform_delivery.build_delivery(platform_name)
+                        finally:
+                            build.assert_not_called()
+                            self.assertEqual(manifest.read_text(), "original manifest")
+                            self.assertEqual(
+                                sentinel.read_bytes(), b"original artifact"
+                            )
+
     def test_android_delivery_replaces_stale_abis_without_touching_other_outputs(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

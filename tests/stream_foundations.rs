@@ -400,6 +400,115 @@ async fn setup_deadline_releases_supplied_io_in_stream_adapters() {
     }
 }
 
+#[tokio::test(start_paused = true)]
+async fn http2_lazy_response_obeys_setup_deadline_but_established_reads_do_not() {
+    for kind in ["grpc", "duplex", "h2", "pooled"] {
+        for timing in ["late-first-poll", "late-after-pending", "established"] {
+            let (client, peer) = tokio::io::duplex(65536);
+            let (release, released) = tokio::sync::oneshot::channel();
+            let (ready, observed) = tokio::sync::oneshot::channel();
+            let server = tokio::spawn(async move {
+                let mut connection = h2::server::handshake(peer).await.unwrap();
+                let (_request, mut reply) = connection.accept().await.unwrap().unwrap();
+                released.await.unwrap();
+                let mut send = reply
+                    .send_response(
+                        http::Response::builder()
+                            .header("content-type", "application/grpc")
+                            .body(())
+                            .unwrap(),
+                        false,
+                    )
+                    .unwrap();
+                send.send_data(
+                    bytes::Bytes::from_static(if kind == "h2" {
+                        b"ab"
+                    } else {
+                        b"\x00\x00\x00\x00\x04\x0a\x02ab"
+                    }),
+                    false,
+                )
+                .unwrap();
+                // Flush HEADERS/DATA before queuing PING. Its ACK proves that
+                // the client driver parsed the response, without polling the
+                // lazy application reader or depending on a scheduling sleep.
+                futures_util::future::poll_fn(|cx| {
+                    assert!(connection.poll_closed(cx).is_pending());
+                    Poll::Ready(())
+                })
+                .await;
+                let mut ping = connection.ping_pong().unwrap();
+                let barrier = async move {
+                    ping.ping(h2::Ping::opaque()).await.unwrap();
+                    ready.send(()).unwrap();
+                    std::future::pending::<()>().await;
+                };
+                tokio::select! {
+                    () = barrier => unreachable!(),
+                    _ = futures_util::future::poll_fn(|cx| connection.poll_closed(cx)) => {},
+                }
+                drop(send);
+            });
+            let deadline = Instant::now() + Duration::from_secs(1);
+            let uri = "https://fixture.invalid/stream/Tun";
+            let pool = vcore::transport::GrpcPool::new(Default::default());
+            let (mut stream, owner) = if kind == "pooled" {
+                (
+                    pool.open(uri, deadline, || async { Ok(Box::new(client) as _) })
+                        .await
+                        .unwrap(),
+                    None,
+                )
+            } else {
+                let pair = match kind {
+                    "grpc" => grpc(Box::new(client), uri, deadline).await,
+                    "duplex" => {
+                        vcore::transport::grpc_duplex(Box::new(client), uri, deadline).await
+                    }
+                    "h2" => vcore::transport::legacy_h2(Box::new(client), uri, deadline).await,
+                    _ => unreachable!(),
+                }
+                .unwrap();
+                (pair.0, Some(pair.1))
+            };
+            if timing == "late-after-pending" {
+                assert!(futures_util::poll!(std::pin::pin!(stream.read_u8())).is_pending());
+                tokio::time::advance(Duration::from_secs(2)).await;
+            }
+            release.send(()).unwrap();
+            timeout(Duration::from_secs(1), observed)
+                .await
+                .unwrap()
+                .unwrap();
+            if timing == "established" {
+                assert_eq!(stream.read_u8().await.unwrap(), b'a');
+            }
+            if timing != "late-after-pending" {
+                tokio::time::advance(Duration::from_secs(2)).await;
+            }
+            let result = stream.read_u8().await;
+            drop(stream);
+            if let Some(owner) = owner {
+                owner.stop().await.unwrap();
+            }
+            pool.shutdown().await;
+            timeout(Duration::from_secs(1), server)
+                .await
+                .unwrap()
+                .unwrap();
+            if timing == "established" {
+                assert_eq!(result.unwrap(), b'b', "{kind}");
+            } else {
+                assert_eq!(
+                    result.unwrap_err().kind(),
+                    io::ErrorKind::TimedOut,
+                    "{kind}: {timing}"
+                );
+            }
+        }
+    }
+}
+
 #[tokio::test]
 async fn cancelled_setup_releases_supplied_io_without_a_detached_task() {
     #[cfg(feature = "interop-test")]
