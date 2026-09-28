@@ -1,25 +1,36 @@
 # TLS 依赖与发布
 
 版本、完整 Git revision 和 registry 校验值以 Cargo.toml/Cargo.lock 为准，
-由 `check tls-dependencies` 审核，不在文档复制一份易失效的包清单。
+PR/发布前由 `check tls-dependencies` 审核，不在文档复制一份易失效的包清单。
 
 ## 来源与后端
 
 | 用途 | 来源 / 约束 |
 | --- | --- |
 | 普通无指纹 TLS、QUIC、共享 WebPKI | crates.io 官方 rustls/tokio-rustls，仅 ring |
-| 命名 ClientHello、REALITY、JLS | 自有 OneXray/boring 的 release 分支，由 lockfile 固定完整已发布 revision |
+| 命名 ClientHello、REALITY、JLS | 自有 OneXray/boring；开发用本地路径，PR/发布用 release 分支并由 lockfile 固定完整 revision |
 | SS 2022 | crates.io shadowsocks 版本依赖，原样官方库，仅 aead-cipher-2022 |
 | Encryption 原语 | 同一 boring 的公共 X25519、ML-KEM、AEAD、AES-CTR；官方 blake3 |
 | 静态 ECH | 官方 hpke，经 rustls 公开 HPKE trait；命名模板使用 boring 既有 ECH 接口 |
 
-boring/tokio-boring/测试用 boring-sys 必须同源、同分支、同 revision；审计拒绝混合提交、
-未批准 revision、其他分支及本机 path/references/rustls Git patch。
+boring/tokio-boring/测试用 boring-sys 必须同源：开发时来自同一个本地 fork checkout，
+PR/发布时来自同一个 release revision。PR/发布审计拒绝混合提交、未批准 revision、
+其他分支及本机 path/references/rustls Git patch。
 旧 rustls fork 已退役，不是回退或重建来源。分支前移不会自动改变 locked 构建。
 
 AWS-LC 只允许 shadowsocks → shadowsocks-crypto → aws-lc-rs → aws-lc-sys 链；
 不能供 TLS/REALITY 使用。禁止额外消费者、FIPS 和 2022-extra。
 SS 日志抑制与未修补风险见[出站](outbounds.md#shadowsocks-2022)。
+
+### 开发与 PR 的依赖切换
+
+1. 本地开发将三个 crate 一起改为自有 fork checkout 的相对 `path` 依赖；保留版本和
+   feature 约束，更新 Cargo.lock 后执行 locked 构建与相关测试，不混用本地和 Git 来源。
+2. 发起或更新 VCore PR 前，先将所需 fork 改动发布至 OneXray/boring 的 `release`，
+   再将三个 crate 一起切回 `git = "https://github.com/OneXray/boring", branch = "release"`。
+   更新 Cargo.lock；若 revision 前移，同步依赖审计中的批准 revision。
+3. 在不依赖本地 fork 的 checkout 通过 `check tls-dependencies` 和相关验证后再提交 PR。
+   该命令是 PR/发布门禁，本地 path 开发态不要求通过，也不为开发态放宽来源检查。
 
 ## 身份与原生接口
 
@@ -57,7 +68,8 @@ boring MIT/Apache-2.0、BoringSSL 随源通知及 Android C++ runtime，不能�
 ## 升级与回退
 
 1. 选择官方最新稳定依赖；fork 同步上游并先完成普通 TLS 回归。
-2. fork 变更先发布至 release；同次修改 manifest、lockfile 和依赖审计的批准 revision。
+2. 本地按上述流程验证 fork 变更；PR 前发布至 release，同次修改 manifest、lockfile
+   和依赖审计的批准 revision。
 3. 重跑确定性向量、ClientHello/share/证书/签名、恢复/取消/期限及受影响容器数据面；
    分别验证 AnyTLS 标准 TLS 和 REALITY/JLS，不能互相抵扣。
 4. 在没有相邻 fork 目录的干净 checkout 执行 locked fetch、离线测试、相关平台构建和

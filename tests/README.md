@@ -10,6 +10,7 @@ protocol_security、protocol_integration；事件标签与报告采用同一套�
 | 日常 | 严格配置、feature、协议/TLS 内存 IO、局部上限、取消、FFI 边界和确定性回归 | check core --profile debug/release |
 | 构建 | 精简 feature、生产 feature、全目标编译 | check core --profile features |
 | 工具 | 子进程/容器清理、下载、原始证据完整性、平台产物 | scripts/tests |
+| 对端设施 | 官方客户端到官方服务端的真实 TCP/UDP 能力，不计 VCore 支持 | check protocol-peers |
 | 网络 | 公开消费者、真实原生认证/传输/UDP/上游和资源 | protocol-interop --suite … |
 | 发布候选 | 有序两跳、故障/重建/长测、平台产物/ABI | integration suite 与平台构建 |
 

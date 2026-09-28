@@ -42,7 +42,7 @@ client-fingerprint: chrome
   不再要求公共根、名称或有效期；匹配非叶证书时将其作为信任锚，仍验证叶链、名称和有效期。
   skip 只跳过常规验证，不能覆盖不匹配的 pin；所有策略仍验证握手签名。
 - 未启用指纹的标准 TLS 和 QUIC 使用 crates.io 官方 rustls + ring，不依赖 rustls fork。
-- 命名指纹的标准 TLS，以及所有 REALITY/JLS，使用 release 分支并由 lockfile 锁定的自有 boring fork。
+- 命名指纹的标准 TLS，以及所有 REALITY/JLS，使用自有 boring fork；开发及 PR/发布的来源规则见 [TLS 依赖](tls-dependencies.md)。
 - 普通 TLS 两条路径共用同一个 WebPKI 证书验证器和发布信任根；叶 pin、非叶信任锚、
   独立验证名、skip 优先级不变。TLS 握手签名仍由各自后端强制验证。
 - VLESS mTLS 继续使用配对的内联 PEM，密钥匹配在使用 IO 前检查；profile 不修改身份。

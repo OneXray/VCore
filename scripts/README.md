@@ -14,6 +14,7 @@ cargo fmt --all -- --check
 uv run --project scripts --locked ruff check scripts
 uv run --project scripts --locked ruff format --check scripts
 uv run --project scripts --locked vcore-scripts check c-header
+# PR/发布来源门禁；本地 boring path 开发态不执行。
 uv run --project scripts --locked vcore-scripts check tls-dependencies
 ```
 
@@ -61,6 +62,20 @@ SECURITY-ECH-CHROME；不再提供阶段编号或 --stage 别名。旧报告保�
 每轮新建 target/interop/runs 子目录；不得运行中修改源码。合成凭据/私有日志放临时
 目录并清理，不进入报告。Stop 时和后续静默窗口分别采样；短 tracer 不代替完整长测。
 容器不可用即 BLOCKED，不能退回宿主。完整规则见[测试隔离](../docs/testing-isolation.md)。
+
+### 新协议对端能力预检
+
+```sh
+uv run --project scripts --locked vcore-scripts check protocol-peers --run-dir target/interop/runs/<fresh-run>
+```
+
+独立的原站/cover、Mihomo 服务端与 Mihomo 对照客户端都在容器中。当前检查 SS2022
+三算法的 v3/原生 UDP、裸流及 v3 上的 UoT v2、TUIC v5 双 UDP 模式、六种
+VMess/Trojan HTTPUpgrade 承载和 SOCKS5 上游；UoT 对照显式选择 v2，关闭服务端原生 UDP。
+`--case` 可选单项，语义 ID 由 `protocol_completion_peers.py` 生成。
+每项必须实际完成 TCP 回传与原站观测的 UDP 请求/回复；记录来源、官方版本/hash、
+原始观测及清理。该工具只证明对端能力，**VCore 新协议行为始终记 NOT RUN**，
+不更新生产配置、不代替协议 suite、负例/边界、压力或发布验收。
 
 ### 对端下载
 

@@ -18,7 +18,7 @@ Read the relevant document completely before changing that area:
 - XHTTP request fields, download legs, H1/H2/H3 or sing-mux: `docs/xhttp.md`.
 - Runtime Controller, proxy-group selection, or TUN traffic metrics: `docs/controller-api.md` and `src/controller.rs`.
 - GeoData: `docs/geodata.md`.
-- TLS profiles, certificate policy or TLS dependencies: `docs/tls-client-fingerprint.md` and `docs/tls-dependencies.md`; REALITY also requires `docs/reality-wire-protocol.md`.
+- TLS profiles, certificate policy or TLS dependencies: `docs/tls-client-fingerprint.md` and `docs/tls-dependencies.md`; REALITY also requires `docs/reality-wire-protocol.md`. Before local boring development or opening/updating a PR, follow the dependency-source workflow in `docs/tls-dependencies.md`.
 - Unix TUN fd ownership or packet I/O: `docs/tun-platform.md`.
 - Windows VPN/TUN, outbound binding, AppContainer packet buffers, or package lifecycle: `docs/windows-vpn.md` and `docs/tun-platform.md`.
 - Build, validation, or interoperability tooling: `scripts/README.md`, `tests/README.md`, and the unified `vcore-scripts` interface.
