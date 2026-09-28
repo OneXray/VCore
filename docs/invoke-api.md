@@ -108,8 +108,8 @@ stopped -> preparing -> prepared -> starting -> running
 ```json
 {
   "apiVersion": 5,
-  "buildIdentity": "VCore;engine=rust;coreVersion=0.1.0;invokeApiVersion=5;configVersion=28",
-  "configVersion": 28,
+  "buildIdentity": "VCore;engine=rust;coreVersion=0.1.0;invokeApiVersion=5;configVersion=29",
+  "configVersion": 29,
   "engine": "rust",
   "version": "0.1.0"
 }

@@ -183,13 +183,34 @@ flush 排空，关闭最多五秒，不在已切换的 SS 通道中发送 TLS cl
 shadow-tls-v3，精简构建可单独移除；无 feature 的插件配置在 IO 前拒绝。
 v3 的额外四字节记录特征仍存在，完整认证和互通不等于不可识别。
 
+### UDP over TCP v2
+
+`udp-over-tcp` 默认 false；true 要求 `udp: true`，三算法均可用于裸 SS 或
+ShadowTLS v3。开启时 `udp-over-tcp-version` 省略或整数 2 均固定使用 v2；
+关闭时不得提供版本，不支持 v1、协商或原生 UDP 降级。无 SS feature 在 IO 前拒绝。
+
+每个关联独占一条既有 SS TCP 路径，支持 TCP-only SOCKS5 上游与 select 组。
+目标固定为 `sp.v2.udp-over-tcp.arpa:0`；v2 non-connect 请求只发送一次，之后每包
+携带地址和 u16 长度。业务域名先经过受控 `ResolutionContext` 转为 IP，magic 不参与
+DNS 或路由。AnyTLS 复用同一有界 codec，但保留自己的域名与会话/FIN 所有权。
+
+SS 首包写入并 flush 成功前阻止后台读取；零长度 UDP 仍有非空 UoT 帧。
+延迟首包沿用原建链 deadline，成功建立后的业务不再使用旧期限。未发包关闭直接释放
+底层 IO，不触发官方空 SS 握手；半帧写取消使关联失效，不重发。每关联最多一个读取
+任务、一个排队响应及一个正在解析/等待入队的响应；接收取消不丢 parser 状态，超接收
+预算完整排空该包再读下一包。Stop 取消并等待读任务，释放流；不跨关联池化。
+
+编码负载上限为 65,535 字节，发送/接收各自受调用方预算约束。当前官方 Mihomo
+UoT 对端使用 16 KiB 接收缓冲；容器数据验收覆盖该实际边界与多一字节负例，不将
+内存中的 u16 上限宣称为端到端 UDP 能力。原样 ssserver 不支持 UoT，仅作拒绝负例。
+
 ### 共享 SS 流与数据报行为
 
 - TCP 每次最多交付 16 KiB；读或关闭先于首次写时，完成并刷新官方空首写以支持
   server-first/半关闭。Pending 继续同次握手，已有首写不重复目标头。
 - 背压适配最多暂存一个 16 KiB 原文块并立即报告接受；后续保持同缓冲完成写入，
   避免官方重试长度误计。flush/关闭排空，读取也推进待写但不被写背压阻塞。
-- UDP 取消前预留 packet ID，底层实际发送后才成功；Pending 不重编码，无后台发送队列。
+- 原生 UDP 取消前预留 packet ID，底层实际发送后才成功；Pending 不重编码，无后台发送队列。
   接收验证来源、认证、关联与完整负载，外层 wire 最大 65,507。
 - 每关联随机 client session ID、递增 packet ID，最多两个 server session 的 8128 包
   重放窗口；旧 session 一分钟仍有有效包时不替换，ID 将溢出时换 client ID 并清空窗口。

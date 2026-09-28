@@ -33,6 +33,9 @@ protocol_security、protocol_integration；事件标签与报告采用同一套�
 - hysteria2_packet_ids：完成后重用 16 位分片 ID，不误丢后续业务包。
 - shadowtls_config/stream 与 security::shadow_tls_tests：严格 v3、原生签名/Finished、
   残留 cover、背压/flush、读取取消和关闭期限；shadowtls suite 另验官方容器对端。
+- uot_config、shadowsocks_uot 与共享 outbound::uot：仅 v2、SS 首包/读取门控、
+  三算法 u16 边界、收发预算、受控 DNS、取消/Stop；uot suite 验 TCP-only 官方
+  Mihomo 六组合、上游/切组及无原生 UDP 回退，不把 ssserver 作为 UoT 正向服务端。
 - security_capabilities：公开配置经真实 SecurityClient 在主/下载腿产生实际混合 share；
   不再重复测试 fork 的纯 API 准入。
 - fingerprints/mihomo-selected-v1.json：官方独立 ClientHello golden，不从待测实现重新生成期望；

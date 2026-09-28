@@ -35,6 +35,10 @@ HY2 已完成分片 ID 重用等确定性回归。单纯复用实现生成期望
 - ShadowTLS 只支持 SS2022 的 strict v3/TLS1.3 TCP 包装，原生 UDP 单独验证。
   主对端为 Mihomo，官方 ShadowTLS + 原样 ssserver 为补充对照；内存中的 cover
   server-first 不代表官方 SS 空首包限制已解决，额外四字节记录特征仍存在。
+- SS UoT 仅 v2，裸流/v3 与三算法分别验证 TCP-only Mihomo listener，包含
+  TCP-only SOCKS5 上游、切组、零长度包与 UDP 旁路观测。当前 Mihomo 的 UoT 接收
+  缓冲为 16 KiB；原样 ssserver 只作不支持 UoT 的负例。VCore u16 codec 边界、
+  调用方双向预算和该对端实际包上限分别取证，不相互替代。
 - 静态 ECH、JLS、Encryption 与混合 REALITY 是选定能力集；动态 ECH、Restls、
   ShadowTLS v1/v2、WireGuard 不在当前范围。
 

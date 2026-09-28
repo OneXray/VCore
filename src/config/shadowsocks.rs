@@ -158,6 +158,7 @@ pub struct ShadowsocksOutboundConfig {
     pub cipher: ShadowsocksCipher,
     pub password: String,
     pub shadow_tls: Option<ShadowTlsConfig>,
+    pub udp_over_tcp: bool,
 }
 
 impl std::fmt::Debug for ShadowsocksOutboundConfig {
@@ -215,6 +216,7 @@ pub(super) fn normalize(
         cipher,
         password,
         shadow_tls: None,
+        udp_over_tcp: false,
     };
     config.validate()?;
     Ok(config)

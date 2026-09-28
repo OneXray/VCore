@@ -16,6 +16,7 @@ mod datagram;
 mod packet_io;
 mod packet_window;
 mod stream;
+mod uot;
 
 #[derive(Clone)]
 pub struct ShadowsocksOutbound {
@@ -23,6 +24,7 @@ pub struct ShadowsocksOutbound {
     config: Arc<ServerConfig>,
     context: shadowsocks::context::SharedContext,
     upstream: UpstreamPath,
+    uot: Option<Arc<uot::Owner>>,
     #[cfg(feature = "shadow-tls-v3")]
     shadow_tls: Option<crate::security::ShadowTlsClient>,
 }
@@ -74,6 +76,7 @@ impl ShadowsocksOutbound {
                 "unsupported Shadowsocks cipher",
             )
         })?;
+        let uot = config.udp_over_tcp.then(|| Arc::new(uot::Owner::default()));
         let config = ServerConfig::new(
             (config.address.clone(), config.port),
             config.password.clone(),
@@ -90,6 +93,7 @@ impl ShadowsocksOutbound {
             config: Arc::new(config),
             context: Context::new_shared(ServerType::Local),
             upstream,
+            uot,
             #[cfg(feature = "shadow-tls-v3")]
             shadow_tls,
         })
@@ -134,6 +138,9 @@ impl OutboundConnector for ShadowsocksOutbound {
         request: DatagramRequest,
         context: &EstablishContext,
     ) -> Result<Box<dyn DatagramTransport>, DispatchError> {
+        if let Some(uot) = &self.uot {
+            return uot.open(self, request, context).await;
+        }
         let server = self.upstream.datagram_server(&self.server, context)?;
         let maximum = request.max_response_payload_size();
         let wire_maximum = maximum.saturating_add(datagram::MAX_RESPONSE_HEADER);
@@ -158,6 +165,18 @@ impl OutboundConnector for ShadowsocksOutbound {
             )),
             request.budget(),
         ))
+    }
+
+    fn begin_shutdown(&self) {
+        if let Some(uot) = &self.uot {
+            uot.begin_shutdown();
+        }
+    }
+
+    async fn shutdown(&self) {
+        if let Some(uot) = &self.uot {
+            uot.shutdown().await;
+        }
     }
 }
 

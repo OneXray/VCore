@@ -37,6 +37,7 @@ async fn shadowsocks_budget_accounts_for_cipher_headers_and_identity_chain() {
                 cipher,
                 password,
                 shadow_tls: None,
+                udp_over_tcp: false,
             },
             UpstreamPath::direct(
                 ResolvedEndpoint {

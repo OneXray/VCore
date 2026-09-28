@@ -3,7 +3,7 @@ use std::{io, net::SocketAddr, sync::Arc};
 use async_trait::async_trait;
 use bytes::{BufMut as _, Bytes, BytesMut};
 use tokio::{
-    io::{AsyncRead, AsyncReadExt as _, AsyncWriteExt as _},
+    io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _},
     sync::mpsc,
     task::JoinHandle,
 };
@@ -14,8 +14,6 @@ use crate::{
     session::{Datagram, Destination},
     socks5::encode_address,
 };
-
-use super::stream::AnyTlsStream;
 
 pub(crate) const MAGIC_DESTINATION: &str = "sp.v2.udp-over-tcp.arpa";
 const UOT_ADDRESS_IPV4: u8 = 0x00;
@@ -75,7 +73,7 @@ impl Drop for SendGuard {
 }
 
 pub(crate) struct UotTransport {
-    writer: tokio::io::WriteHalf<AnyTlsStream>,
+    writer: Box<dyn AsyncWrite + Unpin + Send>,
     responses: mpsc::Receiver<ReceiveEvent>,
     cancellation: CancellationToken,
     reader_task: Option<JoinHandle<()>>,
@@ -94,13 +92,17 @@ impl std::fmt::Debug for UotTransport {
 }
 
 impl UotTransport {
-    pub(crate) fn new(
-        stream: AnyTlsStream,
+    pub(crate) fn new<R, W>(
+        reader: R,
+        writer: W,
         max_response_payload_size: u16,
         parent_cancellation: CancellationToken,
         tracker: &TaskTracker,
-    ) -> Self {
-        let (reader, writer) = tokio::io::split(stream);
+    ) -> Self
+    where
+        R: AsyncRead + Unpin + Send + 'static,
+        W: AsyncWrite + Unpin + Send + 'static,
+    {
         let cancellation = parent_cancellation.child_token();
         let (responses, receiver) = mpsc::channel(RESPONSE_QUEUE_CAPACITY);
         let reader_cancellation = cancellation.clone();
@@ -111,7 +113,7 @@ impl UotTransport {
             reader_cancellation,
         )));
         Self {
-            writer,
+            writer: Box::new(writer),
             responses: receiver,
             cancellation,
             reader_task: Some(reader_task),
@@ -125,9 +127,7 @@ impl UotTransport {
 impl DatagramTransport for UotTransport {
     async fn send(&mut self, datagram: Datagram) -> Result<(), DispatchError> {
         if self.closed || self.cancellation.is_cancelled() {
-            return Err(DispatchError::Other(
-                "AnyTLS UoT association is closed".to_owned(),
-            ));
+            return Err(DispatchError::Other("UoT association is closed".to_owned()));
         }
         let packet = if self.first_write {
             encode_first_packet(&datagram).map_err(DispatchError::from)?
@@ -135,11 +135,14 @@ impl DatagramTransport for UotTransport {
             encode_datagram(&datagram).map_err(DispatchError::from)?
         };
         let mut send_guard = SendGuard::new(self.cancellation.clone());
-        self.writer
-            .write_all(&packet)
-            .await
-            .map_err(DispatchError::from)?;
-        self.writer.flush().await.map_err(DispatchError::from)?;
+        tokio::select! {
+            biased;
+            () = self.cancellation.cancelled() => return Err(DispatchError::NotAllowed),
+            result = async {
+                self.writer.write_all(&packet).await?;
+                self.writer.flush().await
+            } => result.map_err(DispatchError::from)?,
+        }
         self.first_write = false;
         send_guard.commit();
         Ok(())
@@ -147,9 +150,7 @@ impl DatagramTransport for UotTransport {
 
     async fn receive(&mut self) -> Result<Datagram, DispatchError> {
         if self.closed || self.cancellation.is_cancelled() {
-            return Err(DispatchError::Other(
-                "AnyTLS UoT association is closed".to_owned(),
-            ));
+            return Err(DispatchError::Other("UoT association is closed".to_owned()));
         }
         match self.responses.recv().await {
             Some(ReceiveEvent::Datagram(datagram)) => Ok(datagram),
@@ -161,7 +162,7 @@ impl DatagramTransport for UotTransport {
                 self.closed = true;
                 Err(DispatchError::from(io::Error::new(
                     io::ErrorKind::UnexpectedEof,
-                    "AnyTLS UoT response stream ended",
+                    "UoT response stream ended",
                 )))
             }
         }
@@ -256,7 +257,7 @@ fn encode_datagram(datagram: &Datagram) -> io::Result<Bytes> {
     let payload_length = u16::try_from(datagram.payload.len()).map_err(|_| {
         io::Error::new(
             io::ErrorKind::InvalidInput,
-            "AnyTLS UoT datagram exceeds 65535 bytes",
+            "UoT datagram exceeds 65535 bytes",
         )
     })?;
     let mut output = BytesMut::with_capacity(259 + 2 + datagram.payload.len());
@@ -282,7 +283,7 @@ fn encode_uot_address(destination: &Destination, output: &mut BytesMut) -> io::R
             let length = u8::try_from(host.len()).map_err(|_| {
                 io::Error::new(io::ErrorKind::InvalidInput, "UoT domain is too long")
             })?;
-            if length == 0 || *port == 0 {
+            if length == 0 || *port == 0 || host.bytes().any(|byte| byte.is_ascii_control()) {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
                     "UoT destination is invalid",
@@ -361,7 +362,7 @@ where
             if length == 0 {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
-                    "AnyTLS UoT response has an empty domain",
+                    "UoT response has an empty domain",
                 ));
             }
             let mut host = vec![0_u8; length];
@@ -369,7 +370,7 @@ where
             let host = String::from_utf8(host).map_err(|_| {
                 io::Error::new(
                     io::ErrorKind::InvalidData,
-                    "AnyTLS UoT response domain is not UTF-8",
+                    "UoT response domain is not UTF-8",
                 )
             })?;
             let port = reader.read_u16().await?;
@@ -378,14 +379,14 @@ where
         _ => {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                "AnyTLS UoT response has an unknown address type",
+                "UoT response has an unknown address type",
             ));
         }
     };
     if destination.port() == 0 {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
-            "AnyTLS UoT response port is zero",
+            "UoT response port is zero",
         ));
     }
     Ok(destination)
@@ -448,6 +449,58 @@ mod tests {
         assert_eq!(packet[2], 8);
         let datagram_offset = 1 + 1 + 1 + 8 + 2;
         assert_eq!(packet[datagram_offset], UOT_ADDRESS_DOMAIN);
+    }
+
+    #[test]
+    fn rejects_invalid_destinations_and_enforces_the_u16_payload_limit() {
+        for remote in [
+            Destination::Ip("127.0.0.1:0".parse().unwrap()),
+            Destination::Ip("[::1]:0".parse().unwrap()),
+            Destination::Domain {
+                host: String::new(),
+                port: 53,
+            },
+            Destination::Domain {
+                host: "a".repeat(256),
+                port: 53,
+            },
+            Destination::Domain {
+                host: "bad\nname.test".into(),
+                port: 53,
+            },
+            Destination::Domain {
+                host: "dns.test".into(),
+                port: 0,
+            },
+        ] {
+            assert!(encode_first_packet(&datagram(remote, b"x")).is_err());
+        }
+        let mut packet = datagram(Destination::domain("a".repeat(255), 53).unwrap(), b"");
+        packet.payload = Bytes::from(vec![7; 65_535]);
+        assert!(encode_first_packet(&packet).is_ok());
+        packet.payload = Bytes::from(vec![7; 65_536]);
+        assert!(encode_first_packet(&packet).is_err());
+    }
+
+    #[tokio::test]
+    async fn malformed_and_truncated_responses_are_rejected_without_a_datagram() {
+        // Independent wire vectors, including a length-prefixed invalid UTF-8
+        // name and incomplete payload. No production encoder creates input.
+        for frame in [
+            vec![3],
+            vec![2, 0],
+            vec![2, 1, 255, 0, 53, 0, 0],
+            vec![2, 1, b'\n', 0, 53, 0, 0],
+            vec![0, 127, 0, 0, 1, 0, 0, 0, 0],
+            vec![1, 0],
+            vec![0, 127, 0, 0, 1, 0, 53, 0, 2, 7],
+        ] {
+            assert!(
+                read_datagram(&mut frame.as_slice(), u16::MAX)
+                    .await
+                    .is_err()
+            );
+        }
     }
 
     #[tokio::test]

@@ -23,8 +23,8 @@ use super::{
     padding::PaddingScheme,
     session::{PreparedSession, Session},
     stream::AnyTlsStream,
-    uot::UotTransport,
 };
+use crate::outbound::uot::UotTransport;
 
 const IDLE_CHECK_INTERVAL: Duration = Duration::from_secs(30);
 const IDLE_TIMEOUT: Duration = Duration::from_secs(30);
@@ -201,8 +201,10 @@ impl AnyTlsClient {
         if state.closed {
             return Err(DispatchError::Other("AnyTLS client is closed".to_owned()));
         }
+        let (reader, writer) = tokio::io::split(stream);
         Ok(UotTransport::new(
-            stream,
+            reader,
+            writer,
             max_response_payload_size,
             self.cancellation.clone(),
             &self.tasks,

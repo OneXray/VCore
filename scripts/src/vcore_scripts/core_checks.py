@@ -41,6 +41,8 @@ TARGETS = (
     "shadowsocks_backpressure",
     "shadowtls_config",
     "shadowtls_stream",
+    "uot_config",
+    "shadowsocks_uot",
     "hysteria2_packet_ids",
 )
 LIB_FILTERS = (
@@ -50,6 +52,7 @@ LIB_FILTERS = (
     "outbound::hysteria2::",
     "outbound::shadowsocks::tests::official_tcp_",
     "outbound::anytls::",
+    "outbound::uot::",
     "transport::h2_write::tests::",
     "transport::sing_mux::smux_driver::tests::",
     "transport::sing_mux::tests::",

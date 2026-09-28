@@ -459,7 +459,11 @@ def run_protocol_interop(
     try:
         run.update(run_identity(stage, selected, preflight_only))
         with exclusive_run(), deadline(run["suite_timeout_seconds"]):
-            if preflight_only and stage == "SHADOWTLS":
+            if preflight_only and stage == "UOT":
+                from .protocol_uot_acceptance import preflight as uot_preflight
+
+                uot_preflight(output)
+            elif preflight_only and stage == "SHADOWTLS":
                 from .protocol_shadowtls_acceptance import (
                     preflight as shadowtls_preflight,
                 )
@@ -553,6 +557,10 @@ def run_protocol_interop(
                     from .protocol_shadowtls_acceptance import execute
 
                     execute(selected, run, output, records)
+                elif stage == "UOT":
+                    from .protocol_uot_acceptance import execute
+
+                    execute(selected, run, output, records)
                 else:
                     _execute(selected, run, output, records)
     except BaseException as caught:
@@ -630,6 +638,10 @@ def run_protocol_interop(
                 "in isolated containers. "
                 "UoT and device delivery remain separate gates.\n\n"
                 if stage == "SHADOWTLS"
+                else "SS2022 UoT v2; TCP-only official peers in isolated containers. "
+                "Native unsupported peers are negative cases; "
+                "devices remain separate.\n\n"
+                if stage == "UOT"
                 else "Foundation-only evidence; "
                 "production protocol field consumers remain NOT RUN.\n\n"
             )

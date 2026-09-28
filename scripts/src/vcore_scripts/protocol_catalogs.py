@@ -26,6 +26,7 @@ SUITES = {
     "SECURITY": ("encryption", "reality", "ech", "jls", "acceptance"),
     "INTEGRATION": ("routing", "lifecycle", "pressure", "regression"),
     "SHADOWTLS": ("configuration", "stream", "interop", "regression"),
+    "UOT": ("configuration", "datagrams", "interop", "regression"),
 }
 CATEGORIES = {
     f"{suite}.{category}"

@@ -95,6 +95,7 @@ def executable_cases() -> list[dict]:
     from .protocol_integration_catalog import definitions as integration
     from .protocol_security_catalog import definitions as security
     from .protocol_shadowtls_catalog import definitions as shadowtls
+    from .protocol_uot_catalog import definitions as uot
     from .protocol_vless_acceptance import definitions as vless
     from .protocol_vmess_acceptance import definitions as vmess
     from .protocol_xhttp_acceptance import definitions as xhttp
@@ -102,7 +103,16 @@ def executable_cases() -> list[dict]:
     foundation = read_json(CATALOG_DIR / "foundation-cases.json")["cases"]
     return foundation + [
         case
-        for define in (vmess, vless, xhttp, hysteria2, security, integration, shadowtls)
+        for define in (
+            vmess,
+            vless,
+            xhttp,
+            hysteria2,
+            security,
+            integration,
+            shadowtls,
+            uot,
+        )
         for case in define()
     ]
 
@@ -313,6 +323,7 @@ def validate_results(required: list[dict], results: list[dict]) -> None:
                     "SECURITY",
                     "INTEGRATION",
                     "SHADOWTLS",
+                    "UOT",
                 }
                 else "foundation-only"
             )
@@ -369,6 +380,7 @@ def new_result(case: dict) -> dict:
             "SECURITY",
             "INTEGRATION",
             "SHADOWTLS",
+            "UOT",
         }
         else "foundation-only",
         "status": "NOT RUN",
@@ -432,6 +444,7 @@ def check_run(run_dir: Path, stage: str, manifest: Path | None = None) -> None:
         "SECURITY",
         "INTEGRATION",
         "SHADOWTLS",
+        "UOT",
     }:
         if stage == "TROJAN":
             from .protocol_trojan_acceptance import check
@@ -447,6 +460,8 @@ def check_run(run_dir: Path, stage: str, manifest: Path | None = None) -> None:
             from .protocol_security_acceptance import check
         elif stage == "SHADOWTLS":
             from .protocol_shadowtls_acceptance import check
+        elif stage == "UOT":
+            from .protocol_uot_acceptance import check
         else:
             from .protocol_integration_acceptance import check
 

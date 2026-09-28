@@ -182,7 +182,7 @@ class PlatformDeliveryTest(unittest.TestCase):
             artifacts = []
             identity = (
                 "VCore;engine=rust;coreVersion=0.1.0;"
-                "invokeApiVersion=5;configVersion=28"
+                "invokeApiVersion=5;configVersion=29"
             )
             for abi, machine in [("arm64-v8a", 183), ("x86_64", 62)]:
                 for name in ("libvcore.so", "libc++_shared.so"):

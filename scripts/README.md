@@ -68,6 +68,12 @@ shadowtls 包含配置/feature、真实 TLS 内存负例、三算法与五种握
 原样 ssserver 另作 TCP 对照。裸 SS、共享 TLS/REALITY/JLS、独立指纹 golden 与
 Apple/Android 编译是同轮必需组；不签收 UoT、实机或旧 SS 空首包风险。
 
+uot 验证 SS v2 三算法 × 裸流/v3 的六组合，分别经直连、TCP-only SOCKS5 和
+嵌套 select；覆盖零包、三地址族、交替原站、16 KiB Mihomo 边界/超限和零原生 UDP
+旁路。错误密钥/v3 身份及原样 ssserver 不支持是独立负例。内存检查另验 u16 上限、
+预算、首包门控、DNS、取消与 Stop；AnyTLS、裸 SS、精简 feature 和 Apple/Android
+是同轮必需回归。使用 protocol-interop / check protocol-coverage 的 `--suite uot`。
+
 ### 新协议对端能力预检
 
 ```sh

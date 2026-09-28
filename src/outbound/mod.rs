@@ -11,6 +11,8 @@ mod anytls;
 mod connector;
 #[cfg(feature = "outbound-shadowsocks")]
 mod shadowsocks;
+#[cfg(any(feature = "outbound-anytls", feature = "outbound-shadowsocks"))]
+mod uot;
 #[cfg(feature = "outbound-shadowsocks")]
 pub use shadowsocks::ShadowsocksOutbound;
 mod direct;

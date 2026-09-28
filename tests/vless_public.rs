@@ -69,6 +69,9 @@ mod shadowtls;
 #[cfg(target_os = "macos")]
 #[path = "vmess_public/tun.rs"]
 mod tun;
+#[cfg(feature = "outbound-shadowsocks")]
+#[path = "vless_public/uot.rs"]
+mod uot;
 
 fn fixture() -> Value {
     let value: Value = serde_json::from_slice(

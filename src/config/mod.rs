@@ -890,6 +890,14 @@ enum RawOutbound {
             deserialize_with = "deserialize_present_option"
         )]
         client_fingerprint: Option<String>,
+        #[serde(rename = "udp-over-tcp", default)]
+        udp_over_tcp: bool,
+        #[serde(
+            rename = "udp-over-tcp-version",
+            default,
+            deserialize_with = "deserialize_present_option"
+        )]
+        udp_over_tcp_version: Option<u8>,
         #[serde(default)]
         udp: bool,
         #[serde(
@@ -1961,11 +1969,23 @@ impl RawOutbound {
                 plugin,
                 plugin_opts,
                 client_fingerprint,
+                udp_over_tcp,
+                udp_over_tcp_version,
                 udp,
                 dialer_proxy,
             } => {
                 let mut config = shadowsocks::normalize(server, port, cipher, password)?;
                 config.shadow_tls = shadowsocks::plugin(plugin, plugin_opts, client_fingerprint)?;
+                if udp_over_tcp && !cfg!(feature = "outbound-shadowsocks") {
+                    return invalid("Shadowsocks UoT support is not enabled in this build");
+                }
+                if udp_over_tcp && !udp {
+                    return invalid("Shadowsocks udp-over-tcp requires udp: true");
+                }
+                if udp_over_tcp_version.is_some_and(|version| !udp_over_tcp || version != 2) {
+                    return invalid("Shadowsocks udp-over-tcp-version requires enabled UoT v2");
+                }
+                config.udp_over_tcp = udp_over_tcp;
                 (name, dialer_proxy, udp, ProxyProtocol::Shadowsocks(config))
             }
             Self::Vless(raw) => raw.normalize()?,
