@@ -83,8 +83,9 @@ struct Writable(Mutex<tokio_util::sync::PollSender<Bytes>>);
 impl quinn::UdpPoller for Writable {
     fn poll_writable(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         let mut sender = self.0.lock().unwrap();
-        ready!(sender.poll_reserve(cx)).map_err(|_| io::ErrorKind::BrokenPipe)?;
-        sender.abort_send();
+        if ready!(sender.poll_reserve(cx)).is_ok() {
+            sender.abort_send();
+        }
         Poll::Ready(Ok(()))
     }
 }
@@ -96,12 +97,10 @@ impl quinn::AsyncUdpSocket for PeerSocket {
     }
     fn try_send(&self, packet: &quinn::udp::Transmit<'_>) -> io::Result<()> {
         assert_eq!(packet.destination, self.remote);
-        self.send
-            .try_send(Bytes::copy_from_slice(packet.contents))
-            .map_err(|error| match error {
-                mpsc::error::TrySendError::Full(_) => io::ErrorKind::WouldBlock.into(),
-                mpsc::error::TrySendError::Closed(_) => io::ErrorKind::BrokenPipe.into(),
-            })
+        match self.send.try_send(Bytes::copy_from_slice(packet.contents)) {
+            Ok(()) | Err(mpsc::error::TrySendError::Closed(_)) => Ok(()),
+            Err(mpsc::error::TrySendError::Full(_)) => Err(io::ErrorKind::WouldBlock.into()),
+        }
     }
     fn poll_recv(
         &self,
@@ -109,8 +108,12 @@ impl quinn::AsyncUdpSocket for PeerSocket {
         bufs: &mut [IoSliceMut<'_>],
         meta: &mut [quinn::udp::RecvMeta],
     ) -> Poll<io::Result<usize>> {
-        let packet =
-            ready!(self.receive.lock().unwrap().poll_recv(cx)).ok_or(io::ErrorKind::BrokenPipe)?;
+        // An unconnected UDP socket has no peer EOF. A closed memory link
+        // becomes silent, not a local socket failure: otherwise Quinn's
+        // endpoint driver can exit before notifying an existing wait_idle.
+        let Some(packet) = ready!(self.receive.lock().unwrap().poll_recv(cx)) else {
+            return Poll::Pending;
+        };
         bufs[0][..packet.len()].copy_from_slice(&packet);
         meta[0] = quinn::udp::RecvMeta {
             addr: self.remote,
@@ -124,6 +127,48 @@ impl quinn::AsyncUdpSocket for PeerSocket {
     fn local_addr(&self) -> io::Result<SocketAddr> {
         Ok(self.local)
     }
+}
+
+#[test]
+fn memory_udp_peer_shutdown_is_not_a_local_socket_failure() {
+    let (send, remote_receive) = mpsc::channel(1);
+    let (remote_send, receive) = mpsc::channel(1);
+    remote_send
+        .try_send(Bytes::from_static(b"last packet"))
+        .unwrap();
+    drop(remote_send);
+    drop(remote_receive);
+    let socket = Arc::new(PeerSocket {
+        send,
+        receive: Mutex::new(receive),
+        local: "192.0.2.1:443".parse().unwrap(),
+        remote: "192.0.2.2:1234".parse().unwrap(),
+    });
+    use quinn::AsyncUdpSocket;
+    let mut cx = Context::from_waker(std::task::Waker::noop());
+    let mut bytes = [0; 64];
+    let mut bufs = [IoSliceMut::new(&mut bytes)];
+    let mut meta = [quinn::udp::RecvMeta::default()];
+    assert!(matches!(
+        socket.poll_recv(&mut cx, &mut bufs, &mut meta),
+        Poll::Ready(Ok(1))
+    ));
+    assert_eq!(&bufs[0][..meta[0].len], b"last packet");
+    assert!(socket.poll_recv(&mut cx, &mut bufs, &mut meta).is_pending());
+    socket
+        .try_send(&quinn::udp::Transmit {
+            destination: socket.remote,
+            ecn: None,
+            contents: b"late close",
+            segment_size: None,
+            src_ip: None,
+        })
+        .unwrap();
+    let mut poller = socket.create_io_poller();
+    assert!(matches!(
+        poller.as_mut().poll_writable(&mut cx),
+        Poll::Ready(Ok(()))
+    ));
 }
 
 #[tokio::test]
