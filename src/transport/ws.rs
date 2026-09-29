@@ -1,4 +1,5 @@
 use std::{
+    future::{Future, poll_fn},
     io,
     pin::Pin,
     sync::{
@@ -193,12 +194,7 @@ pub async fn http_upgrade(
     fast_open: bool,
     deadline: Instant,
 ) -> io::Result<BoxStream> {
-    // timeout_at can poll a ready write before noticing an elapsed timer.
-    // An already expired setup must not send any part of the request.
-    if Instant::now() >= deadline {
-        return Err(io::ErrorKind::TimedOut.into());
-    }
-    timeout_at(deadline, async move {
+    let handshake = async move {
         let mut headers = options.headers.clone();
         let mut early = 0;
         if let Some(ed) = &options.early_data {
@@ -282,7 +278,24 @@ pub async fn http_upgrade(
             stream,
             tail: tail.into(),
         }) as BoxStream)
-    })
+    };
+    tokio::pin!(handshake);
+    // timeout_at polls ready IO before its timer. Check every handshake poll,
+    // including resumes after Pending, before any further read/write or success.
+    // The returned stream has no setup timer, so established IO stays unrestricted.
+    timeout_at(
+        deadline,
+        poll_fn(|cx| {
+            if Instant::now() >= deadline {
+                return Poll::Ready(Err(io::ErrorKind::TimedOut.into()));
+            }
+            let result = ready!(handshake.as_mut().poll(cx));
+            if Instant::now() >= deadline {
+                return Poll::Ready(Err(io::ErrorKind::TimedOut.into()));
+            }
+            Poll::Ready(result)
+        }),
+    )
     .await
     .map_err(|_| io::Error::from(io::ErrorKind::TimedOut))?
 }

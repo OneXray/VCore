@@ -68,7 +68,9 @@ WS path 默认 /，可带 query；头字段不得覆盖握手保留头或大小�
 此时禁止 query。禁用时不能附 ED 头名。首请求头与剩余数据只按序发送一次。
 `ws-opts.v2ray-http-upgrade:true` 使用原始 HTTPUpgrade 流，不发送 WebSocket 帧。
 普通模式在有效 101 后发送剩余认证前缀；`v2ray-http-upgrade-fast-open:true` 提前
-发送该前缀，但仍须在原建链期限内收到有效 101 才返回成功。fast-open 需要 upgrade。
+发送该前缀，但仍须在原建链期限内收到有效 101 才返回成功。握手每次从等待恢复时
+先复核原期限，即使响应或写入已就绪也不能绕过；建立后的读写不再受该期限限制。
+fast-open 需要 upgrade。
 Upgrade 的 ED 仅允许默认 Sec-WebSocket-Protocol 头（大小写不敏感），不支持
 自定义头或路径 ED。101/头限额/截断失败不重放前缀，响应头后的字节保留给协议。
 这些选项同样适用于 VMess 的明文和标准 TLS；不改变各协议认证、UDP 编码或关闭责任。

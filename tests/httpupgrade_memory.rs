@@ -183,3 +183,129 @@ async fn expired_httpupgrade_deadline_writes_no_prefix_or_head() {
         assert!(received.is_empty(), "expired setup transmitted a prefix");
     }
 }
+
+#[tokio::test(start_paused = true)]
+async fn httpupgrade_rejects_ready_101_after_waiting_past_setup_deadline() {
+    #[cfg(feature = "interop-test")]
+    let _case = vcore::resources::case_events::Case::new("HTTPUPGRADE-UNIT", "late_response");
+    for fast in [false, true] {
+        let options = options(fast);
+        let (io, mut peer) = tokio::io::duplex(4096);
+        let deadline = Instant::now() + Duration::from_millis(100);
+        let mut handshake = Box::pin(connect_websocket(
+            Box::new(io),
+            &options,
+            b"prefix",
+            deadline,
+        ));
+        assert!(futures_util::poll!(handshake.as_mut()).is_pending());
+        head(&mut peer).await;
+        if fast {
+            let mut prefix = [0; 6];
+            peer.read_exact(&mut prefix).await.unwrap();
+            assert_eq!(&prefix, b"prefix");
+        }
+
+        // Resume only after both the timeout and the response are ready.
+        tokio::time::advance(Duration::from_millis(101)).await;
+        peer.write_all(b"HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n")
+            .await
+            .unwrap();
+        let result = handshake.await;
+        assert!(matches!(result, Err(error) if error.kind() == io::ErrorKind::TimedOut));
+        let mut late_bytes = Vec::new();
+        peer.read_to_end(&mut late_bytes).await.unwrap();
+        assert!(late_bytes.is_empty(), "expired setup transmitted a prefix");
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn httpupgrade_does_not_resume_a_blocked_prefix_after_setup_deadline() {
+    #[cfg(feature = "interop-test")]
+    let _case = vcore::resources::case_events::Case::new("HTTPUPGRADE-UNIT", "late_write");
+    const RESPONSE: &[u8] =
+        b"HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n";
+    tokio::time::timeout(Duration::from_secs(5), async {
+        for fast in [false, true] {
+            let options = options(fast);
+            let (io, mut peer) = tokio::io::duplex(1);
+            let deadline = Instant::now() + Duration::from_millis(100);
+            let mut handshake = Box::pin(connect_websocket(
+                Box::new(io),
+                &options,
+                b"prefix",
+                deadline,
+            ));
+            let mut request = Vec::new();
+            while !request.ends_with(b"\r\n\r\n") {
+                // Each manual handshake poll needs a fresh cooperative IO budget.
+                tokio::task::yield_now().await;
+                assert!(futures_util::poll!(handshake.as_mut()).is_pending());
+                request.push(peer.read_u8().await.unwrap());
+            }
+            if !fast {
+                for byte in RESPONSE {
+                    tokio::task::yield_now().await;
+                    peer.write_all(&[*byte]).await.unwrap();
+                    assert!(futures_util::poll!(handshake.as_mut()).is_pending());
+                }
+            } else {
+                assert!(futures_util::poll!(handshake.as_mut()).is_pending());
+            }
+            // The prefix has only partially reached the supplied IO. Make the
+            // writer ready again, but do not poll setup until its deadline expires.
+            assert_eq!(peer.read_u8().await.unwrap(), b'p');
+            tokio::time::advance(Duration::from_millis(100)).await;
+            let result = handshake.await;
+            assert!(matches!(result, Err(error) if error.kind() == io::ErrorKind::TimedOut));
+            let mut late_bytes = Vec::new();
+            peer.read_to_end(&mut late_bytes).await.unwrap();
+            assert!(
+                late_bytes.is_empty(),
+                "expired setup resumed a partial write"
+            );
+        }
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test(start_paused = true)]
+async fn established_httpupgrade_io_outlives_its_setup_deadline() {
+    #[cfg(feature = "interop-test")]
+    let _case = vcore::resources::case_events::Case::new("HTTPUPGRADE-UNIT", "established_io");
+    for fast in [false, true] {
+        let (io, mut peer) = tokio::io::duplex(4096);
+        peer.write_all(b"HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\ntail")
+            .await
+            .unwrap();
+        let mut stream = connect_websocket(
+            Box::new(io),
+            &options(fast),
+            b"prefix",
+            Instant::now() + Duration::from_millis(100),
+        )
+        .await
+        .unwrap();
+        head(&mut peer).await;
+        let mut prefix = [0; 6];
+        peer.read_exact(&mut prefix).await.unwrap();
+        assert_eq!(&prefix, b"prefix");
+
+        tokio::time::advance(Duration::from_secs(1)).await;
+        let mut tail = [0; 4];
+        stream.read_exact(&mut tail).await.unwrap();
+        assert_eq!(&tail, b"tail");
+        stream.write_all(b"upload").await.unwrap();
+        stream.flush().await.unwrap();
+        stream.shutdown().await.unwrap();
+        let mut uploaded = Vec::new();
+        peer.read_to_end(&mut uploaded).await.unwrap();
+        assert_eq!(uploaded, b"upload");
+        peer.write_all(b"download").await.unwrap();
+        peer.shutdown().await.unwrap();
+        let mut downloaded = Vec::new();
+        stream.read_to_end(&mut downloaded).await.unwrap();
+        assert_eq!(downloaded, b"download");
+    }
+}

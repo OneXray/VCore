@@ -44,7 +44,8 @@ protocol_security、protocol_integration；事件标签与报告采用同一套�
   双 UDP wire、分片/重组、关联 ID 退役、窗口/credit、Heartbeat 和 Stop；tuic suite
   验官方 Mihomo 数据与身份负例、独立上游容器、嵌套组/重建/测速，并回归 HY2/H3。
 - httpupgrade_config/httpupgrade_memory：类型化普通/fast-open、ED 边界、严格 101、
-  部分写、首包恰好一次和原期限；httpupgrade suite 另验 VMess/Trojan 真实消费者、
+  部分写、首包恰好一次和原期限；等待后的就绪响应/写入不能越过期限，已建连接不受限。
+  httpupgrade suite 另验 VMess/Trojan 真实消费者、
   UDP、Mihomo 关闭对照、命名 TLS 模板及既有 Upgrade/WS/其他传输。
 - vless_public::integration：64 个基础有序两跳与 SS v3/UoT/TUIC 强耦合链、公开入站/
   合成 TUN、DNS/测速和旧连接组快照；100 次生命周期、100 轮混合重建、1800 秒长测。

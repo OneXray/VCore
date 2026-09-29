@@ -17,6 +17,9 @@ UNIT = (
     "invalid_response",
     "deadline_cancel",
     "expired_deadline",
+    "late_response",
+    "late_write",
+    "established_io",
 )
 REGRESSION = {
     "VLESS": [
