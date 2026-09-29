@@ -11,6 +11,8 @@ mod anytls;
 mod connector;
 #[cfg(feature = "outbound-shadowsocks")]
 mod shadowsocks;
+#[cfg(any(feature = "outbound-anytls", feature = "outbound-shadowsocks"))]
+mod uot;
 #[cfg(feature = "outbound-shadowsocks")]
 pub use shadowsocks::ShadowsocksOutbound;
 mod direct;
@@ -51,6 +53,9 @@ pub mod hysteria2;
     feature = "outbound-trojan",
     feature = "outbound-vmess",
     feature = "outbound-vless",
-    feature = "outbound-hysteria2"
+    feature = "outbound-hysteria2",
+    feature = "outbound-tuic"
 ))]
 mod owned_stream;
+#[cfg(feature = "outbound-tuic")]
+pub mod tuic;

@@ -19,6 +19,7 @@ def envelope(report, peers, source, digest, *, single=None):
         "XR": "XTLS/Xray-core",
         "V2": "v2fly/v2ray-core",
         "SS": "shadowsocks/shadowsocks-rust",
+        "ST": "ihciah/shadow-tls",
         "H": "HyNetworks/hysteria",
     }
     return bool(
@@ -113,8 +114,10 @@ def runtime_pass(identifier, record, directory):
                 "vmess",
                 "vless",
                 "hysteria2",
+                "tuic",
             ],
             source_and_oversize_isolated=protocols,
+            tuic_transmit_budget=dict(limit=128, rejected=129, following_roundtrip=128),
             cancel_preserves_sibling=protocols,
             no_origin_bytes=True,
             stop_idle=True,

@@ -4,9 +4,11 @@
   English · <a href="./readme/README.zh_CN.md">简体中文</a> · <a href="./readme/README.ru.md">Русский</a>
 </p>
 
-VCore is a standalone, host-agnostic Rust client proxy core. It provides proxy graphs, static `select` proxy groups, DNS, routing rules, GeoData, HTTP/SOCKS5 listeners, a TUN data plane, and a loopback Controller through strict YAML configuration and Invoke API v5. The internal configuration schema revision is 27; the revision appears only in the `version` response and `buildIdentity`, not in YAML.
+VCore is a standalone, host-agnostic Rust client proxy core. It provides proxy graphs, static `select` proxy groups, DNS, routing rules, GeoData, HTTP/SOCKS5 listeners, a TUN data plane, and a loopback Controller through strict YAML configuration and Invoke API v5. The internal configuration schema revision is 31; the revision appears only in the `version` response and `buildIdentity`, not in YAML.
 
 ## Features
+
+SS2022 additionally supports [strict ShadowTLS v3](docs/outbounds.md#shadowtls-v3) TCP wrapping and UoT v2; native UDP remains separate. [TUIC v5](docs/outbounds.md#tuic-v5) supports TCP and native/quic UDP over controlled QUIC.
 
 - Outbounds: [VLESS TCP/WS/gRPC/HTTP/H2/XHTTP, TLS/REALITY and Vision](docs/vless.md), SOCKS5 CONNECT/UDP ASSOCIATE, AnyTLS TCP/UoT, Shadowsocks 2022, [Trojan TCP/UDP over TLS/WS/gRPC](docs/outbounds.md#trojan), [VMess AEAD over TCP/WS/gRPC/HTTP/H2](docs/outbounds.md#vmess-aead), [Hysteria2 TCP/UDP, bandwidth, Salamander and port hopping](docs/outbounds.md#hysteria2), and DIRECT. SS supports three standard 2022 algorithms and AES identity chains; see its [upstream risks and acceptance boundaries](docs/outbounds.md#shadowsocks-2022).
 - Proxy chains: `dialer-proxy` forms a directed acyclic graph of arbitrary length. If node A points to B, the physical path is `client -> B -> A -> target`.

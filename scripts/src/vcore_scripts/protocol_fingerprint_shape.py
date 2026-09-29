@@ -178,9 +178,10 @@ def check_warm_captures(rows):
 
 
 def run(output):
-    if output.parent != CORE_DIR / "target/interop/runs":
-        raise ValueError("use a fresh directory directly under target/interop/runs")
-    output.mkdir(exist_ok=False)
+    output = output.resolve()
+    if not output.is_relative_to((CORE_DIR / "target/interop/runs").resolve()):
+        raise ValueError("use a fresh directory under target/interop/runs")
+    output.mkdir(parents=True, exist_ok=False)
     report = dict(
         stage="FINGERPRINT-WIRE",
         scope="memory-clienthello-structure",

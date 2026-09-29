@@ -25,6 +25,10 @@ SUITES = {
     "HYSTERIA2": ("tcp", "udp", "bandwidth", "salamander", "hopping", "acceptance"),
     "SECURITY": ("encryption", "reality", "ech", "jls", "acceptance"),
     "INTEGRATION": ("routing", "lifecycle", "pressure", "regression"),
+    "SHADOWTLS": ("configuration", "stream", "interop", "regression"),
+    "UOT": ("configuration", "datagrams", "interop", "regression"),
+    "TUIC": ("configuration", "datagrams", "interop", "regression"),
+    "HTTPUPGRADE": ("configuration", "stream", "interop", "regression"),
 }
 CATEGORIES = {
     f"{suite}.{category}"

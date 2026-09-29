@@ -4,6 +4,114 @@
   "scope": "FOUNDATIONS shared foundations through INTEGRATION integration; per-object bounds, not global admission caps",
   "limits": [
     {
+      "id": "tuic-fin-grace",
+      "value": 5,
+      "unit": "seconds",
+      "owner": "limits::TUIC_FIN_GRACE_SECONDS",
+      "saturation": "retain TCP send ownership until FIN acknowledgement or bounded grace before retiring the physical connection",
+      "cancellation": "node Stop cancels and joins the owned FIN waiter without waiting out the grace",
+      "boundary_cases": ["TUIC-MEMORY"]
+    },
+    {
+      "id": "tuic-quic-payload",
+      "value": 1400,
+      "unit": "bytes",
+      "owner": "limits::TUIC_QUIC_PAYLOAD",
+      "saturation": "cap endpoint payload at path budget; reject either direction below 1200",
+      "cancellation": "node Stop cancels and joins all owned QUIC, parser, heartbeat and upstream tasks",
+      "boundary_cases": [
+        "TUIC-MEMORY"
+      ]
+    },
+    {
+      "id": "tuic-uni-streams",
+      "value": 32,
+      "unit": "streams",
+      "owner": "limits::TUIC_UNI_STREAMS",
+      "saturation": "withhold incoming credit and expire partial parsers after five seconds",
+      "cancellation": "node Stop cancels and joins all owned QUIC, parser, heartbeat and upstream tasks",
+      "boundary_cases": [
+        "TUIC-MEMORY"
+      ]
+    },
+    {
+      "id": "tuic-stream-window",
+      "value": 262144,
+      "unit": "bytes",
+      "owner": "limits::TUIC_STREAM_WINDOW",
+      "saturation": "QUIC receive flow control applies backpressure to unread logical streams",
+      "cancellation": "node Stop cancels and joins all owned QUIC, parser, heartbeat and upstream tasks",
+      "boundary_cases": [
+        "TUIC-MEMORY"
+      ]
+    },
+    {
+      "id": "tuic-connection-window",
+      "value": 1048576,
+      "unit": "bytes-per-direction",
+      "owner": "limits::TUIC_CONNECTION_WINDOW",
+      "saturation": "bound QUIC receive credit and unacknowledged send buffering per connection",
+      "cancellation": "node Stop cancels and joins all owned QUIC, parser, heartbeat and upstream tasks",
+      "boundary_cases": [
+        "TUIC-MEMORY"
+      ]
+    },
+    {
+      "id": "tuic-datagram-buffer",
+      "value": 262144,
+      "unit": "bytes-per-direction",
+      "owner": "limits::TUIC_DATAGRAM_BUFFER",
+      "saturation": "bounded Quinn DATAGRAM receive queue; send_datagram_wait applies backpressure",
+      "cancellation": "node Stop cancels and joins all owned QUIC, parser, heartbeat and upstream tasks",
+      "boundary_cases": [
+        "TUIC-MEMORY"
+      ]
+    },
+    {
+      "id": "tuic-udp-queue",
+      "value": 32,
+      "unit": "packets",
+      "owner": "limits::TUIC_UDP_QUEUE",
+      "saturation": "drop complete overflow packets without blocking sibling traffic",
+      "cancellation": "node Stop cancels and joins all owned QUIC, parser, heartbeat and upstream tasks",
+      "boundary_cases": [
+        "TUIC-MEMORY"
+      ]
+    },
+    {
+      "id": "tuic-pending-packets",
+      "value": 64,
+      "unit": "packets-per-association",
+      "owner": "limits::TUIC_PENDING_PACKETS",
+      "saturation": "drop new partial packets when all pending slots are occupied",
+      "cancellation": "node Stop cancels and joins all owned QUIC, parser, heartbeat and upstream tasks",
+      "boundary_cases": [
+        "TUIC-MEMORY"
+      ]
+    },
+    {
+      "id": "tuic-pending-bytes",
+      "value": 262144,
+      "unit": "payload-bytes-per-association",
+      "owner": "limits::TUIC_PENDING_BYTES",
+      "saturation": "drop partial packet whose fragments exceed owner or caller budget",
+      "cancellation": "node Stop cancels and joins all owned QUIC, parser, heartbeat and upstream tasks",
+      "boundary_cases": [
+        "TUIC-MEMORY"
+      ]
+    },
+    {
+      "id": "tuic-fragment-ttl",
+      "value": 5,
+      "unit": "seconds",
+      "owner": "limits::TUIC_FRAGMENT_TTL_SECONDS",
+      "saturation": "discard expired incomplete packets without retaining completed packet IDs",
+      "cancellation": "node Stop cancels and joins all owned QUIC, parser, heartbeat and upstream tasks",
+      "boundary_cases": [
+        "TUIC-MEMORY"
+      ]
+    },
+    {
       "id": "shadowsocks-write-chunk",
       "value": 16384,
       "unit": "retained-plaintext-bytes-per-stream",

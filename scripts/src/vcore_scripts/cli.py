@@ -82,6 +82,12 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="probe real download-leg client-identity enforcement only",
     )
+    peers = checks.add_parser(
+        "protocol-peers",
+        help="verify isolated official peer capabilities, not VCore acceptance",
+    )
+    peers.add_argument("--run-dir", type=Path, required=True)
+    peers.add_argument("--case", dest="identifiers", action="append")
     gateway = checks.add_parser(
         "xhttp-gateway",
         help="build xcaddy and test isolated H3/mTLS native topology",
@@ -127,6 +133,7 @@ def _parser() -> argparse.ArgumentParser:
             "vmess",
             "vless",
             "hysteria2",
+            "tuic",
         ],
     )
     modes = protocol.add_mutually_exclusive_group()
@@ -182,6 +189,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 from .protocol_xhttp_peers import main as xhttp_peers
 
                 return xhttp_peers(args.run_dir, identities_only=args.identities_only)
+            elif args.check == "protocol-peers":
+                from .protocol_completion_peers import run
+
+                run(args.run_dir, identifiers=args.identifiers)
             elif args.check == "xhttp-gateway":
                 from .protocol_xhttp_gateway import main as xhttp_gateway
 

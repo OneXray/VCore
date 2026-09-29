@@ -87,6 +87,8 @@ fn config(cipher: ShadowsocksCipher) -> ShadowsocksOutboundConfig {
         port: 12345,
         cipher,
         password: STANDARD.encode(vec![7; cipher.key_len()]),
+        shadow_tls: None,
+        udp_over_tcp: false,
     }
 }
 

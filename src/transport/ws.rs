@@ -1,4 +1,5 @@
 use std::{
+    future::{Future, poll_fn},
     io,
     pin::Pin,
     sync::{
@@ -46,6 +47,7 @@ pub struct WebSocketOptions {
     uri: http::Uri,
     headers: http::HeaderMap,
     early_data: Option<WebSocketEarlyData>,
+    http_upgrade: Option<bool>,
 }
 
 impl std::fmt::Debug for WebSocketOptions {
@@ -120,7 +122,20 @@ impl WebSocketOptions {
             uri,
             headers,
             early_data,
+            http_upgrade: None,
         })
+    }
+
+    /// Select raw HTTPUpgrade on the same supplied IO and initial-data seam.
+    /// Unlike framed WS, only the standard early-data header is meaningful.
+    pub fn with_http_upgrade(mut self, fast_open: bool) -> io::Result<Self> {
+        if self.early_data.as_ref().is_some_and(|early| {
+            !matches!(early, WebSocketEarlyData::Header { name, .. } if name == "sec-websocket-protocol")
+        }) {
+            return Err(invalid_options());
+        }
+        self.http_upgrade = Some(fast_open);
+        Ok(self)
     }
 }
 
@@ -151,6 +166,9 @@ pub async fn connect_websocket(
     initial_data: &[u8],
     deadline: Instant,
 ) -> io::Result<BoxStream> {
+    if let Some(fast_open) = options.http_upgrade {
+        return http_upgrade(stream, options, initial_data, fast_open, deadline).await;
+    }
     timeout_at(deadline, connect_inner(stream, options, initial_data))
         .await
         .map_err(|_| io::Error::from(io::ErrorKind::TimedOut))?
@@ -176,7 +194,7 @@ pub async fn http_upgrade(
     fast_open: bool,
     deadline: Instant,
 ) -> io::Result<BoxStream> {
-    timeout_at(deadline, async move {
+    let handshake = async move {
         let mut headers = options.headers.clone();
         let mut early = 0;
         if let Some(ed) = &options.early_data {
@@ -260,7 +278,24 @@ pub async fn http_upgrade(
             stream,
             tail: tail.into(),
         }) as BoxStream)
-    })
+    };
+    tokio::pin!(handshake);
+    // timeout_at polls ready IO before its timer. Check every handshake poll,
+    // including resumes after Pending, before any further read/write or success.
+    // The returned stream has no setup timer, so established IO stays unrestricted.
+    timeout_at(
+        deadline,
+        poll_fn(|cx| {
+            if Instant::now() >= deadline {
+                return Poll::Ready(Err(io::ErrorKind::TimedOut.into()));
+            }
+            let result = ready!(handshake.as_mut().poll(cx));
+            if Instant::now() >= deadline {
+                return Poll::Ready(Err(io::ErrorKind::TimedOut.into()));
+            }
+            Poll::Ready(result)
+        }),
+    )
     .await
     .map_err(|_| io::Error::from(io::ErrorKind::TimedOut))?
 }

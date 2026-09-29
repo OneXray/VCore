@@ -55,7 +55,8 @@ begin_shutdown 同步禁止新流、清空空闲并取消所有会话；shutdown
 
 ## Trojan
 
-固定 TLS，network 为 tcp/标准 ws/grpc，默认 tcp。密码为非空原始 UTF-8，不 trim，
+固定 TLS，network 为 tcp/ws/grpc，默认 tcp。ws 可选标准 WebSocket 或 HTTPUpgrade。
+密码为非空原始 UTF-8，不 trim，
 认证为 SHA-224 小写十六进制。无认证 ACK：本地建链成功不代表密码通过，负例须检查
 原站零业务字节。
 
@@ -65,6 +66,14 @@ WS http/1.1、gRPC h2，显式列表及实际协商均须满足传输，不能�
 WS path 默认 /，可带 query；头字段不得覆盖握手保留头或大小写重复。early-data
 0–2048 字节，启用时默认 Sec-WebSocket-Protocol，可自定义；空头名表示路径后缀，
 此时禁止 query。禁用时不能附 ED 头名。首请求头与剩余数据只按序发送一次。
+`ws-opts.v2ray-http-upgrade:true` 使用原始 HTTPUpgrade 流，不发送 WebSocket 帧。
+普通模式在有效 101 后发送剩余认证前缀；`v2ray-http-upgrade-fast-open:true` 提前
+发送该前缀，但仍须在原建链期限内收到有效 101 才返回成功。握手每次从等待恢复时
+先复核原期限，即使响应或写入已就绪也不能绕过；建立后的读写不再受该期限限制。
+fast-open 需要 upgrade。
+Upgrade 的 ED 仅允许默认 Sec-WebSocket-Protocol 头（大小写不敏感），不支持
+自定义头或路径 ED。101/头限额/截断失败不重放前缀，响应头后的字节保留给协议。
+这些选项同样适用于 VMess 的明文和标准 TLS；不改变各协议认证、UDP 编码或关闭责任。
 gRPC service-name 必填，普通名映射 /name/Tun，以 / 开头则为完整路径；不开放池参数。
 
 TCP 保留半关闭；gRPC duplex 发送 END_STREAM，不用 RST_STREAM 提前结束读侧。
@@ -72,6 +81,9 @@ UDP 使用同一已认证流上的地址/长度/CRLF 帧，无额外 socket/读�
 payload 最多 8192 字节，待解析最多 8455 字节，并与调用方收发预算分别取交集。
 非法/截断帧关闭，合法超接收预算整包丢弃；取消读取保留进度，部分发送取消使关联失效。
 运行时先取消并 join 入站所有者，再等待节点 gRPC 驱动。
+Mihomo 的 Trojan listener 仅支持 IP 形式的 UDP 目标；域名互通另用原生 Xray。
+Mihomo IP 路径可传空包；Xray 不转发空包，且域名回复的 8192 字节总帧预算需扣除
+地址和帧头。这些是对端限制，不降低 VCore 的独立帧解析上限。
 
 ## VMess AEAD
 
@@ -84,7 +96,7 @@ network 默认 tcp，另支持 ws/grpc/http/h2；均可明文或标准 TLS。tls
 关闭时禁止 TLS 字段，即便空串、空列表或 false。认证名依次为 servername、WS Host
 去端口、server；HTTP 伪装 Host/H2 authority 不替代认证名。WS 需 http/1.1，gRPC/H2 需 h2。
 
-- WS ED/路径/头约束同 Trojan。
+- WS ED/路径/头及 HTTPUpgrade 普通/fast-open 约束同 Trojan。
 - gRPC service-name 必填，普通名/完整路径规则同 Trojan，无额外池调度器。
 - http 是 TCP 首包伪装：method 默认 GET，path 列表省略/空为 /，按 URL.Path 转义；
   头为字符串列表，每次握手独立选择路径/头值，Host 默认物理 server authority。
@@ -106,6 +118,7 @@ UDP packet-encoding 默认空串（raw），外层仍 TCP：
 UDP body 最多 15,000 字节；packetaddr 另扣 IPv4 7 / IPv6 19 字节，未解析域名按 19
 预检；超限一字节即写前失败，不拆业务包。对端可能更小，V2Ray 部分返回路径总缓冲
 仅 2048 字节，不能当作 VCore 上限。body wire 解析最多 16 KiB，响应头/XUDP 元数据有界。
+三种 UDP 编码均不接受零长度业务包；HTTPUpgrade 不改变这个边界。
 TCP 写块最多 4 KiB 以适配 Mihomo 拷贝边界；UDP 不按此切块。16 位帧计数耗尽前关闭，
 不重复 nonce。半帧发送取消关闭，接收取消保留进度；认证/地址/标签错误使关联失效。
 gRPC/H2 driver 由节点跟踪并同步退出，无全局会话额度或历史表。
@@ -151,6 +164,43 @@ pacer；这是混淆不是认证，错误密钥由 QUIC 拒绝，短包有界丢
 官方 Hysteria 已验证版本的 4096 字节回包缓冲包含头，更大回包可能在分片前丢弃。
 原生测试记录实际版本和限制，VCore 完整 4096 字节另对 Mihomo 验证，不修改第三方。
 
+## TUIC v5
+
+固定 QUIC/TLS 1.3，复用官方 Quinn、rustls/ring 与共享受控数据报适配器。
+仅 v5；必填标准 UUID 与原样 UTF-8 password，后者可空、最长 65,535 字节。
+SNI 缺省 server，ALPN 缺省 h3；显式空列表拒绝，非空有序列表必须实际协商命中。
+使用共享 pin/skip/独立验证名；无命名 TCP 指纹、mTLS、ECH、0-RTT 或跨节点恢复。
+拥塞使用官方 Quinn cubic（默认）、new_reno 或 bbr，不承诺与其他实现的吞吐相同。
+
+认证使用当前真实 TLS 会话 exporter，UUID 为 label，原样 password 为 context。
+Authenticate 与 Connect 没有成功 ACK；本地 open 成功不是密码通过证明，错误身份
+必须由最终拒绝和原站零业务验证。Connect 为双向 QUIC 流，不引入 HTTP/3 请求。
+流关闭结束该逻辑双向通道，与 Mihomo 对齐，不影响兄弟流。
+
+业务 udp 默认 false，但外层 QUIC 始终需要有效双向至少 1200 字节的数据报路径。
+未开放 DATAGRAM、预算不足、protect 失败或只支持 TCP 的上游均失败，不回退 TCP
+或 DIRECT。`udp` 业务路由开关不替代上游实际数据报能力和预算检查。
+SS UoT、AnyTLS 与支持 UDP ASSOCIATE 的 SOCKS5 可作为上游；组快照绑定物理会话。
+
+`udp-relay-mode` 为 native（默认）或 quic。native 使用 DATAGRAM，按实际容量拆为
+最多 255 片；quic 每包使用一条单向流，不受单 DATAGRAM MTU 限制，也不是 UoT。
+两者逐包携带 IPv4/IPv6/域名，业务负载取 u16 和调用方双向预算交集，超限不截断。
+未知关联不分配状态；每关联最多 64 个未完成包、256 KiB 分片负载、TTL 5 秒和
+32 项完成包交付队列。重复相同片忽略、冲突片丢弃；完成后释放 Packet ID，可回绕，
+不做业务去重。发送过的关联关闭时发送有界 Dissociate，未发包关闭不创建对端状态。
+
+每节点按需共享物理会话，流 credit 等待沿用调用方原期限。关联 ID 在同一物理会话
+不重用；65,536 个 ID 用尽后新业务新建会话，旧流继续，最后一个旧所有者退出即回收。
+TCP shutdown 立即完成逻辑关闭，发送所有权保留到 FIN/数据确认或最多 5 秒，防止
+退役池提前丢弃已接受的末尾上传；该等待归节点所有，Stop 直接取消并 join。
+切组不迁移已有池；故障后只有新业务可创建新池，已发送业务不自动重放。
+
+每流接收窗口 256 KiB，连接收发各 1 MiB，DATAGRAM 收发各 256 KiB；最多 32 条
+入站单向控制流，半条控制流最长 5 秒；拒绝服务端主动双向流。QUIC payload 最大
+1400 并取路径预算交集，PMTUD 关闭。保活/Heartbeat 每 10 秒，空闲 30 秒；两种
+UDP 模式的 Heartbeat 均用 DATAGRAM。Stop 等待认证、收发、重组、心跳及上游释放，
+关闭交换最多一秒；这些都是局部结构限制，不是全局业务会话额度。
+
 ## Shadowsocks 2022
 
 原样复用官方 shadowsocks-rust，仅三算法：
@@ -164,11 +214,53 @@ pacer；这是混淆不是认证，错误密钥由 QUIC 拒绝，短包有界丢
 标准 Base64 可省末尾 padding；空段/非法编码/长度错误拒绝，凭据不 trim。
 官方库只包装已有 TCP 流，UDP codec 单包有界交接，不调用其 socket 工厂。
 
-- TCP 每次最多交付 16 KiB；读或关闭先于首次写时，完成并刷新官方空首写以支持
-  server-first/半关闭。Pending 继续同次握手，已有首写不重复目标头。
+### ShadowTLS v3
+
+SS 三算法的 TCP 可配置 `plugin: shadow-tls` 与完整 `plugin-opts`，不是新的代理类型。
+仅整数 version 3，始终 strict/TLS 1.3；不提供 v1/v2、弱认证或版本回退。
+host 为独立 cover DNS 名/IP，不参与拨号或业务解析；password 保留原始 UTF-8。
+ALPN 缺省 `[h2, http/1.1]`、空列表不发送；共享 pin/skip/name-cert-verify 与
+节点 client-fingerprint 只影响 cover，不能替代 ShadowTLS 密码。
+
+顺序为受控上游流 → 原生完整 TLS 握手与 relay 认证 → v3 记录流 → 官方 SS2022。
+借用原建链期限、取消和组快照，握手失败不发送 SS 目标或业务；pin/skip 不绕过
+CertificateVerify 或 Finished。独立 TLS 策略，不恢复 cover 会话。
+记录增量认证、未认证内容不交付；每次写最多 16 KiB，背压最多保留一条记录。
+flush 排空，关闭最多五秒，不在已切换的 SS 通道中发送 TLS close_notify。
+
+原生 SS UDP 仍走独立受控 UDP 路径，**不经过 ShadowTLS**；TCP-only v3 服务端不会
+自动得到 UDP 或 UoT。裸 SS 拒绝 client-fingerprint。默认与 TUN 构建启用
+shadow-tls-v3，精简构建可单独移除；无 feature 的插件配置在 IO 前拒绝。
+v3 的额外四字节记录特征仍存在，完整认证和互通不等于不可识别。
+
+### UDP over TCP v2
+
+`udp-over-tcp` 默认 false；true 要求 `udp: true`，三算法均可用于裸 SS 或
+ShadowTLS v3。开启时 `udp-over-tcp-version` 省略或整数 2 均固定使用 v2；
+关闭时不得提供版本，不支持 v1、协商或原生 UDP 降级。无 SS feature 在 IO 前拒绝。
+
+每个关联独占一条既有 SS TCP 路径，支持 TCP-only SOCKS5 上游与 select 组。
+目标固定为 `sp.v2.udp-over-tcp.arpa:0`；v2 non-connect 请求只发送一次，之后每包
+携带地址和 u16 长度。业务域名先经过受控 `ResolutionContext` 转为 IP，magic 不参与
+DNS 或路由。AnyTLS 复用同一有界 codec，但保留自己的域名与会话/FIN 所有权。
+
+SS 首包写入并 flush 成功前阻止后台读取；零长度 UDP 仍有非空 UoT 帧。
+延迟首包沿用原建链 deadline，成功建立后的业务不再使用旧期限。未发包关闭直接释放
+底层 IO，不触发官方空 SS 握手；半帧写取消使关联失效，不重发。每关联最多一个读取
+任务、一个排队响应及一个正在解析/等待入队的响应；接收取消不丢 parser 状态，超接收
+预算完整排空该包再读下一包。Stop 取消并等待读任务，释放流；不跨关联池化。
+
+编码负载上限为 65,535 字节，发送/接收各自受调用方预算约束。当前官方 Mihomo
+UoT 对端使用 16 KiB 接收缓冲；容器数据验收覆盖该实际边界与多一字节负例，不将
+内存中的 u16 上限宣称为端到端 UDP 能力。原样 ssserver 不支持 UoT，仅作拒绝负例。
+
+### 共享 SS 流与数据报行为
+
+- TCP 每次最多交付 16 KiB；读或关闭先于首次写时，完成并刷新官方空首写，
+  但受下述空首包限制影响，不承诺可靠 server-first。Pending 继续同次握手，已有首写不重复目标头。
 - 背压适配最多暂存一个 16 KiB 原文块并立即报告接受；后续保持同缓冲完成写入，
   避免官方重试长度误计。flush/关闭排空，读取也推进待写但不被写背压阻塞。
-- UDP 取消前预留 packet ID，底层实际发送后才成功；Pending 不重编码，无后台发送队列。
+- 原生 UDP 取消前预留 packet ID，底层实际发送后才成功；Pending 不重编码，无后台发送队列。
   接收验证来源、认证、关联与完整负载，外层 wire 最大 65,507。
 - 每关联随机 client session ID、递增 packet ID，最多两个 server session 的 8128 包
   重放窗口；旧 session 一分钟仍有有效包时不替换，ID 将溢出时换 client ID 并清空窗口。
@@ -183,8 +275,11 @@ shadowsocks-crypto 链使用，TLS/REALITY 不消费它，详见[TLS 依赖](tls
 **已知风险：**原样上游空 TCP 首写/空 UDP padding 路径扩展长度而未显式初始化，
 存在把残留缓冲传给可解密对端的风险；普通 echo 或自有背压修复不代表此风险已解决。
 官方空 TCP 首写还可能随机生成零 padding，被其严格服务端拒绝；VCore 不修改或重试
-该上游行为。内存回归分别验证适配器刷新与确定性的零 padding 拒绝，不将 codec
-级回复算作 server-first 互通通过。
+该上游行为。裸 SS、EIH 和外包 ShadowTLS v3 的 TCP 均受影响；入站转发先轮询读取时，
+即使业务计划随后发送请求，也可能触发空首写。TCP 数据验收使用已提交非空首段的
+client-first 路径，server-first/空首包列为已知限制，不计成功；其他协议的 server-first
+要求不变。内存回归分别验证适配器刷新与确定性的零 padding 拒绝，不将 codec
+级回复算作 server-first 互通通过。SS UoT 的非空请求帧与专用读取门控独立验证。
 首次固定头不够单次读取时，上游按探测防护拒绝，不改成 read_exact。
 Mihomo 仅提供单 PSK；原样 ssserver 验证 AES 单层 EIH 多用户 TCP/UDP 终结及错误身份。
 MTU1500 大包夹具显式启用官方双向 IP 分片。自有 1/2 层身份中继不是原生任意多层证明。

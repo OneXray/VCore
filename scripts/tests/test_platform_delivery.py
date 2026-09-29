@@ -182,7 +182,7 @@ class PlatformDeliveryTest(unittest.TestCase):
             artifacts = []
             identity = (
                 "VCore;engine=rust;coreVersion=0.1.0;"
-                "invokeApiVersion=5;configVersion=27"
+                "invokeApiVersion=5;configVersion=31"
             )
             for abi, machine in [("arm64-v8a", 183), ("x86_64", 62)]:
                 for name in ("libvcore.so", "libc++_shared.so"):
@@ -228,6 +228,8 @@ class PlatformDeliveryTest(unittest.TestCase):
                     "outbound-vmess",
                     "outbound-vless",
                     "outbound-hysteria2",
+                    "outbound-tuic",
+                    "shadow-tls-v3",
                 ],
                 "host": {"os": "Linux", "architecture": "x86_64"},
                 "toolchain": {

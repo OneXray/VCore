@@ -62,6 +62,11 @@ def _download_native(
         )
         target = f"{platform.system().lower()}-{architecture}"
     assets = {
+        "ST": (
+            "ihciah/shadow-tls",
+            "shadow-tls",
+            {"linux-arm64": "shadow-tls-aarch64-unknown-linux-musl"},
+        ),
         "SS": (
             "shadowsocks/shadowsocks-rust",
             "ssserver",
@@ -136,7 +141,7 @@ def _download_native(
         ):
             _https_response(response)
             archive_hash = _copy_and_hash(response, output, MAX_ARCHIVE_BYTES)
-        if kind == "H":
+        if kind in {"H", "ST"}:
             with archive.open("rb") as source, executable.open("wb") as output:
                 binary_hash = _copy_and_hash(source, output, MAX_BINARY_BYTES)
         elif kind == "SS":
@@ -149,7 +154,7 @@ def _download_native(
         version = None
         if not defer_version:
             result = run_command(
-                [str(executable), "--version" if kind == "SS" else "version"],
+                [str(executable), "--version" if kind in {"SS", "ST"} else "version"],
                 timeout=10,
                 limit=4096,
             )

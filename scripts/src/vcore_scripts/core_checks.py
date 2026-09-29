@@ -14,7 +14,16 @@ from .protocol_peers import run_command
 FEATURE_TEST = (
     "runtime::tests::integration_feature_admission_is_explicit_without_opening_sockets"
 )
-PROTOCOLS = ("socks5", "anytls", "shadowsocks", "trojan", "vmess", "vless", "hysteria2")
+PROTOCOLS = (
+    "socks5",
+    "anytls",
+    "shadowsocks",
+    "trojan",
+    "vmess",
+    "vless",
+    "hysteria2",
+    "tuic",
+)
 TARGETS = (
     "ech_config",
     "ech_tls",
@@ -39,7 +48,16 @@ TARGETS = (
     "hysteria2_paths",
     "hysteria2_config",
     "shadowsocks_backpressure",
+    "shadowtls_config",
+    "shadowtls_stream",
+    "uot_config",
+    "shadowsocks_uot",
     "hysteria2_packet_ids",
+    "tuic_config",
+    "tuic_memory",
+    "httpupgrade_config",
+    "httpupgrade_memory",
+    "vmess_lifecycle",
 )
 LIB_FILTERS = (
     "security::",
@@ -48,6 +66,8 @@ LIB_FILTERS = (
     "outbound::hysteria2::",
     "outbound::shadowsocks::tests::official_tcp_",
     "outbound::anytls::",
+    "outbound::uot::",
+    "outbound::tuic::",
     "transport::h2_write::tests::",
     "transport::sing_mux::smux_driver::tests::",
     "transport::sing_mux::tests::",
@@ -91,6 +111,7 @@ def commands(profile: str) -> list[list[str]]:
                     *features,
                     "stream-transport",
                     "quic-transport",
+                    "shadow-tls-v3",
                     "tun",
                     "ffi",
                 ]

@@ -90,7 +90,7 @@ pub(super) fn entrypoints(f: &Value) {
     let mut client = socket((Ipv4Addr::LOCALHOST, port).into());
     write!(
         client,
-        "CONNECT {} HTTP/1.1\r\nHost: {}\r\n\r\n",
+        "CONNECT {} HTTP/1.1\r\nHost: {}\r\n\r\nhttp-connect",
         origin.target, origin.target
     )
     .unwrap();
@@ -102,7 +102,9 @@ pub(super) fn entrypoints(f: &Value) {
         assert!(header.len() < 4096);
     }
     assert!(header.starts_with(b"HTTP/1.1 200"));
-    exchange(&mut client, b"http-connect");
+    let mut response = [0; 12];
+    client.read_exact(&mut response).unwrap();
+    assert_eq!(&response, b"http-connect");
     origin.marker(b'A');
     core.stop();
     assert_closed(&mut client);
@@ -182,8 +184,10 @@ pub(super) fn assert_closed(client: &mut TcpStream) {
 }
 pub(super) fn live(port: u16, f: &Value) -> (TcpStream, Origin) {
     let mut origin = Origin::new(f, 13, false);
-    let mut client = connect(port, origin.target, false);
-    exchange(&mut client, b"live");
+    let mut client = connect_with_initial(port, origin.target, false, b"live");
+    let mut response = [0; 4];
+    client.read_exact(&mut response).unwrap();
+    assert_eq!(&response, b"live");
     origin.marker(b'A');
     (client, origin)
 }

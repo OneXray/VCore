@@ -25,10 +25,39 @@ pub enum TrojanTransport {
         headers: BTreeMap<String, String>,
         max_early_data: u16,
         early_data_header_name: String,
+        handshake: WebSocketHandshake,
     },
     Grpc {
         uri: String,
     },
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum WebSocketHandshake {
+    #[default]
+    WebSocket,
+    HttpUpgrade {
+        fast_open: bool,
+    },
+}
+
+pub(super) fn websocket_handshake(
+    upgrade: bool,
+    fast_open: bool,
+    early_header: Option<&str>,
+) -> Result<WebSocketHandshake> {
+    if (fast_open && !upgrade)
+        || (upgrade
+            && early_header
+                .is_some_and(|name| !name.eq_ignore_ascii_case("Sec-WebSocket-Protocol")))
+    {
+        return invalid("invalid HTTPUpgrade options");
+    }
+    Ok(if upgrade {
+        WebSocketHandshake::HttpUpgrade { fast_open }
+    } else {
+        WebSocketHandshake::WebSocket
+    })
 }
 
 impl std::fmt::Debug for TrojanTransport {
@@ -57,11 +86,19 @@ impl TrojanTransport {
             headers,
             max_early_data,
             early_data_header_name,
+            handshake,
         } = self
         else {
             return Ok(None);
         };
-        websocket_options(uri, headers, *max_early_data, early_data_header_name).map(Some)
+        websocket_options(
+            uri,
+            headers,
+            *max_early_data,
+            early_data_header_name,
+            *handshake,
+        )
+        .map(Some)
     }
 }
 
@@ -71,6 +108,7 @@ pub(super) fn websocket_options(
     headers: &BTreeMap<String, String>,
     max_early_data: u16,
     early_data_header_name: &str,
+    handshake: WebSocketHandshake,
 ) -> std::io::Result<crate::transport::WebSocketOptions> {
     use crate::transport::{WebSocketEarlyData, WebSocketOptions};
     let invalid = || {
@@ -101,11 +139,19 @@ pub(super) fn websocket_options(
             max_bytes: usize::from(max_early_data),
         })
     };
-    WebSocketOptions::new(uri, map, early)
+    let options = WebSocketOptions::new(uri, map, early)?;
+    match handshake {
+        WebSocketHandshake::WebSocket => Ok(options),
+        WebSocketHandshake::HttpUpgrade { fast_open } => options.with_http_upgrade(fast_open),
+    }
 }
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawWebSocket {
+    #[serde(rename = "v2ray-http-upgrade", default)]
+    http_upgrade: bool,
+    #[serde(rename = "v2ray-http-upgrade-fast-open", default)]
+    fast_open: bool,
     #[serde(default, deserialize_with = "deserialize_present_option")]
     path: Option<String>,
     #[serde(default)]
@@ -227,6 +273,11 @@ impl RawTrojan {
                     return invalid("invalid Trojan WebSocket early-data options");
                 }
                 let transport = TrojanTransport::WebSocket {
+                    handshake: websocket_handshake(
+                        ws.http_upgrade,
+                        ws.fast_open,
+                        ws.early_data_header_name.as_deref(),
+                    )?,
                     uri: uri(
                         "wss",
                         &self.server,

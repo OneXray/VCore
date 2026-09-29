@@ -23,7 +23,8 @@
 
 AnyTLS、Trojan、VMess + TLS、VLESS + TLS/REALITY/JLS 使用同一共享连接器。
 TCP、WS、gRPC、HTTP 首包伪装、legacy H2、Vision、XHTTP H1/H2 仍遵守各自的协议约束。
-关闭 TLS 时不能携带该字段。SOCKS5、SS 2022 不接入 TLS 指纹。
+关闭 TLS 时不能携带该字段。SS2022 + ShadowTLS v3 复用上述模板，作用于 cover
+握手并强制 TLS1.3；其未命名握手也由 boring 执行。SOCKS5 和裸 SS 不接入 TLS 指纹。
 
 XHTTP `download-settings.client-fingerprint` 缺省继承主腿，显式名称覆盖，`none` / 空串清除。
 下载腿即使与主腿使用同一服务器，也拥有独立的 TLS 策略、身份和缓存。
@@ -42,7 +43,7 @@ client-fingerprint: chrome
   不再要求公共根、名称或有效期；匹配非叶证书时将其作为信任锚，仍验证叶链、名称和有效期。
   skip 只跳过常规验证，不能覆盖不匹配的 pin；所有策略仍验证握手签名。
 - 未启用指纹的标准 TLS 和 QUIC 使用 crates.io 官方 rustls + ring，不依赖 rustls fork。
-- 命名指纹的标准 TLS，以及所有 REALITY/JLS，使用 release 分支并由 lockfile 锁定的自有 boring fork。
+- 命名指纹的标准 TLS，以及所有 REALITY/JLS，使用自有 boring fork；开发及 PR/发布的来源规则见 [TLS 依赖](tls-dependencies.md)。
 - 普通 TLS 两条路径共用同一个 WebPKI 证书验证器和发布信任根；叶 pin、非叶信任锚、
   独立验证名、skip 优先级不变。TLS 握手签名仍由各自后端强制验证。
 - VLESS mTLS 继续使用配对的内联 PEM，密钥匹配在使用 IO 前检查；profile 不修改身份。

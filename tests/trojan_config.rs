@@ -217,7 +217,7 @@ fn trojan_transport_boundaries_fail_before_runtime_io() {
         json!({"max-early-data":1,"early-data-header-name":null}),
         json!({"max-early-data":1,"early-data-header-name":"x-ed","headers":{"X-ED":"duplicate"}}),
         json!({"max-early-data":1,"early-data-header-name":"","path":"/edge?q=1"}),
-        json!({"v2ray-http-upgrade":true}),
+        json!({"v2ray-http-upgrade":null}),
     ] {
         assert!(
             Config::parse_yaml(&document(json!({"network":"ws","ws-opts":opts.clone()}))).is_err(),

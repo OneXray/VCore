@@ -14,6 +14,7 @@ cargo fmt --all -- --check
 uv run --project scripts --locked ruff check scripts
 uv run --project scripts --locked ruff format --check scripts
 uv run --project scripts --locked vcore-scripts check c-header
+# PR/发布来源门禁；本地 boring path 开发态不执行。
 uv run --project scripts --locked vcore-scripts check tls-dependencies
 ```
 
@@ -44,7 +45,7 @@ uv run --project scripts --locked vcore-scripts check protocol-coverage --suite 
 uv run --project scripts --locked vcore-scripts check protocol-coverage --catalog-only
 ```
 
-可执行容器 suite：vmess、vless、xhttp、hysteria2、security、integration。
+可执行容器 suite：vmess、vless、xhttp、hysteria2、security、integration、shadowtls、uot、tuic、httpupgrade。
 `--case` 可重复、`--protocol` 可筛选；子集只证明实际执行的项目，不能签收整套。
 foundations/trojan 保留基础用例和断言，其旧服务端编排尚未全容器化，不能执行；
 需要 Trojan 互通时用 integration 中的真实容器路径。
@@ -61,6 +62,56 @@ SECURITY-ECH-CHROME；不再提供阶段编号或 --stage 别名。旧报告保�
 每轮新建 target/interop/runs 子目录；不得运行中修改源码。合成凭据/私有日志放临时
 目录并清理，不进入报告。Stop 时和后续静默窗口分别采样；短 tracer 不代替完整长测。
 容器不可用即 BLOCKED，不能退回宿主。完整规则见[测试隔离](../docs/testing-isolation.md)。
+
+shadowtls 包含配置/feature、真实 TLS 内存负例、三算法与五种握手模式、ALPN/HRR、
+记录故障、Stop/测速期限和原生 UDP 分流；主对端为 Mihomo，官方 ShadowTLS +
+原样 ssserver 另作 TCP 对照。裸 SS、共享 TLS/REALITY/JLS、独立指纹 golden 与
+Apple/Android 编译是同轮必需组；不签收 UoT、实机或旧 SS 空首包风险。
+
+uot 验证 SS v2 三算法 × 裸流/v3 的六组合，分别经直连、TCP-only SOCKS5 和
+嵌套 select；覆盖零包、三地址族、交替原站、16 KiB Mihomo 边界/超限和零原生 UDP
+旁路。错误密钥/v3 身份及原样 ssserver 不支持是独立负例。内存检查另验 u16 上限、
+预算、首包门控、DNS、取消与 Stop；AnyTLS、裸 SS、精简 feature 和 Apple/Android
+是同轮必需回归。使用 protocol-interop / check protocol-coverage 的 `--suite uot`。
+
+tuic 覆盖 v5 的双向 TCP、native/quic UDP、三种官方拥塞算法、认证/TLS 负例和
+SOCKS5/SS UoT/AnyTLS 六种上游组合。服务端与上游分容器，避免触发 Mihomo 的
+同进程回环检测；不关闭对端检测或修改其源码。会话重用/重建、嵌套组、node-only 测速、
+回滚与 Stop 独立取证；本轮包含 HY2/H3 共享回归及 Apple/Android 构建。
+内存 u16 上限不当成对端端到端容量，旧七协议压力结果不替代 TUIC 混合压力。
+
+httpupgrade 覆盖 VMess 明文/TLS、Trojan TLS × 普通/fast-open 六种模式；
+包含双向数据、既有 UDP 编码、ED、身份负例、四个命名 TLS 模板及 Mihomo 关闭对照。
+域名 Trojan UDP 用原生 Xray 补验；VMess 与 Xray 的空包限制分别记录，不把超限
+回复截断计为成功。共享配置/内存握手、VLESS Upgrade/WS、其他 VMess/Trojan
+传输、精简 feature 和 Apple/Android 构建均为同轮必需组。
+使用 `protocol-interop` / `protocol-coverage` 的 `--suite httpupgrade`。
+
+integration 保留 64 个八协议有序配对，另加 TUIC 双模式 → SS v3 三算法六条链，
+复跑 UoT 的 TCP-only 上游/嵌套组及 TUIC 上游消费者。公开入站/TUN、DNS/测速、
+回滚和 100 次生命周期与 100 轮 40-flow 重建、1800 秒混合长测属于同一完整门禁。
+TCP 为 SOCKS5/SS v3/TUIC/HTTPUpgrade 各五条，UDP 为 SS UoT/SS UoT+v3/
+TUIC/HTTPUpgrade 各五条，轮换算法与模式；独立核对逐轮实际配置、资源和静默证据。
+Debug/Release、精简 feature、脚本、netstack、HY2 跳端口和共享安全/传输回归同源重跑。
+integration 可在获准的本地 boring 开发态执行，不替代 release 来源审计；PR/交付候选
+仍须切回 release 分支，在干净 checkout 单独通过 `check tls-dependencies` 并重跑集成。
+SS TCP 数据用客户端预先提交的非空首段验证；SS 叶节点的配对记录明确包含
+`server_first:false` 和上游空首包限制，其他叶节点仍须 server-first。此范围调整不
+减小双向数据量、不移除确定性空首包拒绝回归，也不通过重试取得成功。
+
+### 新协议对端能力预检
+
+```sh
+uv run --project scripts --locked vcore-scripts check protocol-peers --run-dir target/interop/runs/<fresh-run>
+```
+
+独立的原站/cover、Mihomo 服务端与 Mihomo 对照客户端都在容器中。当前检查 SS2022
+三算法的 v3/原生 UDP、裸流及 v3 上的 UoT v2、TUIC v5 双 UDP 模式、六种
+VMess/Trojan HTTPUpgrade 承载和 SOCKS5 上游；UoT 对照显式选择 v2，关闭服务端原生 UDP。
+`--case` 可选单项，语义 ID 由 `protocol_completion_peers.py` 生成。
+每项必须实际完成 TCP 回传与原站观测的 UDP 请求/回复；记录来源、官方版本/hash、
+原始观测及清理。该工具只证明对端能力，**VCore 新协议行为始终记 NOT RUN**，
+不更新生产配置、不代替协议 suite、负例/边界、压力或发布验收。
 
 ### 对端下载
 

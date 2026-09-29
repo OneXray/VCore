@@ -2,12 +2,21 @@
 
 from __future__ import annotations
 
-PROTOCOLS = ("socks5", "anytls", "ss", "trojan", "vmess", "vless", "hysteria2")
+PROTOCOLS = ("socks5", "anytls", "ss", "trojan", "vmess", "vless", "hysteria2", "tuic")
 PAIRS = {
     f"INTEGRATION-PAIR-{first.upper()}-{last.upper()}": (first, last)
     for first in PROTOCOLS
     for last in PROTOCOLS
 }
+CHAINS = {
+    f"INTEGRATION-CHAIN-TUIC-{mode.upper()}-SS-V3-{cipher.upper()}": {
+        "udp_mode": mode,
+        "cipher": "2022-blake3-" + cipher,
+    }
+    for mode in ("native", "quic")
+    for cipher in ("aes-128-gcm", "aes-256-gcm", "chacha20-poly1305")
+}
+ORDERED = PAIRS | dict.fromkeys(CHAINS, ("tuic", "ss"))
 GATES = {
     "INTEGRATION-ENTRYPOINTS": "routing",
     "INTEGRATION-GRAPH": "routing",
@@ -25,6 +34,7 @@ GATES = {
     "INTEGRATION-FEATURES": "regression",
     "INTEGRATION-SCRIPTS": "regression",
     "INTEGRATION-SHARED": "regression",
+    "INTEGRATION-COUPLED": "routing",
 }
 LOCAL = {
     "INTEGRATION-DEBUG",
@@ -37,8 +47,8 @@ LOCAL = {
 
 def definitions():
     result = []
-    for identifier in sorted(PAIRS.keys() | GATES.keys()):
-        pair = PAIRS.get(identifier)
+    for identifier in sorted(ORDERED.keys() | GATES.keys()):
+        pair = ORDERED.get(identifier)
         local = identifier in LOCAL
         result.append(
             dict(
@@ -48,10 +58,16 @@ def definitions():
                 required=True,
                 row_ids=["C06"] if pair else [],
                 protocol="integration",
-                network="seven-protocol-graph",
+                network="eight-protocol-graph",
                 security="per-frozen-consumer",
                 udp_codec="per-protocol",
-                field_values={"first": pair[0], "last": pair[1]} if pair else {},
+                field_values={
+                    "first": pair[0],
+                    "last": pair[1],
+                    **CHAINS.get(identifier, {}),
+                }
+                if pair
+                else {},
                 outer_family="IPv4/IPv6",
                 inner_family="IPv4/IPv6/domain",
                 target_type="memory-only/build" if local else "isolated origin",

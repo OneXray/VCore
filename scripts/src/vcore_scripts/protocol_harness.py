@@ -459,7 +459,27 @@ def run_protocol_interop(
     try:
         run.update(run_identity(stage, selected, preflight_only))
         with exclusive_run(), deadline(run["suite_timeout_seconds"]):
-            if preflight_only and stage == "INTEGRATION":
+            if preflight_only and stage == "HTTPUPGRADE":
+                from .protocol_httpupgrade_acceptance import (
+                    preflight as upgrade_preflight,
+                )
+
+                upgrade_preflight(output)
+            elif preflight_only and stage == "TUIC":
+                from .protocol_tuic_acceptance import preflight as tuic_preflight
+
+                tuic_preflight(output)
+            elif preflight_only and stage == "UOT":
+                from .protocol_uot_acceptance import preflight as uot_preflight
+
+                uot_preflight(output)
+            elif preflight_only and stage == "SHADOWTLS":
+                from .protocol_shadowtls_acceptance import (
+                    preflight as shadowtls_preflight,
+                )
+
+                shadowtls_preflight(output)
+            elif preflight_only and stage == "INTEGRATION":
                 from .protocol_integration_acceptance import (
                     preflight as integration_preflight,
                 )
@@ -543,6 +563,22 @@ def run_protocol_interop(
                     from .protocol_integration_acceptance import execute
 
                     execute(selected, run, output, records)
+                elif stage == "SHADOWTLS":
+                    from .protocol_shadowtls_acceptance import execute
+
+                    execute(selected, run, output, records)
+                elif stage == "UOT":
+                    from .protocol_uot_acceptance import execute
+
+                    execute(selected, run, output, records)
+                elif stage == "TUIC":
+                    from .protocol_tuic_acceptance import execute
+
+                    execute(selected, run, output, records)
+                elif stage == "HTTPUPGRADE":
+                    from .protocol_httpupgrade_acceptance import execute
+
+                    execute(selected, run, output, records)
                 else:
                     _execute(selected, run, output, records)
     except BaseException as caught:
@@ -616,6 +652,22 @@ def run_protocol_interop(
                 else "Seven-protocol integration; container-only peers. "
                 "Partial selections do not sign off lifecycle or soak gates.\n\n"
                 if stage == "INTEGRATION"
+                else "SS2022 ShadowTLS v3; official Mihomo and native peers "
+                "in isolated containers. "
+                "UoT and device delivery remain separate gates.\n\n"
+                if stage == "SHADOWTLS"
+                else "SS2022 UoT v2; TCP-only official peers in isolated containers. "
+                "Native unsupported peers are negative cases; "
+                "devices remain separate.\n\n"
+                if stage == "UOT"
+                else "TUIC v5 TCP/native UDP/quic UDP; isolated official Mihomo. "
+                "Shared Hysteria2 and XHTTP H3 regressions included; "
+                "devices remain separate.\n\n"
+                if stage == "TUIC"
+                else "VMess/Trojan HTTPUpgrade normal/fast-open; "
+                "official isolated peers and existing transport regressions. "
+                "Device delivery is separate.\n\n"
+                if stage == "HTTPUPGRADE"
                 else "Foundation-only evidence; "
                 "production protocol field consumers remain NOT RUN.\n\n"
             )

@@ -19,6 +19,30 @@ class Response(io.BytesIO):
 
 
 class NativeReleaseTest(unittest.TestCase):
+    def test_shadowtls_uses_latest_unmodified_binary_with_deferred_guest_version(self):
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch(
+                "urllib.request.urlopen", return_value=Response(b"official-st-binary")
+            ) as request,
+            patch("vcore_scripts.native_release.run_command") as run,
+        ):
+            peer = native_release.download_native(
+                "ST", Path(directory), "linux-arm64", defer_version=True
+            )
+            self.assertEqual(
+                request.call_args.args[0].full_url,
+                "https://github.com/ihciah/shadow-tls/releases/latest/download/shadow-tls-aarch64-unknown-linux-musl",
+            )
+            self.assertEqual(peer.binary.name, "shadow-tls")
+            self.assertEqual(peer.binary.read_bytes(), b"official-st-binary")
+            self.assertEqual(
+                peer.identity["binary_sha256"],
+                hashlib.sha256(b"official-st-binary").hexdigest(),
+            )
+            self.assertIsNone(peer.identity["version"])
+            run.assert_not_called()
+
     def test_ss_tar_is_bounded_named_only_and_rejects_links(self):
         def archive(unsafe=False):
             data = io.BytesIO()

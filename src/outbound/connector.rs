@@ -598,7 +598,8 @@ impl UpstreamPath {
     #[cfg(any(
         feature = "outbound-shadowsocks",
         feature = "outbound-vless",
-        feature = "outbound-hysteria2"
+        feature = "outbound-hysteria2",
+        feature = "outbound-tuic"
     ))]
     pub(crate) fn datagram_server(
         &self,

@@ -41,13 +41,15 @@ pub enum QueueKind {
     Hysteria2Udp,
     QuicIncoming,
     QuicOutgoing,
+    TuicUdp,
 }
 impl QueueKind {
-    pub const ALL: [Self; 4] = [
+    pub const ALL: [Self; 5] = [
         Self::SocksUdp,
         Self::Hysteria2Udp,
         Self::QuicIncoming,
         Self::QuicOutgoing,
+        Self::TuicUdp,
     ];
 }
 
@@ -82,7 +84,7 @@ mod enabled {
     #[derive(Debug, Clone)]
     pub struct ResourceProbe {
         counters: Arc<[ActivityStats; 8]>,
-        queues: Arc<[ActivityStats; 4]>,
+        queues: Arc<[ActivityStats; QueueKind::ALL.len()]>,
     }
     impl Default for ResourceProbe {
         fn default() -> Self {
@@ -150,7 +152,7 @@ mod enabled {
         }
         /// Maximum occupancy of an individual queue in each category, not the
         /// sum across queues. Reserved send permits count as occupied slots.
-        pub fn queues(&self) -> [QueueCount; 4] {
+        pub fn queues(&self) -> [QueueCount; QueueKind::ALL.len()] {
             std::array::from_fn(|i| QueueCount {
                 kind: QueueKind::ALL[i],
                 capacity: self.queues[i].current.load(Ordering::Relaxed),

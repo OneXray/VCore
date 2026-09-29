@@ -1,6 +1,6 @@
 # Project Overview
 
-VCore is a standalone Rust proxy core. The current public contract is Invoke API v5 with internal schema revision 27. Runtime configuration uses the strict schema documented in `docs/config.yaml` and is passed inline as `configYaml` / `configYamls`; YAML contains neither `configVersion` nor `default-proxy`. Public lifecycle state is runtime-local and single-instance.
+VCore is a standalone Rust proxy core. The current public contract is Invoke API v5 with internal schema revision 31. Runtime configuration uses the strict schema documented in `docs/config.yaml` and is passed inline as `configYaml` / `configYamls`; YAML contains neither `configVersion` nor `default-proxy`. Public lifecycle state is runtime-local and single-instance.
 
 Apple and Android use host-owned TUN fds through the Unix `rust-tun` adapter. Windows uses `windows-rs` / `Windows.Networking.Vpn`; the packaged ARM64 foreground, AppContainer provider, per-session full-trust runtime, lifecycle, pressure, and packet-channel gates pass on Windows 11. Windows 10, native x64, physical IPv6, WACK, and Store publishing remain release gates. Linux remains unsupported.
 
@@ -13,12 +13,12 @@ Read the relevant document completely before changing that area:
 - FFI, lifecycle, Android protect, or config delivery: `docs/invoke-api.md` and `src/ffi/`.
 - YAML, proxy graph, proxy groups, DNS, rules, or sniffer: `docs/config.yaml`, `docs/tun-icmp-dns.md`, and `src/config/`.
 - HTTP/SOCKS5 inbound, authentication, or listeners: `docs/inbounds.md` and `src/inbound/`.
-- SOCKS5, AnyTLS, Trojan, VMess, Hysteria2 or SS 2022: `docs/outbounds.md`.
+- SOCKS5, AnyTLS, Trojan, VMess, Hysteria2, TUIC v5 or SS 2022: `docs/outbounds.md`.
 - VLESS, Vision, Encryption, JLS or static ECH: `docs/vless.md`.
 - XHTTP request fields, download legs, H1/H2/H3 or sing-mux: `docs/xhttp.md`.
 - Runtime Controller, proxy-group selection, or TUN traffic metrics: `docs/controller-api.md` and `src/controller.rs`.
 - GeoData: `docs/geodata.md`.
-- TLS profiles, certificate policy or TLS dependencies: `docs/tls-client-fingerprint.md` and `docs/tls-dependencies.md`; REALITY also requires `docs/reality-wire-protocol.md`.
+- TLS profiles, certificate policy or TLS dependencies: `docs/tls-client-fingerprint.md` and `docs/tls-dependencies.md`; REALITY also requires `docs/reality-wire-protocol.md`. Before local boring development or opening/updating a PR, follow the dependency-source workflow in `docs/tls-dependencies.md`.
 - Unix TUN fd ownership or packet I/O: `docs/tun-platform.md`.
 - Windows VPN/TUN, outbound binding, AppContainer packet buffers, or package lifecycle: `docs/windows-vpn.md` and `docs/tun-platform.md`.
 - Build, validation, or interoperability tooling: `scripts/README.md`, `tests/README.md`, and the unified `vcore-scripts` interface.

@@ -24,7 +24,7 @@ from .protocol_vmess_public import events_pass, node_config
 ALL_CASES = CASES | PUBLIC_CASES
 
 
-def run(output: Path, selected=None, *, preflight_only=False):
+def run(output: Path, selected=None, *, preflight_only=False, supplied=None):
     selected = list(ALL_CASES) if selected is None else selected
     if (
         not selected
@@ -54,7 +54,10 @@ def run(output: Path, selected=None, *, preflight_only=False):
         artifacts = {}
         for kind in sorted({ALL_CASES[case][0] for case in selected} | {"M"}):
             directory = output / "binaries" / kind
-            if kind == "M":
+            if supplied is not None and kind in supplied:
+                binary, identity = supplied[kind]
+                artifacts[kind] = PeerArtifact(binary, identity)
+            elif kind == "M":
                 identity = {}
                 binary = download_mihomo(
                     "linux-arm64", directory=directory, identity=identity
@@ -65,7 +68,7 @@ def run(output: Path, selected=None, *, preflight_only=False):
                     kind, directory, "linux-arm64", defer_version=True
                 )
             report["peers"][kind] = artifacts[kind].identity
-        lab = ContainerLab(report["isolation"])
+        lab = ContainerLab(report["isolation"], mtu=1500)
         report["phase"] = "build"
         built = run_command(
             [

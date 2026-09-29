@@ -4,9 +4,11 @@
   <a href="../README.md">English</a> · <a href="./README.zh_CN.md">简体中文</a> · Русский
 </p>
 
-VCore — независимое клиентское прокси-ядро на Rust, не привязанное к конкретному хост-приложению. Через строгую YAML-конфигурацию и Invoke API v5 оно предоставляет граф прокси, статические группы `select`, DNS, правила маршрутизации, GeoData, HTTP/SOCKS5 listeners, плоскость данных TUN и loopback Controller. Внутренняя ревизия схемы конфигурации — 27; она присутствует только в ответе `version` и `buildIdentity`, но не записывается в YAML.
+VCore — независимое клиентское прокси-ядро на Rust, не привязанное к конкретному хост-приложению. Через строгую YAML-конфигурацию и Invoke API v5 оно предоставляет граф прокси, статические группы `select`, DNS, правила маршрутизации, GeoData, HTTP/SOCKS5 listeners, плоскость данных TUN и loopback Controller. Внутренняя ревизия схемы конфигурации — 28; она присутствует только в ответе `version` и `buildIdentity`, но не записывается в YAML.
 
 ## Возможности
+
+SS2022 также поддерживает [strict ShadowTLS v3](../docs/outbounds.md#shadowtls-v3) для TCP; нативный UDP использует отдельный путь.
 
 - Исходящие подключения: [VLESS TCP/WS/gRPC/HTTP/H2/XHTTP, TLS/REALITY и Vision](../docs/vless.md), SOCKS5 CONNECT/UDP ASSOCIATE, AnyTLS TCP/UoT, Shadowsocks 2022, [Trojan TCP/UDP через TLS/WS/gRPC](../docs/outbounds.md#trojan), [VMess AEAD через TCP/WS/gRPC/HTTP/H2](../docs/outbounds.md#vmess-aead), [Hysteria2 TCP/UDP, управление скоростью, Salamander и смена портов](../docs/outbounds.md#hysteria2) и DIRECT.
 - Цепочки прокси: `dialer-proxy` образует ориентированный ациклический граф произвольной длины. Если узел A указывает на B, физический путь имеет вид `client -> B -> A -> target`.

@@ -10,6 +10,7 @@ protocol_security、protocol_integration；事件标签与报告采用同一套�
 | 日常 | 严格配置、feature、协议/TLS 内存 IO、局部上限、取消、FFI 边界和确定性回归 | check core --profile debug/release |
 | 构建 | 精简 feature、生产 feature、全目标编译 | check core --profile features |
 | 工具 | 子进程/容器清理、下载、原始证据完整性、平台产物 | scripts/tests |
+| 对端设施 | 官方客户端到官方服务端的真实 TCP/UDP 能力，不计 VCore 支持 | check protocol-peers |
 | 网络 | 公开消费者、真实原生认证/传输/UDP/上游和资源 | protocol-interop --suite … |
 | 发布候选 | 有序两跳、故障/重建/长测、平台产物/ABI | integration suite 与平台构建 |
 
@@ -29,9 +30,26 @@ protocol_security、protocol_integration；事件标签与报告采用同一套�
   当作客户端关闭期限。上传完整性、一秒关闭上限和 Stop 验证保持独立。
 - shadowsocks_backpressure：三算法 Pending 重试长度、读先于写时的 codec 刷新，以及
   官方服务端对空首包零 padding 的确定性拒绝；不修改官方库，不把 codec 夹具当作互通。
+  SS/SS v3/EIH TCP 容器数据验收使用非空首段的 client-first，保留完整数据量；
+  server-first/空首包为已知限制，其他协议仍验证服务器先发。
 - hysteria2_packet_ids：完成后重用 16 位分片 ID，不误丢后续业务包。
+- shadowtls_config/stream 与 security::shadow_tls_tests：严格 v3、原生签名/Finished、
+  残留 cover、背压/flush、读取取消和关闭期限；shadowtls suite 另验官方容器对端。
+- uot_config、shadowsocks_uot 与共享 outbound::uot：仅 v2、SS 首包/读取门控、
+  三算法 u16 边界、收发预算、受控 DNS、取消/Stop；uot suite 验 TCP-only 官方
+  Mihomo 六组合、上游/切组及无原生 UDP 回退，不把 ssserver 作为 UoT 正向服务端。
 - security_capabilities：公开配置经真实 SecurityClient 在主/下载腿产生实际混合 share；
   不再重复测试 fork 的纯 API 准入。
+- tuic_config/tuic_memory 与 outbound::tuic：严格 v5、当前 TLS exporter、无 ACK、
+  双 UDP wire、分片/重组、关联 ID 退役、窗口/credit、Heartbeat 和 Stop；tuic suite
+  验官方 Mihomo 数据与身份负例、独立上游容器、嵌套组/重建/测速，并回归 HY2/H3。
+- httpupgrade_config/httpupgrade_memory：类型化普通/fast-open、ED 边界、严格 101、
+  部分写、首包恰好一次和原期限；等待后的就绪响应/写入不能越过期限，已建连接不受限。
+  httpupgrade suite 另验 VMess/Trojan 真实消费者、
+  UDP、Mihomo 关闭对照、命名 TLS 模板及既有 Upgrade/WS/其他传输。
+- vless_public::integration：64 个基础有序两跳与 SS v3/UoT/TUIC 强耦合链、公开入站/
+  合成 TUN、DNS/测速和旧连接组快照；100 次生命周期、100 轮混合重建、1800 秒长测。
+  新组合不替代七协议回归；资源归零、五秒静默、堆/队列与实际轮换配置独立复核。
 - fingerprints/mihomo-selected-v1.json：官方独立 ClientHello golden，不从待测实现重新生成期望；
   [指纹验证](fingerprints/README.md)分别维护独立基线、内存报文与容器互通。
 - protocols/encryption-crypto.json 及 Go 生成器：独立密码向量；许可证和来源必须保留。

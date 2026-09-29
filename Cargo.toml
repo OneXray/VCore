@@ -39,6 +39,8 @@ default = [
     "outbound-vmess",
     "outbound-vless",
     "outbound-hysteria2",
+    "outbound-tuic",
+    "shadow-tls-v3",
 ]
 inbound-http = []
 inbound-socks5 = []
@@ -49,7 +51,9 @@ outbound-vless = ["tls-fingerprint", "boring/reality", "boring/jls", "boring/mlk
 outbound-trojan = ["stream-transport", "tls-fingerprint"]
 outbound-vmess = ["stream-transport", "tls-fingerprint", "dep:aes", "dep:crc32fast", "dep:md-5", "dep:ring", "dep:shake"]
 tls-fingerprint = ["dep:boring", "dep:tokio-boring"]
+shadow-tls-v3 = ["tls-fingerprint", "boring/shadow-tls-v3", "dep:ring", "dep:zeroize"]
 outbound-hysteria2 = ["quic-transport", "dep:quinn-proto", "dep:h3", "dep:h3-quinn", "dep:blake2"]
+outbound-tuic = ["quic-transport"]
 stream-transport = ["dep:tokio-tungstenite", "dep:httparse", "dep:log"]
 quic-transport = ["dep:quinn"]
 # Enables local interoperability-only trust-root injection. Release build
@@ -68,6 +72,8 @@ tun = [
     "outbound-vmess",
     "outbound-vless",
     "outbound-hysteria2",
+    "outbound-tuic",
+    "shadow-tls-v3",
 ]
 
 [dependencies]
@@ -161,7 +167,7 @@ windows-collections = { version = "=0.3.2", optional = true }
 windows-core = { version = "=0.62.2", optional = true }
 
 [dev-dependencies]
-# Native peer controls for bounded in-memory ALPS tests; same published fork.
+# Native peer controls for bounded in-memory ALPS tests; same source as boring.
 boring-sys = { git = "https://github.com/OneXray/boring", branch = "release", version = "=5.2.0" }
 foreign-types = "=0.5.0"
 tokio = { version = "1", features = ["test-util"] }

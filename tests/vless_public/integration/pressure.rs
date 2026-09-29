@@ -1,11 +1,13 @@
 use super::*;
 
-const NEW_PROTOCOLS: [&str; 4] = ["trojan", "vmess", "vless", "hysteria2"];
+const TCP_GROUPS: [&str; 4] = ["socks5", "ss-v3", "tuic", "httpupgrade"];
+const UDP_GROUPS: [&str; 4] = ["ss-uot", "ss-uot-v3", "tuic", "httpupgrade"];
 
 struct Flows {
     tcp: Vec<(TcpStream, Origin)>,
     udp: Vec<Association>,
     setup_us: Vec<u64>,
+    profiles: Value,
 }
 
 impl Flows {
@@ -14,18 +16,36 @@ impl Flows {
             tcp: Vec::with_capacity(20),
             udp: Vec::with_capacity(20),
             setup_us: Vec::with_capacity(40),
+            profiles: json!({"tcp":[],"udp":[]}),
         };
-        for protocol in NEW_PROTOCOLS {
-            runtime::select(controller, protocol);
-            for _ in 0..5 {
+        for (tcp_group, udp_group) in TCP_GROUPS.into_iter().zip(UDP_GROUPS) {
+            for index in 0..5 {
+                let profile = |group| {
+                    let options = f["profile_groups"][group].as_array().unwrap();
+                    options[(generation + index) % options.len()]
+                        .as_str()
+                        .unwrap()
+                };
+                let tcp_profile = profile(tcp_group);
+                runtime::select(controller, tcp_profile);
                 let start = Instant::now();
                 flows.tcp.push(runtime::live(port, f));
                 flows.setup_us.push(start.elapsed().as_micros() as u64);
+                flows.profiles["tcp"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(json!(tcp_profile));
+                let udp_profile = profile(udp_group);
+                runtime::select(controller, udp_profile);
                 let start = Instant::now();
                 let mut udp = Association::new(f, port, false, false);
                 udp.exchange(&payload(generation, flows.udp.len(), 0, true));
                 flows.udp.push(udp);
                 flows.setup_us.push(start.elapsed().as_micros() as u64);
+                flows.profiles["udp"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(json!(udp_profile));
             }
         }
         assert_eq!((flows.tcp.len(), flows.udp.len()), (20, 20));
@@ -70,7 +90,16 @@ fn close_peer(f: &Value) {
 fn start(f: &Value, probe: &ResourceProbe) -> (Core, u16, u16) {
     let port = free_port();
     let controller = free_port();
-    let nodes: Vec<_> = NEW_PROTOCOLS
+    let mut members = Vec::new();
+    for group in TCP_GROUPS.into_iter().chain(UDP_GROUPS) {
+        for profile in f["profile_groups"][group].as_array().unwrap() {
+            let name = profile.as_str().unwrap();
+            if !members.contains(&name) {
+                members.push(name);
+            }
+        }
+    }
+    let nodes: Vec<_> = members
         .iter()
         .map(|protocol| {
             let mut node = f["nodes"][protocol].clone();
@@ -78,7 +107,7 @@ fn start(f: &Value, probe: &ResourceProbe) -> (Core, u16, u16) {
             node
         })
         .collect();
-    let yaml = json!({"socks-port":port,"external-controller":format!("127.0.0.1:{controller}"),"secret":"fixture-only","proxies":nodes,"proxy-groups":[{"name":"inner","type":"select","proxies":NEW_PROTOCOLS}],"rules":["MATCH,inner"]});
+    let yaml = json!({"socks-port":port,"external-controller":format!("127.0.0.1:{controller}"),"secret":"fixture-only","proxies":nodes,"proxy-groups":[{"name":"inner","type":"select","proxies":members}],"rules":["MATCH,inner"]});
     (probe.scope_sync(|| Core::start(&yaml)), port, controller)
 }
 
@@ -195,14 +224,15 @@ fn run_rebuild(count: usize) {
         close_peer(&f);
         flows.assert_tcp_closed();
         let setup = flows.setup_us.clone();
+        let profiles = flows.profiles.clone();
         drop(flows);
-        cycles.push(json!({"generation":generation,"tcp":20,"udp":20,"per_protocol_tcp":5,"per_protocol_udp":5,"active":active,"setup_us":setup,"fault":"owned-peer-connections-closed","new_clients":true,"after_clients":sample(&probe)}));
+        cycles.push(json!({"generation":generation,"tcp":20,"udp":20,"per_group_tcp":5,"per_group_udp":5,"flow_profiles":profiles,"active":active,"setup_us":setup,"fault":"owned-peer-connections-closed","new_clients":true,"after_clients":sample(&probe)}));
         println!("INTEGRATION rebuild: {}/{count}", generation + 1);
     }
     let stopped = stop_quiet(core, &probe, port, controller, baseline);
     case.resources(probe.snapshot());
     observe(
-        json!({"count":count,"same_running_session":true,"protocols":NEW_PROTOCOLS,"cold_fd":cold_fd,"baseline_fd":baseline,"cycles":cycles,"stopped":stopped}),
+        json!({"count":count,"same_running_session":true,"tcp_groups":TCP_GROUPS,"udp_groups":UDP_GROUPS,"cold_fd":cold_fd,"baseline_fd":baseline,"cycles":cycles,"stopped":stopped}),
     );
 }
 
@@ -245,6 +275,7 @@ fn run_soak(seconds: u64) {
     let (core, port, controller) = start(&f, &probe);
     let mut flows = Flows::open(&f, port, controller, 0);
     let first_setup = flows.setup_us.clone();
+    let first_profiles = flows.profiles.clone();
     let first_median = median(first_setup.iter().copied());
     let start = Instant::now();
     let mut waves = 0;
@@ -258,7 +289,15 @@ fn run_soak(seconds: u64) {
         flows.exchange(faults.len(), waves);
         waves += 1;
         while start.elapsed().as_secs() >= next_switch {
-            runtime::select(controller, NEW_PROTOCOLS[switches.len() % 4]);
+            let options = f["profile_groups"][TCP_GROUPS[switches.len() % 4]]
+                .as_array()
+                .unwrap();
+            runtime::select(
+                controller,
+                options[(switches.len() / 4) % options.len()]
+                    .as_str()
+                    .unwrap(),
+            );
             switches.push(start.elapsed().as_secs_f64());
             next_switch += 1;
         }
@@ -289,13 +328,14 @@ fn run_soak(seconds: u64) {
     }
     let elapsed = start.elapsed().as_secs_f64();
     let last_setup = flows.setup_us.clone();
+    let last_profiles = flows.profiles.clone();
     let last_median = median(last_setup.iter().copied());
     assert!(last_median <= first_median * 2);
     let active_end = sample(&probe);
     drop(flows);
     let stopped = stop_quiet(core, &probe, port, controller, baseline);
     case.resources(probe.snapshot());
-    let mut report = json!({"seconds":elapsed,"requested_seconds":seconds,"protocols":NEW_PROTOCOLS,"tcp":20,"udp":20,"per_protocol_tcp":5,"per_protocol_udp":5,"waves":waves,"normal_verified_bytes":waves*20*2*2*257,"normal_corruption":0,"normal_misdirection":0,"normal_unexpected_loss":0,"switches":switches,"faults":faults,"cold_fd":cold_fd,"baseline_fd":baseline,"samples":samples,"first_setup_us":first_setup,"last_setup_us":last_setup,"first_setup_median_us":first_median,"last_setup_median_us":last_median,"active_end":active_end,"stopped":stopped});
+    let mut report = json!({"seconds":elapsed,"requested_seconds":seconds,"tcp_groups":TCP_GROUPS,"udp_groups":UDP_GROUPS,"tcp":20,"udp":20,"per_group_tcp":5,"per_group_udp":5,"first_profiles":first_profiles,"last_profiles":last_profiles,"waves":waves,"normal_verified_bytes":waves*20*2*2*257,"normal_corruption":0,"normal_misdirection":0,"normal_unexpected_loss":0,"switches":switches,"faults":faults,"cold_fd":cold_fd,"baseline_fd":baseline,"samples":samples,"first_setup_us":first_setup,"last_setup_us":last_setup,"first_setup_median_us":first_median,"last_setup_median_us":last_median,"active_end":active_end,"stopped":stopped});
     if seconds >= 1800 {
         assert!(samples.len() >= 25 && faults.len() >= 29 && switches.len() >= 1799);
         let early = &samples[..10];
@@ -331,11 +371,14 @@ fn run_soak(seconds: u64) {
         assert!(
             samples
                 .iter()
-                .all(|p| p["queues"].as_array().unwrap().iter().all(|q| q["peak"]
-                    .as_u64()
-                    .unwrap()
-                    > 0
-                    && q["peak"].as_u64() <= q["capacity"].as_u64()))
+                .all(|p| p["queues"].as_array().unwrap().iter().all(|q| {
+                    if q["kind"] == "hysteria2_udp" {
+                        q["peak"] == 0 && q["capacity"] == 0
+                    } else {
+                        q["peak"].as_u64().unwrap() > 0
+                            && q["peak"].as_u64() <= q["capacity"].as_u64()
+                    }
+                }))
         );
     }
     observe(report);

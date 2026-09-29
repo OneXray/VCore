@@ -37,7 +37,7 @@ def receive_exact(stream, size):
 
 
 def serve_tcp(control, mode, ipv6=False):
-    """10=bulk/server-first, 11=close differential, 12=identity probe.
+    """10=bulk/server-first, 22=bulk/client-first, 11=close, 12=identity probe.
 
     Observer A proves an actual accept; D proves exact request bytes and normal
     completion. Rejected identities must produce neither. No host-side server.
@@ -112,8 +112,9 @@ def serve_tcp(control, mode, ipv6=False):
                         raise ValueError("identity probe data")
                     stream.sendall(b"ok")
                 else:
-                    stream.sendall(b"hello")
-                    if mode in (10, 16, 18):
+                    if mode != 22:
+                        stream.sendall(b"hello")
+                    if mode in (10, 16, 18, 22):
                         data = receive_exact(stream, 10 * 1024 * 1024)
                         if data != b"\x5a" * len(data):
                             raise ValueError("bulk data")
@@ -138,7 +139,7 @@ def serve(control):
             control.settimeout(15)
             control.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             family = control.recv(1)
-            if family and (family[0] & 0x7F) in (*range(10, 17), 18, 21):
+            if family and (family[0] & 0x7F) in (*range(10, 17), 18, 21, 22):
                 serve_tcp(control, family[0] & 0x7F, bool(family[0] & 0x80))
                 return
             if family not in (b"\x04", b"\x06", b"\x11", b"\x13", b"\x14"):

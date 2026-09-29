@@ -23,12 +23,14 @@ mod ech;
 pub use ech::StaticEchConfig;
 mod hysteria2;
 pub use hysteria2::{Hysteria2Hopping, Hysteria2OutboundConfig};
+mod tuic;
+pub use tuic::{TuicCongestion, TuicOutboundConfig, TuicUdpMode};
 mod jls;
 pub use jls::JlsConfig;
 mod shadowsocks;
-pub use shadowsocks::{ShadowsocksCipher, ShadowsocksOutboundConfig};
+pub use shadowsocks::{ShadowTlsConfig, ShadowsocksCipher, ShadowsocksOutboundConfig};
 mod trojan;
-pub use trojan::{TrojanOutboundConfig, TrojanTransport};
+pub use trojan::{TrojanOutboundConfig, TrojanTransport, WebSocketHandshake};
 mod vless;
 pub use vless::{GrpcOptions, SingMuxConfig, SingMuxProtocol, VlessStreamOptions};
 pub(crate) mod xhttp;
@@ -301,6 +303,7 @@ pub struct ProxyConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProxyProtocol {
+    Tuic(TuicOutboundConfig),
     Hysteria2(Hysteria2OutboundConfig),
     Vmess(VmessOutboundConfig),
     Trojan(TrojanOutboundConfig),
@@ -314,6 +317,7 @@ impl ProxyConfig {
     #[must_use]
     pub fn address(&self) -> &str {
         match &self.protocol {
+            ProxyProtocol::Tuic(config) => &config.address,
             ProxyProtocol::Hysteria2(config) => &config.address,
             ProxyProtocol::Vmess(config) => &config.address,
             ProxyProtocol::Trojan(config) => &config.address,
@@ -327,6 +331,7 @@ impl ProxyConfig {
     #[must_use]
     pub const fn port(&self) -> u16 {
         match &self.protocol {
+            ProxyProtocol::Tuic(config) => config.port,
             ProxyProtocol::Hysteria2(config) => config.port,
             ProxyProtocol::Vmess(config) => config.port,
             ProxyProtocol::Trojan(config) => config.port,
@@ -863,6 +868,8 @@ where
 // protocol fields inline avoids extra heap allocations in the startup path.
 #[allow(clippy::large_enum_variant)]
 enum RawOutbound {
+    #[serde(rename = "tuic")]
+    Tuic(#[serde(deserialize_with = "tuic::deserialize")] tuic::RawTuic),
     #[serde(rename = "hysteria2")]
     Hysteria2(hysteria2::RawHysteria2),
     #[serde(rename = "vmess")]
@@ -876,6 +883,28 @@ enum RawOutbound {
         port: u16,
         cipher: String,
         password: String,
+        #[serde(default, deserialize_with = "deserialize_present_option")]
+        plugin: Option<String>,
+        #[serde(
+            rename = "plugin-opts",
+            default,
+            deserialize_with = "shadowsocks::deserialize_plugin"
+        )]
+        plugin_opts: Option<shadowsocks::RawShadowTls>,
+        #[serde(
+            rename = "client-fingerprint",
+            default,
+            deserialize_with = "deserialize_present_option"
+        )]
+        client_fingerprint: Option<String>,
+        #[serde(rename = "udp-over-tcp", default)]
+        udp_over_tcp: bool,
+        #[serde(
+            rename = "udp-over-tcp-version",
+            default,
+            deserialize_with = "deserialize_present_option"
+        )]
+        udp_over_tcp_version: Option<u8>,
         #[serde(default)]
         udp: bool,
         #[serde(
@@ -1936,6 +1965,7 @@ impl RawOutbound {
     fn normalize(self) -> Result<PendingProxyConfig> {
         let (tag, dialer_proxy, udp, protocol) = match self {
             Self::Hysteria2(raw) => raw.normalize()?,
+            Self::Tuic(raw) => raw.normalize()?,
             Self::Vmess(raw) => raw.normalize()?,
             Self::Trojan(raw) => raw.normalize()?,
             Self::Shadowsocks {
@@ -1944,14 +1974,28 @@ impl RawOutbound {
                 port,
                 cipher,
                 password,
+                plugin,
+                plugin_opts,
+                client_fingerprint,
+                udp_over_tcp,
+                udp_over_tcp_version,
                 udp,
                 dialer_proxy,
-            } => (
-                name,
-                dialer_proxy,
-                udp,
-                ProxyProtocol::Shadowsocks(shadowsocks::normalize(server, port, cipher, password)?),
-            ),
+            } => {
+                let mut config = shadowsocks::normalize(server, port, cipher, password)?;
+                config.shadow_tls = shadowsocks::plugin(plugin, plugin_opts, client_fingerprint)?;
+                if udp_over_tcp && !cfg!(feature = "outbound-shadowsocks") {
+                    return invalid("Shadowsocks UoT support is not enabled in this build");
+                }
+                if udp_over_tcp && !udp {
+                    return invalid("Shadowsocks udp-over-tcp requires udp: true");
+                }
+                if udp_over_tcp_version.is_some_and(|version| !udp_over_tcp || version != 2) {
+                    return invalid("Shadowsocks udp-over-tcp-version requires enabled UoT v2");
+                }
+                config.udp_over_tcp = udp_over_tcp;
+                (name, dialer_proxy, udp, ProxyProtocol::Shadowsocks(config))
+            }
             Self::Vless(raw) => raw.normalize()?,
             Self::Socks5 {
                 name,

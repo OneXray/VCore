@@ -6,11 +6,18 @@ from math import isfinite
 from statistics import median
 
 from .protocol_evidence import RESOURCE_KINDS, idle_resources
+from .protocol_integration_profiles import (
+    LIFETIME_GROUPS,
+    TCP_GROUPS,
+    UDP_GROUPS,
+    expected_flows,
+    selected,
+)
 
-NEW = ["trojan", "vmess", "vless", "hysteria2"]
 QUEUES = {
     "socks_udp": 16,
-    "hysteria2_udp": 32,
+    "hysteria2_udp": 0,
+    "tuic_udp": 32,
     "quic_incoming": 32,
     "quic_outgoing": 32,
 }
@@ -44,10 +51,12 @@ def sample(value, *, active=True):
         and integer(value.get("rss_kib"), 1)
         and integer(value.get("fd"), 1)
         and resources(value.get("resources", {}), active=active)
-        and len(queues) == 4
+        and len(queues) == len(QUEUES)
         and {q.get("kind"): q.get("capacity") for q in queues} == QUEUES
         and all(
-            integer(q.get("peak"), 1) and q["peak"] <= q["capacity"] for q in queues
+            integer(q.get("peak"), int(q["capacity"] > 0))
+            and q["peak"] <= q["capacity"]
+            for q in queues
         )
     )
 
@@ -61,10 +70,13 @@ def lifetimes(value, events):
         stop = row.get("after_stop", {})
         checkpoints = event.get("checkpoints", [])
         mode = index % 5
+        group = LIFETIME_GROUPS[(index // 5) % len(LIFETIME_GROUPS)]
         retained = {0: 0, 1: 10, 2: 1, 3: 0, 4: 8}[mode]
         if not (
             row.get("cycle") == index
-            and row.get("protocol") == NEW[(index // 5) % 4]
+            and row.get("group") == group
+            and row.get("profile")
+            == selected(group, index // (5 * len(LIFETIME_GROUPS)))
             and row.get("mode") == mode
             and integer(row.get("baseline_fd"), 1)
             and row.get("retained_fixture_fd") == retained
@@ -130,13 +142,15 @@ def rebuild(value, event):
     return (
         value.get("count") == 100
         and value.get("same_running_session") is True
-        and value.get("protocols") == NEW
+        and value.get("tcp_groups") == list(TCP_GROUPS)
+        and value.get("udp_groups") == list(UDP_GROUPS)
         and len(rows) == 100
         and stopped(value, event)
         and all(
             row.get("generation") == i
             and row.get("tcp") == row.get("udp") == 20
-            and row.get("per_protocol_tcp") == row.get("per_protocol_udp") == 5
+            and row.get("per_group_tcp") == row.get("per_group_udp") == 5
+            and row.get("flow_profiles") == expected_flows(i)
             and sample(row.get("active", {}))
             and sample(row.get("after_clients", {}), active=False)
             and setup(row.get("setup_us"))
@@ -156,9 +170,12 @@ def soak(value, event, curve):
     if not (
         value.get("requested_seconds") == 1800
         and 1800 <= value.get("seconds", 0) < 1860
-        and value.get("protocols") == NEW
+        and value.get("tcp_groups") == list(TCP_GROUPS)
+        and value.get("udp_groups") == list(UDP_GROUPS)
         and value.get("tcp") == value.get("udp") == 20
-        and value.get("per_protocol_tcp") == value.get("per_protocol_udp") == 5
+        and value.get("per_group_tcp") == value.get("per_group_udp") == 5
+        and value.get("first_profiles") == expected_flows(0)
+        and value.get("last_profiles") == expected_flows(len(faults))
         and integer(value.get("waves"), 1)
         and value.get("normal_verified_bytes") == value["waves"] * 20 * 2 * 2 * 257
         and all(

@@ -3,7 +3,6 @@ mod frame;
 mod padding;
 mod session;
 mod stream;
-mod uot;
 
 use std::{io, sync::Arc};
 
@@ -17,8 +16,8 @@ use crate::{
     session::{Destination, StreamSession},
 };
 
+use super::uot::magic_destination;
 use client::{AnyTlsClient, SessionDialer};
-use uot::magic_destination;
 
 pub use stream::AnyTlsStream;
 

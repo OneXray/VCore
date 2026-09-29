@@ -72,7 +72,9 @@ use crate::security::StandardTlsClient;
     feature = "outbound-vless",
     feature = "outbound-trojan",
     feature = "outbound-vmess",
-    feature = "outbound-hysteria2"
+    feature = "outbound-hysteria2",
+    feature = "outbound-tuic",
+    feature = "shadow-tls-v3"
 ))]
 use crate::security::{SecurityContext, TLS_RESUMPTION_SESSION_BUDGET};
 
@@ -600,7 +602,9 @@ fn build_proxy_graph(
         feature = "outbound-vless",
         feature = "outbound-trojan",
         feature = "outbound-vmess",
-        feature = "outbound-hysteria2"
+        feature = "outbound-hysteria2",
+        feature = "outbound-tuic",
+        feature = "shadow-tls-v3"
     ))]
     let (security_client_count, standard_tls_count) = security_counts(proxies);
     #[cfg(any(
@@ -608,7 +612,9 @@ fn build_proxy_graph(
         feature = "outbound-vless",
         feature = "outbound-trojan",
         feature = "outbound-vmess",
-        feature = "outbound-hysteria2"
+        feature = "outbound-hysteria2",
+        feature = "outbound-tuic",
+        feature = "shadow-tls-v3"
     ))]
     let security_context = (security_client_count != 0).then(SecurityContext::new);
     #[cfg(any(
@@ -616,7 +622,9 @@ fn build_proxy_graph(
         feature = "outbound-vless",
         feature = "outbound-trojan",
         feature = "outbound-vmess",
-        feature = "outbound-hysteria2"
+        feature = "outbound-hysteria2",
+        feature = "outbound-tuic",
+        feature = "shadow-tls-v3"
     ))]
     let resumption_sessions = standard_tls_resumption_sessions(standard_tls_count);
 
@@ -681,6 +689,25 @@ fn build_proxy_graph(
             &dialer,
         )?;
         let connector: Arc<dyn OutboundConnector> = match &proxy.protocol {
+            ProxyProtocol::Tuic(config) => {
+                #[cfg(feature = "outbound-tuic")]
+                {
+                    Arc::new(crate::outbound::tuic::TuicOutbound::with_shared_security(
+                        config,
+                        upstream,
+                        security_context.as_ref().expect("TLS context"),
+                        limits.tls_buffer_limit,
+                    )?)
+                }
+                #[cfg(not(feature = "outbound-tuic"))]
+                {
+                    let _ = config;
+                    return Err(io::Error::new(
+                        io::ErrorKind::Unsupported,
+                        "TUIC support is disabled in this build",
+                    ));
+                }
+            }
             ProxyProtocol::Hysteria2(config) => {
                 #[cfg(feature = "outbound-hysteria2")]
                 {
@@ -748,7 +775,14 @@ fn build_proxy_graph(
             ProxyProtocol::Shadowsocks(config) => {
                 #[cfg(feature = "outbound-shadowsocks")]
                 {
-                    Arc::new(ShadowsocksOutbound::new_with_path(config, upstream)?)
+                    #[cfg(feature = "shadow-tls-v3")]
+                    let security = security_context.as_ref();
+                    Arc::new(ShadowsocksOutbound::with_security(
+                        config,
+                        upstream,
+                        #[cfg(feature = "shadow-tls-v3")]
+                        security,
+                    )?)
                 }
                 #[cfg(not(feature = "outbound-shadowsocks"))]
                 {
@@ -930,6 +964,7 @@ async fn prepare_proxy_endpoints(
                 | ProxyProtocol::Vmess(_)
                 | ProxyProtocol::AnyTls(_)
                 | ProxyProtocol::Shadowsocks(_)
+                | ProxyProtocol::Tuic(_)
                 | ProxyProtocol::Hysteria2(_) => None,
             };
 
@@ -994,7 +1029,9 @@ fn restrict_endpoint_addresses(
     feature = "outbound-vless",
     feature = "outbound-trojan",
     feature = "outbound-vmess",
-    feature = "outbound-hysteria2"
+    feature = "outbound-hysteria2",
+    feature = "outbound-tuic",
+    feature = "shadow-tls-v3"
 ))]
 fn security_counts(proxies: &[ProxyConfig]) -> (usize, usize) {
     proxies.iter().fold(
@@ -1024,9 +1061,12 @@ fn security_counts(proxies: &[ProxyConfig]) -> (usize, usize) {
                 client_count + 1,
                 standard_count + usize::from(config.tls.is_some()),
             ),
-            ProxyProtocol::Socks5(_) | ProxyProtocol::Shadowsocks(_) => {
-                (client_count, standard_count)
-            }
+            ProxyProtocol::Shadowsocks(config) => (
+                client_count + usize::from(config.shadow_tls.is_some()),
+                standard_count,
+            ),
+            ProxyProtocol::Socks5(_) => (client_count, standard_count),
+            ProxyProtocol::Tuic(_) => (client_count + 1, standard_count),
         },
     )
 }
@@ -1036,7 +1076,9 @@ fn security_counts(proxies: &[ProxyConfig]) -> (usize, usize) {
     feature = "outbound-vless",
     feature = "outbound-trojan",
     feature = "outbound-vmess",
-    feature = "outbound-hysteria2"
+    feature = "outbound-hysteria2",
+    feature = "outbound-tuic",
+    feature = "shadow-tls-v3"
 ))]
 fn standard_tls_resumption_sessions(standard_tls_count: usize) -> usize {
     if standard_tls_count == 0 || standard_tls_count > TLS_RESUMPTION_SESSION_BUDGET {
@@ -1355,6 +1397,11 @@ mod tests {
                 "hysteria2",
                 ", password: fixture",
                 cfg!(feature = "outbound-hysteria2"),
+            ),
+            (
+                "tuic",
+                ", uuid: 08080808-0808-0808-0808-080808080808, password: fixture",
+                cfg!(feature = "outbound-tuic"),
             ),
         ];
         for (protocol, fields, enabled) in variants {

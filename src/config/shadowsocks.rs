@@ -5,6 +5,122 @@ use base64::{
 
 use super::{invalid, validate_host, validate_port};
 use crate::Result;
+use serde::Deserialize;
+
+/// Fixed strict-v3 cover policy, independent of the SS payload credentials.
+#[derive(Clone, PartialEq, Eq)]
+pub struct ShadowTlsConfig {
+    pub server_name: String,
+    pub password: String,
+    pub alpn: Vec<Vec<u8>>,
+    pub certificate: super::TlsCertificatePolicy,
+    pub client_fingerprint: Option<super::ClientFingerprint>,
+}
+
+impl std::fmt::Debug for ShadowTlsConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ShadowTlsConfig")
+            .field("client_fingerprint", &self.client_fingerprint)
+            .field("certificate", &self.certificate)
+            .finish_non_exhaustive()
+    }
+}
+
+impl ShadowTlsConfig {
+    pub(crate) fn validate(&self) -> Result<()> {
+        if !cfg!(feature = "shadow-tls-v3") {
+            return invalid("ShadowTLS v3 is not compiled in");
+        }
+        validate_host(&self.server_name, "ShadowTLS host")?;
+        if let Some(name) = &self.certificate.verification_name {
+            validate_host(name, "ShadowTLS verification name")?;
+        }
+        if !(1..=65_535).contains(&self.password.len()) {
+            return invalid("ShadowTLS password must contain 1..65535 UTF-8 bytes");
+        }
+        if self
+            .alpn
+            .iter()
+            .any(|value| !(1..=255).contains(&value.len()))
+            || self.alpn.iter().map(|value| value.len() + 1).sum::<usize>() > 65_533
+        {
+            return invalid("invalid ShadowTLS ALPN list");
+        }
+        Ok(())
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub(super) struct RawShadowTls {
+    version: u8,
+    host: String,
+    password: String,
+    #[serde(default, deserialize_with = "super::deserialize_present_option")]
+    alpn: Option<Vec<String>>,
+    #[serde(default)]
+    skip_cert_verify: bool,
+    #[serde(default, deserialize_with = "super::deserialize_present_option")]
+    fingerprint: Option<String>,
+    #[serde(default, deserialize_with = "super::deserialize_present_option")]
+    name_cert_verify: Option<String>,
+}
+
+impl std::fmt::Debug for RawShadowTls {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RawShadowTls").finish_non_exhaustive()
+    }
+}
+
+pub(super) fn deserialize_plugin<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<RawShadowTls>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    super::deserialize_present_map(deserializer)
+        .map_err(|_| serde::de::Error::custom("invalid ShadowTLS plugin policy"))
+}
+
+pub(super) fn plugin(
+    name: Option<String>,
+    options: Option<RawShadowTls>,
+    fingerprint: Option<String>,
+) -> Result<Option<ShadowTlsConfig>> {
+    let (name, raw) = match (name, options) {
+        (None, None) if fingerprint.is_none() => return Ok(None),
+        (Some(name), Some(raw)) => (name, raw),
+        _ => return invalid("ShadowTLS plugin and plugin-opts must be provided together"),
+    };
+    if name != "shadow-tls" || raw.version != 3 {
+        return invalid("only explicit ShadowTLS v3 is supported");
+    }
+    let config = ShadowTlsConfig {
+        server_name: raw.host,
+        password: raw.password,
+        alpn: raw
+            .alpn
+            .unwrap_or_else(|| vec!["h2".into(), "http/1.1".into()])
+            .into_iter()
+            .map(String::into_bytes)
+            .collect(),
+        certificate: super::TlsCertificatePolicy {
+            verification_name: raw.name_cert_verify,
+            skip_cert_verify: raw.skip_cert_verify,
+            fingerprint: raw
+                .fingerprint
+                .as_deref()
+                .map(super::vless::parse_pin)
+                .transpose()
+                .map_err(|_| {
+                    crate::VCoreError::InvalidConfig("invalid ShadowTLS certificate pin".into())
+                })?,
+        },
+        client_fingerprint: super::parse_client_fingerprint(fingerprint.as_deref())?,
+    };
+    config.validate()?;
+    Ok(Some(config))
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShadowsocksCipher {
@@ -41,6 +157,8 @@ pub struct ShadowsocksOutboundConfig {
     pub port: u16,
     pub cipher: ShadowsocksCipher,
     pub password: String,
+    pub shadow_tls: Option<ShadowTlsConfig>,
+    pub udp_over_tcp: bool,
 }
 
 impl std::fmt::Debug for ShadowsocksOutboundConfig {
@@ -55,6 +173,9 @@ impl ShadowsocksOutboundConfig {
     pub(crate) fn validate(&self) -> Result<()> {
         validate_host(&self.address, "Shadowsocks server")?;
         validate_port(self.port, "Shadowsocks")?;
+        if let Some(shadow_tls) = &self.shadow_tls {
+            shadow_tls.validate()?;
+        }
         if !self.cipher.supports_eih() && self.password.contains(':') {
             return invalid("Shadowsocks identity chains require an AES 2022 cipher");
         }
@@ -94,6 +215,8 @@ pub(super) fn normalize(
         port,
         cipher,
         password,
+        shadow_tls: None,
+        udp_over_tcp: false,
     };
     config.validate()?;
     Ok(config)
