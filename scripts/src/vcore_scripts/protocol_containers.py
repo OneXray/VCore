@@ -68,11 +68,12 @@ def listing():
 
 
 class ContainerLab:
-    def __init__(self, record, *, mtu=1280):
+    def __init__(self, record, *, mtu=1280, image_digest=None, checkpoint=None):
         if type(mtu) is not int or mtu not in (1280, 1500):
             raise ValueError("unsupported isolated guest MTU")
         self.mtu = mtu
         self.record = record
+        self.checkpoint = checkpoint
         self.run_id = uuid.uuid4().hex[:12]
         network = json.loads(command("network", "inspect", NETWORK))[0]
         config = network["configuration"]
@@ -83,9 +84,11 @@ class ContainerLab:
             raise RuntimeError("owned host-only container network required")
         self.v4 = ipaddress.ip_network(network["status"]["ipv4Subnet"])
         self.v6 = ipaddress.ip_network(network["status"]["ipv6Subnet"])
-        digest = _FROZEN_IMAGE.get()
+        digest = image_digest or _FROZEN_IMAGE.get()
         if digest is None:
             digest = _pull_image()["digest"]
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+            raise ValueError("invalid frozen container image digest")
         self.image = IMAGE.split(":")[0] + "@" + digest
         record.update(
             backend="Apple Container",
@@ -98,12 +101,16 @@ class ContainerLab:
             guest_mtu=mtu,
         )
 
-    def start(self, stack, root: Path, role, argv, *, net_admin=False):
+    def start(self, stack, root: Path, role, argv, *, net_admin=False, cpus=1):
         peer = ContainerPeer(self, root, role)
         self.record["peers"].append(peer.record)
         # Register before launching: CLI interruption/timeout can leave a live VM.
         stack.callback(peer.stop)
-        peer.start(argv, net_admin=net_admin)
+        if self.checkpoint is not None:
+            self.checkpoint(self.record)
+        peer.start(argv, net_admin=net_admin, cpus=cpus)
+        if self.checkpoint is not None:
+            self.checkpoint(self.record)
         return peer
 
 
@@ -118,10 +125,13 @@ class ContainerPeer:
         self.capture = None
         self.log = root / "peer.log"
 
-    def start(self, argv, *, net_admin=False):
+    def start(self, argv, *, net_admin=False, cpus=1):
         if type(net_admin) is not bool:
             raise ValueError("isolated capability choice must be boolean")
+        if type(cpus) is not int or not 1 <= cpus <= 8:
+            raise ValueError("isolated CPU allocation must be 1 through 8")
         self.record["net_admin"] = net_admin
+        self.record["cpus"] = cpus
         command(
             "run",
             "--detach",
@@ -134,7 +144,7 @@ class ContainerPeer:
             "--network",
             f"{NETWORK},mtu={self.lab.mtu}",
             "--cpus",
-            "1",
+            str(cpus),
             "--memory",
             "256M",
             "--arch",

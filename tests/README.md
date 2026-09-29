@@ -14,6 +14,7 @@ protocol_security、protocol_integration；事件标签与报告采用同一套�
 | 网络 | 公开消费者、真实原生认证/传输/UDP/上游和资源 | protocol-interop --suite … |
 | 发布候选 | 有序两跳、故障/重建/长测、平台产物/ABI | integration suite 与平台构建 |
 | Apple 平台 | tvOS/iOS 生产库 ABI、模拟器生命周期、容器原站与合成 fd | check apple-runtime --platform tvos/ios |
+| 内存设施 | 独立 Release ABI 进程、内核峰值校准、冻结 CN、SOCKS5 烟测、容器带宽对照 | [check memory](memory/README.md) |
 
 所有服务端遵守[隔离规则](../docs/testing-isolation.md)，包括原站和对照客户端入口。
 默认测试命令不执行历史宿主 listener。全目标仅 --no-run；ignored 不算通过。

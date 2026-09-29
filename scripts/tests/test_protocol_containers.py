@@ -228,6 +228,7 @@ class ContainerTests(unittest.TestCase):
     def test_failed_launch_still_registers_cleanup(self):
         lab = ContainerLab.__new__(ContainerLab)
         lab.run_id, lab.record = "fixture", {"peers": []}
+        lab.checkpoint = MagicMock()
         with (
             patch.object(
                 ContainerPeer, "start", side_effect=RuntimeError("partial launch")
@@ -240,6 +241,7 @@ class ContainerTests(unittest.TestCase):
             ):
                 lab.start(stack, Path("fixture"), "server", [])
             stop.assert_called_once()
+            lab.checkpoint.assert_called_once_with(lab.record)
 
     def test_no_native_origin_entry_or_archived_host_probe(self):
         with (

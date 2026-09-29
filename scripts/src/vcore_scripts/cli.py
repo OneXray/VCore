@@ -73,6 +73,15 @@ def _parser() -> argparse.ArgumentParser:
     apple.add_argument(
         "--manifest", type=Path, help="validate a clean production artifact identity"
     )
+    memory = checks.add_parser(
+        "memory",
+        help="calibrate isolated whole-process measurement, not mobile acceptance",
+    )
+    memory.add_argument("--case", dest="identifiers", action="append")
+    memory.add_argument("--run-dir", type=Path)
+    memory.add_argument("--resume", type=Path)
+    memory.add_argument("--list", dest="list_only", action="store_true")
+    memory.add_argument("--preflight", dest="preflight_only", action="store_true")
     reality = checks.add_parser(
         "reality-hybrid",
         help="verify isolated hybrid REALITY, not the complete security suite",
@@ -196,6 +205,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 from .apple_runtime import run
 
                 run(args.platform, args.manifest)
+            elif args.check == "memory":
+                from .memory_benchmark import run
+
+                run(
+                    identifiers=args.identifiers,
+                    run_dir=args.run_dir,
+                    resume=args.resume,
+                    list_only=args.list_only,
+                    preflight_only=args.preflight_only,
+                )
             elif args.check == "xhttp-peers":
                 from .protocol_xhttp_peers import main as xhttp_peers
 

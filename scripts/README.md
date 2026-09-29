@@ -204,6 +204,21 @@ uv run --project scripts --locked vcore-scripts check apple-runtime --platform t
 结果保存在 target/platform-delivery/runtime；未传 manifest 的运行仅为开发烟测。
 它不是物理 Packet Tunnel、IPv6 完整协议矩阵、CN 内存峰值或 1 Gbps 带宽验收。
 
+## 独立进程内存设施
+
+```sh
+uv run --project scripts --locked vcore-scripts check memory --list
+uv run --project scripts --locked vcore-scripts check memory --preflight
+uv run --project scripts --locked vcore-scripts check memory
+uv run --project scripts --locked vcore-scripts check memory --resume target/memory/<run-id>
+```
+
+原生 macOS Release/生产 feature ABI 宿主，外部约 20 ms 采样与内核 lifetime footprint
+峰值、最终退出屏障、冻结官方 latest CN/Mihomo、专属容器和可恢复用例。
+1 Gbps 对照驱动使用有界原生生成/校验；对端丢包为设施 INVALID，不冒充核心内存通过。
+输入、结果和恢复记录位于 target/memory；详见[测量范围与负例](../tests/memory/README.md)。
+不证明正式移动 Provider、完整 CN 或 VCore 的 1 Gbps 承载能力。
+
 ## CI 与证据
 
 Tests 工作流只跑 core Debug/Release、quality/features 和 memory-only netstack；
