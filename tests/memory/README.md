@@ -1,7 +1,7 @@
 # 独立进程内存测量设施
 
 入口在 VCore 自己的 scripts 中，不依赖仓库外目录。当前支持原生 Apple Silicon macOS；
-这是本机测量设施，不是 iOS/tvOS Packet Tunnel Provider、完整 CN 或 VCore 高速转发验收。
+本机实验包含完整 CN 加载与路由验证，不代表 iOS/tvOS Packet Tunnel Provider 或 VCore 高速转发验收。
 
 ```sh
 uv run --project scripts --locked vcore-scripts check memory --list
@@ -9,6 +9,7 @@ uv run --project scripts --locked vcore-scripts check memory --preflight
 uv run --project scripts --locked vcore-scripts check memory
 # 定向运行仍只签收所选用例：
 uv run --project scripts --locked vcore-scripts check memory --case smoke-1
+uv run --project scripts --locked vcore-scripts check memory --case full-cn-loader
 # 保留同一源码、产物、输入和用例集合：
 uv run --project scripts --locked vcore-scripts check memory --resume target/memory/<run-id>
 ```
@@ -34,7 +35,7 @@ uv run --project scripts --locked vcore-scripts check memory --resume target/mem
 
 ## 用例与输入
 
-完整设施集包含 25 项：7 项观测校准、3 次无 GeoData 的独立进程烟测、完整 CN 加载负例、
+完整设施集包含 25 项：7 项观测校准、3 次无 GeoData 的独立进程烟测、完整 CN 加载与路由、
 负载提前结束及清理失败负例，以及 12 项带宽校准。短时触碰/释放 64 MiB 校准故意避开
 实时采样，仍须被内核峰值捕获；持续超过 50M、采样失败、崩溃、缺少最终屏障、错误 PID
 也必须产生各自预期的非 PASS。`accepted` 表示设施识别到了预期结果，不改写原始状态。
@@ -42,8 +43,29 @@ uv run --project scripts --locked vcore-scripts check memory --resume target/mem
 每个新 run 从官方 latest 下载 Loyalsoldier `geosite.dat` / `geoip.dat` 和 checksum，
 要求同一 release、完整 CN，保存分类数量及 hash；Mihomo 使用官方发布二进制，记录其
 实际版本与 hash；基础镜像冻结 digest。下载和统计发生在测量前，实际加载发生在被测进程内。
-当前完整 GeoSite CN 超过生产 loader 的 65,536 条限制，该负例只能是 `INVALID`，
-不得截短、换分类或把低峰值算作完整 CN 通过。后续修改 loader 时须同步更换此负例的预期。
+`full-cn-loader` 必须同时满足两类资产 required/available 且无 lastError，不能把 prepare
+成功当作加载成功。完整 CN 不得截短或换分类；原 65,536 记录限制的失败证据保持原样。
+
+该用例先在**独立诊断进程**执行 `geodata_cn`：Python 标准库参考使用官方 protobuf
+记录、集合/正则和 ipaddress，生成全部 Domain/Full 的精确、子域、非 label 边界、
+后缀及大小写/末点见证；全部 Regex 另有隔离单表达式正反例，CIDR 覆盖首/末/邻接
+地址和双栈隔离。超 DNS 长度的构造见证验证明确拒绝。上游 Regex 变化要求补充经审阅
+的见证，不静默跳过。两份资产、参考输入和结果按 hash 冻结；参考模型不进入被测宿主。
+
+随后同一个生产 ABI 进程执行加载、启动、规则 REJECT、停止/重新准备、真实转发、
+TCP/UDP 数据和销毁。CN IP 正例只做 REJECT；CN 域名由容器内白名单 DNS 映射到隔离
+原站。SOCKS5 状态 2、零上游 TCP 接受和零 DNS 查询共同证明核心拒绝，不把超时或
+对端拒绝当作命中。转发正反例由原站报告实际连接来源，分别核对宿主直连/Mihomo
+地址，并校验回显数据；guest-wide PassiveOpens 只作诊断，不当作逐连接 accept 数。
+Mihomo 只允许本轮原站地址，拒绝其他目标，不向公网 CN 地址发送验证流量。
+
+`cn_compatibility_accepted` 仅证明完整 CN 与所测路由；账本容量和生产宿主内核峰值分别
+报告。有效峰值超线仍为 FAIL_MEMORY，不影响定位，但不冒称移动平台通过。单独复核：
+
+```sh
+uv run --project scripts --locked python -m vcore_scripts.memory_geodata <frozen-assets> target/memory/<new-reference>
+VCORE_GEODATA_DIR=<frozen-assets> VCORE_GEODATA_REFERENCE=target/memory/<new-reference> cargo test --locked --release --features ffi --test geodata_cn -- --ignored --nocapture
+```
 
 每次烟测通过命名代理组连接 Mihomo，验证受控 DNS、1 MiB TCP echo 全量摘要、30 个
 64/512/1200 字节 UDP 包、对端所见数据与源地址，以及 Stop 后立即释放 TCP/UDP 端口。
@@ -78,7 +100,8 @@ TCP 和低速烟测仍用单监听端口。命令、manifest 和结果保存实�
 SIGINT/SIGTERM 会清理并保留已完成用例；每个用例使用独立 attempt。恢复时严格校验
 源码、二进制、输入及已封存证据；只复用已通过设施判定的完整 attempt，失败/中断项另开
 attempt，绝不覆盖旧失败。修改源码或准备阶段未完成须新建 run；不要编辑 manifest 绕过校验。
-只跑子集不会置 `stage_complete`，全套任一必需设施校准失败均以非零退出。
+只跑子集不会置 `facility_suite_complete`；完整 CN 子集可单独完成其兼容性阶段。
+全套任一必需校准或所选 CN 检查失败均以非零退出。
 
 必要回归：
 

@@ -60,6 +60,7 @@ TARGETS = (
     "vmess_lifecycle",
 )
 LIB_FILTERS = (
+    "geodata::",
     "security::",
     "outbound::vless::encryption",
     "config::",

@@ -217,7 +217,8 @@ uv run --project scripts --locked vcore-scripts check memory --resume target/mem
 峰值、最终退出屏障、冻结官方 latest CN/Mihomo、专属容器和可恢复用例。
 1 Gbps 对照驱动使用有界原生生成/校验；对端丢包为设施 INVALID，不冒充核心内存通过。
 输入、结果和恢复记录位于 target/memory；详见[测量范围与负例](../tests/memory/README.md)。
-不证明正式移动 Provider、完整 CN 或 VCore 的 1 Gbps 承载能力。
+`--case full-cn-loader` 先跑独立全量 CN 参考，再由生产宿主验证双资源可用、实际
+DIRECT/代理/REJECT 路由与生命周期峰值。它不证明正式移动 Provider 或 VCore 的 1 Gbps 承载能力。
 
 ## CI 与证据
 

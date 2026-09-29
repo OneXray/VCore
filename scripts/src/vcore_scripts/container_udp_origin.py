@@ -39,6 +39,7 @@ def receive_exact(stream, size):
 def serve_tcp(control, mode, ipv6=False):
     """10=bulk/server-first, 22=bulk/client-first, 11=close, 12=identity probe.
 
+    Mode 26 is echo with the accepted peer address after A (family + raw IP).
     Observer A proves an actual accept; D proves exact request bytes and normal
     completion. Rejected identities must produce neither. No host-side server.
     """
@@ -54,8 +55,15 @@ def serve_tcp(control, mode, ipv6=False):
             ready, _, _ = select.select([control, listener], [], [], 30)
             if not ready or control in ready:
                 return
-            stream, _ = listener.accept()
+            stream, peer = listener.accept()
             control.sendall(b"A")
+            if mode == 26:
+                control.sendall(
+                    bytes([6 if ipv6 else 4])
+                    + socket.inet_pton(
+                        socket.AF_INET6 if ipv6 else socket.AF_INET, peer[0]
+                    )
+                )
             if mode == 21:
                 # Generate the withheld tail with the real TLS engine before
                 # transport EOF. This tests FIN semantics without depending on
@@ -91,7 +99,7 @@ def serve_tcp(control, mode, ipv6=False):
                 control.sendall(b"\x13" if stream.version() == "TLSv1.3" else b"\x12")
             with stream:
                 stream.settimeout(15)
-                if mode == 13:  # bounded-lifetime echo; client-first and cancellation
+                if mode in (13, 26):  # bounded-lifetime echo and cancellation
                     while data := stream.recv(65536):
                         stream.sendall(data)
                 elif mode == 14:  # measureDelay/HTTP entrypoint, not a proxy decoder
@@ -139,7 +147,7 @@ def serve(control):
             control.settimeout(15)
             control.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             family = control.recv(1)
-            if family and (family[0] & 0x7F) in (*range(10, 17), 18, 21, 22):
+            if family and (family[0] & 0x7F) in (*range(10, 17), 18, 21, 22, 26):
                 serve_tcp(control, family[0] & 0x7F, bool(family[0] & 0x80))
                 return
             if family not in (b"\x04", b"\x06", b"\x11", b"\x13", b"\x14"):

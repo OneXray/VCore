@@ -14,7 +14,7 @@ protocol_security、protocol_integration；事件标签与报告采用同一套�
 | 网络 | 公开消费者、真实原生认证/传输/UDP/上游和资源 | protocol-interop --suite … |
 | 发布候选 | 有序两跳、故障/重建/长测、平台产物/ABI | integration suite 与平台构建 |
 | Apple 平台 | tvOS/iOS 生产库 ABI、模拟器生命周期、容器原站与合成 fd | check apple-runtime --platform tvos/ios |
-| 内存设施 | 独立 Release ABI 进程、内核峰值校准、冻结 CN、SOCKS5 烟测、容器带宽对照 | [check memory](memory/README.md) |
+| 内存实验 | 独立 Release ABI 进程、内核峰值校准、完整 CN 参考与实际路由、容器带宽对照 | [check memory](memory/README.md) |
 
 所有服务端遵守[隔离规则](../docs/testing-isolation.md)，包括原站和对照客户端入口。
 默认测试命令不执行历史宿主 listener。全目标仅 --no-run；ignored 不算通过。
@@ -56,6 +56,8 @@ protocol_security、protocol_integration；事件标签与报告采用同一套�
   [指纹验证](fingerprints/README.md)分别维护独立基线、内存报文与容器互通。
 - protocols/encryption-crypto.json 及 Go 生成器：独立密码向量；许可证和来源必须保留。
 - protocols/limits.json：实际常量、边界与越界行为；不另建一套产品配置。
+- GeoData 的 core 回归覆盖记录/字节/分配边界、缺失/损坏和原子快照；`geodata_cn`
+  是显式的完整官方资产参考检查，不把其诊断进程内存当成生产宿主峰值。
 
 ## 保留而未自动执行的 fixture
 

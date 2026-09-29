@@ -17,6 +17,11 @@ fn registry_matches_live_production_constants_and_has_owned_boundary_cases() {
     use vcore::{ResourceLimits, dispatch, transport};
     let defaults = ResourceLimits::default();
     let expected = BTreeMap::from([
+        ("geosite-records", vcore::geodata::MAX_DOMAIN_RECORDS),
+        (
+            "geodata-allocation",
+            vcore::geodata::GENERAL_ALLOCATION_BUDGET_BYTES,
+        ),
         ("tuic-quic-payload", vcore::limits::TUIC_QUIC_PAYLOAD),
         ("tuic-uni-streams", vcore::limits::TUIC_UNI_STREAMS),
         ("tuic-stream-window", vcore::limits::TUIC_STREAM_WINDOW),
@@ -176,4 +181,62 @@ fn registry_matches_live_production_constants_and_has_owned_boundary_cases() {
         assert!(!row["boundary_cases"].as_array().unwrap().is_empty());
     }
     assert_eq!(actual, expected);
+    geodata_record_and_allocation_boundaries();
+}
+
+fn geodata_record_and_allocation_boundaries() {
+    use vcore::{
+        config::{RuleAction, RuleKind, RuleSpec},
+        geodata::{GENERAL_ALLOCATION_BUDGET_BYTES, GeoData, GeoDataError, MAX_DOMAIN_RECORDS},
+        routing::GeoMatcher,
+    };
+    let directory = tempfile::tempdir().unwrap();
+    let rules = [RuleSpec {
+        kind: RuleKind::GeoSite("cn".into()),
+        action: RuleAction::Reject,
+        no_resolve: true,
+    }];
+    for count in [
+        MAX_DOMAIN_RECORDS - 1,
+        MAX_DOMAIN_RECORDS,
+        MAX_DOMAIN_RECORDS + 1,
+    ] {
+        // GeoSite { code:"cn", records:Full("a.test")...Full("z.test") }.
+        // Count raw records before any deduplication; the last record is unique.
+        let mut category = b"\x0a\x02cn".to_vec();
+        for index in 0..count {
+            category.extend_from_slice(if index + 1 == count {
+                b"\x12\x0a\x08\x03\x12\x06z.test"
+            } else {
+                b"\x12\x0a\x08\x03\x12\x06a.test"
+            });
+        }
+        let mut fixture = vec![0x0a];
+        let mut length = category.len();
+        while length >= 128 {
+            fixture.push((length & 127) as u8 | 128);
+            length >>= 7;
+        }
+        fixture.push(length as u8);
+        fixture.extend(category);
+        std::fs::write(directory.path().join("geosite.dat"), fixture).unwrap();
+        let result = GeoData::load(directory.path(), &rules, GENERAL_ALLOCATION_BUDGET_BYTES);
+        if count <= MAX_DOMAIN_RECORDS {
+            let data = result.unwrap();
+            assert!(data.matches_geosite("cn", "z.test"));
+            assert!(data.peak_allocation_capacity() <= GENERAL_ALLOCATION_BUDGET_BYTES);
+            assert!(matches!(
+                GeoData::load(
+                    directory.path(),
+                    &rules,
+                    data.peak_allocation_capacity() - 1
+                ),
+                Err(GeoDataError::AllocationBudgetExceeded { .. })
+            ));
+        } else {
+            assert!(
+                matches!(result, Err(GeoDataError::ResourceLimit { resource: "GeoSite Domain records", actual, maximum }) if actual == count && maximum == MAX_DOMAIN_RECORDS)
+            );
+        }
+    }
 }

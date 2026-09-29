@@ -1,4 +1,4 @@
-"""Production-ABI measurement infrastructure; not mobile or full-CN acceptance."""
+"""Production-ABI memory experiments; not physical mobile Provider acceptance."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import json
 import os
 import platform
 import re
+import select
 import shutil
 import signal
 import socket
@@ -20,6 +21,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from . import builds
+from .memory_geodata import generate as geodata_reference
 from .memory_inputs import RunStore, acquire_rules, bandwidth_complete, save
 from .memory_process import (
     FIXTURES,
@@ -283,6 +285,23 @@ def _peers(root, manifest):
                     Path(__file__).with_name("container_udp_origin.py"),
                     directories["origin"] / "origin.py",
                 )
+                origin_script = "origin.py"
+                if "geodata_reference" in manifest:
+                    origin_script = "cn_origin.py"
+                    shutil.copy2(
+                        FIXTURES / origin_script, directories["origin"] / origin_script
+                    )
+                    save(
+                        directories["origin"] / "cn-names.json",
+                        sorted(
+                            {
+                                item["value"]
+                                for item in manifest["geodata_reference"]["routes"]
+                                if item["kind"] == "site"
+                            }
+                            | {"vcore-fixture.test"}
+                        ),
+                    )
                 shutil.copy2(
                     root / "artifacts/traffic-linux",
                     directories["bandwidth"] / "traffic",
@@ -290,30 +309,26 @@ def _peers(root, manifest):
                 shutil.copy2(
                     root / "artifacts/mihomo", directories["mihomo"] / "mihomo"
                 )
-                save(
-                    directories["mihomo"] / "config.json",
-                    {
-                        "socks-port": 1080,
-                        "allow-lan": True,
-                        "bind-address": "*",
-                        "ipv6": True,
-                        "log-level": "warning",
-                        "rules": ["MATCH,DIRECT"],
-                        # High-rate UDP flows must not funnel into one peer
-                        # receive socket. This is one official process with
-                        # unchanged socket defaults, not single-flow acceptance.
-                        "listeners": [
-                            {
-                                "name": f"memory-{index}",
-                                "type": "socks",
-                                "listen": "0.0.0.0",
-                                "port": 1080 + index,
-                                "udp": True,
-                            }
-                            for index in range(1, 16)
-                        ],
-                    },
-                )
+                mihomo_config = {
+                    "socks-port": 1080,
+                    "allow-lan": True,
+                    "bind-address": "*",
+                    "ipv6": True,
+                    "log-level": "warning",
+                    # High-rate UDP flows must not funnel into one peer
+                    # receive socket. This is one official process with
+                    # unchanged socket defaults, not single-flow acceptance.
+                    "listeners": [
+                        {
+                            "name": f"memory-{index}",
+                            "type": "socks",
+                            "listen": "0.0.0.0",
+                            "port": 1080 + index,
+                            "udp": True,
+                        }
+                        for index in range(1, 16)
+                    ],
+                }
                 origin = lab.start(
                     stack,
                     directories["origin"],
@@ -323,7 +338,7 @@ def _peers(root, manifest):
                         "VCORE_ISOLATED_ORIGIN=1",
                         "python",
                         "-B",
-                        "/data/fixture/origin.py",
+                        "/data/fixture/" + origin_script,
                     ],
                 )
                 bandwidth = lab.start(
@@ -339,6 +354,14 @@ def _peers(root, manifest):
                     ],
                     cpus=4,
                 )
+                # A failed CN reject test must never dial a public rule target.
+                mihomo_config["rules"] = [
+                    f"IP-CIDR,{origin.ipv4}/32,DIRECT,no-resolve",
+                    f"IP-CIDR6,{origin.ipv6}/128,DIRECT,no-resolve",
+                    f"IP-CIDR,{bandwidth.ipv4}/32,DIRECT,no-resolve",
+                    "MATCH,REJECT",
+                ]
+                save(directories["mihomo"] / "config.json", mihomo_config)
                 mihomo = lab.start(
                     stack,
                     directories["mihomo"],
@@ -405,12 +428,15 @@ def _address(host, port):
     try:
         raw = b"\x01" + socket.inet_pton(socket.AF_INET, host)
     except OSError:
-        value = host.encode("ascii")
-        raw = bytes([3, len(value)]) + value
+        try:
+            raw = b"\x04" + socket.inet_pton(socket.AF_INET6, host)
+        except OSError:
+            value = host.encode("ascii")
+            raw = bytes([3, len(value)]) + value
     return raw + struct.pack("!H", port)
 
 
-def _socks(stack, port, host, remote, command_id=1):
+def _socks(stack, port, host, remote, command_id=1, *, expected_status=0):
     stream = stack.enter_context(
         socket.create_connection(("127.0.0.1", port), timeout=5)
     )
@@ -419,7 +445,7 @@ def _socks(stack, port, host, remote, command_id=1):
         raise RuntimeError("SOCKS greeting failed")
     stream.sendall(bytes([5, command_id, 0]) + _address(host, remote))
     header = _exact(stream, 4)
-    if header != bytes([5, 0, 0, 1]):
+    if header != bytes([5, expected_status, 0, 1]):
         raise RuntimeError("SOCKS request failed")
     reply = _exact(stream, 6)
     return stream, (
@@ -433,6 +459,117 @@ def _api(process, method, payload=None, instance=None):
     if not response.get("success"):
         raise RuntimeError(f"Invoke {method} failed")
     return response["data"]
+
+
+def _available_cn(state):
+    return set(state) == {"geosite", "geoip"} and all(
+        value["required"] and value["available"] and value["lastError"] is None
+        for value in state.values()
+    )
+
+
+def _cn_routes(process, instance, config, dns, origin, mihomo, reference):
+    def accepts():
+        return json.loads(
+            command("exec", mihomo.name, "python", "/data/fixture/metrics.py")
+        )["tcp"]["PassiveOpens"]
+
+    port = config["socks-port"]
+    before = accepts()
+    rejected = []
+    for item in reference["routes"]:
+        if item["matched"]:
+            with contextlib.ExitStack() as traffic:
+                _socks(traffic, port, item["value"], 443, expected_status=2)
+            rejected.append(
+                {
+                    "id": item["id"],
+                    "status": 2,
+                    "rule": "GEOSITE" if item["kind"] == "site" else "GEOIP",
+                }
+            )
+    after = accepts()
+    if after != before or select.select([dns], [], [], 0.1)[0]:
+        raise RuntimeError("CN reject opened upstream transport or DNS")
+    process.boundary("cn-reject-complete")
+    _api(process, "stop", instance=instance)
+    # Second public lifecycle: GeoSite hits must really reach the isolated
+    # origin directly, misses must use the proxy. No public CN IP is forwarded.
+    config["rules"][0] = "GEOSITE,cn,DIRECT"
+    _api(process, "prepare", {"configYaml": json.dumps(config)}, instance)
+    if not _available_cn(_api(process, "getGeoDataState")):
+        raise RuntimeError("complete CN lost availability on reprepare")
+    _api(process, "start", instance=instance)
+    forwarded = []
+    items = [item for item in reference["routes"] if item["kind"] == "site"] + [
+        {"id": "ip4-negative", "kind": "ip", "value": origin.ipv4, "matched": False},
+        {"id": "ip6-negative", "kind": "ip", "value": origin.ipv6, "matched": False},
+    ]
+    for item in items:
+        before_route = accepts()
+        with contextlib.ExitStack() as traffic:
+            ipv6 = item["id"] == "ip6-negative"
+            observer, remote = _origin(traffic, origin.ipv4, 154 if ipv6 else 26)
+            tcp, _ = _socks(traffic, port, item["value"], remote)
+            if _exact(observer, 1) != b"A":
+                raise RuntimeError("CN route missing isolated origin witness")
+            family = 6 if ipv6 else 4
+            if _exact(observer, 1) != bytes([family]):
+                raise RuntimeError("CN route origin address family mismatch")
+            source = socket.inet_ntop(
+                socket.AF_INET6 if ipv6 else socket.AF_INET,
+                _exact(observer, 16 if ipv6 else 4),
+            )
+            expected_source = (
+                observer.getsockname()[0]
+                if item["matched"]
+                else mihomo.ipv6
+                if ipv6
+                else mihomo.ipv4
+            )
+            if source != expected_source:
+                raise RuntimeError(
+                    f"CN DIRECT/proxy origin source mismatch: {item['id']}"
+                )
+            if item["kind"] == "site":
+                size, _ = struct.unpack("!HH", _exact(dns, 4))
+                query = _exact(dns, size)
+                wire = (
+                    b"".join(
+                        bytes([len(label)]) + label.encode("ascii")
+                        for label in item["value"].split(".")
+                    )
+                    + b"\0"
+                )
+                if query[12 : 12 + len(wire)] != wire:
+                    raise RuntimeError("CN route did not use controlled DNS")
+            payload = bytes(range(256))
+            tcp.sendall(payload)
+            if _exact(tcp, len(payload)) != payload:
+                raise RuntimeError("CN route payload mismatch")
+            tcp.close()
+            if _exact(observer, 1) != b"D":
+                raise RuntimeError("CN origin did not finish")
+        after_route = accepts()
+        delta = after_route - before_route
+        # Guest-wide PassiveOpens is not an application accept count. The
+        # origin's exact peer identity above is the per-connection route proof.
+        forwarded.append(
+            {
+                "id": item["id"],
+                "action": "DIRECT" if item["matched"] else "route",
+                "source_verified": True,
+                "guest_passive_opens": delta,
+                "bytes_each_direction": 256,
+            }
+        )
+    process.boundary("cn-routes-complete")
+    return {
+        "rejected": rejected,
+        "reject_peer_accepts": after - before,
+        "reject_dns_queries": 0,
+        "forwarded": forwarded,
+    }
 
 
 def _smoke(name, root, manifest, work, origin, mihomo):
@@ -453,7 +590,7 @@ def _smoke(name, root, manifest, work, origin, mihomo):
                 )
         config = {
             "socks-port": port,
-            "ipv6": False,
+            "ipv6": full_cn,
             "proxies": [
                 {
                     "name": "edge",
@@ -491,20 +628,32 @@ def _smoke(name, root, manifest, work, origin, mihomo):
             if full_cn:
                 # A degraded snapshot may coexist with successful prepare. It
                 # must never become a low-memory PASS for complete CN.
-                site = geostate["geosite"]
-                record["expected_loader_failure"] = bool(
-                    site["required"]
-                    and not site["available"]
-                    and "GeoSite Domain records" in (site["lastError"] or "")
-                )
+                record["geodata_available"] = _available_cn(geostate)
+                if not record["geodata_available"]:
+                    raise RuntimeError(
+                        "complete CN loader unavailable; invalid memory evidence"
+                    )
             else:
                 if any(item["required"] for item in geostate.values()):
                     raise RuntimeError("no-GeoData smoke unexpectedly needs assets")
+            if not full_cn or record.get("geodata_available"):
                 reservation.release_ipv4()
+                if full_cn:
+                    reservation.release_ipv6()
                 _api(process, "start", instance=instance)
                 if _api(process, "getState", instance=instance)["state"] != "running":
                     raise RuntimeError("runtime failed before traffic")
                 process.boundary("traffic")
+                if full_cn:
+                    record["routes"] = _cn_routes(
+                        process,
+                        instance,
+                        config,
+                        dns,
+                        origin,
+                        mihomo,
+                        manifest["geodata_reference"],
+                    )
                 with contextlib.ExitStack() as traffic:
                     observer, remote = _origin(traffic, origin.ipv4, 13)
                     tcp, _ = _socks(traffic, port, "vcore-fixture.test", remote)
@@ -568,11 +717,7 @@ def _smoke(name, root, manifest, work, origin, mihomo):
         record["measurement"] = process.record
         valid = process.record["status"] in {"PASS", "FAIL_MEMORY"}
         record["status"] = process.record["status"]
-        if full_cn:
-            record["status"] = "INVALID"
-            record["accepted"] = valid and record.get("expected_loader_failure", False)
-            record["reason"] = "full CN loader unavailable; not a memory PASS"
-        elif name == "cleanup-failure":
+        if name == "cleanup-failure":
             record["accepted"] = (
                 not valid and process.record.get("business_cleanup") is False
             )
@@ -586,7 +731,15 @@ def _smoke(name, root, manifest, work, origin, mihomo):
                 and "failure" not in record
                 and data.get("tcp_bytes") == data["expected_tcp_bytes"]
                 and data.get("udp_packets") == data["expected_udp_packets"]
+                and data.get("tcp_correct") is True
+                and (
+                    not full_cn
+                    or record.get("geodata_available")
+                    and bool(record.get("routes"))
+                )
             )
+            if not record["accepted"]:
+                record["status"] = "INVALID"
         return record
 
 
@@ -698,10 +851,19 @@ def _report(root, manifest, results, *, complete, failure=None):
         and all(r.get("accepted") for r in results.values())
     )
     whole = manifest["cases"] == list(CASES)
+    cn_only = manifest["cases"] == ["full-cn-loader"]
+    cn_accepted = (
+        accepted
+        and results.get("full-cn-loader", {}).get("accepted", False)
+        and manifest.get("geodata_verified", {}).get("status") == "PASS"
+    )
     report = {
         "complete": complete,
         "instrumentation_accepted": accepted,
-        "stage_complete": accepted and whole,
+        "stage_complete": accepted and whole or cn_only and cn_accepted,
+        "facility_suite_complete": accepted and whole,
+        "cn_compatibility_accepted": cn_accepted,
+        "geodata_diagnostic": manifest.get("geodata_verified"),
         "source_unchanged": unchanged,
         "cleanup": not remaining,
         "cases": results,
@@ -717,7 +879,9 @@ def _report(root, manifest, results, *, complete, failure=None):
     save(
         ROOT / "progress.json",
         {
-            "current_stage": "isolated-memory-measurement-harness",
+            "current_stage": "full-cn-compatibility"
+            if cn_only
+            else "isolated-memory-measurement-harness",
             "status": "PASS" if accepted else "INVALID",
             "stage_complete": report["stage_complete"],
             "run_dir": str(root.relative_to(builds.CORE_DIR)),
@@ -740,7 +904,8 @@ def _report(root, manifest, results, *, complete, failure=None):
         "not iOS/tvOS Provider acceptance.",
         "",
         f"Instrumentation accepted: {accepted}. "
-        f"Full facility suite complete: {report['stage_complete']}.",
+        f"Full facility suite complete: {report['facility_suite_complete']}.",
+        f"Complete CN compatibility accepted: {cn_accepted}.",
         f"Cleanup: {not remaining}. Source unchanged: {unchanged}.",
         "",
         "| Case | Observed result | Expected behavior verified "
@@ -757,8 +922,8 @@ def _report(root, manifest, results, *, complete, failure=None):
     lines += [
         "",
         "Expected INVALID/FAIL_MEMORY calibrations do not become memory PASS results.",
-        "Complete CN loader failure remains INVALID; "
-        "no CN or mobile memory acceptance.",
+        "Complete CN requires both assets available, the independent reference "
+        "and real route witnesses; an unavailable asset remains INVALID.",
         "Bandwidth is a 10-second facility calibration, "
         "not the later 300-second VCore gate.",
         "UDP peer calibration uses one official process with a listener per "
@@ -899,6 +1064,58 @@ def run(
                 artifacts, library_hash = _build(root / "artifacts")
                 manifest["library_sha256"] = library_hash
                 manifest["rules"] = acquire_rules(root / "rules")
+                if "full-cn-loader" in selected:
+                    asset_dir = root / "rules" / manifest["rules"]["directory"]
+                    reference_dir = root / "cn-reference"
+                    manifest["geodata_reference"] = geodata_reference(
+                        asset_dir, reference_dir
+                    )
+                    routes = manifest["geodata_reference"]["routes"]
+                    manifest["workloads"]["full_cn"] = {
+                        "entrypoint": "SOCKS5",
+                        "rules": "complete-enhanced-cn",
+                        "families": ["IPv4", "IPv6"],
+                        "lifecycles_same_process": 2,
+                        "reject_witnesses": sum(item["matched"] for item in routes),
+                        "forward_witnesses": sum(
+                            item["kind"] == "site" for item in routes
+                        )
+                        + 2,
+                        "route_tcp_bytes_each_direction": 256,
+                        "post_route_tcp_bytes_each_direction": 1048576,
+                        "post_route_udp_packets": 30,
+                        "udp_payload_bytes": [64, 512, 1200],
+                        "route_oracle": "exact origin peer address and data",
+                    }
+                    _command(
+                        [
+                            "cargo",
+                            "test",
+                            "--locked",
+                            "--release",
+                            "--no-default-features",
+                            "--features",
+                            builds.DEFAULT_FEATURES,
+                            "--test",
+                            "geodata_cn",
+                            "--",
+                            "--ignored",
+                            "--nocapture",
+                        ],
+                        root,
+                        "cn-reference",
+                        timeout=1200,
+                        env=os.environ
+                        | {
+                            "VCORE_GEODATA_DIR": str(asset_dir),
+                            "VCORE_GEODATA_REFERENCE": str(reference_dir),
+                        },
+                    )
+                    manifest["geodata_verified"] = json.loads(
+                        (reference_dir / "verified.json").read_text()
+                    )
+                    if manifest["geodata_verified"]["status"] != "PASS":
+                        raise RuntimeError("complete CN reference verification failed")
                 manifest["peer"] = {}
                 download_mihomo(
                     "linux-arm64",
@@ -909,7 +1126,11 @@ def run(
                     manifest["image"] = image
                 manifest["files"] = {
                     file.relative_to(root).as_posix(): sha256(file)
-                    for directory in (root / "artifacts", root / "rules")
+                    for directory in (
+                        root / "artifacts",
+                        root / "rules",
+                        root / "cn-reference",
+                    )
                     for file in directory.rglob("*")
                     if file.is_file()
                 }
@@ -991,7 +1212,7 @@ def run(
                     )
                     check = "PASS" if result["accepted"] else "FAIL"
                     print(
-                        f"{name}: {result['status']} (instrument check {check})",
+                        f"{name}: {result['status']} (case acceptance {check})",
                         flush=True,
                     )
             finished = True
@@ -1002,7 +1223,7 @@ def run(
                 )
             print(
                 f"PASS measurement facilities ({len(selected)} selected cases), "
-                f"not mobile/full-CN acceptance: {root}",
+                f"not mobile or high-rate VCore acceptance: {root}",
                 flush=True,
             )
     except BaseException as error:

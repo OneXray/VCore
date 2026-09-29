@@ -122,7 +122,7 @@ geo-update-interval: 24
 | `geoip.dat` | 32 MiB |
 | 每文件顶层分类 | 4,096 |
 | 每实例 GeoSite + GeoIP 唯一 code | 16 |
-| 选中 GeoSite Domain 记录 | 65,536 |
+| 选中 GeoSite Domain 记录 | 131,072 |
 | GeoSite value 总字节 | 2 MiB |
 | Regex 记录 / 源码总量 | 512 / 64 KiB |
 | 原始 CIDR 记录 | 320,000 |
@@ -130,7 +130,18 @@ geo-update-interval: 24
 | Regex 保留内存 | 512 KiB |
 | 单条 Regex 编译预留 | 最多 3 MiB，且不超过剩余预算 |
 
-每次扩容前执行 checked arithmetic 和同一分配账本检查。CIDR 可以去重、删除被覆盖前缀并无损合并对齐 sibling；原始记录数在压缩前检查。预算包括 I/O 暂存区、索引、规范化临时区、匹配器容量和 DFA 保留内存。
+记录数是所选分类合计的原始解析工作上限，不是预分配大小；完整增强版 CN 超过 65,536
+条，因此放宽为 131,072，2 MiB value、8 MiB 共享预算和其他上限不变。超过任何上限
+仍拒绝整类资产，不截断、去重绕过计数或改用较小分类。
+
+每次扩容前执行 checked arithmetic 和同一分配账本检查，并保守预留新旧缓冲同时存活
+的容量，扩容完成后才扣除旧容量。CIDR 可以去重、删除被覆盖前缀并无损合并对齐
+sibling；原始记录数在压缩前检查。预算包括 I/O 暂存区、索引、规范化临时区、匹配器
+容量、DFA 保留内存与编译预留。账本不是整个进程的 physical footprint。
+
+完整官方 CN 的可复现检查见 [内存实验](../tests/memory/README.md)：独立参考逐条验证
+匹配语义，生产 ABI 进程另验两类资产可用、实际路由与全生命周期峰值。仅 prepare 成功
+或离线记录数统计不算完整 CN 可用。
 
 ## 失败语义
 

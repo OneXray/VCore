@@ -41,7 +41,9 @@ pub const MAX_GEOSITE_FILE_BYTES: u64 = 16 * 1024 * 1024;
 pub const MAX_GEOIP_FILE_BYTES: u64 = 32 * 1024 * 1024;
 pub const MAX_CATEGORIES_PER_FILE: usize = 4_096;
 pub const MAX_REFERENCED_CODES: usize = 16;
-pub const MAX_DOMAIN_RECORDS: usize = 65_536;
+// Enhanced CN exceeds 100k records. This is a parsing work bound, not a
+// reservation: value bytes and the shared construction budget remain unchanged.
+pub const MAX_DOMAIN_RECORDS: usize = 131_072;
 pub const MAX_DOMAIN_VALUE_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_REGEX_RECORDS: usize = 512;
 pub const MAX_REGEX_SOURCE_BYTES: usize = 64 * 1024;
@@ -1709,8 +1711,9 @@ fn ensure_vec_capacity<T>(
     }
     let desired = required.checked_next_power_of_two().unwrap_or(required);
     let old_capacity = values.capacity();
-    let requested_elements = desired - old_capacity;
-    let requested_bytes = requested_elements
+    // An allocator can move the buffer. Charge the entire new capacity while
+    // the old allocation is still live, not only the retained-size delta.
+    let requested_bytes = desired
         .checked_mul(mem::size_of::<T>())
         .ok_or(GeoDataError::AllocationFailed { bytes: usize::MAX })?;
     budget.reserve(requested_bytes)?;
@@ -1721,16 +1724,20 @@ fn ensure_vec_capacity<T>(
             bytes: requested_bytes,
         });
     }
-    let actual_elements = values.capacity() - old_capacity;
-    match actual_elements.cmp(&requested_elements) {
+    let actual_elements = values.capacity();
+    match actual_elements.cmp(&desired) {
         std::cmp::Ordering::Greater => {
-            budget.reserve((actual_elements - requested_elements) * mem::size_of::<T>())?;
+            let extra = (actual_elements - desired)
+                .checked_mul(mem::size_of::<T>())
+                .ok_or(GeoDataError::AllocationFailed { bytes: usize::MAX })?;
+            budget.reserve(extra)?;
         }
         std::cmp::Ordering::Less => {
-            budget.release((requested_elements - actual_elements) * mem::size_of::<T>());
+            budget.release((desired - actual_elements) * mem::size_of::<T>());
         }
         std::cmp::Ordering::Equal => {}
     }
+    budget.release(old_capacity * mem::size_of::<T>());
     Ok(())
 }
 

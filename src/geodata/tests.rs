@@ -120,6 +120,87 @@ fn empty_rules_do_not_open_assets() {
 }
 
 #[test]
+fn geosite_loads_beyond_legacy_record_limit_without_truncation() {
+    let dir = tempdir().unwrap();
+    let mut selected = field_bytes(1, b"cn");
+    for index in 0..65_537 {
+        selected.extend(field_bytes(2, &domain(2, &format!("d{index:x}.test"))));
+    }
+    write_asset(dir.path(), GEOSITE_FILE_NAME, &site_list(&[selected]));
+    let data = GeoData::load(
+        dir.path(),
+        &[rule(RuleKind::GeoSite("cn".to_owned()))],
+        GENERAL_ALLOCATION_BUDGET_BYTES,
+    )
+    .unwrap();
+    for index in [0, 32_768, 65_535, 65_536] {
+        assert!(data.matches_geosite("cn", &format!("d{index:x}.test")));
+        assert!(data.matches_geosite("cn", &format!("sub.d{index:x}.test")));
+        assert!(!data.matches_geosite("cn", &format!("notd{index:x}.test")));
+    }
+    assert!(data.peak_allocation_capacity() <= GENERAL_ALLOCATION_BUDGET_BYTES);
+}
+
+#[test]
+fn geosite_record_limit_is_inclusive_and_shared_across_categories() {
+    let dir = tempdir().unwrap();
+    let rules = [
+        rule(RuleKind::GeoSite("first".to_owned())),
+        rule(RuleKind::GeoSite("last".to_owned())),
+    ];
+    let mut first = field_bytes(1, b"first");
+    for index in 0..MAX_DOMAIN_RECORDS - 1 {
+        first.extend(field_bytes(2, &domain(2, &format!("d{index:x}.test"))));
+    }
+    for additional in 0..=2 {
+        let last = site("last", &vec![domain(3, "last.test"); additional]);
+        write_asset(
+            dir.path(),
+            GEOSITE_FILE_NAME,
+            &site_list(&[first.clone(), last]),
+        );
+        let result = GeoData::load(dir.path(), &rules, GENERAL_ALLOCATION_BUDGET_BYTES);
+        if additional <= 1 {
+            let data = result.unwrap();
+            assert!(data.matches_geosite("first", &format!("d{:x}.test", MAX_DOMAIN_RECORDS - 2)));
+            assert_eq!(data.matches_geosite("last", "last.test"), additional == 1);
+            assert!(data.peak_allocation_capacity() <= GENERAL_ALLOCATION_BUDGET_BYTES);
+        } else {
+            assert!(matches!(result, Err(GeoDataError::ResourceLimit {
+                resource: "GeoSite Domain records", actual, maximum
+            }) if actual == MAX_DOMAIN_RECORDS + 1 && maximum == MAX_DOMAIN_RECORDS));
+        }
+    }
+}
+
+#[test]
+fn allocation_ledger_charges_old_and_new_buffers_during_growth() {
+    // Reallocation may allocate a new buffer before freeing the old one. The
+    // budget must reject that transient peak even when retained bytes fit.
+    let mut budget = AllocationBudget::new(16);
+    let mut bytes = Vec::<u8>::new();
+    ensure_vec_capacity(&mut bytes, 8, &mut budget).unwrap();
+    bytes.extend_from_slice(b"12345678");
+    assert!(matches!(
+        ensure_vec_capacity(&mut bytes, 1, &mut budget),
+        Err(GeoDataError::AllocationBudgetExceeded {
+            requested: 24,
+            maximum: 16
+        })
+    ));
+    assert_eq!(bytes, b"12345678");
+    assert_eq!(bytes.capacity(), 8);
+    assert_eq!(budget.used, 8);
+    budget.maximum = 24;
+    ensure_vec_capacity(&mut bytes, 1, &mut budget).unwrap();
+    assert_eq!(budget.used, 16);
+    assert_eq!(budget.peak, 24);
+    assert_eq!(bytes, b"12345678");
+    assert!(ensure_vec_capacity(&mut bytes, usize::MAX, &mut budget).is_err());
+    assert_eq!(budget.used, 16);
+}
+
+#[test]
 fn nameserver_policy_alone_loads_geosite_and_shares_rule_categories() {
     let dir = tempdir().unwrap();
     let fixture = site_list(&[
@@ -420,6 +501,40 @@ fn tiny_allocation_budget_fails_before_loading_records() {
     assert!(matches!(
         error,
         GeoDataError::AllocationBudgetExceeded { .. }
+    ));
+}
+
+#[test]
+fn larger_record_limit_keeps_value_and_file_byte_limits() {
+    let dir = tempdir().unwrap();
+    let rules = [rule(RuleKind::GeoSite("cn".to_owned()))];
+    for size in [MAX_DOMAIN_VALUE_BYTES, MAX_DOMAIN_VALUE_BYTES + 1] {
+        write_asset(
+            dir.path(),
+            GEOSITE_FILE_NAME,
+            &site_list(&[site("cn", &[domain(0, &"a".repeat(size))])]),
+        );
+        let result = GeoData::load(dir.path(), &rules, GENERAL_ALLOCATION_BUDGET_BYTES);
+        if size == MAX_DOMAIN_VALUE_BYTES {
+            let data = result.unwrap();
+            assert!(data.peak_allocation_capacity() <= GENERAL_ALLOCATION_BUDGET_BYTES);
+            assert!(!data.matches_geosite("cn", "a.test"));
+        } else {
+            assert!(
+                matches!(result, Err(GeoDataError::ResourceLimit { resource: "GeoSite value bytes", actual, maximum }) if actual == size && maximum == MAX_DOMAIN_VALUE_BYTES)
+            );
+        }
+    }
+    File::create(dir.path().join(GEOSITE_FILE_NAME))
+        .unwrap()
+        .set_len(MAX_GEOSITE_FILE_BYTES + 1)
+        .unwrap();
+    assert!(matches!(
+        GeoData::load(dir.path(), &rules, GENERAL_ALLOCATION_BUDGET_BYTES),
+        Err(GeoDataError::FileTooLarge {
+            kind: GeoDataKind::GeoSite,
+            ..
+        })
     ));
 }
 
