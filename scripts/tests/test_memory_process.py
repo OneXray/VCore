@@ -5,11 +5,30 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from vcore_scripts.memory_process import build_observer, calibration
+from vcore_scripts.memory_process import MeasuredProcess, build_observer, calibration
 
 
 @unittest.skipUnless(platform.system() == "Darwin", "requires Darwin kernel counters")
 class MemoryProcessTests(unittest.TestCase):
+    def test_allocation_diagnostic_never_becomes_a_memory_pass(self):
+        with tempfile.TemporaryDirectory() as directory:
+            work = Path(directory)
+            artifacts = build_observer(work)
+            process = MeasuredProcess(
+                artifacts["empty"],
+                artifacts["observer"],
+                work / "diagnostic",
+                diagnostic=True,
+            )
+            try:
+                process.finalize()
+            finally:
+                process.close()
+            self.assertEqual(process.record["status"], "DIAGNOSTIC")
+            self.assertTrue(process.record["diagnostic"])
+            self.assertTrue(process.record["final_barrier"])
+            self.assertEqual(process.record["exit_code"], 0)
+
     def test_missing_peak_crash_and_missing_final_evidence_cannot_pass(self):
         with tempfile.TemporaryDirectory() as directory:
             work = Path(directory)

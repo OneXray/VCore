@@ -74,7 +74,11 @@ class MeasuredProcess:
     the public instance. Killing a child is cleanup, never successful measurement.
     """
 
-    def __init__(self, executable: Path, observer: Path, work: Path):
+    def __init__(
+        self, executable: Path, observer: Path, work: Path, *, diagnostic=False
+    ):
+        if any(key.startswith(("Malloc", "DYLD_")) for key in os.environ):
+            raise ValueError("unset inherited allocator/tracer overrides")
         work.mkdir(parents=True, exist_ok=True)
         self.work = work
         self.observer = Observer(observer)
@@ -85,6 +89,7 @@ class MeasuredProcess:
             "final_barrier": False,
             "sampling_errors": [],
             "peak_bytes": 0,
+            "diagnostic": diagnostic,
         }
         self.lock = threading.RLock()
         self.finished = threading.Event()
@@ -98,6 +103,15 @@ class MeasuredProcess:
                 stderr=self.stderr,
                 start_new_session=True,
                 bufsize=0,
+                env=os.environ
+                | (
+                    {
+                        "MallocStackLogging": "full",
+                        "MallocStackLoggingDirectory": str(work.resolve()),
+                    }
+                    if diagnostic
+                    else {}
+                ),
             )
         except BaseException:
             self.stderr.close()
@@ -214,7 +228,9 @@ class MeasuredProcess:
 
     def boundary(self, stage):
         self.stage = stage
-        self.crosscheck(self.command("S"))
+        internal = self.command("S")
+        self.crosscheck(internal)
+        return internal
 
     def invoke(self, method, payload=None, instance=None):
         self.stage = method
@@ -295,7 +311,11 @@ class MeasuredProcess:
             and not self.record["sampling_errors"]
         ):
             self.record["status"] = (
-                "FAIL_MEMORY" if self.record["peak_bytes"] > LIMIT else "PASS"
+                "DIAGNOSTIC"
+                if self.record["diagnostic"]
+                else "FAIL_MEMORY"
+                if self.record["peak_bytes"] > LIMIT
+                else "PASS"
             )
         self.record["peak_mib"] = self.record["peak_bytes"] / (1024 * 1024)
         self.record["margin_bytes"] = LIMIT - self.record["peak_bytes"]

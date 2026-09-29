@@ -76,6 +76,47 @@ fn digest(path: &Path) -> String {
 }
 
 #[test]
+#[ignore = "requires frozen complete assets and diagnostic output directory"]
+fn cold_start_allocation_ledger() {
+    let asset_dir = PathBuf::from(std::env::var_os("VCORE_GEODATA_DIR").expect("asset directory"));
+    let output =
+        PathBuf::from(std::env::var_os("VCORE_GEODATA_REFERENCE").expect("output directory"));
+    let mut profiles = serde_json::Map::new();
+    for (name, kinds) in [
+        ("none", vec![]),
+        ("site", vec![RuleKind::GeoSite("cn".into())]),
+        ("ip", vec![RuleKind::GeoIp("cn".into())]),
+        (
+            "both",
+            vec![RuleKind::GeoSite("cn".into()), RuleKind::GeoIp("cn".into())],
+        ),
+    ] {
+        let rules: Vec<_> = kinds.into_iter().map(rule).collect();
+        let data = GeoData::load(&asset_dir, &rules, GENERAL_ALLOCATION_BUDGET_BYTES).unwrap();
+        assert_eq!(
+            data.geosite_available("cn"),
+            matches!(name, "site" | "both")
+        );
+        assert_eq!(data.geoip_available("cn"), matches!(name, "ip" | "both"));
+        assert!(data.allocation_capacity() <= data.peak_allocation_capacity());
+        assert!(data.peak_allocation_capacity() <= GENERAL_ALLOCATION_BUDGET_BYTES);
+        profiles.insert(
+            name.into(),
+            serde_json::json!({
+                "retained_capacity_bytes": data.allocation_capacity(),
+                "peak_reserved_capacity_bytes": data.peak_allocation_capacity(),
+                "budget_bytes": GENERAL_ALLOCATION_BUDGET_BYTES,
+            }),
+        );
+    }
+    fs::write(
+        output.join("ledger.json"),
+        serde_json::to_vec_pretty(&profiles).unwrap(),
+    )
+    .unwrap();
+}
+
+#[test]
 #[ignore = "requires frozen complete assets and independent VCORE_GEODATA_REFERENCE witnesses"]
 fn complete_cn_matches_independent_reference_with_shared_budget() {
     let asset_dir = PathBuf::from(std::env::var_os("VCORE_GEODATA_DIR").expect("asset directory"));

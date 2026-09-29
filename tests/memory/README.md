@@ -10,6 +10,8 @@ uv run --project scripts --locked vcore-scripts check memory
 # 定向运行仍只签收所选用例：
 uv run --project scripts --locked vcore-scripts check memory --case smoke-1
 uv run --project scripts --locked vcore-scripts check memory --case full-cn-loader
+# 四个 profile × 五个未插桩进程，随后单独的双规则分配诊断：
+uv run --project scripts --locked vcore-scripts check memory --suite cold-start
 # 保留同一源码、产物、输入和用例集合：
 uv run --project scripts --locked vcore-scripts check memory --resume target/memory/<run-id>
 ```
@@ -17,6 +19,8 @@ uv run --project scripts --locked vcore-scripts check memory --resume target/mem
 需要 Rust、Xcode/Command Line Tools、Go、uv、Apple Container 和既有 host-only
 `vcore-mihomo-interop` 网络。原站、DNS、Mihomo 都在专属容器中，不发布宿主端口；
 宿主仅运行客户端、观察器及被测 VCore SOCKS5 入站。停止只清理本轮拥有的进程和容器。
+运行前须移除继承的 `Malloc*` / `DYLD_*` 覆盖项（例如 `env -u MallocNanoZone`），
+不更换分配器或把诊断开销算成正式结果。
 
 ## 测量边界
 
@@ -69,6 +73,31 @@ VCORE_GEODATA_DIR=<frozen-assets> VCORE_GEODATA_REFERENCE=target/memory/<new-ref
 
 每次烟测通过命名代理组连接 Mihomo，验证受控 DNS、1 MiB TCP echo 全量摘要、30 个
 64/512/1200 字节 UDP 包、对端所见数据与源地址，以及 Stop 后立即释放 TCP/UDP 端口。
+
+## 冷启动与规则归因
+
+`--suite cold-start` 交错执行 `none/site/ip/both` 四种规则配置，各五个新 PID、空应用
+缓存目录和一次生命周期，使用同一个未插桩 Release 产物及冻结资产。没有清空系统页缓存：
+校验、参考模型及私有文件拷贝已读取资产，结果只证明**进程/应用冷启动**，不宣称磁盘冷读。
+只有启用的资产允许 required/available；prepare 成功但缺失、降级或有 lastError 均 INVALID。
+
+每个进程记录 initialize、prepare、start、首次真实规则命中、30 秒无业务流空闲、stop、
+destroy 的墙钟耗时、current footprint、lifetime peak 和 RSS。时间包含 ABI IPC 或
+SOCKS5 交换，不作为纯函数耗时。启用类别的 CN 正例只做 REJECT，并核验零上游/零 DNS；
+所有配置都转发受控负例域名、IPv4/IPv6 原站，逐条核对 Mihomo 来源和双向 256 字节。
+Stop 后立即验证端口释放，destroy 后正常退出最终屏障。完整矩阵必须有 20 个不同 PID，
+每个都完整观察且峰值 ≤50,000,000 bytes；最坏值和余量单列，不能用均值掩盖超线。
+
+`geodata_cn` 在另一进程输出四组保留容量/构造峰值预算账本，二者都不是物理内存。
+20 次正式测量结束后，`diagnose-cold-both` 用独立 PID 开启 Apple `MallocStackLogging=full`，
+在 prepare 后、destroy 后捕获 `vmmap`、当前分配和 high-water 调用栈；正常结束也只标为
+`DIAGNOSTIC`，绝不成为内存 PASS。该定位步骤失败则整个阶段未完成。单独复查可用
+`--case diagnose-cold-both`，仍会新建实验轮次、校验冻结输入。追踪改变时序/内存，只用于
+区分加载临时对象、保留 matcher、allocator 页和运行时所有者。不可把跨 PID 峰值之差、
+文件磁盘大小、阶段 current 值差或 allocation 账本直接当作模块精确 footprint。
+
+低负载基线不签收协议池、TUN、真实 Provider 或 1 Gbps。没有明确收益证据时不修改生产
+实现；任何后续优化仍须独立的交错 A/B、吞吐/延迟防退化和未插桩矩阵复验。
 
 `traffic.go` 是独立标准库驱动与隔离原站，不是代理实现。带宽校准不经过 VCore：
 direct / 独立 SOCKS5 客户端经 Mihomo × TCP / UDP × 上行 / 下行 / 双向。

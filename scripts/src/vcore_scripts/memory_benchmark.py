@@ -21,6 +21,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from . import builds
+from . import memory_cold_start as cold
 from .memory_geodata import generate as geodata_reference
 from .memory_inputs import RunStore, acquire_rules, bandwidth_complete, save
 from .memory_process import (
@@ -89,9 +90,13 @@ def _source():
     return identity
 
 
-def _command(argv, directory, name, *, env=None, timeout=120):
+def _command(argv, directory, name, *, env=None, timeout=120, output_limit=1024 * 1024):
     outcome = run_command(
-        [str(arg) for arg in argv], timeout=timeout, cwd=builds.CORE_DIR, env=env
+        [str(arg) for arg in argv],
+        timeout=timeout,
+        cwd=builds.CORE_DIR,
+        env=env,
+        limit=output_limit,
     )
     (directory / (name + ".log")).write_bytes(outcome.stdout)
     save(
@@ -101,6 +106,7 @@ def _command(argv, directory, name, *, env=None, timeout=120):
             "exit_code": outcome.returncode,
             "joined": outcome.cleanup,
             "seconds": outcome.seconds,
+            "output_limit_bytes": output_limit,
         },
     )
     if outcome.returncode != 0 or not outcome.cleanup:
@@ -120,7 +126,7 @@ def _build(directory):
             "CARGO_TARGET_DIR",
             "VCORE_FEATURES",
         }
-        or key.startswith(("CARGO_PROFILE_", "DYLD_"))
+        or key.startswith(("CARGO_PROFILE_", "DYLD_", "Malloc"))
     ]
     if hidden:
         raise ValueError(
@@ -857,13 +863,27 @@ def _report(root, manifest, results, *, complete, failure=None):
         and results.get("full-cn-loader", {}).get("accepted", False)
         and manifest.get("geodata_verified", {}).get("status") == "PASS"
     )
+    cold_summary = cold.summarize(
+        {k: v for k, v in results.items() if k.startswith("cold-")}
+    )
+    cold_accepted = (
+        accepted
+        and cold_summary["complete"]
+        and results.get(cold.DIAGNOSTIC_CASE, {}).get("accepted", False)
+    )
     report = {
         "complete": complete,
         "instrumentation_accepted": accepted,
-        "stage_complete": accepted and whole or cn_only and cn_accepted,
+        "stage_complete": accepted
+        and whole
+        or cn_only
+        and cn_accepted
+        or cold_accepted,
+        "cold_start": cold_summary,
         "facility_suite_complete": accepted and whole,
         "cn_compatibility_accepted": cn_accepted,
         "geodata_diagnostic": manifest.get("geodata_verified"),
+        "geodata_ledger": manifest.get("geodata_ledger"),
         "source_unchanged": unchanged,
         "cleanup": not remaining,
         "cases": results,
@@ -879,7 +899,9 @@ def _report(root, manifest, results, *, complete, failure=None):
     save(
         ROOT / "progress.json",
         {
-            "current_stage": "full-cn-compatibility"
+            "current_stage": "cold-start-geodata-attribution"
+            if manifest.get("suite") == "cold-start"
+            else "full-cn-compatibility"
             if cn_only
             else "isolated-memory-measurement-harness",
             "status": "PASS" if accepted else "INVALID",
@@ -906,6 +928,7 @@ def _report(root, manifest, results, *, complete, failure=None):
         f"Instrumentation accepted: {accepted}. "
         f"Full facility suite complete: {report['facility_suite_complete']}.",
         f"Complete CN compatibility accepted: {cn_accepted}.",
+        f"Four-profile cold-start baseline accepted: {cold_accepted}.",
         f"Cleanup: {not remaining}. Source unchanged: {unchanged}.",
         "",
         "| Case | Observed result | Expected behavior verified "
@@ -936,6 +959,26 @@ def _report(root, manifest, results, *, complete, failure=None):
         f"`{resume_command}`",
         "",
     ]
+    if any(name.startswith("cold-") for name in manifest["cases"]):
+        lines += [
+            "## Cold-start profile summary",
+            "",
+            "Fresh process/application cache, not cold OS page cache. "
+            "Input verification/copy precede each first in-process read.",
+            "",
+            "| Profile | Five lifetime peaks (bytes) | Worst margin (bytes) |",
+            "| --- | --- | --- |",
+        ]
+        for profile, row in cold_summary["profiles"].items():
+            lines.append(
+                f"| {profile} | {row['peaks_bytes']} | {row['margin_bytes']} |"
+            )
+        lines += [
+            "",
+            "Do not subtract peaks across PIDs to attribute GeoData. "
+            "Allocator ledgers and traced runs are diagnostic, not footprint gates.",
+            "",
+        ]
     (root / "summary.md").write_text("\n".join(lines))
     return accepted
 
@@ -947,10 +990,16 @@ def run(
     resume=None,
     list_only=False,
     preflight_only=False,
+    suite=None,
 ):
-    selected = identifiers or list(CASES)
+    if identifiers and suite:
+        raise ValueError("choose a suite or specific cases, not both")
+    selected = identifiers or (
+        cold.cases() + [cold.DIAGNOSTIC_CASE] if suite == "cold-start" else list(CASES)
+    )
+    known = (*CASES, *cold.cases(), cold.DIAGNOSTIC_CASE)
     if len(set(selected)) != len(selected) or any(
-        case not in CASES for case in selected
+        case not in known for case in selected
     ):
         raise ValueError("unknown or repeated memory case")
     if list_only:
@@ -993,7 +1042,7 @@ def run(
                     raise ValueError(
                         "memory resume source/preparation identity mismatch"
                     )
-                if identifiers and selected != manifest["cases"]:
+                if (identifiers or suite) and selected != manifest["cases"]:
                     raise ValueError("resume must retain the frozen case selection")
                 selected = manifest["cases"]
                 for path, digest in manifest["files"].items():
@@ -1013,6 +1062,11 @@ def run(
                     "ready": False,
                     "source": _source(),
                     "cases": selected,
+                    "suite": "cold-start"
+                    if any(n.startswith("cold-") for n in selected)
+                    else "allocation-diagnostic"
+                    if cold.DIAGNOSTIC_CASE in selected
+                    else "facilities",
                     "profile": "release",
                     "features": builds.DEFAULT_FEATURES.split(","),
                     "limit_bytes": 50_000_000,
@@ -1021,6 +1075,8 @@ def run(
                     "resource_profile": "standard",
                     "seed": 20260929,
                     "sample_interval_ms": 20,
+                    "allocator_environment": "system-default; no inherited "
+                    "Malloc/DYLD overrides",
                     "toolchain": {},
                     "previous_accepted_commit": previous.get(
                         "last_accepted_commit", previous.get("accepted_commit")
@@ -1064,7 +1120,11 @@ def run(
                 artifacts, library_hash = _build(root / "artifacts")
                 manifest["library_sha256"] = library_hash
                 manifest["rules"] = acquire_rules(root / "rules")
-                if "full-cn-loader" in selected:
+                if (
+                    "full-cn-loader" in selected
+                    or cold.DIAGNOSTIC_CASE in selected
+                    or any(name.startswith("cold-") for name in selected)
+                ):
                     asset_dir = root / "rules" / manifest["rules"]["directory"]
                     reference_dir = root / "cn-reference"
                     manifest["geodata_reference"] = geodata_reference(
@@ -1086,6 +1146,25 @@ def run(
                         "post_route_udp_packets": 30,
                         "udp_payload_bytes": [64, 512, 1200],
                         "route_oracle": "exact origin peer address and data",
+                    }
+                    manifest["workloads"]["cold_start"] = {
+                        "profiles": cold.PROFILES,
+                        "repetitions": cold.REPETITIONS,
+                        "idle_seconds": cold.IDLE_SECONDS,
+                        "lifecycles_per_pid": 1,
+                        "forward_witnesses": [
+                            "domain-negative",
+                            "ip4-negative",
+                            "ip6-negative",
+                        ],
+                        "bytes_each_direction_per_witness": 256,
+                        "reject_witnesses": "all positive routes for enabled assets",
+                        "cache": "fresh PID and app directory; OS cache not purged; "
+                        "verified/copied inputs",
+                        "first_hit": "first CN REJECT or MATCH proxy "
+                        "for no-GeoData profile",
+                        "timing": "external wall time includes "
+                        "public ABI IPC or SOCKS5 exchange",
                     }
                     _command(
                         [
@@ -1113,6 +1192,9 @@ def run(
                     )
                     manifest["geodata_verified"] = json.loads(
                         (reference_dir / "verified.json").read_text()
+                    )
+                    manifest["geodata_ledger"] = json.loads(
+                        (reference_dir / "ledger.json").read_text()
                     )
                     if manifest["geodata_verified"]["status"] != "PASS":
                         raise RuntimeError("complete CN reference verification failed")
@@ -1185,6 +1267,10 @@ def run(
                         }
                     elif name.startswith("bandwidth-"):
                         result = _bandwidth(name, root, work, bandwidth, mihomo)
+                    elif name.startswith("cold-") or name == cold.DIAGNOSTIC_CASE:
+                        result = cold.run_case(
+                            name, root, manifest, work, origin, mihomo
+                        )
                     else:
                         result = _smoke(name, root, manifest, work, origin, mihomo)
                     result["peers"] = json.loads((root / "resources.json").read_text())
@@ -1200,7 +1286,7 @@ def run(
                     save(
                         ROOT / "progress.json",
                         {
-                            "current_stage": "isolated-memory-measurement-harness",
+                            "current_stage": manifest.get("suite", "facilities"),
                             "status": "RUNNING",
                             "run_dir": str(root.relative_to(builds.CORE_DIR)),
                             "source": manifest["source"],

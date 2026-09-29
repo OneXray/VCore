@@ -210,6 +210,7 @@ uv run --project scripts --locked vcore-scripts check apple-runtime --platform t
 uv run --project scripts --locked vcore-scripts check memory --list
 uv run --project scripts --locked vcore-scripts check memory --preflight
 uv run --project scripts --locked vcore-scripts check memory
+uv run --project scripts --locked vcore-scripts check memory --suite cold-start
 uv run --project scripts --locked vcore-scripts check memory --resume target/memory/<run-id>
 ```
 
@@ -219,6 +220,8 @@ uv run --project scripts --locked vcore-scripts check memory --resume target/mem
 输入、结果和恢复记录位于 target/memory；详见[测量范围与负例](../tests/memory/README.md)。
 `--case full-cn-loader` 先跑独立全量 CN 参考，再由生产宿主验证双资源可用、实际
 DIRECT/代理/REJECT 路由与生命周期峰值。它不证明正式移动 Provider 或 VCore 的 1 Gbps 承载能力。
+`--suite cold-start` 是四种规则配置各五个未插桩冷进程和独立分配诊断，详见上述测量文档。
+环境中不得继承 `Malloc*` / `DYLD_*` 覆盖项；例如用 `env -u MallocNanoZone` 显式移除。
 
 ## CI 与证据
 

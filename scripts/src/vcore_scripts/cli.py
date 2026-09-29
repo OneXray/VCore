@@ -78,6 +78,7 @@ def _parser() -> argparse.ArgumentParser:
         help="calibrate isolated whole-process measurement, not mobile acceptance",
     )
     memory.add_argument("--case", dest="identifiers", action="append")
+    memory.add_argument("--suite", choices=("facilities", "cold-start"))
     memory.add_argument("--run-dir", type=Path)
     memory.add_argument("--resume", type=Path)
     memory.add_argument("--list", dest="list_only", action="store_true")
@@ -210,6 +211,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
                 run(
                     identifiers=args.identifiers,
+                    suite=args.suite,
                     run_dir=args.run_dir,
                     resume=args.resume,
                     list_only=args.list_only,
