@@ -10,6 +10,7 @@ import plistlib
 import shutil
 import stat
 import subprocess
+import tomllib
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 
@@ -20,6 +21,8 @@ APPLE_LIBRARIES = {
     "ios-arm64": ("ios", None, {"arm64"}),
     "ios-arm64_x86_64-simulator": ("ios", "simulator", {"arm64", "x86_64"}),
     "macos-arm64_x86_64": ("macos", None, {"arm64", "x86_64"}),
+    "tvos-arm64": ("tvos", None, {"arm64"}),
+    "tvos-arm64-simulator": ("tvos", "simulator", {"arm64"}),
 }
 
 
@@ -35,11 +38,31 @@ def _output(argv: list[str], root: Path) -> str:
 def _source(root: Path) -> dict:
     if _output(["git", "status", "--porcelain", "--untracked-files=normal"], root):
         raise ValueError("delivery requires a clean committed source checkout")
-    return {
+    source = {
         "commit": _output(["git", "rev-parse", "HEAD"], root),
         "tree": _output(["git", "rev-parse", "HEAD^{tree}"], root),
         "lockSha256": _sha(root / "Cargo.lock"),
     }
+    # Local development uses the sibling fork. A lock hash alone cannot identify
+    # its code; PR/release builds switch back to the locked Git release branch.
+    manifest = root / "Cargo.toml"
+    if manifest.exists():
+        dependency = tomllib.loads(manifest.read_text())["dependencies"].get(
+            "boring", {}
+        )
+        if "path" in dependency:
+            fork = (root / dependency["path"]).resolve()
+            if _output(
+                ["git", "status", "--porcelain", "--untracked-files=normal"], fork
+            ):
+                raise ValueError(
+                    "artifact evidence requires a clean local boring checkout"
+                )
+            source["localBoring"] = {
+                "commit": _output(["git", "rev-parse", "HEAD"], fork),
+                "tree": _output(["git", "rev-parse", "HEAD^{tree}"], fork),
+            }
+    return source
 
 
 def check_delivery(
@@ -68,7 +91,17 @@ def check_delivery(
         required = {"rustc", "cargo"} | (
             {"ndk", "clang", "androidApi"}
             if group == "android"
-            else {"xcode", "iphoneos", "iphonesimulator", "macosx"}
+            else {
+                "xcode",
+                "iphoneos",
+                "iphonesimulator",
+                "macosx",
+                "appletvos",
+                "appletvsimulator",
+                "iosDeploymentTarget",
+                "macosDeploymentTarget",
+                "tvosDeploymentTarget",
+            }
             if group == "apple"
             else {"msvc", "windowsSdk"}
         )
@@ -148,7 +181,7 @@ def check_delivery(
                 "rb"
             ) as stream:
                 libraries = plistlib.load(stream).get("AvailableLibraries", [])
-            if len(libraries) != 3:
+            if len(libraries) != len(APPLE_LIBRARIES):
                 raise ValueError("incomplete Apple platform slices")
             identifiers = set()
             for library in libraries:
@@ -168,13 +201,15 @@ def check_delivery(
                 path = (
                     manifest.parent / "LibVCore.xcframework" / identifier / "libvcore.a"
                 )
-                actual_archs = set(
-                    _output(
-                        ["xcrun", "lipo", "-archs", str(path)], builds.CORE_DIR
-                    ).split()
+                minimum = toolchain[target_os + "DeploymentTarget"]
+                if target_os == "tvos" and tuple(map(int, minimum.split("."))) < (
+                    17,
+                    0,
+                ):
+                    raise ValueError("tvOS artifact must target 17.0 or newer")
+                builds.check_apple_binary(
+                    path, target_os, variant, architectures, minimum
                 )
-                if actual_archs != architectures:
-                    raise ValueError("wrong Apple binary architecture")
                 builds._require_identity(path, "Apple")
         else:
             arch = group.removeprefix("windows-")
@@ -284,7 +319,13 @@ def build_delivery(platform_name: str) -> None:
             toolchain["assembly"] = "enabled"
     elif platform_name == "apple":
         toolchain["xcode"] = _output(["xcodebuild", "-version"], builds.CORE_DIR)
-        for sdk in ("iphoneos", "iphonesimulator", "macosx"):
+        for sdk in (
+            "iphoneos",
+            "iphonesimulator",
+            "macosx",
+            "appletvos",
+            "appletvsimulator",
+        ):
             toolchain[sdk] = _output(
                 ["xcrun", "--sdk", sdk, "--show-sdk-version"], builds.CORE_DIR
             )
@@ -294,6 +335,7 @@ def build_delivery(platform_name: str) -> None:
         toolchain["macosDeploymentTarget"] = os.environ.get(
             "VCORE_MACOS_DEPLOYMENT_TARGET", "10.15"
         )
+        toolchain["tvosDeploymentTarget"] = builds.tvos_deployment_target()
     else:
         android_home = Path(
             os.environ.get("ANDROID_HOME", Path.home() / "Library/Android/sdk")
@@ -457,6 +499,27 @@ def check_abi(manifest: Path) -> None:
         )
     subprocess.run(command, cwd=work, env=environment, check=True, timeout=120)
     subprocess.run(execute, cwd=work, env=environment, check=True, timeout=60)
+    apple_links = []
+    if group == "apple":
+        from .apple_runtime import link_consumer
+
+        for target_os in ("ios", "tvos"):
+            for simulator in (False, True):
+                consumer = link_consumer(
+                    manifest.parent / "LibVCore.xcframework",
+                    work,
+                    target_os,
+                    simulator=simulator,
+                    minimum=record["toolchain"][target_os + "DeploymentTarget"],
+                )
+                apple_links.append(
+                    {
+                        "platform": target_os,
+                        "simulator": simulator,
+                        "sha256": _sha(consumer),
+                        "executed": False,
+                    }
+                )
     if group.startswith("windows-"):
         target = {"arm64": "aarch64-pc-windows-msvc", "x64": "x86_64-pc-windows-msvc"}[
             architecture
@@ -490,6 +553,8 @@ def check_abi(manifest: Path) -> None:
         "invalidApiRejected": True,
         "finishedUtc": datetime.now(UTC).isoformat(),
     }
+    if apple_links:
+        evidence["appleLinkedConsumers"] = apple_links
     (work / "result.json").write_text(
         json.dumps(evidence, indent=2) + "\n", encoding="utf-8"
     )

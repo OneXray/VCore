@@ -158,8 +158,12 @@ uv run --project scripts --locked vcore-scripts check platform-artifacts --manif
 uv run --project scripts --locked vcore-scripts check platform-abi --manifest dist/apple/vcore-delivery.json
 ```
 
-- Apple 在 macOS 构建，输出 dist/apple/LibVCore.xcframework，包含 iOS、模拟器、macOS。
-  最终链接 libc++；module map 已声明，直接 C 链接需 -lc++。
+- Apple 在 macOS 构建，输出 dist/apple/LibVCore.xcframework，包含 iOS 真机/模拟器、
+  macOS、tvOS 真机/模拟器五切片。tvOS 仅 ARM64、最低 17.0；先用 rustup 安装
+  aarch64-apple-tvos 与 aarch64-apple-tvos-sim（稳定版 std，无需 nightly/build-std）。
+  iOS 仍为 13.0、macOS 仍为 10.15；ARM64 模拟器/桌面各自下限为 14.0/11.0。
+  构建和验产物均检查每个 Rust/原生库对象的 Mach-O 平台、架构与最低版本，
+  不接受用 iOS ARM64 冒充 tvOS。最终链接 libc++；module map 已声明，直接 C 链接需 -lc++。
 - Android 在 macOS/Linux 构建，输出 dist/android 下两 ABI 的 libvcore.so 及配套
   libc++_shared.so，宿主一起打包。NDK 优先 ANDROID_NDK_HOME，否则 ANDROID_HOME/ndk。
 - Windows 在原生 ARM64/x64、Visual Studio C++ 环境构建，输出配套 DLL/Provider Host/
@@ -167,19 +171,38 @@ uv run --project scripts --locked vcore-scripts check platform-abi --manifest di
   契约见 [Windows VPN](../docs/windows-vpn.md)。
 
 Apple/Android 可设置 VCORE_BUILD_PROFILE、VCORE_FEATURES、VCORE_APPLE_DIST_DIR、
-VCORE_IOS_DEPLOYMENT_TARGET、VCORE_MACOS_DEPLOYMENT_TARGET、VCORE_ANDROID_NDK_VERSION、
+VCORE_IOS_DEPLOYMENT_TARGET、VCORE_TVOS_DEPLOYMENT_TARGET（至少 17.0）、
+VCORE_MACOS_DEPLOYMENT_TARGET、VCORE_ANDROID_NDK_VERSION、
 VCORE_ANDROID_API、VCORE_ANDROID_TARGETS、VCORE_ANDROID_OUTPUT_DIR。默认值查看 builds.py；
 交付禁用隐藏覆盖、测试 feature、非 Release profile，标准 feature 集合显式包含所有支持协议。
 
 --delivery 绑定 commit/tree、lockfile、API/schema、features、toolchain/SDK/NDK、架构及
-全部文件大小/hash；所有平台在清旧记录或构建前拒绝输出路径及其仓库内祖先目录的
+全部文件大小/hash；本地 boring 开发态还要求 fork 干净并记录其 commit/tree，仍不能
+替代 PR/发布前切回 Git release 的依赖审计。所有平台在清旧记录或构建前拒绝输出路径及其仓库内祖先目录的
 符号链接和 Windows reparse point（包括 junction），不沿链接删除或写入外部产物。
 开始前清旧记录，失败不签收。Android 交付还会清空标准 dist/android
 构建输出，避免纳入开发构建遗留的额外 ABI。platform-artifacts 拒绝缺失/额外文件、
 错架构/身份及缺 C++ runtime；可重复 --manifest，--complete 要求 Apple、Android、
 原生 Windows ARM64/x64，仍只证明构建。--source-dir 须显式指定同一候选 checkout。
-platform-abi 在原生 macOS/Windows 链接/加载并执行 C ABI；Windows 另验 snapshot/
-未打包失败关闭，不创建业务运行时，不证明设备 VPN 或正式安装。
+platform-abi 在原生 macOS/Windows 链接/加载并执行 C ABI；Apple 额外链接 iOS/tvOS
+真机与模拟器 C 消费者（不在该命令中运行），Windows 另验 snapshot/未打包失败关闭。
+它不创建业务运行时，不证明设备 VPN 或正式安装。
+
+Apple Silicon 上安装对应 Simulator runtime、启动 Apple Container，并准备既有
+vcore-mihomo-interop host-only 网络后，显式运行原生消费者：
+
+```sh
+uv run --project scripts --locked vcore-scripts check apple-runtime --platform tvos
+uv run --project scripts --locked vcore-scripts check apple-runtime --platform ios
+# 干净候选额外绑定 --delivery 的产物与源码身份：
+uv run --project scripts --locked vcore-scripts check apple-runtime --platform tvos --manifest dist/apple/vcore-delivery.json
+```
+
+该命令链接生产库，通过公共 ABI 检查三轮 local/TUN 生命周期、SOCKS5 TCP/UDP、
+合成 utun TCP/UDP、错误 framing/fd、Stop/Destroy、借用 fd 和日志/内存 API。IPv4
+原站在专用容器中；仅启动临时专用模拟器，退出或失败时清理自有资源，不修改宿主 VPN。
+结果保存在 target/platform-delivery/runtime；未传 manifest 的运行仅为开发烟测。
+它不是物理 Packet Tunnel、IPv6 完整协议矩阵、CN 内存峰值或 1 Gbps 带宽验收。
 
 ## CI 与证据
 

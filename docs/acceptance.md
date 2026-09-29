@@ -11,6 +11,7 @@
 | 容器互通 | 公开配置和消费者、真实认证及负例、传输关闭、UDP 来源与边界、受控 DNS/上游 | 任意字段组合或公网服务 |
 | 集成 / 压力 | 八出站 64 有序两跳、SS v3/UoT/TUIC 强耦合链、运行时切组、Stop/回滚/测速、混合重建与长测 | 无扰动吞吐基准或整机内存保证 |
 | 平台构建 / ABI | 同一锁文件、产物架构/身份/hash、原生 C/Swift 消费者与打包依赖 | 物理 TUN、签名安装 |
+| Apple 模拟器 | 生产库的 C ABI、生命周期、容器原站 SOCKS5 TCP/UDP、合成 utun TCP/UDP、fd 借用和错误路径 | 真机 Packet Tunnel、完整协议矩阵、整进程 50M / 1 Gbps 验收 |
 | 设备 / 发布 | 真机网络、protect/物理绑定、正式宿主生命周期、签名安装及商店门禁 | 其他平台或后续 revision |
 
 保留独立 ClientHello golden、Encryption 密码向量、H2 完整响应后 RST、SS 背压/读先于写的刷新、
@@ -72,7 +73,9 @@ Shadowsocks registry 接入只做了定向 JLS、SS 和离线回归，没有重�
 
 ## 尚需独立签收
 
-- iOS 无 debugger 的 Release TUN 生命周期与整进程内存；Android 真机 TUN/protect、
+- iOS/tvOS 无 debugger 的 Release Packet Tunnel 生命周期、宿主 raw-fd/packetFlow 接入及
+  整进程内存；tvOS 以 17.0+ ARM64 为平台边界，模拟器与构建不证明真实扩展可交付。
+  Android 真机 TUN/protect、
   DNS/TCP/UDP、重复启停；macOS system extension 正式宿主安装和生命周期。
 - Windows 10 20H2、原生 x64、真实物理 IPv6、物理网卡禁用、多用户/远程会话；
   session backend 包路径/argv/退出与 Job 清理、正式宿主 UI。

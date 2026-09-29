@@ -33,6 +33,22 @@ const THRESHOLDS: [MemoryThreshold; 3] = [
 
 static TELEMETRY_POLICY: MemoryTelemetryPolicy = MemoryTelemetryPolicy::new();
 
+// Preserve existing iOS event identifiers for consumers, without labelling
+// tvOS samples as iOS. These are diagnostics, not platform memory quotas.
+const MEMORY_EVENTS: [&str; 3] = if cfg!(target_os = "tvos") {
+    [
+        "tvos_memory_snapshot",
+        "tvos_memory_observation_target_crossed",
+        "tvos_memory_measurement_failed",
+    ]
+} else {
+    [
+        "ios_memory_snapshot",
+        "ios_memory_observation_target_crossed",
+        "ios_memory_measurement_failed",
+    ]
+};
+
 /// Public `TASK_VM_INFO` layout through revision 3. Revision 3 is the first
 /// revision that contains `ledger_phys_footprint_peak`; using that fixed,
 /// documented prefix avoids depending on newer SDK-only tail fields.
@@ -136,35 +152,38 @@ pub(crate) fn observe(stage: &'static str) {
             newly_crossed,
         } => {
             tracing::info!(
-                event = "ios_memory_snapshot",
+                event = MEMORY_EVENTS[0],
+                platform = std::env::consts::OS,
                 stage,
                 current_phys_footprint_bytes = snapshot.current_phys_footprint,
                 process_lifetime_peak_phys_footprint_bytes = snapshot.lifetime_peak_phys_footprint,
-                "iOS TUN memory telemetry"
+                "Apple TUN memory telemetry"
             );
             for threshold in THRESHOLDS
                 .iter()
                 .filter(|threshold| newly_crossed & threshold.bit != 0)
             {
                 tracing::warn!(
-                    event = "ios_memory_observation_target_crossed",
+                    event = MEMORY_EVENTS[1],
+                    platform = std::env::consts::OS,
                     stage,
                     current_phys_footprint_bytes = snapshot.current_phys_footprint,
                     process_lifetime_peak_phys_footprint_bytes =
                         snapshot.lifetime_peak_phys_footprint,
                     threshold_bytes = threshold.bytes,
                     threshold_mib = threshold.mib,
-                    "iOS TUN current memory crossed an observation threshold"
+                    "Apple TUN current memory crossed an observation threshold"
                 );
             }
         }
         TelemetryObservation::MeasurementFailed { error, first } => {
             if first {
                 tracing::warn!(
-                    event = "ios_memory_measurement_failed",
+                    event = MEMORY_EVENTS[2],
+                    platform = std::env::consts::OS,
                     stage,
                     error = %error,
-                    "unable to sample iOS TUN memory telemetry"
+                    "unable to sample Apple TUN memory telemetry"
                 );
             }
         }
@@ -219,7 +238,7 @@ pub(crate) fn relieve_allocator_pressure() {
         fn malloc_zone_pressure_relief(zone: *mut c_void, goal: usize) -> usize;
     }
     // SAFETY: a null zone asks the allocator to inspect all zones; goal zero
-    // requests best-effort pressure relief. The API is available on iOS 4.3+.
+    // requests best-effort pressure relief. Available on supported iOS/tvOS targets.
     let _released = unsafe { malloc_zone_pressure_relief(ptr::null_mut(), 0) };
 }
 

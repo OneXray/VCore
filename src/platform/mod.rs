@@ -1,6 +1,12 @@
-#[cfg(all(feature = "ffi", any(target_os = "ios", target_os = "macos")))]
+#[cfg(all(
+    feature = "ffi",
+    any(target_os = "ios", target_os = "tvos", target_os = "macos")
+))]
 pub(crate) mod apple_logging;
-#[cfg(all(feature = "ffi", any(target_os = "ios", target_os = "macos")))]
+#[cfg(all(
+    feature = "ffi",
+    any(target_os = "ios", target_os = "tvos", target_os = "macos")
+))]
 #[cfg_attr(target_os = "macos", allow(dead_code))]
 pub(crate) mod process_memory;
 #[cfg(all(unix, feature = "tun"))]

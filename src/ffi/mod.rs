@@ -38,12 +38,27 @@ use crate::{
     runtime::PreparedCore,
 };
 
-#[cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]
+#[cfg(any(
+    target_os = "android",
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "macos"
+))]
 use crate::platform::{TunFd, TunIo};
 
-#[cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]
+#[cfg(any(
+    target_os = "android",
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "macos"
+))]
 type InvokeTun = (TunFd, TunFraming);
-#[cfg(not(any(target_os = "android", target_os = "ios", target_os = "macos")))]
+#[cfg(not(any(
+    target_os = "android",
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "macos"
+)))]
 type InvokeTun = ();
 
 #[cfg(target_os = "android")]
@@ -123,7 +138,7 @@ struct CoreInner {
     engine: Option<Engine>,
     last_error: String,
     tun_lease: Option<TunLease>,
-    ios_tun_allocator_relief: Option<IosTunAllocatorRelief>,
+    apple_tun_allocator_relief: Option<AppleTunAllocatorRelief>,
 }
 
 struct PreparedState {
@@ -152,20 +167,20 @@ impl Drop for TunLease {
 }
 
 #[derive(Clone)]
-struct IosTunAllocatorRelief {
-    state: Arc<IosTunAllocatorReliefState>,
+struct AppleTunAllocatorRelief {
+    state: Arc<AppleTunAllocatorReliefState>,
 }
 
-struct IosTunAllocatorReliefState {
+struct AppleTunAllocatorReliefState {
     relieved: AtomicBool,
 }
 
-impl IosTunAllocatorRelief {
+impl AppleTunAllocatorRelief {
     fn new(has_tun: bool) -> Option<Self> {
-        #[cfg(target_os = "ios")]
+        #[cfg(any(target_os = "ios", target_os = "tvos"))]
         if has_tun {
             return Some(Self {
-                state: Arc::new(IosTunAllocatorReliefState {
+                state: Arc::new(AppleTunAllocatorReliefState {
                     relieved: AtomicBool::new(false),
                 }),
             });
@@ -176,15 +191,15 @@ impl IosTunAllocatorRelief {
 
     fn relieve(&self) {
         if !self.state.relieved.swap(true, Ordering::AcqRel) {
-            relieve_ios_tun_allocator();
+            relieve_apple_tun_allocator();
         }
     }
 }
 
-impl Drop for IosTunAllocatorReliefState {
+impl Drop for AppleTunAllocatorReliefState {
     fn drop(&mut self) {
         if !self.relieved.swap(true, Ordering::AcqRel) {
-            relieve_ios_tun_allocator();
+            relieve_apple_tun_allocator();
         }
     }
 }
@@ -616,7 +631,7 @@ pub(super) fn invoke_bytes(request: &[u8]) -> Vec<u8> {
 /// It intentionally returns bytes so JNI never routes arbitrary JSON through
 /// Modified UTF-8 strings.
 pub(super) fn invoke_bytes_admitted(request: &[u8]) -> Vec<u8> {
-    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    #[cfg(any(target_os = "ios", target_os = "tvos", target_os = "macos"))]
     let _logging = crate::platform::apple_logging::enter();
     invoke_guarded(|| dispatch_bytes(request))
 }
@@ -863,7 +878,7 @@ impl CoreController {
             tun_lease,
             protector,
         } = acquisition;
-        let allocator_relief = IosTunAllocatorRelief::new(has_tun);
+        let allocator_relief = AppleTunAllocatorRelief::new(has_tun);
         {
             let mut inner = lock(&self.inner);
             inner.last_error.clear();
@@ -872,7 +887,7 @@ impl CoreController {
                 .transition(LifecycleState::Preparing)
                 .map_err(InvokeFailure::from)?;
             inner.tun_lease = tun_lease;
-            inner.ios_tun_allocator_relief = allocator_relief;
+            inner.apple_tun_allocator_relief = allocator_relief;
         }
 
         let prepared = (|| {
@@ -911,7 +926,7 @@ impl CoreController {
                     .map_err(InvokeFailure::from)
                 {
                     Ok(()) => {
-                        observe_ios_tun_memory(has_tun, "prepare-complete");
+                        observe_apple_tun_memory(has_tun, "prepare-complete");
                         Ok(())
                     }
                     Err(error) => reset_failed_operation(&mut inner, "prepare-transition-failed")
@@ -960,7 +975,7 @@ impl CoreController {
                 .lifecycle
                 .transition(LifecycleState::Starting)
                 .map_err(InvokeFailure::from)?;
-            let allocator_relief = inner.ios_tun_allocator_relief.clone();
+            let allocator_relief = inner.apple_tun_allocator_relief.clone();
             (prepared, tun, has_tun, allocator_relief)
         };
 
@@ -1013,7 +1028,7 @@ impl CoreController {
                         .and(Err(error));
                 }
                 inner.engine = Some(engine);
-                observe_ios_tun_memory(has_tun, "start-complete");
+                observe_apple_tun_memory(has_tun, "start-complete");
                 Ok(())
             }
             Ok(Err(error)) => {
@@ -1053,7 +1068,7 @@ impl CoreController {
                 LifecycleState::Stopped => {
                     let had_tun = inner.tun_lease.is_some();
                     inner.last_error.clear();
-                    observe_ios_tun_memory(had_tun, "stop-complete");
+                    observe_apple_tun_memory(had_tun, "stop-complete");
                     clear_instance_leases(&mut inner);
                     return Ok(());
                 }
@@ -1065,7 +1080,7 @@ impl CoreController {
                         .lifecycle
                         .transition(LifecycleState::Stopped)
                         .map_err(InvokeFailure::from);
-                    observe_ios_tun_memory(had_tun, "stop-complete");
+                    observe_apple_tun_memory(had_tun, "stop-complete");
                     clear_instance_leases(&mut inner);
                     return transitioned;
                 }
@@ -1162,7 +1177,7 @@ impl CoreController {
         let mut inner = lock(&self.inner);
         inner.lifecycle = Lifecycle::default();
         inner.engine = None;
-        observe_ios_tun_memory(had_tun, "panic-recovery");
+        observe_apple_tun_memory(had_tun, "panic-recovery");
         clear_instance_leases(&mut inner);
         Ok(())
     }
@@ -1171,20 +1186,20 @@ impl CoreController {
 fn clear_instance_leases(inner: &mut CoreInner) {
     // Prepared-only paths own the final allocator-relief handle here. Running
     // paths share it with the engine, whose completion performs relief first.
-    inner.ios_tun_allocator_relief = None;
+    inner.apple_tun_allocator_relief = None;
     inner.tun_lease = None;
 }
 
-fn observe_ios_tun_memory(has_tun: bool, stage: &'static str) {
-    #[cfg(target_os = "ios")]
+fn observe_apple_tun_memory(has_tun: bool, stage: &'static str) {
+    #[cfg(any(target_os = "ios", target_os = "tvos"))]
     if has_tun {
         crate::platform::process_memory::observe(stage);
     }
     let _ = (has_tun, stage);
 }
 
-fn relieve_ios_tun_allocator() {
-    #[cfg(target_os = "ios")]
+fn relieve_apple_tun_allocator() {
+    #[cfg(any(target_os = "ios", target_os = "tvos"))]
     crate::platform::process_memory::relieve_allocator_pressure();
 }
 
@@ -1229,18 +1244,28 @@ fn geodata_resource_data(state: GeoResourceState) -> Value {
     })
 }
 
-#[cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]
+#[cfg(any(
+    target_os = "android",
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "macos"
+))]
 fn duplicate_start_tun(tun: Option<(i32, TunFraming)>) -> Result<Option<InvokeTun>, InvokeFailure> {
     tun.map(|(fd, framing)| TunFd::duplicate(fd).map(|fd| (fd, framing)))
         .transpose()
         .map_err(InvokeFailure::from)
 }
 
-#[cfg(not(any(target_os = "android", target_os = "ios", target_os = "macos")))]
+#[cfg(not(any(
+    target_os = "android",
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "macos"
+)))]
 fn duplicate_start_tun(tun: Option<(i32, TunFraming)>) -> Result<Option<InvokeTun>, InvokeFailure> {
     if tun.is_some() {
         return Err(InvokeFailure::invalid_request(
-            "TUN fd is unsupported on this target; only iOS, macOS, and Android are supported",
+            "TUN fd is unsupported on this target; only iOS, tvOS, macOS, and Android are supported",
         ));
     }
     Ok(None)
@@ -1291,7 +1316,7 @@ fn validate_platform_tun_framing(framing: TunFraming) -> Result<(), InvokeFailur
     Ok(())
 }
 
-#[cfg(any(target_os = "ios", target_os = "macos"))]
+#[cfg(any(target_os = "ios", target_os = "tvos", target_os = "macos"))]
 fn validate_platform_tun_framing(framing: TunFraming) -> Result<(), InvokeFailure> {
     if framing != TunFraming::Utun {
         return Err(InvokeFailure::invalid_request(
@@ -1301,18 +1326,23 @@ fn validate_platform_tun_framing(framing: TunFraming) -> Result<(), InvokeFailur
     Ok(())
 }
 
-#[cfg(not(any(target_os = "android", target_os = "ios", target_os = "macos")))]
+#[cfg(not(any(
+    target_os = "android",
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "macos"
+)))]
 fn validate_platform_tun_framing(framing: TunFraming) -> Result<(), InvokeFailure> {
     let _ = framing;
     Err(InvokeFailure::invalid_request(
-        "TUN fd is unsupported on this target; only iOS, macOS, and Android are supported",
+        "TUN fd is unsupported on this target; only iOS, tvOS, macOS, and Android are supported",
     ))
 }
 
 struct EngineContext {
     instance_id: u64,
     has_tun: bool,
-    allocator_relief: Option<IosTunAllocatorRelief>,
+    allocator_relief: Option<AppleTunAllocatorRelief>,
 }
 
 fn run_engine(
@@ -1328,11 +1358,11 @@ fn run_engine(
         has_tun,
         allocator_relief,
     } = context;
-    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    #[cfg(any(target_os = "ios", target_os = "tvos", target_os = "macos"))]
     let _logging = crate::platform::apple_logging::enter();
     tracing::info!(instance_id, has_tun, "VCore runtime engine starting");
     let result = run_engine_inner(instance_id, has_tun, prepared, tun, dialer, stop, startup);
-    observe_ios_tun_memory(has_tun, "stop-complete");
+    observe_apple_tun_memory(has_tun, "stop-complete");
     if let Some(relief) = allocator_relief {
         relief.relieve();
     }
@@ -1371,7 +1401,12 @@ fn run_engine_inner(
         }
     };
     runtime.block_on(async move {
-        #[cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]
+        #[cfg(any(
+            target_os = "android",
+            target_os = "ios",
+            target_os = "tvos",
+            target_os = "macos"
+        ))]
         let started = match tun {
             Some((duplicate, framing)) => {
                 tracing::info!(instance_id, ?framing, "VCore attaching TUN descriptor");
@@ -1380,7 +1415,12 @@ fn run_engine_inner(
             }
             None => prepared.start_local(dialer).await,
         };
-        #[cfg(not(any(target_os = "android", target_os = "ios", target_os = "macos")))]
+        #[cfg(not(any(
+            target_os = "android",
+            target_os = "ios",
+            target_os = "tvos",
+            target_os = "macos"
+        )))]
         let started = {
             debug_assert!(tun.is_none());
             prepared.start_local(dialer).await
@@ -1405,9 +1445,9 @@ fn run_engine_inner(
 }
 
 async fn wait_for_engine_shutdown(stop: oneshot::Receiver<()>, has_tun: bool) -> io::Result<()> {
-    #[cfg(target_os = "ios")]
+    #[cfg(any(target_os = "ios", target_os = "tvos"))]
     let mut stop = stop;
-    #[cfg(target_os = "ios")]
+    #[cfg(any(target_os = "ios", target_os = "tvos"))]
     if has_tun {
         let interval = crate::platform::process_memory::TELEMETRY_INTERVAL;
         let first_tick = tokio::time::Instant::now() + interval;
@@ -1416,7 +1456,7 @@ async fn wait_for_engine_shutdown(stop: oneshot::Receiver<()>, has_tun: bool) ->
         loop {
             tokio::select! {
                 _ = &mut stop => return Ok(()),
-                _ = telemetry.tick() => observe_ios_tun_memory(true, "running"),
+                _ = telemetry.tick() => observe_apple_tun_memory(true, "running"),
             }
         }
     }
@@ -1471,12 +1511,17 @@ fn reset_failed_operation(
         }
         LifecycleState::Stopped => {}
     }
-    observe_ios_tun_memory(had_tun, telemetry_stage);
+    observe_apple_tun_memory(had_tun, telemetry_stage);
     clear_instance_leases(inner);
     Ok(())
 }
 
-#[cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]
+#[cfg(any(
+    target_os = "android",
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "macos"
+))]
 fn vcore_to_io(error: VCoreError) -> io::Error {
     match error {
         VCoreError::Io(error) => error,
@@ -1549,7 +1594,12 @@ mod tests {
         sync::{Arc, Barrier, Mutex},
     };
 
-    #[cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]
+    #[cfg(any(
+        target_os = "android",
+        target_os = "ios",
+        target_os = "tvos",
+        target_os = "macos"
+    ))]
     use std::os::{fd::AsRawFd, unix::net::UnixDatagram};
 
     use super::*;
@@ -1983,7 +2033,11 @@ rules:
         let presence = start_field_presence(&null_value).unwrap();
         assert!(validate_start_tun(false, null, presence).is_err());
 
-        let tun_framing = if cfg!(any(target_os = "ios", target_os = "macos")) {
+        let tun_framing = if cfg!(any(
+            target_os = "ios",
+            target_os = "tvos",
+            target_os = "macos"
+        )) {
             "utun"
         } else {
             "rawIp"
@@ -1991,22 +2045,41 @@ rules:
         let tun_value = json!({"tunFd": 7, "tunFraming": tun_framing});
         let tun: StartPayload = decode_payload(tun_value.clone()).unwrap();
         let presence = start_field_presence(&tun_value).unwrap();
-        #[cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]
+        #[cfg(any(
+            target_os = "android",
+            target_os = "ios",
+            target_os = "tvos",
+            target_os = "macos"
+        ))]
         assert_eq!(
             validate_start_tun(true, tun, presence).unwrap(),
             Some((
                 7,
-                if cfg!(any(target_os = "ios", target_os = "macos")) {
+                if cfg!(any(
+                    target_os = "ios",
+                    target_os = "tvos",
+                    target_os = "macos"
+                )) {
                     TunFraming::Utun
                 } else {
                     TunFraming::RawIp
                 }
             ))
         );
-        #[cfg(not(any(target_os = "android", target_os = "ios", target_os = "macos")))]
+        #[cfg(not(any(
+            target_os = "android",
+            target_os = "ios",
+            target_os = "tvos",
+            target_os = "macos"
+        )))]
         assert!(validate_start_tun(true, tun, presence).is_err());
 
-        #[cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]
+        #[cfg(any(
+            target_os = "android",
+            target_os = "ios",
+            target_os = "tvos",
+            target_os = "macos"
+        ))]
         {
             let wrong_framing = if cfg!(target_os = "android") {
                 "utun"
@@ -2263,7 +2336,12 @@ rules:
         assert_registry_is_idle();
     }
 
-    #[cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]
+    #[cfg(any(
+        target_os = "android",
+        target_os = "ios",
+        target_os = "tvos",
+        target_os = "macos"
+    ))]
     #[test]
     fn prepare_start_stop_is_instance_scoped_and_borrows_tun_fd() {
         let _guard = TEST_LOCK.lock().unwrap();
@@ -2295,7 +2373,11 @@ rules:
 
         let (original, peer) = UnixDatagram::pair().unwrap();
         original.set_nonblocking(true).unwrap();
-        let tun_framing = if cfg!(any(target_os = "ios", target_os = "macos")) {
+        let tun_framing = if cfg!(any(
+            target_os = "ios",
+            target_os = "tvos",
+            target_os = "macos"
+        )) {
             "utun"
         } else {
             "rawIp"

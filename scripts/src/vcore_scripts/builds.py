@@ -6,6 +6,7 @@ import locale
 import mmap
 import os
 import platform
+import re
 import shutil
 import subprocess
 import tempfile
@@ -20,6 +21,95 @@ DEFAULT_FEATURES = (
     "outbound-socks5,outbound-shadowsocks,outbound-trojan,outbound-vmess,outbound-vless,"
     "outbound-hysteria2,outbound-tuic,shadow-tls-v3"
 )
+
+
+def tvos_deployment_target() -> str:
+    value = _env("VCORE_TVOS_DEPLOYMENT_TARGET", "17.0")
+    if not re.fullmatch(r"\d+\.\d+(?:\.\d+)?", value) or tuple(
+        map(int, value.split("."))
+    ) < (17, 0):
+        raise ValueError("tvOS deployment target must be 17.0 or newer")
+    return value
+
+
+def _check_apple_load_commands(
+    output: str, target_os: str, variant: str | None, architecture: str, minimum: str
+) -> int:
+    """Check every archive member, including native crypto and Rust std objects."""
+    expected = {
+        ("macos", None): "1",
+        ("ios", None): "2",
+        ("tvos", None): "3",
+        ("ios", "simulator"): "7",
+        ("tvos", "simulator"): "8",
+    }[target_os, variant]
+    legacy = {"macos": "MACOSX", "ios": "IPHONEOS", "tvos": "TVOS"}[target_os]
+    objects = re.split(r"(?m)^\S.*:\n", output)[1:]
+    if not objects:
+        raise ValueError("Apple artifact contains no Mach-O objects")
+    ceiling = tuple((list(map(int, minimum.split("."))) + [0, 0])[:3])
+    # These architectures did not exist at the older product deployment floor.
+    # Keep iOS 13 / macOS 10.15 for the existing older-architecture slices.
+    architecture_floor = {
+        ("ios", "simulator", "arm64"): (14, 0, 0),
+        ("macos", None, "arm64"): (11, 0, 0),
+    }.get((target_os, variant, architecture), (0, 0, 0))
+    ceiling = max(ceiling, architecture_floor)
+    for obj in objects:
+        versions = []
+        for command in re.split(r"Load command \d+\n", obj):
+            fields = dict(
+                line.strip().split(maxsplit=1)
+                for line in command.splitlines()
+                if len(line.strip().split(maxsplit=1)) == 2
+            )
+            kind = fields.get("cmd", "")
+            if kind == "LC_BUILD_VERSION":
+                if fields.get("platform") != expected:
+                    raise ValueError("wrong Apple Mach-O platform")
+                versions.append(fields.get("minos", ""))
+            elif kind.startswith("LC_VERSION_MIN_"):
+                if kind != "LC_VERSION_MIN_" + legacy or (
+                    variant == "simulator" and architecture != "x86_64"
+                ):
+                    raise ValueError("wrong legacy Apple Mach-O platform")
+                versions.append(fields.get("version", ""))
+        if len(versions) != 1 or not re.fullmatch(r"\d+(?:\.\d+){0,2}", versions[0]):
+            raise ValueError("missing or ambiguous Apple deployment version")
+        version = tuple((list(map(int, versions[0].split("."))) + [0, 0])[:3])
+        if version > ceiling:
+            raise ValueError(
+                f"Apple {target_os}/{variant}/{architecture} object requires "
+                f"{versions[0]}, newer than deployment target {ceiling}"
+            )
+    return len(objects)
+
+
+def check_apple_binary(
+    path: Path,
+    target_os: str,
+    variant: str | None,
+    architectures: set[str],
+    minimum: str,
+) -> dict[str, int]:
+    actual = set(
+        subprocess.check_output(
+            ["xcrun", "lipo", "-archs", str(path)], text=True, timeout=60
+        ).split()
+    )
+    if actual != architectures:
+        raise ValueError("wrong Apple binary architecture")
+    result = {}
+    for architecture in sorted(architectures):
+        output = subprocess.check_output(
+            ["xcrun", "otool", "-l", "-arch", architecture, str(path)],
+            text=True,
+            timeout=60,
+        )
+        result[architecture] = _check_apple_load_commands(
+            output, target_os, variant, architecture, minimum
+        )
+    return result
 
 
 def _env(name: str, default: str | os.PathLike[str]) -> str:
@@ -252,18 +342,27 @@ def build_apple() -> None:
         "x86_64-apple-ios",
         "aarch64-apple-darwin",
         "x86_64-apple-darwin",
+        "aarch64-apple-tvos",
+        "aarch64-apple-tvos-sim",
     ]
     _require_targets(targets)
 
     env = os.environ.copy()
     env["IPHONEOS_DEPLOYMENT_TARGET"] = _env("VCORE_IOS_DEPLOYMENT_TARGET", "13.0")
     env["MACOSX_DEPLOYMENT_TARGET"] = _env("VCORE_MACOS_DEPLOYMENT_TARGET", "10.15")
+    env["TVOS_DEPLOYMENT_TARGET"] = tvos_deployment_target()
     if profile_name == "release":
         env["CARGO_PROFILE_RELEASE_PANIC"] = "unwind"
 
     shutil.rmtree(work, ignore_errors=True)
     shutil.rmtree(dist / "LibVCore.xcframework", ignore_errors=True)
-    for directory in ("ios-device", "ios-simulator", "macos"):
+    for directory in (
+        "ios-device",
+        "ios-simulator",
+        "macos",
+        "tvos-device",
+        "tvos-simulator",
+    ):
         (work / directory).mkdir(parents=True)
     dist.mkdir(parents=True, exist_ok=True)
 
@@ -277,6 +376,10 @@ def build_apple() -> None:
         _require_identity(artifact, "Apple")
 
     shutil.copy2(artifacts["aarch64-apple-ios"], work / "ios-device/libvcore.a")
+    shutil.copy2(artifacts["aarch64-apple-tvos"], work / "tvos-device/libvcore.a")
+    shutil.copy2(
+        artifacts["aarch64-apple-tvos-sim"], work / "tvos-simulator/libvcore.a"
+    )
     _run(
         [
             "xcrun",
@@ -302,6 +405,28 @@ def build_apple() -> None:
         env=env,
     )
     output = dist / "LibVCore.xcframework"
+    for directory, target_os, variant, architectures, minimum in (
+        ("ios-device", "ios", None, {"arm64"}, env["IPHONEOS_DEPLOYMENT_TARGET"]),
+        (
+            "ios-simulator",
+            "ios",
+            "simulator",
+            {"arm64", "x86_64"},
+            env["IPHONEOS_DEPLOYMENT_TARGET"],
+        ),
+        ("macos", "macos", None, {"arm64", "x86_64"}, env["MACOSX_DEPLOYMENT_TARGET"]),
+        ("tvos-device", "tvos", None, {"arm64"}, env["TVOS_DEPLOYMENT_TARGET"]),
+        (
+            "tvos-simulator",
+            "tvos",
+            "simulator",
+            {"arm64"},
+            env["TVOS_DEPLOYMENT_TARGET"],
+        ),
+    ):
+        check_apple_binary(
+            work / directory / "libvcore.a", target_os, variant, architectures, minimum
+        )
     _run(
         [
             "xcodebuild",
@@ -316,6 +441,14 @@ def build_apple() -> None:
             CORE_DIR / "include",
             "-library",
             work / "macos/libvcore.a",
+            "-headers",
+            CORE_DIR / "include",
+            "-library",
+            work / "tvos-device/libvcore.a",
+            "-headers",
+            CORE_DIR / "include",
+            "-library",
+            work / "tvos-simulator/libvcore.a",
             "-headers",
             CORE_DIR / "include",
             "-output",

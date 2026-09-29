@@ -125,7 +125,7 @@ IP-only协议接点持有`ResolutionContext`，runtime DNS通过Weak绑定，不
 
 ## Apple 内存遥测
 
-Apple 目标通过 `TASK_VM_INFO` 尽力记录当前 physical footprint、进程生命周期峰值和限频阈值事件，运行期间最多每 30 秒采样一次。
+iOS/tvOS TUN 通过 `TASK_VM_INFO` 尽力记录当前 physical footprint、进程生命周期峰值和限频阈值事件，运行期间最多每 30 秒采样一次。macOS 不启用该周期任务；平台接入与事件标识见 [TUN 平台层](tun-platform.md)。
 
 - 采样失败只记录一次警告；
 - 遥测不写入 `lastError`；

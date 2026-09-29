@@ -66,6 +66,13 @@ def _parser() -> argparse.ArgumentParser:
     )
     abi = checks.add_parser("platform-abi", help="link/load native production artifact")
     abi.add_argument("--manifest", type=Path, required=True)
+    apple = checks.add_parser(
+        "apple-runtime", help="run native Apple simulator with isolated origins"
+    )
+    apple.add_argument("--platform", choices=("tvos", "ios"), default="tvos")
+    apple.add_argument(
+        "--manifest", type=Path, help="validate a clean production artifact identity"
+    )
     reality = checks.add_parser(
         "reality-hybrid",
         help="verify isolated hybrid REALITY, not the complete security suite",
@@ -185,6 +192,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 from .platform_delivery import check_abi
 
                 check_abi(args.manifest.resolve())
+            elif args.check == "apple-runtime":
+                from .apple_runtime import run
+
+                run(args.platform, args.manifest)
             elif args.check == "xhttp-peers":
                 from .protocol_xhttp_peers import main as xhttp_peers
 

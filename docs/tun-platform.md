@@ -8,7 +8,7 @@ VCore 的 netstack、DNS、规则和出站只处理完整的原始 IPv4/IPv6 数
 TunRuntime -> RustTunIo -> 宿主持有的 TUN fd 副本
 ```
 
-- iOS/macOS：宿主提供 utun 文件描述符，适配器处理四字节 packet-information 头。
+- iOS/tvOS/macOS：宿主提供 utun 文件描述符，适配器处理四字节 packet-information 头。
 - Android：`VpnService` 提供 raw-IP 文件描述符。
 - Linux：产品入口不支持，即使依赖能够编译也会失败关闭。
 
@@ -20,6 +20,17 @@ TunRuntime -> RustTunIo -> 宿主持有的 TUN fd 副本
 4. 停止时只关闭副本。
 
 VCore 不调用会修改共享 open-file-description 标志的异步构造器。`tunFraming` 是严格宿主协议：Apple 只接受 `utun`，Android 只接受 `rawIp`，不自动探测。
+
+tvOS 首版为 17.0+、ARM64 真机和 Apple Silicon 模拟器，共用原有 TunIo、netstack 和
+Dialer；不新增低内存数量上限，不改变其他平台默认行为。iOS/tvOS 的 TUN 生命周期接入
+Apple Unified Logging、TASK_VM_INFO 当前/进程峰值观察及停止后的 allocator pressure relief。
+既有 35/40/45 MiB 阈值仅发出诊断，不是系统限额或业务准入条件；macOS 不启用这组
+移动扩展周期采样。tvOS 事件使用 tvos_memory_*，iOS 保留 ios_memory_*。
+
+Apple 公开 NEPacketTunnelFlow API 是 packetFlow 的包读写，不承诺可取得 raw fd。
+VCore 的借用 fd 契约不能证明宿主 KVC 提取 fd 是稳定公开方案。模拟器 socketpair 只验证
+合成 utun 数据面；真实宿主的 fd 获取/桥接、签名与 entitlement、系统路由、设备生命周期
+及物理内存须独立验收。当前没有新增 packetFlow 回调 ABI，也不暗中回退其他接入路径。
 
 包 I/O 规则：
 

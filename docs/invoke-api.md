@@ -1,6 +1,6 @@
 # VCore Invoke API
 
-业务接口版本为 5，配置结构修订版为 27。配置只通过内联的 `configYaml` 或 `configYamls` 传入；每份已加载的 VCore 运行时最多拥有一个公共实例。代理组实时选择沿用 Controller，不增加 Invoke method 或版本协商。静态 ECH 只使用节点内联配置，不新增 bootstrap DNS 入参。
+业务接口版本为 5，配置结构修订版为 31。配置只通过内联的 `configYaml` 或 `configYamls` 传入；每份已加载的 VCore 运行时最多拥有一个公共实例。代理组实时选择沿用 Controller，不增加 Invoke method 或版本协商。静态 ECH 只使用节点内联配置，不新增 bootstrap DNS 入参。
 
 ## C ABI
 
