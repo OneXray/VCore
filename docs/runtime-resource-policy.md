@@ -124,6 +124,13 @@ IP-only协议接点持有`ResolutionContext`，runtime DNS通过Weak绑定，不
 
 ## 当前限制的保留判断
 
+本轮内存开发维持 `standard` 行为，不新增 `resourceProfile` API 或 iOS/tvOS 业务准入
+配额。完整 CN 的代表性协议冷/热、双栈入口、取消/重建及资源叠加短测仍有明显余量；
+这不是完整矩阵、长期最坏值或正式 Provider 的签收。是否需要移动专用策略，等同一
+最终候选的完整矩阵与真机结果再判定。若以后确需数量限制，只作用于明确选择的
+iOS/tvOS low-memory 场景，不传播到 macOS/Android/Windows，也不恢复 GeoData 数量
+或内存预算。局部队列、解析和缓冲边界保持不变。
+
 完整 CN、IPv4、16 条背景 TCP、300 秒、DIRECT/代理各承担一半流量的 1 Gbps 子集
 曾测得最坏 7,864,824 bytes；它不覆盖最大并发、DNS 冷查询风暴、UDP、TUN、协议池
 或 iOS/tvOS 实机，不能据此删除局部容量边界，也不能承诺任意负载低于 50M。
