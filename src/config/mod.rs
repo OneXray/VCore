@@ -50,8 +50,6 @@ pub const MAX_RULES: usize = 1_024;
 pub const MAX_RULE_BYTES: usize = 1_024;
 pub const MAX_RULES_TOTAL_BYTES: usize = 128 * 1024;
 pub const MAX_DNS_NAMESERVERS: usize = 4;
-pub const MAX_DNS_NAMESERVER_POLICIES: usize = 16;
-pub const MAX_DNS_POLICY_GEOSITE_CODES: usize = 16;
 pub const MAX_SNIFFER_PORT_ITEMS: usize = 64;
 pub const MAX_GEOX_URL_BYTES: usize = 4_096;
 pub const MAX_CONTROLLER_SECRET_BYTES: usize = 255;
@@ -2594,12 +2592,6 @@ fn normalize_dns_nameserver_policies(
     route_targets: &RouteTargetsByName,
     default_route: DnsRoute,
 ) -> Result<Vec<DnsNameserverPolicy>> {
-    if raw_policies.len() > MAX_DNS_NAMESERVER_POLICIES {
-        return invalid(format!(
-            "dns.nameserver-policy exceeds the {MAX_DNS_NAMESERVER_POLICIES}-entry limit"
-        ));
-    }
-
     let mut normalized = Vec::with_capacity(raw_policies.len());
     let mut seen_codes = Vec::<String>::new();
     for raw_policy in raw_policies {
@@ -2628,11 +2620,6 @@ fn normalize_dns_nameserver_policies(
             if seen_codes.contains(&code) {
                 return invalid(format!(
                     "dns.nameserver-policy contains duplicate GeoSite code `{code}`"
-                ));
-            }
-            if seen_codes.len() == MAX_DNS_POLICY_GEOSITE_CODES {
-                return invalid(format!(
-                    "dns.nameserver-policy exceeds the {MAX_DNS_POLICY_GEOSITE_CODES}-code limit"
                 ));
             }
             seen_codes.push(code.clone());
@@ -5782,27 +5769,42 @@ dns:
         );
         assert!(Config::parse_yaml(duplicate.as_bytes()).is_err());
 
-        let too_many_codes = (0..=MAX_DNS_POLICY_GEOSITE_CODES)
+        let many_codes = (0..=16)
             .map(|index| format!("code{index}"))
             .collect::<Vec<_>>()
             .join(",");
         let yaml = current_yaml(&format!(
             "port: 1080
 authentication:
-  - measure:secret\ndns:\n  enable: true\n  nameserver: [1.1.1.1]\n  nameserver-policy:\n    \"geosite:{too_many_codes}\": [tcp://223.5.5.5]"
+  - measure:secret\ndns:\n  enable: true\n  nameserver: [1.1.1.1]\n  nameserver-policy:\n    \"geosite:{many_codes}\": [tcp://223.5.5.5]"
         ));
-        assert!(Config::parse_yaml(yaml.as_bytes()).is_err());
+        assert_eq!(
+            Config::parse_yaml(yaml.as_bytes())
+                .unwrap()
+                .dns
+                .nameserver_policies[0]
+                .geosite_codes
+                .len(),
+            17
+        );
 
-        let too_many_policies = (0..=MAX_DNS_NAMESERVER_POLICIES)
+        let many_policies = (0..=16)
             .map(|index| format!("    \"geosite:code{index}\": [tcp://223.5.5.5]"))
             .collect::<Vec<_>>()
             .join("\n");
         let yaml = current_yaml(&format!(
             "port: 1080
 authentication:
-  - measure:secret\ndns:\n  enable: true\n  nameserver: [1.1.1.1]\n  nameserver-policy:\n{too_many_policies}"
+  - measure:secret\ndns:\n  enable: true\n  nameserver: [1.1.1.1]\n  nameserver-policy:\n{many_policies}"
         ));
-        assert!(Config::parse_yaml(yaml.as_bytes()).is_err());
+        assert_eq!(
+            Config::parse_yaml(yaml.as_bytes())
+                .unwrap()
+                .dns
+                .nameserver_policies
+                .len(),
+            17
+        );
 
         let disabled = current_yaml(
             r#"port: 1080

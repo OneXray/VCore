@@ -199,12 +199,6 @@ pub enum GeoDataManagerError {
     UpdateBusy,
     #[error("GeoData manager already has an active registration")]
     RegistrationActive,
-    #[error("GeoData update for {kind} is {actual} bytes; limit is {maximum} bytes")]
-    FileTooLarge {
-        kind: GeoDataKind,
-        actual: u64,
-        maximum: u64,
-    },
     #[error("GeoData updater reported {reported} bytes but staged file contains {actual} bytes")]
     SizeMismatch { reported: u64, actual: u64 },
     #[error("GeoData update ETag exceeds {MAX_ETAG_BYTES} bytes")]
@@ -884,13 +878,6 @@ impl GeoUpdateSession {
                 actual: actual_size,
             });
         }
-        if actual_size > self.kind.file_limit() {
-            return Err(GeoDataManagerError::FileTooLarge {
-                kind: self.kind,
-                actual: actual_size,
-                maximum: self.kind.file_limit(),
-            });
-        }
 
         self.manager.validate_candidate(
             self.kind,
@@ -1327,7 +1314,7 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use super::super::{GENERAL_ALLOCATION_BUDGET_BYTES, GeoDataError};
+    use super::super::GeoDataError;
     use super::*;
     use crate::config::{DnsNameserverPolicy, RuleAction, RuleKind, RuleSpec};
 
@@ -1948,8 +1935,6 @@ mod tests {
             .register(GeoRequirements::collect(&[], &[]).unwrap())
             .unwrap();
         assert_eq!(registration.initial_report().allocation_capacity, 0);
-        assert!(
-            registration.initial_report().allocation_capacity <= GENERAL_ALLOCATION_BUDGET_BYTES
-        );
+        assert_eq!(registration.initial_report().peak_allocation_capacity, 0);
     }
 }

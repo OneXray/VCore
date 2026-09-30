@@ -12,6 +12,13 @@ for index in range(0, len(rows), 2):
         zip(header[1:], map(int, values[1:]), strict=True)
     )
 process = Path("/proc/1/stat").read_text().rsplit(")", 1)[1].split()
+udp6 = {
+    key: int(value)
+    for key, value in (
+        line.split() for line in Path("/proc/net/snmp6").read_text().splitlines()
+    )
+    if key.startswith("Udp6")
+}
 network = {}
 for line in Path("/proc/net/dev").read_text().splitlines()[2:]:
     interface, fields = line.split(":")
@@ -31,6 +38,7 @@ print(
             / os.sysconf("SC_CLK_TCK"),
             "process_rss_bytes": int(process[21]) * os.sysconf("SC_PAGE_SIZE"),
             "udp": protocols["Udp"],
+            "udp6": udp6,
             "tcp": protocols["Tcp"],
             "network": network,
         }

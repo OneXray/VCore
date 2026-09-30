@@ -1,3 +1,5 @@
+import contextlib
+import io
 import json
 import tempfile
 import unittest
@@ -7,6 +9,129 @@ from vcore_scripts.memory_inputs import RunStore, bandwidth_complete, cn_statist
 
 
 class MemoryResumeTests(unittest.TestCase):
+    def test_variable_size_udp_correctness_requires_every_prescribed_datagram(self):
+        report = {
+            "correctness": True,
+            "complete": True,
+            "transport": "udp",
+            "direction": "both",
+            "nominal_seconds": 5,
+            "offered_bps": 0,
+            "proxy_endpoint_count": 1,
+            "data_connection_count": 1,
+            "tcp_bytes_per_second_per_direction": 65536,
+            "udp_packets_per_second_per_direction": 20,
+            "udp_payload_cycle": [64, 512, 1200],
+            "sent_bytes": 117344,
+            "received_bytes": 117344,
+            "elapsed_seconds": 4.96,
+            "flows": [
+                {
+                    "transport": "udp",
+                    "direction": direction,
+                    "sent": {"bytes": 58672, "packets": 100, "seconds": 4.95},
+                    "received": {"bytes": 58672, "packets": 100, "seconds": 4.96},
+                }
+                for direction in ("up", "down")
+            ],
+        }
+        options = {"flows": 1, "proxy_endpoints": 1, "seconds": 5, "correctness": True}
+        self.assertTrue(bandwidth_complete(report, "udp", "both", **options))
+        report["flows"][1]["received"]["packets"] = 99
+        self.assertFalse(bandwidth_complete(report, "udp", "both", **options))
+
+    def test_single_tcp_duplex_requires_one_connection_and_two_complete_directions(
+        self,
+    ):
+        size, seconds, mbps = 65536, 10, 1000
+        expected = (mbps * 125000 // 2 * seconds // size) * size
+        report = {
+            "complete": True,
+            "rate_pass": True,
+            "transport": "tcp",
+            "direction": "both",
+            "nominal_seconds": seconds,
+            "offered_bps": mbps * 1000000,
+            "payload_bytes": size,
+            "proxy_endpoint_count": 1,
+            "data_connection_count": 1,
+            "single_connection_duplex": True,
+            "flows": [
+                {
+                    "direction": direction,
+                    "sent": {
+                        "bytes": expected,
+                        "packets": expected // size,
+                        "seconds": seconds,
+                    },
+                    "received": {
+                        "bytes": expected,
+                        "packets": expected // size,
+                        "seconds": seconds,
+                    },
+                }
+                for direction in ("up", "down")
+            ],
+            "sent_bytes": expected * 2,
+            "received_bytes": expected * 2,
+            "elapsed_seconds": seconds,
+            "receiver_goodput_bps": expected * 2 * 8 / seconds,
+        }
+        workload = {"flows": 1, "proxy_endpoints": 1, "seconds": seconds, "mbps": mbps}
+        self.assertTrue(bandwidth_complete(report, "tcp", "both", **workload))
+        report["data_connection_count"] = 2
+        self.assertFalse(bandwidth_complete(report, "tcp", "both", **workload))
+        report["data_connection_count"] = 1
+        report["single_connection_duplex"] = False
+        self.assertFalse(bandwidth_complete(report, "tcp", "both", **workload))
+        report["single_connection_duplex"] = True
+        report["flows"][1]["received"]["bytes"] -= size
+        self.assertFalse(bandwidth_complete(report, "tcp", "both", **workload))
+
+    def test_peer_capacity_catalog_exposes_independent_single_flow_runs(self):
+        from vcore_scripts.memory_benchmark import run
+
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            run(suite="peer-capacity", list_only=True)
+        identifiers = output.getvalue().splitlines()
+        self.assertIn("capacity-mihomo-udp-up-1-1", identifiers)
+        self.assertIn("capacity-direct-udp-down-1-3", identifiers)
+        self.assertNotIn("capacity-mihomo-udp-both-1-1", identifiers)
+        self.assertEqual(len(identifiers), len(set(identifiers)))
+
+    def test_single_flow_capacity_cannot_reuse_multiflow_or_short_run_evidence(self):
+        report = {
+            "complete": True,
+            "rate_pass": True,
+            "transport": "udp",
+            "direction": "up",
+            "nominal_seconds": 300,
+            "offered_bps": 1000000000,
+            "payload_bytes": 1200,
+            "proxy_endpoint_count": 1,
+            "flows": [
+                {
+                    "direction": "up",
+                    "sent": {"bytes": 37500000000, "packets": 31250000, "seconds": 300},
+                    "received": {
+                        "bytes": 37500000000,
+                        "packets": 31250000,
+                        "seconds": 300,
+                    },
+                }
+            ],
+            "sent_bytes": 37500000000,
+            "received_bytes": 37500000000,
+            "elapsed_seconds": 300,
+            "receiver_goodput_bps": 1000000000,
+        }
+        workload = {"proxy_endpoints": 1, "flows": 1, "seconds": 300, "mbps": 1000}
+        self.assertTrue(bandwidth_complete(report, "udp", "up", **workload))
+        self.assertFalse(bandwidth_complete(report, "udp", "up", proxy_endpoints=1))
+        report["flows"][0]["sent"]["seconds"] = 10
+        self.assertFalse(bandwidth_complete(report, "udp", "up", **workload))
+
     def test_bandwidth_report_requires_all_work_and_a_real_send_window(self):
         flow = {"direction": "up"}
         for end in ("sent", "received"):

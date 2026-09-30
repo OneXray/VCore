@@ -1,4 +1,4 @@
-//! Bounded GeoData downloads forced through one raw proxy dispatcher.
+//! Streaming GeoData downloads forced through one raw proxy dispatcher.
 //!
 //! This module deliberately does not know about routing or DIRECT. The caller
 //! must pass the raw dispatcher for the selected default proxy. Every hop,
@@ -48,7 +48,6 @@ pub(crate) struct GeoDataDownloadRequest {
     /// A new temporary file. The downloader refuses to replace an existing
     /// path; publishing the completed file is the manager's responsibility.
     pub temporary_path: PathBuf,
-    pub size_limit: u64,
     pub timeout: Duration,
     pub cancellation: CancellationToken,
 }
@@ -88,8 +87,6 @@ pub(crate) enum GeoDataDownloadError {
     HttpStatus(u16),
     #[error("GeoData download followed more than {MAX_REDIRECTS} redirects")]
     TooManyRedirects,
-    #[error("GeoData response body is at least {actual} bytes; limit is {maximum} bytes")]
-    BodyTooLarge { actual: u64, maximum: u64 },
     #[error("GeoData download timed out after {0:?}")]
     TimedOut(Duration),
     #[error("GeoData download was cancelled")]
@@ -266,11 +263,11 @@ async fn download_inner(
         }
 
         validate_content_encoding(head.content_encoding.as_deref())?;
-        let framing = body_framing(&head, request.size_limit)?;
+        let framing = body_framing(&head)?;
         let target = file
             .take()
             .expect("temporary file must be consumed by one final response");
-        let mut sink = BodySink::new(target, request.size_limit);
+        let mut sink = BodySink::new(target);
         match framing {
             BodyFraming::ContentLength(length) => {
                 response.copy_exact_body(length, &mut sink).await?;
@@ -406,7 +403,7 @@ enum BodyFraming {
     UntilEof,
 }
 
-fn body_framing(head: &ResponseHead, size_limit: u64) -> Result<BodyFraming, GeoDataDownloadError> {
+fn body_framing(head: &ResponseHead) -> Result<BodyFraming, GeoDataDownloadError> {
     if head.transfer_encoding.is_some() && head.content_length.is_some() {
         return Err(GeoDataDownloadError::Protocol(
             "response contains both Transfer-Encoding and Content-Length".to_owned(),
@@ -421,12 +418,6 @@ fn body_framing(head: &ResponseHead, size_limit: u64) -> Result<BodyFraming, Geo
         return Ok(BodyFraming::Chunked);
     }
     if let Some(length) = head.content_length {
-        if length > size_limit {
-            return Err(GeoDataDownloadError::BodyTooLarge {
-                actual: length,
-                maximum: size_limit,
-            });
-        }
         return Ok(BodyFraming::ContentLength(length));
     }
     Ok(BodyFraming::UntilEof)
@@ -876,16 +867,14 @@ struct BodySink {
     file: File,
     hasher: Sha256,
     size: u64,
-    maximum: u64,
 }
 
 impl BodySink {
-    fn new(file: File, maximum: u64) -> Self {
+    fn new(file: File) -> Self {
         Self {
             file,
             hasher: Sha256::new(),
             size: 0,
-            maximum,
         }
     }
 
@@ -894,16 +883,7 @@ impl BodySink {
         let next = self
             .size
             .checked_add(added)
-            .ok_or(GeoDataDownloadError::BodyTooLarge {
-                actual: u64::MAX,
-                maximum: self.maximum,
-            })?;
-        if next > self.maximum {
-            return Err(GeoDataDownloadError::BodyTooLarge {
-                actual: next,
-                maximum: self.maximum,
-            });
-        }
+            .ok_or_else(|| GeoDataDownloadError::Protocol("body size overflows u64".to_owned()))?;
         self.file
             .write_all(bytes)
             .map_err(GeoDataDownloadError::NetworkIo)?;
@@ -1040,14 +1020,12 @@ mod tests {
         dispatcher: Arc<dyn Dispatcher>,
         url: &str,
         temporary_path: PathBuf,
-        size_limit: u64,
     ) -> GeoDataDownloadRequest {
         GeoDataDownloadRequest {
             dispatcher,
             url: url.to_owned(),
             etag: Some("\"old\"".to_owned()),
             temporary_path,
-            size_limit,
             timeout: Duration::from_secs(2),
             cancellation: CancellationToken::new(),
         }
@@ -1066,7 +1044,6 @@ mod tests {
                 dispatcher.clone(),
                 "https://rules.example.test/geosite.dat",
                 temporary_path.clone(),
-                1024,
             ),
             &PlainHttpsConnector,
         )
@@ -1131,7 +1108,6 @@ mod tests {
                 dispatcher,
                 "https://rules.example.test/geoip.dat",
                 temporary_path.clone(),
-                1024,
             ),
             &PlainHttpsConnector,
         )
@@ -1154,7 +1130,6 @@ mod tests {
                 content_length_dispatcher,
                 "https://rules.example.test/content-length",
                 content_length_path.clone(),
-                5,
             ),
             &PlainHttpsConnector,
         )
@@ -1178,7 +1153,6 @@ mod tests {
                 eof_dispatcher,
                 "https://rules.example.test/eof",
                 eof_path.clone(),
-                32,
             ),
             &PlainHttpsConnector,
         )
@@ -1192,32 +1166,47 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rejects_oversized_body_and_removes_partial_file() {
-        let directory = tempdir().expect("tempdir");
-        let temporary_path = directory.path().join("oversized.new");
+    async fn streams_body_beyond_former_file_size_limits() {
+        let directory = tempdir().unwrap();
+        let temporary_path = directory.path().join("large.new");
+        let length = 32 * 1024 * 1024 + 1;
+        let mut response =
+            format!("HTTP/1.1 200 OK\r\nContent-Length: {length}\r\n\r\n").into_bytes();
+        response.resize(response.len() + length, b'x');
+        let dispatcher = Arc::new(ScriptedDispatcher::new([response]));
+        let mut request = request(
+            dispatcher,
+            "https://rules.example.test/geoip.dat",
+            temporary_path.clone(),
+        );
+        request.timeout = Duration::from_secs(15);
+        let outcome = download_with_connector(request, &PlainHttpsConnector)
+            .await
+            .unwrap();
+        assert!(
+            matches!(outcome, GeoDataDownloadOutcome::Downloaded { size, .. } if size == length as u64)
+        );
+        assert_eq!(fs::metadata(temporary_path).unwrap().len(), length as u64);
+    }
+
+    #[tokio::test]
+    async fn truncated_body_still_removes_partial_file() {
+        let directory = tempdir().unwrap();
+        let temporary_path = directory.path().join("truncated.new");
         let dispatcher = Arc::new(ScriptedDispatcher::new([
-            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n8\r\n12345678\r\n0\r\n\r\n"
-                .to_vec(),
+            b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\n\r\nshort".to_vec(),
         ]));
         let error = download_with_connector(
             request(
                 dispatcher,
                 "https://rules.example.test/geoip.dat",
                 temporary_path.clone(),
-                4,
             ),
             &PlainHttpsConnector,
         )
         .await
-        .expect_err("body must be rejected");
-
-        assert!(matches!(
-            error,
-            GeoDataDownloadError::BodyTooLarge {
-                actual: 8,
-                maximum: 4
-            }
-        ));
+        .unwrap_err();
+        assert!(matches!(error, GeoDataDownloadError::Protocol(_)));
         assert!(!temporary_path.exists());
     }
 
@@ -1233,7 +1222,6 @@ mod tests {
                 dispatcher.clone(),
                 "https://rules.example.test/geoip.dat",
                 temporary_path.clone(),
-                1024,
             ),
             &PlainHttpsConnector,
         )
@@ -1256,7 +1244,6 @@ mod tests {
             dispatcher.clone(),
             "https://rules.example.test/geoip.dat",
             temporary_path.clone(),
-            1024,
         );
         request.cancellation.cancel();
         let error = download_with_connector(request, &PlainHttpsConnector)
@@ -1276,7 +1263,6 @@ mod tests {
             Arc::new(HangingDispatcher),
             "https://rules.example.test/geoip.dat",
             temporary_path.clone(),
-            1024,
         );
         request.timeout = Duration::from_millis(10);
         let error = download_with_connector(request, &PlainHttpsConnector)
@@ -1298,19 +1284,20 @@ mod tests {
         )
         .expect("head parses");
         assert!(matches!(
-            body_framing(&both, 10),
+            body_framing(&both),
             Err(GeoDataDownloadError::Protocol(_))
         ));
 
-        let length =
-            parse_response_head(b"HTTP/1.1 200 OK\r\nContent-Length: 11").expect("head parses");
-        assert!(matches!(
-            body_framing(&length, 10),
-            Err(GeoDataDownloadError::BodyTooLarge {
-                actual: 11,
-                maximum: 10
-            })
-        ));
+        let length = parse_response_head(b"HTTP/1.1 200 OK\r\nContent-Length: 33554433")
+            .expect("head parses");
+        assert_eq!(
+            body_framing(&length).unwrap(),
+            BodyFraming::ContentLength(33_554_433)
+        );
+        assert!(
+            parse_response_head(b"HTTP/1.1 200 OK\r\nContent-Length: 18446744073709551616")
+                .is_err()
+        );
     }
 
     #[test]

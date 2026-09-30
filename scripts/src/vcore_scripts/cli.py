@@ -78,11 +78,31 @@ def _parser() -> argparse.ArgumentParser:
         help="calibrate isolated whole-process measurement, not mobile acceptance",
     )
     memory.add_argument("--case", dest="identifiers", action="append")
-    memory.add_argument("--suite", choices=("facilities", "cold-start"))
+    memory.add_argument(
+        "--suite",
+        choices=(
+            "facilities",
+            "cold-start",
+            "peer-capacity",
+            "socks-tcp-split",
+            "socks-tcp-v4",
+            "socks-tcp-v6",
+            "socks-udp-v4",
+            "socks-udp-v6",
+            "socks-smoke-v4",
+            "socks-smoke-v6",
+            "socks-overlap-v4",
+            "socks-overlap-v6",
+            "socks-correctness-v4",
+            "socks-correctness-v6",
+        ),
+    )
     memory.add_argument("--run-dir", type=Path)
     memory.add_argument("--resume", type=Path)
     memory.add_argument("--list", dest="list_only", action="store_true")
     memory.add_argument("--preflight", dest="preflight_only", action="store_true")
+    memory.add_argument("--udp-pacing-credit", type=int, choices=(0, 16))
+    memory.add_argument("--peer-cpus", type=int, choices=(2, 4, 8))
     reality = checks.add_parser(
         "reality-hybrid",
         help="verify isolated hybrid REALITY, not the complete security suite",
@@ -216,6 +236,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     resume=args.resume,
                     list_only=args.list_only,
                     preflight_only=args.preflight_only,
+                    udp_pacing_credit=args.udp_pacing_credit,
+                    peer_cpus=args.peer_cpus,
                 )
             elif args.check == "xhttp-peers":
                 from .protocol_xhttp_peers import main as xhttp_peers

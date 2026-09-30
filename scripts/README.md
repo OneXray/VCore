@@ -206,11 +206,25 @@ uv run --project scripts --locked vcore-scripts check apple-runtime --platform t
 
 ## 独立进程内存设施
 
+内存专项各开发阶段只做相关编译、必要回归、短烟测与定位；完整内存/吞吐矩阵和长测
+统一留到最终候选验收，不是每个开发阶段的提交门禁。以下命令保持正式用例的时长、
+重复次数和阈值，选例不自动变成短烟测；开发完成、子集结果与最终通过分开记录。
+
 ```sh
 uv run --project scripts --locked vcore-scripts check memory --list
 uv run --project scripts --locked vcore-scripts check memory --preflight
 uv run --project scripts --locked vcore-scripts check memory
 uv run --project scripts --locked vcore-scripts check memory --suite cold-start
+uv run --project scripts --locked vcore-scripts check memory --suite peer-capacity --list
+# 所选联合子集，不代表完整负载或移动平台通过：
+uv run --project scripts --locked vcore-scripts check memory --suite socks-tcp-split
+uv run --project scripts --locked vcore-scripts check memory --suite socks-tcp-v4 --list
+uv run --project scripts --locked vcore-scripts check memory --suite socks-tcp-v6 --list
+uv run --project scripts --locked vcore-scripts check memory --suite socks-udp-v6 --list
+uv run --project scripts --locked vcore-scripts check memory --suite socks-correctness-v6 --list
+uv run --project scripts --locked vcore-scripts check memory --suite socks-overlap-v6 --list
+# 独立短烟测，结果只作 DIAGNOSTIC；另有相同范围的 v6 集合：
+uv run --project scripts --locked vcore-scripts check memory --suite socks-smoke-v4
 uv run --project scripts --locked vcore-scripts check memory --resume target/memory/<run-id>
 ```
 

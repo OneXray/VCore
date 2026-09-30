@@ -11,7 +11,7 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use vcore::{
     config::{Network, RuleAction, RuleKind, RuleSpec},
-    geodata::{GENERAL_ALLOCATION_BUDGET_BYTES, GeoData},
+    geodata::GeoData,
     routing::{GeoMatcher, RoutingContext},
     session::Destination,
 };
@@ -92,20 +92,18 @@ fn cold_start_allocation_ledger() {
         ),
     ] {
         let rules: Vec<_> = kinds.into_iter().map(rule).collect();
-        let data = GeoData::load(&asset_dir, &rules, GENERAL_ALLOCATION_BUDGET_BYTES).unwrap();
+        let data = GeoData::load(&asset_dir, &rules).unwrap();
         assert_eq!(
             data.geosite_available("cn"),
             matches!(name, "site" | "both")
         );
         assert_eq!(data.geoip_available("cn"), matches!(name, "ip" | "both"));
         assert!(data.allocation_capacity() <= data.peak_allocation_capacity());
-        assert!(data.peak_allocation_capacity() <= GENERAL_ALLOCATION_BUDGET_BYTES);
         profiles.insert(
             name.into(),
             serde_json::json!({
                 "retained_capacity_bytes": data.allocation_capacity(),
-                "peak_reserved_capacity_bytes": data.peak_allocation_capacity(),
-                "budget_bytes": GENERAL_ALLOCATION_BUDGET_BYTES,
+                "peak_accounted_capacity_bytes": data.peak_allocation_capacity(),
             }),
         );
     }
@@ -118,7 +116,7 @@ fn cold_start_allocation_ledger() {
 
 #[test]
 #[ignore = "requires frozen complete assets and independent VCORE_GEODATA_REFERENCE witnesses"]
-fn complete_cn_matches_independent_reference_with_shared_budget() {
+fn complete_cn_matches_independent_reference_without_memory_quotas() {
     let asset_dir = PathBuf::from(std::env::var_os("VCORE_GEODATA_DIR").expect("asset directory"));
     let reference_dir =
         PathBuf::from(std::env::var_os("VCORE_GEODATA_REFERENCE").expect("reference directory"));
@@ -142,24 +140,20 @@ fn complete_cn_matches_independent_reference_with_shared_budget() {
             rule(RuleKind::GeoSite("cn".into())),
             rule(RuleKind::GeoIp("cn".into())),
         ],
-        GENERAL_ALLOCATION_BUDGET_BYTES,
     )
     .unwrap();
     assert!(data.geosite_available("cn") && data.geoip_available("CN"));
     assert!(data.allocation_capacity() <= data.peak_allocation_capacity());
-    assert!(data.peak_allocation_capacity() <= GENERAL_ALLOCATION_BUDGET_BYTES);
     eprintln!(
-        "complete CN ledger: retained={}, peak={}, budget={}",
+        "complete CN ledger: retained={}, peak={}",
         data.allocation_capacity(),
         data.peak_allocation_capacity(),
-        GENERAL_ALLOCATION_BUDGET_BYTES
     );
     let regexes: Vec<_> = (0..reference["regexes"].as_u64().unwrap())
         .map(|index| {
             GeoData::load(
                 &reference_dir.join(format!("regex-{index}")),
                 &[rule(RuleKind::GeoSite("cn".into()))],
-                GENERAL_ALLOCATION_BUDGET_BYTES,
             )
             .unwrap()
         })
@@ -226,8 +220,7 @@ fn complete_cn_matches_independent_reference_with_shared_budget() {
     let report = serde_json::json!({
         "status": "PASS", "scope": "diagnostic-not-process-peak", "cases": counts,
         "positives": positives, "negatives": negatives,
-        "retained_bytes": data.allocation_capacity(), "construction_peak_bytes": data.peak_allocation_capacity(),
-        "budget_bytes": GENERAL_ALLOCATION_BUDGET_BYTES,
+        "retained_bytes": data.allocation_capacity(), "peak_accounted_capacity_bytes": data.peak_allocation_capacity(),
         "reference": reference,
     });
     fs::write(

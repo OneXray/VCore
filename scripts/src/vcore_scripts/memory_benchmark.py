@@ -22,6 +22,7 @@ from pathlib import Path
 
 from . import builds
 from . import memory_cold_start as cold
+from . import memory_socks_load as socks_load
 from .memory_geodata import generate as geodata_reference
 from .memory_inputs import RunStore, acquire_rules, bandwidth_complete, save
 from .memory_process import (
@@ -64,6 +65,22 @@ CASES = (
         for direction in ("up", "down", "both")
     )
 )
+CAPACITY_CASES = {
+    f"capacity-{path}-{transport}-{direction}-{flows}-{repeat}": {
+        "path": path,
+        "transport": transport,
+        "direction": direction,
+        "flows": flows,
+        "seconds": 10,
+        "mbps": 1000,
+    }
+    for repeat in range(1, 4)
+    for flows in (1, 16, 64)
+    for direction in ("up", "down", "both")
+    if direction != "both" or flows != 1
+    for transport in ("tcp", "udp")
+    for path in ("direct", "mihomo")
+}
 
 
 def _source():
@@ -278,9 +295,17 @@ def _peers(root, manifest):
     )
     with tempfile.TemporaryDirectory(prefix="peers-", dir=root) as temporary:
         directories = {}
+        workloads = manifest.get("socks_load_workloads", {})
+        family = next(iter(workloads.values()), {}).get("family", "IPv4")
+        needs_positive = any(
+            spec.get("topology") == "proxy" for spec in workloads.values()
+        )
+        positive = None
         try:
             with contextlib.ExitStack() as stack:
-                for role in ("origin", "bandwidth", "mihomo"):
+                for role in ("origin", "bandwidth", "mihomo") + (
+                    ("positive",) if needs_positive else ()
+                ):
                     directory = Path(temporary) / role
                     directory.mkdir()
                     directories[role] = directory
@@ -292,7 +317,12 @@ def _peers(root, manifest):
                     directories["origin"] / "origin.py",
                 )
                 origin_script = "origin.py"
-                if "geodata_reference" in manifest:
+                if manifest.get("socks_load_workloads"):
+                    origin_script = "load_dns.py"
+                    shutil.copy2(
+                        FIXTURES / origin_script, directories["origin"] / origin_script
+                    )
+                elif "geodata_reference" in manifest:
                     origin_script = "cn_origin.py"
                     shutil.copy2(
                         FIXTURES / origin_script, directories["origin"] / origin_script
@@ -328,11 +358,11 @@ def _peers(root, manifest):
                         {
                             "name": f"memory-{index}",
                             "type": "socks",
-                            "listen": "0.0.0.0",
+                            "listen": "::",
                             "port": 1080 + index,
                             "udp": True,
                         }
-                        for index in range(1, 16)
+                        for index in range(1, manifest.get("peer_udp_listeners", 16))
                     ],
                 }
                 origin = lab.start(
@@ -357,6 +387,8 @@ def _peers(root, manifest):
                         "/data/fixture/traffic",
                         "-mode",
                         "origin",
+                        "-udp-pacing-credit",
+                        str(manifest.get("udp_pacing_credit_records", 16)),
                     ],
                     cpus=4,
                 )
@@ -365,8 +397,28 @@ def _peers(root, manifest):
                     f"IP-CIDR,{origin.ipv4}/32,DIRECT,no-resolve",
                     f"IP-CIDR6,{origin.ipv6}/128,DIRECT,no-resolve",
                     f"IP-CIDR,{bandwidth.ipv4}/32,DIRECT,no-resolve",
+                    f"IP-CIDR6,{bandwidth.ipv6}/128,DIRECT,no-resolve",
                     "MATCH,REJECT",
                 ]
+                if workloads:
+                    # CN hits remain domain targets when VCore delegates DNS to
+                    # SOCKS5. IP-only no-resolve fences would reject them before
+                    # the peer can query the isolated DNS oracle. Allow exactly
+                    # the controlled names, retaining REJECT for everything else.
+                    mihomo_config["rules"] = [
+                        f"DOMAIN,{item['value']},DIRECT"
+                        for item in manifest.get(
+                            "load_dns_names", manifest["geodata_reference"]["routes"]
+                        )
+                        if item["kind"] == "site"
+                    ] + mihomo_config["rules"]
+                    mihomo_config["dns"] = {
+                        "enable": True,
+                        "ipv6": family == "IPv6",
+                        "use-hosts": False,
+                        "use-system-hosts": False,
+                        "nameserver": [f"udp://{origin.ipv4}:24004"],
+                    }
                 save(directories["mihomo"] / "config.json", mihomo_config)
                 mihomo = lab.start(
                     stack,
@@ -379,8 +431,47 @@ def _peers(root, manifest):
                         "-f",
                         "/data/fixture/config.json",
                     ],
-                    cpus=8,
+                    cpus=manifest.get("peer_cpus", 8),
                 )
+                if needs_positive:
+                    shutil.copy2(
+                        root / "artifacts/mihomo", directories["positive"] / "mihomo"
+                    )
+                    save(directories["positive"] / "config.json", mihomo_config)
+                    positive = lab.start(
+                        stack,
+                        directories["positive"],
+                        "memory-positive",
+                        [
+                            "/data/fixture/mihomo",
+                            "-d",
+                            "/data",
+                            "-f",
+                            "/data/fixture/config.json",
+                        ],
+                        cpus=manifest.get("peer_cpus", 8),
+                    )
+                if manifest.get("socks_load_workloads"):
+                    save(
+                        directories["origin"] / "load-dns.json",
+                        {
+                            "names": [
+                                item
+                                for item in manifest.get(
+                                    "load_dns_names",
+                                    manifest["geodata_reference"]["routes"],
+                                )
+                                if item["kind"] == "site"
+                            ],
+                            "target": bandwidth.ipv6
+                            if family == "IPv6"
+                            else bandwidth.ipv4,
+                            "core_source": socks_load.host_source(bandwidth.ipv4),
+                            "peer_source": mihomo.ipv4,
+                            "peer_sources": [mihomo.ipv4]
+                            + ([positive.ipv4] if positive else []),
+                        },
+                    )
                 version = command(
                     "exec", mihomo.name, "/data/fixture/mihomo", "-v"
                 ).strip()
@@ -393,13 +484,27 @@ def _peers(root, manifest):
                 ):
                     raise RuntimeError("actual official peer identity mismatch")
                 record["peer_version"] = version
+                if positive:
+                    positive_version = command(
+                        "exec", positive.name, "/data/fixture/mihomo", "-v"
+                    ).strip()
+                    positive_digest = command(
+                        "exec", positive.name, "sha256sum", "/data/fixture/mihomo"
+                    ).split()[0]
+                    if positive_digest != digest or positive_version != version:
+                        raise RuntimeError("positive-route peer identity mismatch")
+                    positive.release()
+                    positive.wait_tcp(1080)
+                    positive.record.update(ipv4=positive.ipv4, ipv6=positive.ipv6)
                 for peer, port in ((origin, 24000), (bandwidth, 24003), (mihomo, 1080)):
                     peer.release()
                     peer.wait_tcp(port)
                     peer.record.update(ipv4=peer.ipv4, ipv6=peer.ipv6)
                 save(root / "resources.json", record)
-                yield origin, bandwidth, mihomo
-                for peer in (origin, bandwidth, mihomo):
+                yield origin, bandwidth, mihomo, positive
+                for peer in (origin, bandwidth, mihomo) + (
+                    (positive,) if positive else ()
+                ):
                     peer.ensure_alive()
         finally:
             save(root / "resources.json", record)
@@ -749,8 +854,16 @@ def _smoke(name, root, manifest, work, origin, mihomo):
         return record
 
 
-def _bandwidth(name, root, work, bandwidth, mihomo):
-    _, path, transport, direction = name.split("-")
+def _bandwidth(name, root, work, bandwidth, mihomo, *, pacing_credit=16):
+    if name in CAPACITY_CASES:
+        workload = CAPACITY_CASES[name]
+        path, transport, direction = (
+            workload[key] for key in ("path", "transport", "direction")
+        )
+        flows = workload["flows"]
+    else:
+        _, path, transport, direction = name.split("-")
+        flows = 16
     argv = [
         str(root / "artifacts/traffic-darwin"),
         "-peer",
@@ -762,13 +875,15 @@ def _bandwidth(name, root, work, bandwidth, mihomo):
         "-seconds",
         "10",
         "-flows",
-        "16",
+        str(flows),
         "-mbps",
         "1000",
+        "-udp-pacing-credit",
+        str(pacing_credit),
     ]
     proxy_endpoints = 0
     if path == "mihomo":
-        proxy_endpoints = 16 if transport == "udp" else 1
+        proxy_endpoints = flows if transport == "udp" else 1
         argv += [
             "-proxy",
             ",".join(
@@ -817,7 +932,7 @@ def _bandwidth(name, root, work, bandwidth, mihomo):
     except (ValueError, IndexError):
         report = {}
     verified = bandwidth_complete(
-        report, transport, direction, proxy_endpoints=proxy_endpoints
+        report, transport, direction, proxy_endpoints=proxy_endpoints, flows=flows
     )
     accepted = (
         child.process.returncode == 0
@@ -825,6 +940,7 @@ def _bandwidth(name, root, work, bandwidth, mihomo):
         and not timed_out
         and not sampling_errors
         and verified
+        and report.get("udp_pacing_credit_records") == pacing_credit
     )
     return {
         "case": name,
@@ -833,6 +949,12 @@ def _bandwidth(name, root, work, bandwidth, mihomo):
         "scope": "facility-calibration-not-VCore-bandwidth",
         "topology": "local-container-loop",
         "peer_proxy_endpoints": proxy_endpoints,
+        "workload": {
+            "flows": flows,
+            "seconds": 10,
+            "mbps": 1000,
+            "udp_pacing_credit_records": pacing_credit,
+        },
         "traffic": report,
         "workload_verified": verified,
         "guest_counters": {"before": before, "after": after},
@@ -857,6 +979,11 @@ def _report(root, manifest, results, *, complete, failure=None):
         and all(r.get("accepted") for r in results.values())
     )
     whole = manifest["cases"] == list(CASES)
+    coupled = all(name in socks_load.CASES for name in manifest["cases"])
+    development = any(
+        spec.get("development")
+        for spec in manifest.get("socks_load_workloads", {}).values()
+    )
     cn_only = manifest["cases"] == ["full-cn-loader"]
     cn_accepted = (
         accepted
@@ -881,6 +1008,9 @@ def _report(root, manifest, results, *, complete, failure=None):
         or cold_accepted,
         "cold_start": cold_summary,
         "facility_suite_complete": accepted and whole,
+        "socks5_joint_subset_accepted": accepted and coupled and not development,
+        "development_checks_complete": accepted and development,
+        "final_matrix_accepted": False,
         "cn_compatibility_accepted": cn_accepted,
         "geodata_diagnostic": manifest.get("geodata_verified"),
         "geodata_ledger": manifest.get("geodata_ledger"),
@@ -889,7 +1019,13 @@ def _report(root, manifest, results, *, complete, failure=None):
         "cases": results,
         "mobile_acceptance": "NOT RUN",
         "failure": failure,
-        "scope": "full-facility-suite" if whole else "selected-cases",
+        "scope": "full-facility-suite"
+        if whole
+        else "development-diagnostic-not-acceptance"
+        if development
+        else "SOCKS5-coupled-selected-subset"
+        if coupled
+        else "selected-cases",
     }
     save(root / "results.json", report)
     resume_command = (
@@ -903,8 +1039,14 @@ def _report(root, manifest, results, *, complete, failure=None):
             if manifest.get("suite") == "cold-start"
             else "full-cn-compatibility"
             if cn_only
+            else "socks5-peer-capacity"
+            if manifest.get("suite") == "peer-capacity"
+            else "socks5-coupled-tcp-load"
+            if coupled
             else "isolated-memory-measurement-harness",
-            "status": "PASS" if accepted else "INVALID",
+            "status": ("DIAGNOSTIC" if development else "PASS")
+            if accepted
+            else "INVALID",
             "stage_complete": report["stage_complete"],
             "run_dir": str(root.relative_to(builds.CORE_DIR)),
             "source": manifest["source"],
@@ -929,6 +1071,9 @@ def _report(root, manifest, results, *, complete, failure=None):
         f"Full facility suite complete: {report['facility_suite_complete']}.",
         f"Complete CN compatibility accepted: {cn_accepted}.",
         f"Four-profile cold-start baseline accepted: {cold_accepted}.",
+        f"Development checks complete: {accepted and development}.",
+        f"Coupled SOCKS5 subset accepted: {accepted and coupled and not development}; "
+        "not complete load; each case records its actual route topology.",
         f"Cleanup: {not remaining}. Source unchanged: {unchanged}.",
         "",
         "| Case | Observed result | Expected behavior verified "
@@ -947,8 +1092,9 @@ def _report(root, manifest, results, *, complete, failure=None):
         "Expected INVALID/FAIL_MEMORY calibrations do not become memory PASS results.",
         "Complete CN requires both assets available, the independent reference "
         "and real route witnesses; an unavailable asset remains INVALID.",
-        "Bandwidth is a 10-second facility calibration, "
-        "not the later 300-second VCore gate.",
+        "bandwidth-/capacity- cases are 10-second facility calibrations. "
+        "socks-tcp- cases are coupled VCore/CN/peak subsets, "
+        "not complete SOCKS5 or mobile acceptance.",
         "UDP peer calibration uses one official process with a listener per "
         "flow; it does not accept single-listener or single-flow 1 Gbps.",
         "Physical Provider hosts, device networking and trusted "
@@ -991,17 +1137,80 @@ def run(
     list_only=False,
     preflight_only=False,
     suite=None,
+    udp_pacing_credit=None,
+    peer_cpus=None,
 ):
+    if udp_pacing_credit not in (None, 0, 16) or peer_cpus not in (None, 2, 4, 8):
+        raise ValueError("unsupported explicit peer-capacity experiment")
     if identifiers and suite:
         raise ValueError("choose a suite or specific cases, not both")
     selected = identifiers or (
-        cold.cases() + [cold.DIAGNOSTIC_CASE] if suite == "cold-start" else list(CASES)
+        cold.cases() + [cold.DIAGNOSTIC_CASE]
+        if suite == "cold-start"
+        else list(CAPACITY_CASES)
+        if suite == "peer-capacity"
+        else list(socks_load.SPLIT_CASES)
+        if suite == "socks-tcp-split"
+        else [
+            name
+            for name, spec in socks_load.TCP_CASES.items()
+            if spec["family"] == ("IPv6" if suite == "socks-tcp-v6" else "IPv4")
+        ]
+        if suite in ("socks-tcp-v4", "socks-tcp-v6")
+        else [
+            name
+            for name, spec in (
+                socks_load.DEVELOPMENT_CASES
+                if suite.startswith("socks-smoke-")
+                else socks_load.OVERLAP_CASES
+                if suite.startswith("socks-overlap-")
+                else socks_load.CORRECTNESS_CASES
+                if suite.startswith("socks-correctness-")
+                else socks_load.UDP_CASES
+            ).items()
+            if spec["family"] == ("IPv6" if suite.endswith("v6") else "IPv4")
+        ]
+        if suite
+        in (
+            "socks-smoke-v4",
+            "socks-smoke-v6",
+            "socks-udp-v4",
+            "socks-udp-v6",
+            "socks-overlap-v4",
+            "socks-overlap-v6",
+            "socks-correctness-v4",
+            "socks-correctness-v6",
+        )
+        else list(CASES)
     )
-    known = (*CASES, *cold.cases(), cold.DIAGNOSTIC_CASE)
+    known = (
+        *CASES,
+        *CAPACITY_CASES,
+        *socks_load.CASES,
+        *cold.cases(),
+        cold.DIAGNOSTIC_CASE,
+    )
     if len(set(selected)) != len(selected) or any(
         case not in known for case in selected
     ):
         raise ValueError("unknown or repeated memory case")
+    if any(name in socks_load.CASES for name in selected) and not all(
+        name in socks_load.CASES for name in selected
+    ):
+        raise ValueError(
+            "coupled load requires its dedicated DNS fixture; select it separately"
+        )
+    if (
+        len(
+            {
+                socks_load.CASES[name]["family"]
+                for name in selected
+                if name in socks_load.CASES
+            }
+        )
+        > 1
+    ):
+        raise ValueError("coupled load freezes one DNS address family per run")
     if list_only:
         print("\n".join(selected))
         return
@@ -1042,6 +1251,14 @@ def run(
                     raise ValueError(
                         "memory resume source/preparation identity mismatch"
                     )
+                if (
+                    udp_pacing_credit is not None
+                    and udp_pacing_credit
+                    != manifest.get("udp_pacing_credit_records", 16)
+                    or peer_cpus is not None
+                    and peer_cpus != manifest.get("peer_cpus", 8)
+                ):
+                    raise ValueError("memory resume capacity experiment changed")
                 if (identifiers or suite) and selected != manifest["cases"]:
                     raise ValueError("resume must retain the frozen case selection")
                 selected = manifest["cases"]
@@ -1064,6 +1281,10 @@ def run(
                     "cases": selected,
                     "suite": "cold-start"
                     if any(n.startswith("cold-") for n in selected)
+                    else "peer-capacity"
+                    if any(n in CAPACITY_CASES for n in selected)
+                    else "socks-tcp-selected"
+                    if any(n in socks_load.CASES for n in selected)
                     else "allocation-diagnostic"
                     if cold.DIAGNOSTIC_CASE in selected
                     else "facilities",
@@ -1074,6 +1295,36 @@ def run(
                     "rule_profile": "complete-enhanced-cn",
                     "resource_profile": "standard",
                     "seed": 20260929,
+                    "udp_pacing_credit_records": 16
+                    if udp_pacing_credit is None
+                    else udp_pacing_credit,
+                    "peer_cpus": peer_cpus or 8,
+                    "peer_udp_listeners": max(
+                        [16]
+                        + [
+                            CAPACITY_CASES[name]["flows"]
+                            for name in selected
+                            if name in CAPACITY_CASES
+                            and CAPACITY_CASES[name]["path"] == "mihomo"
+                            and CAPACITY_CASES[name]["transport"] == "udp"
+                        ]
+                        + [
+                            socks_load.CASES[name]["flows"] // 2
+                            for name in selected
+                            if name in socks_load.CASES
+                            and socks_load.CASES[name].get("distributed")
+                        ]
+                    ),
+                    "peer_capacity_workloads": {
+                        name: CAPACITY_CASES[name]
+                        for name in selected
+                        if name in CAPACITY_CASES
+                    },
+                    "socks_load_workloads": {
+                        name: socks_load.CASES[name]
+                        for name in selected
+                        if name in socks_load.CASES
+                    },
                     "sample_interval_ms": 20,
                     "allocator_environment": "system-default; no inherited "
                     "Malloc/DYLD overrides",
@@ -1100,9 +1351,11 @@ def run(
                             "directions": ["up", "down", "both-500Mbps-each"],
                             "topology": "local-container-loop",
                             "mihomo_udp_listeners": 16,
-                            "udp_max_pacing_credit_records": 16,
+                            "udp_max_pacing_credit_records": 16
+                            if udp_pacing_credit is None
+                            else udp_pacing_credit,
                             "origin_cpus": 4,
-                            "mihomo_cpus": 8,
+                            "mihomo_cpus": peer_cpus or 8,
                             "vcore_in_path": False,
                         },
                     },
@@ -1124,6 +1377,7 @@ def run(
                     "full-cn-loader" in selected
                     or cold.DIAGNOSTIC_CASE in selected
                     or any(name.startswith("cold-") for name in selected)
+                    or any(name in socks_load.CASES for name in selected)
                 ):
                     asset_dir = root / "rules" / manifest["rules"]["directory"]
                     reference_dir = root / "cn-reference"
@@ -1131,6 +1385,15 @@ def run(
                         asset_dir, reference_dir
                     )
                     routes = manifest["geodata_reference"]["routes"]
+                    if any(
+                        socks_load.CASES.get(name, {}).get("overlap")
+                        for name in selected
+                    ):
+                        from .memory_events import dns_names
+
+                        manifest["load_dns_names"] = [
+                            item for item in routes if item["kind"] == "site"
+                        ] + dns_names(asset_dir)
                     manifest["workloads"]["full_cn"] = {
                         "entrypoint": "SOCKS5",
                         "rules": "complete-enhanced-cn",
@@ -1166,38 +1429,52 @@ def run(
                         "timing": "external wall time includes "
                         "public ABI IPC or SOCKS5 exchange",
                     }
-                    _command(
-                        [
-                            "cargo",
-                            "test",
-                            "--locked",
-                            "--release",
-                            "--no-default-features",
-                            "--features",
-                            builds.DEFAULT_FEATURES,
-                            "--test",
-                            "geodata_cn",
-                            "--",
-                            "--ignored",
-                            "--nocapture",
-                        ],
-                        root,
-                        "cn-reference",
-                        timeout=1200,
-                        env=os.environ
-                        | {
-                            "VCORE_GEODATA_DIR": str(asset_dir),
-                            "VCORE_GEODATA_REFERENCE": str(reference_dir),
-                        },
-                    )
-                    manifest["geodata_verified"] = json.loads(
-                        (reference_dir / "verified.json").read_text()
-                    )
-                    manifest["geodata_ledger"] = json.loads(
-                        (reference_dir / "ledger.json").read_text()
-                    )
-                    if manifest["geodata_verified"]["status"] != "PASS":
-                        raise RuntimeError("complete CN reference verification failed")
+                    if all(
+                        socks_load.CASES.get(name, {}).get("development")
+                        for name in selected
+                    ):
+                        # These IDs are diagnostic-only. Complete assets and real
+                        # routing still run, but exhaustive semantics belong to
+                        # the unchanged formal matrix, never an implicit smoke.
+                        manifest["geodata_verified"] = {
+                            "status": "NOT RUN",
+                            "scope": "development-smoke; exhaustive reference deferred",
+                        }
+                    else:
+                        _command(
+                            [
+                                "cargo",
+                                "test",
+                                "--locked",
+                                "--release",
+                                "--no-default-features",
+                                "--features",
+                                builds.DEFAULT_FEATURES,
+                                "--test",
+                                "geodata_cn",
+                                "--",
+                                "--ignored",
+                                "--nocapture",
+                            ],
+                            root,
+                            "cn-reference",
+                            timeout=1200,
+                            env=os.environ
+                            | {
+                                "VCORE_GEODATA_DIR": str(asset_dir),
+                                "VCORE_GEODATA_REFERENCE": str(reference_dir),
+                            },
+                        )
+                        manifest["geodata_verified"] = json.loads(
+                            (reference_dir / "verified.json").read_text()
+                        )
+                        manifest["geodata_ledger"] = json.loads(
+                            (reference_dir / "ledger.json").read_text()
+                        )
+                        if manifest["geodata_verified"]["status"] != "PASS":
+                            raise RuntimeError(
+                                "complete CN reference verification failed"
+                            )
                 manifest["peer"] = {}
                 download_mihomo(
                     "linux-arm64",
@@ -1220,7 +1497,7 @@ def run(
                     raise RuntimeError("source changed during memory preparation")
                 manifest["ready"] = True
                 save(root / "manifest.json", manifest)
-            with _peers(root, manifest) as (origin, bandwidth, mihomo):
+            with _peers(root, manifest) as (origin, bandwidth, mihomo, positive):
                 for name in selected:
                     old = store.completed(name)
                     if old is not None and old.get("accepted"):
@@ -1265,8 +1542,26 @@ def run(
                             "accepted": outcome["status"] == expected
                             and outcome["cleanup"],
                         }
-                    elif name.startswith("bandwidth-"):
-                        result = _bandwidth(name, root, work, bandwidth, mihomo)
+                    elif name.startswith(("bandwidth-", "capacity-")):
+                        result = _bandwidth(
+                            name,
+                            root,
+                            work,
+                            bandwidth,
+                            mihomo,
+                            pacing_credit=manifest.get("udp_pacing_credit_records", 16),
+                        )
+                    elif name in socks_load.CASES:
+                        result = socks_load.run_case(
+                            name,
+                            root,
+                            manifest,
+                            work,
+                            origin,
+                            bandwidth,
+                            mihomo,
+                            positive,
+                        )
                     elif name.startswith("cold-") or name == cold.DIAGNOSTIC_CASE:
                         result = cold.run_case(
                             name, root, manifest, work, origin, mihomo
@@ -1276,7 +1571,7 @@ def run(
                     result["peers"] = json.loads((root / "resources.json").read_text())
                     evidence = [
                         path
-                        for path in work.iterdir()
+                        for path in work.rglob("*")
                         if path.is_file()
                         and path.name not in {"state.json", "result.json"}
                     ]
@@ -1305,11 +1600,15 @@ def run(
             accepted = _report(root, manifest, results, complete=True)
             if not accepted:
                 raise RuntimeError(
-                    "memory facility acceptance failed; retain original results"
+                    "memory case acceptance failed; retain original results"
                 )
+            diagnostic = any(
+                socks_load.CASES.get(name, {}).get("development") for name in selected
+            )
             print(
-                f"PASS measurement facilities ({len(selected)} selected cases), "
-                f"not mobile or high-rate VCore acceptance: {root}",
+                f"{'DIAGNOSTIC' if diagnostic else 'PASS'} selected memory cases "
+                f"({len(selected)}); scope is recorded "
+                f"in results.json, not complete load or mobile acceptance: {root}",
                 flush=True,
             )
     except BaseException as error:

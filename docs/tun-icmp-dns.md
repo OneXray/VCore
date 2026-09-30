@@ -76,9 +76,9 @@ dns:
 
 `nameserver-policy` 是有序映射：
 
-- 最多 16 项；
+- 项数与 GeoSite 唯一引用数不设独立上限，仍受整个 YAML 输入大小约束；
 - selector 只接受 `geosite:<code>[,<code>...]`，同一项内为 OR；
-- 同一 code 不能跨项重复；DNS policy 和业务规则合计最多引用 16 个唯一 code；
+- 同一 code 不能跨项重复；DNS policy 和业务规则共享去重后的分类；
 - value 必须是 1–4 个 nameserver；
 - 首项命中后只在该组内顺序故障转移，组内耗尽不查询主组；
 - GeoSite 资产不可用时该 policy 不命中，查询主组。

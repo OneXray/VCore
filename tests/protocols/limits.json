@@ -4,24 +4,6 @@
   "scope": "FOUNDATIONS shared foundations through INTEGRATION integration; per-object bounds, not global admission caps",
   "limits": [
     {
-      "id": "geosite-records",
-      "value": 131072,
-      "unit": "raw-selected-records",
-      "owner": "geodata::MAX_DOMAIN_RECORDS",
-      "saturation": "reject the complete selected GeoSite resource before decoding record 131073; never truncate or deduplicate to bypass the work bound",
-      "cancellation": "failed load drops the candidate; stop releases the registration and snapshot",
-      "boundary_cases": ["FOUNDATIONS-LIMITS"]
-    },
-    {
-      "id": "geodata-allocation",
-      "value": 8388608,
-      "unit": "bytes-per-load",
-      "owner": "geodata::GENERAL_ALLOCATION_BUDGET_BYTES",
-      "saturation": "reject reservations exceeding the shared GeoSite/GeoIP budget including old/new buffer overlap and temporary compiler allowances",
-      "cancellation": "failed load drops the candidate; stop releases the registration and snapshot",
-      "boundary_cases": ["FOUNDATIONS-LIMITS"]
-    },
-    {
       "id": "tuic-fin-grace",
       "value": 5,
       "unit": "seconds",

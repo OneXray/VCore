@@ -56,7 +56,7 @@ protocol_security、protocol_integration；事件标签与报告采用同一套�
   [指纹验证](fingerprints/README.md)分别维护独立基线、内存报文与容器互通。
 - protocols/encryption-crypto.json 及 Go 生成器：独立密码向量；许可证和来源必须保留。
 - protocols/limits.json：实际常量、边界与越界行为；不另建一套产品配置。
-- GeoData 的 core 回归覆盖记录/字节/分配边界、缺失/损坏和原子快照；`geodata_cn`
+- GeoData 的 core 回归覆盖超旧数量/内存/文件额度的完整加载、整数溢出、缺失/损坏和原子快照；`geodata_cn`
   是显式的完整官方资产参考检查，不把其诊断进程内存当成生产宿主峰值。
 
 ## 保留而未自动执行的 fixture
