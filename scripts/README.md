@@ -232,6 +232,11 @@ uv run --project scripts --locked vcore-scripts check memory --resume target/mem
 峰值、最终退出屏障、冻结官方 latest CN/Mihomo、专属容器和可恢复用例。
 1 Gbps 对照驱动使用有界原生生成/校验；对端丢包为设施 INVALID，不冒充核心内存通过。
 输入、结果和恢复记录位于 target/memory；详见[测量范围与负例](../tests/memory/README.md)。
+最终候选入口 `check memory-matrix --list` / `--freeze target/memory/<candidate>`：
+前者列正式矩阵，后者要求已提交源码并只准备/冻结产物；均不启动完整验收。
+后续显式 `--candidate target/memory/<candidate> --run [--group <id>]` 按组执行/恢复，
+或 `--verify` 校验身份、`--report` 汇总证据。正式组共享冻结二进制、完整规则与镜像，
+不重新下载 latest；源码/输入变动必须新候选。外部阻塞与设备/发布签收始终单列。
 `--case full-cn-loader` 先跑独立全量 CN 参考，再由生产宿主验证双资源可用、实际
 DIRECT/代理/REJECT 路由与生命周期峰值。它不证明正式移动 Provider 或 VCore 的 1 Gbps 承载能力。
 `--suite cold-start` 是四种规则配置各五个未插桩冷进程和独立分配诊断，详见上述测量文档。

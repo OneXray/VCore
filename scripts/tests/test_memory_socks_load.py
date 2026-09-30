@@ -4,14 +4,39 @@ import importlib.util
 import io
 import socket
 import struct
+import tempfile
 import unittest
+from pathlib import Path
 
+from vcore_scripts.cli import main
 from vcore_scripts.memory_benchmark import run
 from vcore_scripts.memory_process import FIXTURES
 from vcore_scripts.memory_socks_load import joint_status
 
 
 class SocksLoadTests(unittest.TestCase):
+    def test_final_matrix_exports_formal_cases_and_keeps_external_gates_open(self):
+        import json
+
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "matrix.json"
+            self.assertEqual(
+                main(["check", "memory-matrix", "--export", str(output)]), 0
+            )
+            matrix = json.loads(output.read_text())
+        names = {name for group in matrix["groups"] for name in group["cases"]}
+        self.assertIn("full-cn-loader", names)
+        self.assertIn("profile-tun-vless-chrome-v6-standard-1", names)
+        self.assertIn("lifecycle-socks-lifetimes-v4-full", names)
+        self.assertNotIn("profile-socks-mixed-eight-v4-soak-smoke", names)
+        self.assertFalse(matrix["final_matrix_accepted"])
+        self.assertIn("ios-provider", {g["id"] for g in matrix["external_gates"]})
+        # Every exported group is accepted by the public selector: no mixed
+        # profile/family or incompatible DNS fixture slips into orchestration.
+        with contextlib.redirect_stdout(io.StringIO()):
+            for group in matrix["groups"]:
+                run(identifiers=group["cases"], list_only=True)
+
     def test_online_updates_require_owned_trusted_https_inputs_before_start(self):
         with self.assertRaisesRegex(RuntimeError, "trusted HTTPS"):
             run(identifiers=["profile-socks-socks5-v4-update-geosite-replace"])

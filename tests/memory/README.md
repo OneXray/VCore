@@ -18,6 +18,67 @@ bytes 同轮成立，并覆盖全部适用矩阵与真实移动 Provider。单�
 等字段只表达当轮用例或 suite 的证据范围，不是开发阶段完成开关。不得为提交或继续开发
 手工改成 true；开发完成也不等于最终验收通过。边界见[验收安排](../../docs/acceptance.md)。
 
+## 最终候选与完整矩阵
+
+`check memory-matrix` 汇总正式范围；不带执行参数只列出清单，不启动网络负载。
+当前固定清单为 103 组、2,911 项：设施/容量、冷启动、两入口双栈基础负载、21 个协议
+profile 的冷/热正式负载、SOCKS5 profile 的两资产更新正反例、100 次生命周期与混合长测。
+开发 smoke 不进入矩阵；设施本身必须执行的观测/短负载校准仍保留。
+背景窗口时长下界约 **369.6 小时**，不含取消负例、校准、构建、停机观察、条件长测和平台/设备；
+这是串行工作量而非完成时间承诺，不自动裁剪组合、缩短 300 秒或三次重复来加快验收。
+
+```sh
+# 仅列清单/导出；export 不覆盖已有文件。
+uv run --project scripts --locked vcore-scripts check memory-matrix --list
+uv run --project scripts --locked vcore-scripts check memory-matrix --export /absolute/path/matrix.json
+# 先提交源码；只构建、下载、独立 CN 穷举和冻结，不启动业务或服务端。
+env -u MallocNanoZone uv run --project scripts --locked vcore-scripts check memory-matrix --freeze target/memory/candidate-<id>
+# 有合法更新输入时，在 freeze 命令附加 --update-fixture /absolute/path/fixture.json。
+env -u MallocNanoZone uv run --project scripts --locked vcore-scripts check memory-matrix --candidate target/memory/candidate-<id> --verify
+# 最终阶段显式执行；可以先选独立组。相同命令会复核并续跑未通过/未完成 attempt。
+env -u MallocNanoZone uv run --project scripts --locked vcore-scripts check memory-matrix --candidate target/memory/candidate-<id> --run --group cold-start
+env -u MallocNanoZone uv run --project scripts --locked vcore-scripts check memory-matrix --candidate target/memory/candidate-<id> --run
+env -u MallocNanoZone uv run --project scripts --locked vcore-scripts check memory-matrix --candidate target/memory/candidate-<id> --report
+```
+
+候选必须来自干净已提交的 VCore 和干净本地 boring；身份包含源码、锁文件、依赖提交、
+工具链、生产 feature/Release 构建、库和宿主、外部驱动、完整规则/独立参考、官方最新
+Mihomo/Xray 二进制 hash 与镜像 digest。候选获取时下载 latest，各组**不再次下载或编译**，
+只复制并复核已冻结产物；对端实际版本在容器内执行二进制取得。45 天的自有 pin 证书只
+延长实验有效期，不降低证书检查。过期、任何输入变化、依赖或源码变动均需新候选；
+不能在旧 manifest 中换 hash、更新证书或引用历史 PASS。
+
+`candidate.json` 封存 manifest/matrix hash；分组目录为候选的同级 `<candidate>--<group>`，
+仍全部位于仓库 `target/memory`。组内沿用既有 append-only attempt/证据校验与失败退出码。
+`--report` 从完整且封存的逐项证据汇总，不信任孤立的 PASS 文本；未完成时返回非零。
+选组 `--run` 返回值只表示所选组，不签收整个矩阵。单项失败后可选其他无依赖组继续；
+不可把反复重试获得的一次成功解释为容量稳定，原失败必须进入最终原因分析。
+
+全部协议组正式通过后才选出最重内存/CPU profile：内存按同 PID lifetime peak 最大值；
+CPU 按同等 1 Gbps 轮次的整个 PID CPU 秒/收到的 GiB 最大值，含首次准备/冷/热轮次开销，
+不是纯转发函数成本。随后显式再次执行 `--run`，或选择报告列出的
+`highest-memory-soak-{socks|tun}-{v4|v6}` / `highest-cpu-pressure-{socks|tun}-{v4|v6}`；
+各含 TCP/UDP 两项，分别 1800/300 秒并叠加更新/DNS/建断连。未完成的协议不得从排名中
+剔除。`local_matrix_accepted` 仅涵盖本机这些组；`final_matrix_accepted` 始终为 false，
+设备、交付依赖、必要回归与设施能力还需独立证据审查，工具不会代替该签收。
+
+当前解除条件：
+
+- 单流 UDP 与原单监听器：保留失败，独立定位/校准，不以分散监听、降速或丢包容忍替代。
+- fd-TUN 多流：先定位已有 64 Mbps 驱动容量失败，再验证 1 Gbps；不能推断为核心瓶颈。
+- 在线更新：合法持有的受信任证书/私钥/域名及另一份不同的完整官方快照；缺失时组标为
+  BLOCKED，不能给冻结目录补文件来改身份，应重新冻结。输入就绪不等于生产 HTTPS 已通过。
+- iOS/tvOS：正式 Provider、设备/OS 组合、签名 entitlement、经授权可达的隔离测试网络。
+  host-only 容器及 Simulator 不替代真机，也不擅自配置宿主或设备 VPN/路由。
+- PR/交付：开发期保留本地 boring。准备 PR 时才改回 release 分支同 revision，重新构建、
+  依赖审计及冻结，重跑受影响项；本机候选不是发布来源验收。
+
+最终仓库回归沿用根 AGENTS 的格式、core、全目标编译、Clippy/netstack、脚本和 ABI
+命令，平台构建及容器集成入口见 [scripts](../../scripts/README.md) 与
+[验收边界](../../docs/acceptance.md)。`check tls-dependencies` 是 PR/交付依赖来源门禁，
+本地 boring 开发模式不伪造通过。无稳定 Apple 内核观测环境的 CI 仅做正确性/工具检查；
+不在通用 runner 宣称 50M 或移动 Provider 通过，不自动启用移动限额。
+
 ## 运行入口
 
 ```sh
@@ -282,7 +343,8 @@ Full、Regex 正例及负例、私有 IPv4 转发、CN IPv4/IPv6 REJECT。新 DN
 观察到核心查询。CN IP 拒绝同时核验无上游连接和无 DNS，不向公网 CN 目标转发。
 REJECT 和不发送应用正文的建链见证不计入吞吐。主高速数据面目前仅 IPv4。
 
-`socks5_joint_subset_accepted` 只说明本轮所选联合子集通过，`stage_complete` 仍为 false。
+`coupled_load_subset_accepted` 只说明本轮所选联合子集通过，`stage_complete` 仍为 false。
+旧报告里的 `socks5_joint_subset_accepted` 保留原样；新名称同时覆盖 SOCKS5 和 fd-TUN。
 该旧子集不包含后续新增的单/64 流、速率阶梯、IPv6 高速、全 SOCKS5 出站、UDP 和资源叠加；
 这些不能由本子集推定通过。专属 DNS 夹具不同，
 不得在同一 run 混用该子集与旧设施/冷启动用例。

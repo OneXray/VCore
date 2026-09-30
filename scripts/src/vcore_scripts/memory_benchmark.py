@@ -1108,7 +1108,7 @@ def _report(root, manifest, results, *, complete, failure=None):
         or cold_accepted,
         "cold_start": cold_summary,
         "facility_suite_complete": accepted and whole,
-        "socks5_joint_subset_accepted": accepted and coupled and not development,
+        "coupled_load_subset_accepted": accepted and coupled and not development,
         "development_checks_complete": accepted and development,
         "final_matrix_accepted": False,
         "cn_compatibility_accepted": cn_accepted,
@@ -1123,7 +1123,7 @@ def _report(root, manifest, results, *, complete, failure=None):
         if whole
         else "development-diagnostic-not-acceptance"
         if development
-        else "SOCKS5-coupled-selected-subset"
+        else "coupled-selected-subset"
         if coupled
         else "selected-cases",
     }
@@ -1141,7 +1141,7 @@ def _report(root, manifest, results, *, complete, failure=None):
             if cn_only
             else "socks5-peer-capacity"
             if manifest.get("suite") == "peer-capacity"
-            else "socks5-coupled-tcp-load"
+            else "coupled-load"
             if coupled
             else "isolated-memory-measurement-harness",
             "status": ("DIAGNOSTIC" if development else "PASS")
@@ -1172,7 +1172,7 @@ def _report(root, manifest, results, *, complete, failure=None):
         f"Complete CN compatibility accepted: {cn_accepted}.",
         f"Four-profile cold-start baseline accepted: {cold_accepted}.",
         f"Development checks complete: {accepted and development}.",
-        f"Coupled SOCKS5 subset accepted: {accepted and coupled and not development}; "
+        f"Coupled load subset accepted: {accepted and coupled and not development}; "
         "not complete load; each case records its actual route topology.",
         f"Cleanup: {not remaining}. Source unchanged: {unchanged}.",
         "",
@@ -1229,6 +1229,161 @@ def _report(root, manifest, results, *, complete, failure=None):
     return accepted
 
 
+def _prepare(root, manifest, selected, fixture):
+    from . import memory_updates
+
+    for tool, argv in (
+        ("rustc", ["rustc", "-Vv"]),
+        ("xcode", ["xcodebuild", "-version"]),
+        ("sdk", ["xcrun", "--show-sdk-version"]),
+        ("go", ["go", "version"]),
+    ):
+        manifest["toolchain"][tool] = _command(argv, root, tool)
+    artifacts, library_hash = _build(root / "artifacts")
+    if any(
+        socks_load.CASES.get(name, {}).get("entrypoint") == "fd-TUN"
+        for name in selected
+    ):
+        _command(
+            [
+                "cargo",
+                "build",
+                "--locked",
+                "--release",
+                "--manifest-path",
+                FIXTURES / "tun-driver/Cargo.toml",
+                "--target-dir",
+                builds.CORE_DIR / "target/memory-tun-driver",
+            ],
+            root / "artifacts",
+            "tun-driver-build",
+            timeout=300,
+        )
+        shutil.copy2(
+            builds.CORE_DIR
+            / "target/memory-tun-driver/release/vcore-memory-tun-driver",
+            root / "artifacts/tun-driver",
+        )
+    manifest["library_sha256"] = library_hash
+    manifest["rules"] = acquire_rules(root / "rules")
+    if (
+        "full-cn-loader" in selected
+        or cold.DIAGNOSTIC_CASE in selected
+        or any(name.startswith("cold-") for name in selected)
+        or any(name in socks_load.CASES for name in selected)
+    ):
+        asset_dir = root / "rules" / manifest["rules"]["directory"]
+        reference_dir = root / "cn-reference"
+        manifest["geodata_reference"] = geodata_reference(asset_dir, reference_dir)
+        routes = manifest["geodata_reference"]["routes"]
+        if any(
+            any(
+                socks_load.CASES.get(name, {}).get(key)
+                for key in ("overlap", "events", "lifecycle")
+            )
+            for name in selected
+        ):
+            from .memory_events import dns_names
+
+            manifest["load_dns_names"] = [
+                item for item in routes if item["kind"] == "site"
+            ] + dns_names(asset_dir)
+        manifest["workloads"]["full_cn"] = {
+            "entrypoint": "SOCKS5",
+            "rules": "complete-enhanced-cn",
+            "families": ["IPv4", "IPv6"],
+            "lifecycles_same_process": 2,
+            "reject_witnesses": sum(item["matched"] for item in routes),
+            "forward_witnesses": sum(item["kind"] == "site" for item in routes) + 2,
+            "route_tcp_bytes_each_direction": 256,
+            "post_route_tcp_bytes_each_direction": 1048576,
+            "post_route_udp_packets": 30,
+            "udp_payload_bytes": [64, 512, 1200],
+            "route_oracle": "exact origin peer address and data",
+        }
+        manifest["workloads"]["cold_start"] = {
+            "profiles": cold.PROFILES,
+            "repetitions": cold.REPETITIONS,
+            "idle_seconds": cold.IDLE_SECONDS,
+            "lifecycles_per_pid": 1,
+            "forward_witnesses": [
+                "domain-negative",
+                "ip4-negative",
+                "ip6-negative",
+            ],
+            "bytes_each_direction_per_witness": 256,
+            "reject_witnesses": "all positive routes for enabled assets",
+            "cache": "fresh PID and app directory; OS cache not purged; "
+            "verified/copied inputs",
+            "first_hit": "first CN REJECT or MATCH proxy for no-GeoData profile",
+            "timing": "external wall time includes public ABI IPC or SOCKS5 exchange",
+        }
+        if all(socks_load.CASES.get(name, {}).get("development") for name in selected):
+            # These IDs are diagnostic-only. Complete assets and real
+            # routing still run, but exhaustive semantics belong to
+            # the unchanged formal matrix, never an implicit smoke.
+            manifest["geodata_verified"] = {
+                "status": "NOT RUN",
+                "scope": "development-smoke; exhaustive reference deferred",
+            }
+        else:
+            _command(
+                [
+                    "cargo",
+                    "test",
+                    "--locked",
+                    "--release",
+                    "--no-default-features",
+                    "--features",
+                    builds.DEFAULT_FEATURES,
+                    "--test",
+                    "geodata_cn",
+                    "--",
+                    "--ignored",
+                    "--nocapture",
+                ],
+                root,
+                "cn-reference",
+                timeout=1200,
+                env=os.environ
+                | {
+                    "VCORE_GEODATA_DIR": str(asset_dir),
+                    "VCORE_GEODATA_REFERENCE": str(reference_dir),
+                },
+            )
+            manifest["geodata_verified"] = json.loads(
+                (reference_dir / "verified.json").read_text()
+            )
+            manifest["geodata_ledger"] = json.loads(
+                (reference_dir / "ledger.json").read_text()
+            )
+            if manifest["geodata_verified"]["status"] != "PASS":
+                raise RuntimeError("complete CN reference verification failed")
+    manifest["peer"] = {}
+    download_mihomo(
+        "linux-arm64",
+        directory=root / "artifacts",
+        identity=manifest["peer"],
+    )
+    from . import memory_protocols
+
+    memory_protocols.prepare(root, manifest)
+    if fixture:
+        memory_updates.prepare(root, manifest, fixture)
+    with frozen_image(root / "image-pull.log") as image:
+        manifest["image"] = image
+    manifest["files"] = {
+        file.relative_to(root).as_posix(): sha256(file)
+        for directory in (
+            root / "artifacts",
+            root / "rules",
+            root / "cn-reference",
+        )
+        for file in directory.rglob("*")
+        if file.is_file()
+    }
+
+
 def run(
     *,
     identifiers=None,
@@ -1240,7 +1395,19 @@ def run(
     udp_pacing_credit=None,
     peer_cpus=None,
     update_fixture=None,
+    prepare_only=False,
+    candidate=None,
 ):
+    if prepare_only and (resume or candidate):
+        raise ValueError("prepare-only requires a new independently acquired bundle")
+    if candidate:
+        if update_fixture:
+            raise ValueError(
+                "candidate inputs are immutable; freeze a new update bundle"
+            )
+        candidate = Path(candidate).absolute()
+        if candidate.is_symlink() or candidate.resolve().parent != ROOT.resolve():
+            raise ValueError("candidate must be a direct child of target/memory")
     if udp_pacing_credit not in (None, 0, 16) or peer_cpus not in (None, 2, 4, 8):
         raise ValueError("unsupported explicit peer-capacity experiment")
     if identifiers and suite:
@@ -1323,9 +1490,6 @@ def run(
         > 1
     ):
         raise ValueError("coupled load freezes one DNS address family per run")
-    if list_only:
-        print("\n".join(selected))
-        return
     profiles = {
         socks_load.CASES[name].get("profile")
         for name in selected
@@ -1333,11 +1497,18 @@ def run(
     }
     if len(profiles) > 1:
         raise ValueError("freeze one protocol profile per memory run")
+    if list_only:
+        print("\n".join(selected))
+        return
     from . import memory_updates
 
     fixture = None
-    if not resume and memory_updates.required(
-        {n: socks_load.CASES[n] for n in selected if n in socks_load.CASES}
+    if (
+        not resume
+        and not candidate
+        and memory_updates.required(
+            {n: socks_load.CASES[n] for n in selected if n in socks_load.CASES}
+        )
     ):
         fixture = memory_updates.read_fixture(update_fixture)
     inventory = prerequisites()
@@ -1388,11 +1559,21 @@ def run(
                 if (identifiers or suite) and selected != manifest["cases"]:
                     raise ValueError("resume must retain the frozen case selection")
                 selected = manifest["cases"]
-                for path, digest in manifest["files"].items():
-                    if sha256(root / path) != digest:
-                        raise ValueError(
-                            "memory resume input/artifact identity mismatch"
-                        )
+                from .memory_candidate import read, verify_files
+
+                verify_files(root, manifest)
+                if frozen := manifest.get("candidate"):
+                    if candidate and candidate != Path(frozen["directory"]):
+                        raise ValueError("resume candidate changed")
+                    candidate = Path(frozen["directory"])
+                    read(candidate, manifest["source"])
+                    if (
+                        sha256(candidate / "manifest.json") != frozen["manifest_sha256"]
+                        or sha256(candidate / "matrix.json") != frozen["matrix_sha256"]
+                    ):
+                        raise ValueError("resume candidate manifest changed")
+                elif candidate:
+                    raise ValueError("cannot attach a candidate to an existing run")
                 store = RunStore(root, manifest, resume=True)
                 owned = True
             else:
@@ -1409,7 +1590,7 @@ def run(
                     if any(n.startswith("cold-") for n in selected)
                     else "peer-capacity"
                     if any(n in CAPACITY_CASES for n in selected)
-                    else "socks-tcp-selected"
+                    else "coupled-selected"
                     if any(n in socks_load.CASES for n in selected)
                     else "allocation-diagnostic"
                     if cold.DIAGNOSTIC_CASE in selected
@@ -1489,172 +1670,18 @@ def run(
                 store = RunStore(root, manifest)
                 owned = True
                 print(f"Memory run: {root}", flush=True)
-                for tool, argv in (
-                    ("rustc", ["rustc", "-Vv"]),
-                    ("xcode", ["xcodebuild", "-version"]),
-                    ("sdk", ["xcrun", "--show-sdk-version"]),
-                    ("go", ["go", "version"]),
-                ):
-                    manifest["toolchain"][tool] = _command(argv, root, tool)
-                artifacts, library_hash = _build(root / "artifacts")
-                if any(
-                    socks_load.CASES.get(name, {}).get("entrypoint") == "fd-TUN"
-                    for name in selected
-                ):
-                    _command(
-                        [
-                            "cargo",
-                            "build",
-                            "--locked",
-                            "--release",
-                            "--manifest-path",
-                            FIXTURES / "tun-driver/Cargo.toml",
-                            "--target-dir",
-                            builds.CORE_DIR / "target/memory-tun-driver",
-                        ],
-                        root / "artifacts",
-                        "tun-driver-build",
-                        timeout=300,
-                    )
-                    shutil.copy2(
-                        builds.CORE_DIR
-                        / "target/memory-tun-driver/release/vcore-memory-tun-driver",
-                        root / "artifacts/tun-driver",
-                    )
-                manifest["library_sha256"] = library_hash
-                manifest["rules"] = acquire_rules(root / "rules")
-                if (
-                    "full-cn-loader" in selected
-                    or cold.DIAGNOSTIC_CASE in selected
-                    or any(name.startswith("cold-") for name in selected)
-                    or any(name in socks_load.CASES for name in selected)
-                ):
-                    asset_dir = root / "rules" / manifest["rules"]["directory"]
-                    reference_dir = root / "cn-reference"
-                    manifest["geodata_reference"] = geodata_reference(
-                        asset_dir, reference_dir
-                    )
-                    routes = manifest["geodata_reference"]["routes"]
-                    if any(
-                        any(
-                            socks_load.CASES.get(name, {}).get(key)
-                            for key in ("overlap", "events", "lifecycle")
-                        )
-                        for name in selected
-                    ):
-                        from .memory_events import dns_names
+                if candidate:
+                    from .memory_candidate import restore
 
-                        manifest["load_dns_names"] = [
-                            item for item in routes if item["kind"] == "site"
-                        ] + dns_names(asset_dir)
-                    manifest["workloads"]["full_cn"] = {
-                        "entrypoint": "SOCKS5",
-                        "rules": "complete-enhanced-cn",
-                        "families": ["IPv4", "IPv6"],
-                        "lifecycles_same_process": 2,
-                        "reject_witnesses": sum(item["matched"] for item in routes),
-                        "forward_witnesses": sum(
-                            item["kind"] == "site" for item in routes
-                        )
-                        + 2,
-                        "route_tcp_bytes_each_direction": 256,
-                        "post_route_tcp_bytes_each_direction": 1048576,
-                        "post_route_udp_packets": 30,
-                        "udp_payload_bytes": [64, 512, 1200],
-                        "route_oracle": "exact origin peer address and data",
-                    }
-                    manifest["workloads"]["cold_start"] = {
-                        "profiles": cold.PROFILES,
-                        "repetitions": cold.REPETITIONS,
-                        "idle_seconds": cold.IDLE_SECONDS,
-                        "lifecycles_per_pid": 1,
-                        "forward_witnesses": [
-                            "domain-negative",
-                            "ip4-negative",
-                            "ip6-negative",
-                        ],
-                        "bytes_each_direction_per_witness": 256,
-                        "reject_witnesses": "all positive routes for enabled assets",
-                        "cache": "fresh PID and app directory; OS cache not purged; "
-                        "verified/copied inputs",
-                        "first_hit": "first CN REJECT or MATCH proxy "
-                        "for no-GeoData profile",
-                        "timing": "external wall time includes "
-                        "public ABI IPC or SOCKS5 exchange",
-                    }
-                    if all(
-                        socks_load.CASES.get(name, {}).get("development")
-                        for name in selected
-                    ):
-                        # These IDs are diagnostic-only. Complete assets and real
-                        # routing still run, but exhaustive semantics belong to
-                        # the unchanged formal matrix, never an implicit smoke.
-                        manifest["geodata_verified"] = {
-                            "status": "NOT RUN",
-                            "scope": "development-smoke; exhaustive reference deferred",
-                        }
-                    else:
-                        _command(
-                            [
-                                "cargo",
-                                "test",
-                                "--locked",
-                                "--release",
-                                "--no-default-features",
-                                "--features",
-                                builds.DEFAULT_FEATURES,
-                                "--test",
-                                "geodata_cn",
-                                "--",
-                                "--ignored",
-                                "--nocapture",
-                            ],
-                            root,
-                            "cn-reference",
-                            timeout=1200,
-                            env=os.environ
-                            | {
-                                "VCORE_GEODATA_DIR": str(asset_dir),
-                                "VCORE_GEODATA_REFERENCE": str(reference_dir),
-                            },
-                        )
-                        manifest["geodata_verified"] = json.loads(
-                            (reference_dir / "verified.json").read_text()
-                        )
-                        manifest["geodata_ledger"] = json.loads(
-                            (reference_dir / "ledger.json").read_text()
-                        )
-                        if manifest["geodata_verified"]["status"] != "PASS":
-                            raise RuntimeError(
-                                "complete CN reference verification failed"
-                            )
-                manifest["peer"] = {}
-                download_mihomo(
-                    "linux-arm64",
-                    directory=root / "artifacts",
-                    identity=manifest["peer"],
-                )
-                from . import memory_protocols
-
-                memory_protocols.prepare(root, manifest)
-                if fixture:
-                    memory_updates.prepare(root, manifest, fixture)
-                with frozen_image(root / "image-pull.log") as image:
-                    manifest["image"] = image
-                manifest["files"] = {
-                    file.relative_to(root).as_posix(): sha256(file)
-                    for directory in (
-                        root / "artifacts",
-                        root / "rules",
-                        root / "cn-reference",
-                    )
-                    for file in directory.rglob("*")
-                    if file.is_file()
-                }
+                    restore(candidate, root, manifest)
+                else:
+                    _prepare(root, manifest, selected, fixture)
                 if manifest["source"] != _source():
                     raise RuntimeError("source changed during memory preparation")
                 manifest["ready"] = True
                 save(root / "manifest.json", manifest)
+            if prepare_only:
+                return root
             with _peers(root, manifest) as (
                 origin,
                 bandwidth,
@@ -1781,5 +1808,16 @@ def run(
         raise
     finally:
         signal.signal(signal.SIGTERM, previous_signal)
-        if owned:
+        if owned and prepare_only:
+            save(
+                root / "preparation.json",
+                {
+                    "status": "READY_NOT_ACCEPTED"
+                    if manifest.get("ready") and not failure
+                    else "INVALID",
+                    "final_matrix_accepted": False,
+                    "failure": failure,
+                },
+            )
+        elif owned:
             _report(root, manifest, results, complete=finished, failure=failure)

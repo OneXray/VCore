@@ -17,6 +17,9 @@ TCP/UDP、协议组合、DNS/建断连/背压、更新/生命周期/长测，以
 历史结果及产物字段不改写，不拼接不同候选的 PASS；改动后的受影响矩阵必须重验。
 本安排不免除已发现的正确性、安全、取消或资源回收错误，也不改变其他协议/平台发布
 门槛。运行范围和证据字段见[内存设施](../tests/memory/README.md)。
+`check memory-matrix` 提供清单、冻结和按组恢复。FROZEN_NOT_ACCEPTED 只表示候选
+准备完成；即使 `local_matrix_accepted` 成立，也不能代替正式 iOS/tvOS Provider、
+平台/共享回归、外部容量和交付依赖来源审查。当前保持 standard，不新增业务数量配额。
 
 ## 必须保留的验证
 

@@ -8,7 +8,7 @@ from pathlib import Path
 from .protocol_peers import run_command
 
 
-def certificates(directory: Path):
+def certificates(directory: Path, *, days=2):
     cert, key = directory / "cert.pem", directory / "key.pem"
     generated = run_command(
         [
@@ -19,7 +19,7 @@ def certificates(directory: Path):
             "rsa:2048",
             "-nodes",
             "-days",
-            "2",
+            str(days),
             "-subj",
             "/CN=localhost",
             "-addext",

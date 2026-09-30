@@ -116,6 +116,22 @@ def _parser() -> argparse.ArgumentParser:
     memory.add_argument("--udp-pacing-credit", type=int, choices=(0, 16))
     memory.add_argument("--peer-cpus", type=int, choices=(2, 4, 8))
     memory.add_argument("--update-fixture", type=Path)
+    memory.add_argument("--prepare-only", action="store_true")
+    memory.add_argument("--candidate", type=Path)
+    matrix = checks.add_parser(
+        "memory-matrix",
+        help="freeze/list the final memory matrix; never imply mobile acceptance",
+    )
+    action = matrix.add_mutually_exclusive_group()
+    action.add_argument("--export", type=Path)
+    action.add_argument("--list", dest="list_only", action="store_true")
+    action.add_argument("--freeze", type=Path)
+    action.add_argument("--run", dest="execute", action="store_true")
+    action.add_argument("--report", dest="report_only", action="store_true")
+    action.add_argument("--verify", dest="verify_only", action="store_true")
+    matrix.add_argument("--candidate", type=Path)
+    matrix.add_argument("--group", dest="groups", action="append")
+    matrix.add_argument("--update-fixture", type=Path)
     reality = checks.add_parser(
         "reality-hybrid",
         help="verify isolated hybrid REALITY, not the complete security suite",
@@ -239,6 +255,20 @@ def main(argv: Sequence[str] | None = None) -> int:
                 from .apple_runtime import run
 
                 run(args.platform, args.manifest)
+            elif args.check == "memory-matrix":
+                from .memory_matrix import run
+
+                return run(
+                    export=args.export,
+                    list_only=args.list_only,
+                    freeze=args.freeze,
+                    candidate=args.candidate,
+                    execute=args.execute,
+                    report_only=args.report_only,
+                    verify_only=args.verify_only,
+                    groups=args.groups,
+                    update_fixture=args.update_fixture,
+                )
             elif args.check == "memory":
                 from .memory_benchmark import run
 
@@ -252,6 +282,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     udp_pacing_credit=args.udp_pacing_credit,
                     peer_cpus=args.peer_cpus,
                     update_fixture=args.update_fixture,
+                    prepare_only=args.prepare_only,
+                    candidate=args.candidate,
                 )
             elif args.check == "xhttp-peers":
                 from .protocol_xhttp_peers import main as xhttp_peers

@@ -116,7 +116,8 @@ def prepare(root, manifest):
     profile = profiles.pop()
     directory = root / "artifacts/peer-tls"
     directory.mkdir()
-    _, _, pin = certificates(directory)
+    # The full matrix can span days; all groups retain this exact pinned leaf.
+    _, _, pin = certificates(directory, days=45)
     manifest["protocol_profile"] = {
         "name": profile,
         "description": PROFILES[profile],
