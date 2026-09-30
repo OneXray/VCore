@@ -116,6 +116,15 @@ def _env(name: str, default: str | os.PathLike[str]) -> str:
     return os.environ.get(name) or os.fspath(default)
 
 
+def _cargo_target_dir(env: dict[str, str] | None = None) -> Path:
+    """Resolve the output used by Cargo commands executed in this checkout."""
+    value = (os.environ if env is None else env).get("CARGO_TARGET_DIR")
+    if not value:
+        return CORE_DIR / "target"
+    directory = Path(value)
+    return directory if directory.is_absolute() else CORE_DIR / directory
+
+
 def _run(
     command: list[str | os.PathLike[str]], *, env: dict[str, str] | None = None
 ) -> None:
@@ -317,7 +326,7 @@ def build_android() -> None:
             "VCORE_CMAKE_ANDROID_API": android_api,
         }
         _cargo_build(target, profile_flags, features, env)
-        artifact = CORE_DIR / "target" / target / profile_name / "libvcore.so"
+        artifact = _cargo_target_dir(env) / target / profile_name / "libvcore.so"
         _require_identity(artifact, "Android")
         destination = output / abi / "libvcore.so"
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -333,7 +342,7 @@ def build_apple() -> None:
     if platform.system() != "Darwin":
         raise RuntimeError("Apple artifacts must be built on macOS")
     dist = Path(_env("VCORE_APPLE_DIST_DIR", CORE_DIR / "dist" / "apple")).resolve()
-    work = CORE_DIR / "target" / "vcore-apple"
+    work = _cargo_target_dir() / "vcore-apple"
     profile_name, profile_flags = _profile()
     features = _env("VCORE_FEATURES", DEFAULT_FEATURES)
     targets = [
@@ -369,7 +378,7 @@ def build_apple() -> None:
     for target in targets:
         _cargo_build(target, profile_flags, features, env)
     artifacts = {
-        target: CORE_DIR / "target" / target / profile_name / "libvcore.a"
+        target: _cargo_target_dir(env) / target / profile_name / "libvcore.a"
         for target in targets
     }
     for artifact in artifacts.values():
@@ -576,7 +585,7 @@ def build_windows() -> None:
     ]
     _run([*base, "--lib", "--bins"], env=env)
 
-    release = CORE_DIR / "target" / target / "release"
+    release = _cargo_target_dir(env) / target / "release"
     artifacts = [
         "vcore.dll",
         "vcore-windows-vpn-host.exe",

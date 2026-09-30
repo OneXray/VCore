@@ -35,117 +35,6 @@ cargo clippy --locked --manifest-path crates/vcore-netstack/Cargo.toml --all-tar
 C header 检查只编译 C/C++；TLS 检查审查 resolved graph、provider、来源及批准 revision，
 不是网络互通。边界见 [TLS 依赖](../docs/tls-dependencies.md)。
 
-## 容器互通
-
-```sh
-uv run --project scripts --locked vcore-scripts check protocol-interop --suite integration --list
-uv run --project scripts --locked vcore-scripts check protocol-interop --suite integration --preflight
-uv run --project scripts --locked vcore-scripts check protocol-interop --suite integration
-uv run --project scripts --locked vcore-scripts check protocol-coverage --suite integration --run-dir target/interop/runs/<run-id>
-uv run --project scripts --locked vcore-scripts check protocol-coverage --catalog-only
-```
-
-可执行容器 suite：vmess、vless、xhttp、hysteria2、security、integration、shadowtls、uot、tuic、httpupgrade。
-`--case` 可重复、`--protocol` 可筛选；子集只证明实际执行的项目，不能签收整套。
-foundations/trojan 保留基础用例和断言，其旧服务端编排尚未全容器化，不能执行；
-需要 Trojan 互通时用 integration 中的真实容器路径。
-
-文件、用例、事件与报告按协议或验证用途命名，例如 INTEGRATION-PAIR-SS-SS、
-SECURITY-ECH-CHROME；不再提供阶段编号或 --stage 别名。旧报告保持原样，使用
-其记录的 Git revision 复核，不重写旧证据，也不将旧名称解释为新运行结果。
-
-执行清单从 Python 的协议定义生成；不再提交重复 cases.json 或规划字段/组合表。
-`--catalog-only` 只检查可执行清单与上限引用，输出 VALID / NOT RUN，不冒充通过。
-`limits.json` 仍与 Rust 常量和边界断言校验。原始事件、命令/退出码、源/锁文件、
-对端身份、artifact hash、资源与清理证据独立复核；缺失/重复/部分结果不能 PASS。
-
-每轮新建 target/interop/runs 子目录；不得运行中修改源码。合成凭据/私有日志放临时
-目录并清理，不进入报告。Stop 时和后续静默窗口分别采样；短 tracer 不代替完整长测。
-容器不可用即 BLOCKED，不能退回宿主。完整规则见[测试隔离](../docs/testing-isolation.md)。
-
-shadowtls 包含配置/feature、真实 TLS 内存负例、三算法与五种握手模式、ALPN/HRR、
-记录故障、Stop/测速期限和原生 UDP 分流；主对端为 Mihomo，官方 ShadowTLS +
-原样 ssserver 另作 TCP 对照。裸 SS、共享 TLS/REALITY/JLS、独立指纹 golden 与
-Apple/Android 编译是同轮必需组；不签收 UoT、实机或旧 SS 空首包风险。
-
-uot 验证 SS v2 三算法 × 裸流/v3 的六组合，分别经直连、TCP-only SOCKS5 和
-嵌套 select；覆盖零包、三地址族、交替原站、16 KiB Mihomo 边界/超限和零原生 UDP
-旁路。错误密钥/v3 身份及原样 ssserver 不支持是独立负例。内存检查另验 u16 上限、
-预算、首包门控、DNS、取消与 Stop；AnyTLS、裸 SS、精简 feature 和 Apple/Android
-是同轮必需回归。使用 protocol-interop / check protocol-coverage 的 `--suite uot`。
-
-tuic 覆盖 v5 的双向 TCP、native/quic UDP、三种官方拥塞算法、认证/TLS 负例和
-SOCKS5/SS UoT/AnyTLS 六种上游组合。服务端与上游分容器，避免触发 Mihomo 的
-同进程回环检测；不关闭对端检测或修改其源码。会话重用/重建、嵌套组、node-only 测速、
-回滚与 Stop 独立取证；本轮包含 HY2/H3 共享回归及 Apple/Android 构建。
-内存 u16 上限不当成对端端到端容量，旧七协议压力结果不替代 TUIC 混合压力。
-
-httpupgrade 覆盖 VMess 明文/TLS、Trojan TLS × 普通/fast-open 六种模式；
-包含双向数据、既有 UDP 编码、ED、身份负例、四个命名 TLS 模板及 Mihomo 关闭对照。
-域名 Trojan UDP 用原生 Xray 补验；VMess 与 Xray 的空包限制分别记录，不把超限
-回复截断计为成功。共享配置/内存握手、VLESS Upgrade/WS、其他 VMess/Trojan
-传输、精简 feature 和 Apple/Android 构建均为同轮必需组。
-使用 `protocol-interop` / `protocol-coverage` 的 `--suite httpupgrade`。
-
-integration 保留 64 个八协议有序配对，另加 TUIC 双模式 → SS v3 三算法六条链，
-复跑 UoT 的 TCP-only 上游/嵌套组及 TUIC 上游消费者。公开入站/TUN、DNS/测速、
-回滚和 100 次生命周期与 100 轮 40-flow 重建、1800 秒混合长测属于同一完整门禁。
-TCP 为 SOCKS5/SS v3/TUIC/HTTPUpgrade 各五条，UDP 为 SS UoT/SS UoT+v3/
-TUIC/HTTPUpgrade 各五条，轮换算法与模式；独立核对逐轮实际配置、资源和静默证据。
-Debug/Release、精简 feature、脚本、netstack、HY2 跳端口和共享安全/传输回归同源重跑。
-integration 可在获准的本地 boring 开发态执行，不替代 release 来源审计；PR/交付候选
-仍须切回 release 分支，在干净 checkout 单独通过 `check tls-dependencies` 并重跑集成。
-SS TCP 数据用客户端预先提交的非空首段验证；SS 叶节点的配对记录明确包含
-`server_first:false` 和上游空首包限制，其他叶节点仍须 server-first。此范围调整不
-减小双向数据量、不移除确定性空首包拒绝回归，也不通过重试取得成功。
-
-### 新协议对端能力预检
-
-```sh
-uv run --project scripts --locked vcore-scripts check protocol-peers --run-dir target/interop/runs/<fresh-run>
-```
-
-独立的原站/cover、Mihomo 服务端与 Mihomo 对照客户端都在容器中。当前检查 SS2022
-三算法的 v3/原生 UDP、裸流及 v3 上的 UoT v2、TUIC v5 双 UDP 模式、六种
-VMess/Trojan HTTPUpgrade 承载和 SOCKS5 上游；UoT 对照显式选择 v2，关闭服务端原生 UDP。
-`--case` 可选单项，语义 ID 由 `protocol_completion_peers.py` 生成。
-每项必须实际完成 TCP 回传与原站观测的 UDP 请求/回复；记录来源、官方版本/hash、
-原始观测及清理。该工具只证明对端能力，**VCore 新协议行为始终记 NOT RUN**，
-不更新生产配置、不代替协议 suite、负例/边界、压力或发布验收。
-
-### 对端下载
-
-```sh
-uv run --project scripts --locked vcore-scripts download mihomo
-uv run --project scripts --locked vcore-scripts download mihomo --target linux-arm64
-```
-
-使用官方 latest 下载链接；Mihomo 从 latest/download/version.txt 取得资产名所需版本，
-再通过二进制 -v 确认实际版本。不查 API、不固定旧版、不本地编译或静默复用旧缓存。
-同轮对端使用同一 release；下载/解压大小与超时有界，失败终止。产物在 target/interop，
-版本、URL、压缩包/二进制 SHA-256 和容器镜像 digest 随结果记录；本地摘要不是官方签名。
-
-所有协议端、原站、DNS、提供入口的对照客户端在本轮独占容器中；仅清理本轮所有者，
-不全局 stop/prune。默认 Mihomo，明确缺口由官方 Xray/V2Ray/Hysteria/ssserver 补验。
-唯一源码构建例外是获准的 xcaddy/Caddy H3/mTLS 网关，仍导入容器、不修改第三方。
-
-### 定向安全验证
-
-```sh
-uv run --project scripts --locked python -m vcore_scripts.protocol_fingerprint_shape target/interop/runs/<fresh-run>
-uv run --project scripts --locked python -m vcore_scripts.protocol_fingerprint target/interop/runs/<fresh-run> --client-fingerprint chrome
-uv run --project scripts --locked python -m vcore_scripts.protocol_fingerprint_reference --list
-uv run --project scripts --locked python -m vcore_scripts.protocol_fingerprint_reference --run-dir target/interop/runs/<fresh-run>
-uv run --project scripts --locked python -m vcore_scripts.protocol_fingerprint_reference --check-run target/interop/runs/<reference-run>
-uv run --project scripts --locked python -m vcore_scripts.protocol_jls target/interop/runs/<fresh-run>
-uv run --project scripts --locked python -m vcore_scripts.protocol_encryption target/interop/runs/<fresh-run>
-uv run --project scripts --locked vcore-scripts check reality-hybrid --run-dir target/interop/runs/<fresh-run>
-```
-
-指纹验证的 reference、wire、interop 三层证据及 golden 比对规则见
-[指纹验证](../tests/fingerprints/README.md)。模板、主/下载身份、恢复/过期与容器数据面
-各有独立断言；不从别名、另一个模板或 fork 接口探针推导通过。更多参数读对应 --help。
-
 ## 平台构建与产物
 
 ```sh
@@ -176,6 +65,10 @@ VCORE_MACOS_DEPLOYMENT_TARGET、VCORE_ANDROID_NDK_VERSION、
 VCORE_ANDROID_API、VCORE_ANDROID_TARGETS、VCORE_ANDROID_OUTPUT_DIR。默认值查看 builds.py；
 交付禁用隐藏覆盖、测试 feature、非 Release profile，标准 feature 集合显式包含所有支持协议。
 
+所有平台构建尊重 Cargo 的 `CARGO_TARGET_DIR`，默认仍为本 checkout 的 `target`；
+相对路径按 Cargo 执行的 VCore 根目录解析。库查找和 Apple 中间归档使用同一个目标目录。
+它只改变构建缓存/中间产物位置，Apple/Android 的交付输出仍由各自的 output/dist 参数控制。
+
 --delivery 绑定 commit/tree、lockfile、API/schema、features、toolchain/SDK/NDK、架构及
 全部文件大小/hash；本地 boring 开发态还要求 fork 干净并记录其 commit/tree，仍不能
 替代 PR/发布前切回 Git release 的依赖审计。所有平台在清旧记录或构建前拒绝输出路径及其仓库内祖先目录的
@@ -188,59 +81,23 @@ platform-abi 在原生 macOS/Windows 链接/加载并执行 C ABI；Apple 额外
 真机与模拟器 C 消费者（不在该命令中运行），Windows 另验 snapshot/未打包失败关闭。
 它不创建业务运行时，不证明设备 VPN 或正式安装。
 
-Apple Silicon 上安装对应 Simulator runtime、启动 Apple Container，并准备既有
-vcore-mihomo-interop host-only 网络后，显式运行原生消费者：
+## 独立容器 benchmark
+
+容器协议互通、官方对端下载、Apple 模拟器网络消费者及内存/吞吐实验，
+统一由独立的 container-benchmark 工程负责。该工程通过 `--vcore` 显式指定
+被测 checkout；VCore 构建、core 检查和 CI 不查找相邻目录，也不要求该工程存在。
 
 ```sh
-uv run --project scripts --locked vcore-scripts check apple-runtime --platform tvos
-uv run --project scripts --locked vcore-scripts check apple-runtime --platform ios
-# 干净候选额外绑定 --delivery 的产物与源码身份：
-uv run --project scripts --locked vcore-scripts check apple-runtime --platform tvos --manifest dist/apple/vcore-delivery.json
+uv run --project /path/to/container-benchmark --locked container-benchmark --vcore /path/to/VCore check protocol-interop --suite integration --list
+uv run --project /path/to/container-benchmark --locked container-benchmark --vcore /path/to/VCore check memory --list
+uv run --project /path/to/container-benchmark --locked container-benchmark --vcore /path/to/VCore check apple-runtime --platform tvos
 ```
 
-该命令链接生产库，通过公共 ABI 检查三轮 local/TUN 生命周期、SOCKS5 TCP/UDP、
-合成 utun TCP/UDP、错误 framing/fd、Stop/Destroy、借用 fd 和日志/内存 API。IPv4
-原站在专用容器中；仅启动临时专用模拟器，退出或失败时清理自有资源，不修改宿主 VPN。
-结果保存在 target/platform-delivery/runtime；未传 manifest 的运行仅为开发烟测。
-它不是物理 Packet Tunnel、IPv6 完整协议矩阵、CN 内存峰值或 1 Gbps 带宽验收。
-
-## 独立进程内存设施
-
-内存专项各开发阶段只做相关编译、必要回归、短烟测与定位；完整内存/吞吐矩阵和长测
-统一留到最终候选验收，不是每个开发阶段的提交门禁。以下命令保持正式用例的时长、
-重复次数和阈值，选例不自动变成短烟测；开发完成、子集结果与最终通过分开记录。
-
-```sh
-uv run --project scripts --locked vcore-scripts check memory --list
-uv run --project scripts --locked vcore-scripts check memory --preflight
-uv run --project scripts --locked vcore-scripts check memory
-uv run --project scripts --locked vcore-scripts check memory --suite cold-start
-uv run --project scripts --locked vcore-scripts check memory --suite peer-capacity --list
-# 所选联合子集，不代表完整负载或移动平台通过：
-uv run --project scripts --locked vcore-scripts check memory --suite socks-tcp-split
-uv run --project scripts --locked vcore-scripts check memory --suite socks-tcp-v4 --list
-uv run --project scripts --locked vcore-scripts check memory --suite socks-tcp-v6 --list
-uv run --project scripts --locked vcore-scripts check memory --suite socks-udp-v6 --list
-uv run --project scripts --locked vcore-scripts check memory --suite socks-correctness-v6 --list
-uv run --project scripts --locked vcore-scripts check memory --suite socks-overlap-v6 --list
-# 独立短烟测，结果只作 DIAGNOSTIC；另有相同范围的 v6 集合：
-uv run --project scripts --locked vcore-scripts check memory --suite socks-smoke-v4
-uv run --project scripts --locked vcore-scripts check memory --resume target/memory/<run-id>
-```
-
-原生 macOS Release/生产 feature ABI 宿主，外部约 20 ms 采样与内核 lifetime footprint
-峰值、最终退出屏障、冻结官方 latest CN/Mihomo、专属容器和可恢复用例。
-1 Gbps 对照驱动使用有界原生生成/校验；对端丢包为设施 INVALID，不冒充核心内存通过。
-输入、结果和恢复记录位于 target/memory；详见[测量范围与负例](../tests/memory/README.md)。
-最终候选入口 `check memory-matrix --list` / `--freeze target/memory/<candidate>`：
-前者列正式矩阵，后者要求已提交源码并只准备/冻结产物；均不启动完整验收。
-后续显式 `--candidate target/memory/<candidate> --run [--group <id>]` 按组执行/恢复，
-或 `--verify` 校验身份、`--report` 汇总证据。正式组共享冻结二进制、完整规则与镜像，
-不重新下载 latest；源码/输入变动必须新候选。外部阻塞与设备/发布签收始终单列。
-`--case full-cn-loader` 先跑独立全量 CN 参考，再由生产宿主验证双资源可用、实际
-DIRECT/代理/REJECT 路由与生命周期峰值。它不证明正式移动 Provider 或 VCore 的 1 Gbps 承载能力。
-`--suite cold-start` 是四种规则配置各五个未插桩冷进程和独立分配诊断，详见上述测量文档。
-环境中不得继承 `Malloc*` / `DYLD_*` 覆盖项；例如用 `env -u MallocNanoZone` 显式移除。
+benchmark 的用例、输入和运行约束由其 README 维护。所有协议端、原站、DNS 和
+提供入口的对照客户端遵守[测试隔离](../docs/testing-isolation.md)，不能退回宿主服务端。
+内存专项仅使用 fd-TUN 入站，SOCKS5 出站与独立对端容量校准保留。
+每次测试结束后清理生成的构建、下载、规则、镜像、日志及原始流量证据，仅保留
+脱敏文字结论；需要复验时重新准备输入并执行。生产构建交付产物独立管理。
 
 ## CI 与证据
 

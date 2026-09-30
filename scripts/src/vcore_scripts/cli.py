@@ -8,10 +8,6 @@ from pathlib import Path
 
 from .builds import build_android, build_apple, build_windows
 from .checks import check_c_header, check_tls_dependencies
-from .mihomo_release import SUPPORTED_TARGETS, download_mihomo
-from .protocol_catalogs import CATALOG_DIR, SUITES, check_protocol_catalogs
-from .protocol_evidence import check_run
-from .protocol_harness import run_protocol_interop
 from .tun2socks import run_demo
 
 
@@ -36,13 +32,6 @@ def _parser() -> argparse.ArgumentParser:
             help="record production artifact identity",
         )
 
-    download = commands.add_parser("download", help="download official test peers")
-    downloads = download.add_subparsers(dest="download", required=True)
-    peer = downloads.add_parser("mihomo", help="download the latest stable mihomo")
-    peer.add_argument(
-        "--target", choices=SUPPORTED_TARGETS, help="default: host platform"
-    )
-
     check = commands.add_parser("check", help="run repository checks")
     checks = check.add_subparsers(dest="check", required=True)
     core = checks.add_parser(
@@ -66,149 +55,8 @@ def _parser() -> argparse.ArgumentParser:
     )
     abi = checks.add_parser("platform-abi", help="link/load native production artifact")
     abi.add_argument("--manifest", type=Path, required=True)
-    apple = checks.add_parser(
-        "apple-runtime", help="run native Apple simulator with isolated origins"
-    )
-    apple.add_argument("--platform", choices=("tvos", "ios"), default="tvos")
-    apple.add_argument(
-        "--manifest", type=Path, help="validate a clean production artifact identity"
-    )
-    memory = checks.add_parser(
-        "memory",
-        help="calibrate isolated whole-process measurement, not mobile acceptance",
-    )
-    memory.add_argument("--case", dest="identifiers", action="append")
-    memory.add_argument(
-        "--suite",
-        choices=(
-            "facilities",
-            "cold-start",
-            "peer-capacity",
-            "socks-tcp-split",
-            "socks-tcp-v4",
-            "socks-tcp-v6",
-            "socks-udp-v4",
-            "socks-udp-v6",
-            "socks-smoke-v4",
-            "socks-smoke-v6",
-            "socks-overlap-v4",
-            "socks-overlap-v6",
-            "socks-correctness-v4",
-            "socks-correctness-v6",
-            "tun-smoke-v4",
-            "tun-smoke-v6",
-            "tun-functional-v4",
-            "tun-functional-v6",
-            "tun-tcp-v4",
-            "tun-tcp-v6",
-            "tun-udp-v4",
-            "tun-udp-v6",
-            "tun-overlap-v4",
-            "tun-overlap-v6",
-            "tun-correctness-v4",
-            "tun-correctness-v6",
-        ),
-    )
-    memory.add_argument("--run-dir", type=Path)
-    memory.add_argument("--resume", type=Path)
-    memory.add_argument("--list", dest="list_only", action="store_true")
-    memory.add_argument("--preflight", dest="preflight_only", action="store_true")
-    memory.add_argument("--udp-pacing-credit", type=int, choices=(0, 16))
-    memory.add_argument("--peer-cpus", type=int, choices=(2, 4, 8))
-    memory.add_argument("--update-fixture", type=Path)
-    memory.add_argument("--prepare-only", action="store_true")
-    memory.add_argument("--candidate", type=Path)
-    matrix = checks.add_parser(
-        "memory-matrix",
-        help="freeze/list the final memory matrix; never imply mobile acceptance",
-    )
-    action = matrix.add_mutually_exclusive_group()
-    action.add_argument("--export", type=Path)
-    action.add_argument("--list", dest="list_only", action="store_true")
-    action.add_argument("--freeze", type=Path)
-    action.add_argument("--run", dest="execute", action="store_true")
-    action.add_argument("--report", dest="report_only", action="store_true")
-    action.add_argument("--verify", dest="verify_only", action="store_true")
-    matrix.add_argument("--candidate", type=Path)
-    matrix.add_argument("--group", dest="groups", action="append")
-    matrix.add_argument("--update-fixture", type=Path)
-    reality = checks.add_parser(
-        "reality-hybrid",
-        help="verify isolated hybrid REALITY, not the complete security suite",
-    )
-    reality.add_argument("--run-dir", type=Path, required=True)
-    reality.add_argument("--case", dest="identifiers", action="append")
-    xhttp = checks.add_parser(
-        "xhttp-peers",
-        help="probe isolated native XHTTP peer capabilities, not suite acceptance",
-    )
-    xhttp.add_argument("--run-dir", type=Path, required=True)
-    xhttp.add_argument(
-        "--identities-only",
-        action="store_true",
-        help="probe real download-leg client-identity enforcement only",
-    )
-    peers = checks.add_parser(
-        "protocol-peers",
-        help="verify isolated official peer capabilities, not VCore acceptance",
-    )
-    peers.add_argument("--run-dir", type=Path, required=True)
-    peers.add_argument("--case", dest="identifiers", action="append")
-    gateway = checks.add_parser(
-        "xhttp-gateway",
-        help="build xcaddy and test isolated H3/mTLS native topology",
-    )
-    gateway.add_argument("--run-dir", type=Path, required=True)
-    gateway.add_argument(
-        "--identities-only",
-        action="store_true",
-        help="small identity probes with native QUIC certificate-error observation",
-    )
-    coverage = checks.add_parser(
-        "protocol-coverage", help="validate executable catalogs or persisted evidence"
-    )
-    coverage_modes = coverage.add_mutually_exclusive_group(required=True)
-    coverage_modes.add_argument(
-        "--catalog-only",
-        action="store_true",
-        help="check declarations only, not implementation or behavior acceptance",
-    )
-    coverage_modes.add_argument(
-        "--run-dir", type=Path, help="validate a complete persisted suite run"
-    )
-    suites = [name.lower() for name in SUITES]
-    coverage.add_argument("--suite", choices=suites, default="foundations")
-    coverage.add_argument(
-        "--manifest",
-        type=Path,
-        help="explicit frozen executable manifest for evidence checks",
-    )
-    protocol = checks.add_parser(
-        "protocol-interop", help="run a protocol or integration capability suite"
-    )
-    protocol.add_argument(
-        "--suite", choices=suites, required=True, help="capability suite to run"
-    )
-    protocol.add_argument("--case", dest="identifiers", action="append")
-    protocol.add_argument(
-        "--protocol",
-        choices=[
-            "foundation",
-            "legacy",
-            "trojan",
-            "vmess",
-            "vless",
-            "hysteria2",
-            "tuic",
-        ],
-    )
-    modes = protocol.add_mutually_exclusive_group()
-    modes.add_argument("--list", dest="list_only", action="store_true")
-    modes.add_argument("--preflight", dest="preflight_only", action="store_true")
-    protocol.add_argument(
-        "--run-dir", type=Path, help="fresh child directory of target/interop/runs"
-    )
-    demo = commands.add_parser("demo", help="run opt-in interoperability demos")
+
+    demo = commands.add_parser("demo", help="run opt-in platform demos")
     demos = demo.add_subparsers(dest="demo", required=True)
     tun2socks = demos.add_parser(
         "windows-tun2socks", help="run VCore TUN through an external Xray SOCKS inbound"
@@ -232,8 +80,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 build_android()
             else:
                 build_windows()
-        elif args.command == "download":
-            download_mihomo(args.target)
         elif args.command == "check":
             if args.check == "core":
                 from .core_checks import run
@@ -251,74 +97,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 from .platform_delivery import check_abi
 
                 check_abi(args.manifest.resolve())
-            elif args.check == "apple-runtime":
-                from .apple_runtime import run
-
-                run(args.platform, args.manifest)
-            elif args.check == "memory-matrix":
-                from .memory_matrix import run
-
-                return run(
-                    export=args.export,
-                    list_only=args.list_only,
-                    freeze=args.freeze,
-                    candidate=args.candidate,
-                    execute=args.execute,
-                    report_only=args.report_only,
-                    verify_only=args.verify_only,
-                    groups=args.groups,
-                    update_fixture=args.update_fixture,
-                )
-            elif args.check == "memory":
-                from .memory_benchmark import run
-
-                run(
-                    identifiers=args.identifiers,
-                    suite=args.suite,
-                    run_dir=args.run_dir,
-                    resume=args.resume,
-                    list_only=args.list_only,
-                    preflight_only=args.preflight_only,
-                    udp_pacing_credit=args.udp_pacing_credit,
-                    peer_cpus=args.peer_cpus,
-                    update_fixture=args.update_fixture,
-                    prepare_only=args.prepare_only,
-                    candidate=args.candidate,
-                )
-            elif args.check == "xhttp-peers":
-                from .protocol_xhttp_peers import main as xhttp_peers
-
-                return xhttp_peers(args.run_dir, identities_only=args.identities_only)
-            elif args.check == "protocol-peers":
-                from .protocol_completion_peers import run
-
-                run(args.run_dir, identifiers=args.identifiers)
-            elif args.check == "xhttp-gateway":
-                from .protocol_xhttp_gateway import main as xhttp_gateway
-
-                return xhttp_gateway(args.run_dir, identities_only=args.identities_only)
-            elif args.check == "protocol-coverage":
-                if args.catalog_only:
-                    check_protocol_catalogs(CATALOG_DIR)
-                else:
-                    check_run(
-                        args.run_dir.resolve(),
-                        args.suite.upper(),
-                        args.manifest,
-                    )
-            elif args.check == "protocol-interop":
-                run_protocol_interop(
-                    stage=args.suite.upper(),
-                    identifiers=args.identifiers,
-                    protocol=args.protocol,
-                    list_only=args.list_only,
-                    preflight_only=args.preflight_only,
-                    run_dir=args.run_dir,
-                )
-            elif args.check == "reality-hybrid":
-                from .protocol_reality_hybrid import main as run_reality_hybrid
-
-                return run_reality_hybrid(args.run_dir, args.identifiers)
             else:
                 check_tls_dependencies()
         else:

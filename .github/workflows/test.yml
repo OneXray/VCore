@@ -41,12 +41,11 @@ jobs:
           uv run --project scripts --locked ruff format --check scripts
           uv run --project scripts --locked vcore-scripts check c-header
           uv run --project scripts --locked vcore-scripts check tls-dependencies
-      - name: Production, instrumented harness, and netstack clippy
+      - name: Production and netstack clippy
         if: matrix.profile == 'features'
         run: |
           cargo clippy --locked --features ffi --lib --bins -- -D warnings
           cargo clippy --locked --all-features --lib --bins -- -D warnings
-          cargo clippy --locked --features ffi,interop-test --test mihomo_interop -- -D warnings
           cargo clippy --locked --manifest-path crates/vcore-netstack/Cargo.toml --all-targets -- -D warnings
       - name: Run ${{ matrix.name }}
         run: uv run --project scripts --locked vcore-scripts check core --profile ${{ matrix.profile }}

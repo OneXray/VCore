@@ -8,83 +8,56 @@ import plistlib
 import tempfile
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import patch
 
-from vcore_scripts import apple_runtime, builds, platform_delivery
+from vcore_scripts import builds, platform_delivery
 
 
 class ApplePlatformTest(unittest.TestCase):
-    def test_owned_simulator_cleanup_covers_partial_creation_and_runtime_failure(self):
-        for failure in (None, "create", "boot", "body"):
-            with self.subTest(failure=failure):
-                owner = "vcore-platform-" + "a" * 32
-                devices = [{"name": "user-device", "udid": "other", "state": "Booted"}]
-                runtime = {
-                    "identifier": "com.apple.CoreSimulator.SimRuntime.tvOS-27-0",
-                    "isAvailable": True,
-                    "version": "27.0",
-                    "buildversion": "fixture",
-                    "supportedDeviceTypes": [
-                        {"productFamily": "Apple TV", "identifier": "compatible-tv"}
-                    ],
-                }
-                record = {}
+    def test_apple_build_reads_and_stages_the_configured_cargo_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            checkout, target = root / "core", root / "cargo-output"
+            targets = (
+                "aarch64-apple-ios",
+                "aarch64-apple-ios-sim",
+                "x86_64-apple-ios",
+                "aarch64-apple-darwin",
+                "x86_64-apple-darwin",
+                "aarch64-apple-tvos",
+                "aarch64-apple-tvos-sim",
+            )
+            for triple in targets:
+                library = target / triple / "release/libvcore.a"
+                library.parent.mkdir(parents=True)
+                library.write_bytes(builds.EXPECTED_IDENTITY)
 
-                def simctl(
-                    *args,
-                    runtime=runtime,
-                    devices=devices,
-                    owner=owner,
-                    failure=failure,
-                    **_,
-                ):
-                    if args[:2] == ("list", "runtimes"):
-                        return json.dumps({"runtimes": [runtime]})
-                    if args[:2] == ("list", "devices"):
-                        return json.dumps({"devices": {"fixture": devices}})
-                    if args[0] == "create":
-                        self.assertEqual(args[1:3], (owner, "compatible-tv"))
-                        devices.append(
-                            {"name": owner, "udid": "owned", "state": "Shutdown"}
-                        )
-                    else:
-                        self.assertEqual(args[1], "owned")
-                    if args[0] == failure:
-                        raise RuntimeError("injected")
-                    if args[0] == "boot":
-                        devices[-1]["state"] = "Booted"
-                    elif args[0] == "shutdown":
-                        devices[-1]["state"] = "Shutdown"
-                    elif args[0] == "delete":
-                        devices.pop()
-                    return "owned"
+            def run(command, **_):
+                if command[:2] == ["xcrun", "lipo"]:
+                    Path(command[-1]).write_bytes(builds.EXPECTED_IDENTITY)
 
-                with (
-                    patch.object(apple_runtime, "_simctl", side_effect=simctl),
-                    patch.object(
-                        apple_runtime.uuid,
-                        "uuid4",
-                        return_value=SimpleNamespace(hex="a" * 32),
-                    ),
-                ):
-                    try:
-                        with apple_runtime.simulator(
-                            "tvos", record, minimum="17.0"
-                        ) as identifier:
-                            self.assertEqual(identifier, "owned")
-                            if failure == "body":
-                                raise RuntimeError("injected")
-                    except RuntimeError as error:
-                        self.assertIsNotNone(failure)
-                        self.assertEqual(str(error), "injected")
-                    else:
-                        self.assertIsNone(failure)
-                self.assertTrue(record["cleaned"])
-                self.assertEqual(
-                    devices,
-                    [{"name": "user-device", "udid": "other", "state": "Booted"}],
-                )
+            with (
+                patch.object(builds, "CORE_DIR", checkout),
+                patch.dict(
+                    builds.os.environ,
+                    {
+                        "CARGO_TARGET_DIR": str(target),
+                        "VCORE_APPLE_DIST_DIR": str(root / "package"),
+                    },
+                    clear=True,
+                ),
+                patch.object(builds.platform, "system", return_value="Darwin"),
+                patch.object(builds, "_require_targets"),
+                patch.object(builds, "_cargo_build") as cargo,
+                patch.object(builds, "_run", side_effect=run),
+                patch.object(builds, "check_apple_binary") as check,
+            ):
+                builds.build_apple()
+            self.assertEqual(cargo.call_count, 7)
+            self.assertEqual(check.call_count, 5)
+            for invocation in check.call_args_list:
+                self.assertTrue(invocation.args[0].is_relative_to(target))
+            self.assertFalse((checkout / "target").exists())
 
     def test_all_native_archive_members_have_the_right_platform_and_floor(self):
         first = (

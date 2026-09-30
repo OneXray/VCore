@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 
 from .builds import CORE_DIR, DEFAULT_FEATURES
-from .protocol_peers import run_command
+from .processes import run_command
 
 FEATURE_TEST = (
     "runtime::tests::integration_feature_admission_is_explicit_without_opening_sockets"

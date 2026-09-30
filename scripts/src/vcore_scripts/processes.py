@@ -1,4 +1,4 @@
-"""Owned native-peer processes. Stop is a wait barrier, never a global prune."""
+"""Bounded subprocess capture with owned process-group cleanup."""
 
 from __future__ import annotations
 
@@ -11,8 +11,6 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-
-from .builds import CORE_DIR
 
 
 class OwnedProcess:
@@ -147,9 +145,7 @@ def run_command(
     started = time.monotonic()
     record = {}
     reason = None
-    root = CORE_DIR / "target/interop/commands"
-    root.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="command-", dir=root) as directory:
+    with tempfile.TemporaryDirectory(prefix="vcore-command-") as directory:
         log = Path(directory) / "private.log"
         with OwnedProcess(command, log, record, env=env, cwd=cwd, limit=limit) as owner:
             try:

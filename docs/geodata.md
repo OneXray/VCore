@@ -136,7 +136,7 @@ CIDR 地址宽度/前缀和正则语法检查。紧凑 value/Regex arena 的 off
 集合、allocator 开销或整个进程 footprint**，其 accounted peak 不是加载峰值上界。
 50,000,000 bytes 是限定输入与联合负载下的进程实测验收目标，不是加载器保证。
 
-完整官方 CN 的可复现检查见 [内存实验](../tests/memory/README.md)：独立参考逐条验证
+完整官方 CN 的可复现检查由独立 `container-benchmark` 工程提供，以 `--vcore` 显式指定被测 checkout：独立参考逐条验证
 匹配语义，生产 ABI 进程另验两类资产可用、实际路由与全生命周期峰值。仅 prepare 成功
 或离线记录数统计不算完整 CN 可用。
 

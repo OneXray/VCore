@@ -21,7 +21,7 @@ Read the relevant document completely before changing that area:
 - TLS profiles, certificate policy or TLS dependencies: `docs/tls-client-fingerprint.md` and `docs/tls-dependencies.md`; REALITY also requires `docs/reality-wire-protocol.md`. Before local boring development or opening/updating a PR, follow the dependency-source workflow in `docs/tls-dependencies.md`.
 - Unix TUN fd ownership or packet I/O: `docs/tun-platform.md`.
 - Windows VPN/TUN, outbound binding, AppContainer packet buffers, or package lifecycle: `docs/windows-vpn.md` and `docs/tun-platform.md`.
-- Build, validation, or interoperability tooling: `scripts/README.md`, `tests/README.md`, and the unified `vcore-scripts` interface.
+- Build or core validation: `scripts/README.md`, `tests/README.md`, and `vcore-scripts`. Container interoperability and memory experiments live in the independent `container-benchmark` project, which receives an explicit VCore checkout.
 - Server-side tests: `docs/testing-isolation.md`. All new server peers and network origins must run in isolated containers; never fall back to native host servers.
 - Claims that something passed: `docs/acceptance.md`. Record only commands and environments actually executed; host tests and cross-builds do not prove physical-device data paths.
 

@@ -7,32 +7,9 @@ from unittest.mock import patch
 
 from vcore_scripts import cli
 from vcore_scripts.core_checks import commands, validate_execution
-from vcore_scripts.protocol_catalogs import check_protocol_catalogs
-from vcore_scripts.protocol_evidence import check_limit_references, load_manifest
 
 
 class CoreChecksTest(unittest.TestCase):
-    def test_legacy_server_suites_fail_before_acquiring_resources(self):
-        for suite in ("foundations", "trojan"):
-            with (
-                self.subTest(suite=suite),
-                patch("vcore_scripts.protocol_harness.tempfile.mkdtemp") as create_run,
-                patch("subprocess.Popen") as spawn,
-                contextlib.redirect_stderr(io.StringIO()) as error,
-            ):
-                self.assertEqual(
-                    cli.main(["check", "protocol-interop", "--suite", suite]), 1
-                )
-                self.assertIn("not fully containerized", error.getvalue())
-                create_run.assert_not_called()
-                spawn.assert_not_called()
-
-    def test_catalog_validity_does_not_claim_executed_behavior(self):
-        with contextlib.redirect_stdout(io.StringIO()) as output:
-            check_protocol_catalogs()
-        self.assertIn('"behavior_status": "NOT RUN"', output.getvalue())
-        check_limit_references(load_manifest())
-
     def test_profiles_select_tests_without_running_all_target_servers(self):
         for profile in ("debug", "release", "features"):
             selected = commands(profile)
@@ -70,17 +47,14 @@ class CoreChecksTest(unittest.TestCase):
             ):
                 validate_execution(command, output, code, cleanup)
 
-    def test_list_mode_is_read_only_and_capability_names_resolve(self):
-        with contextlib.redirect_stdout(io.StringIO()) as output:
+    def test_list_mode_is_read_only(self):
+        with (
+            contextlib.redirect_stdout(io.StringIO()) as output,
+            patch("subprocess.Popen") as spawn,
+        ):
             self.assertEqual(cli.main(["check", "core", "--list"]), 0)
-            self.assertEqual(
-                cli.main(
-                    ["check", "protocol-interop", "--suite", "integration", "--list"]
-                ),
-                0,
-            )
         self.assertIn("shadowsocks_backpressure", output.getvalue())
-        self.assertIn("INTEGRATION-PAIR-SS-SS", output.getvalue())
+        spawn.assert_not_called()
 
 
 if __name__ == "__main__":

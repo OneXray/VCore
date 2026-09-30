@@ -1,73 +1,46 @@
 # 测试入口
 
-测试按验证目的维护，不按开发阶段累积副本。当前命令见 [scripts](../scripts/README.md)。
-
-文件名与用例 ID 使用协议或验证用途：ech_config、encryption_wire、
-protocol_security、protocol_integration；事件标签与报告采用同一套名称。
+本仓库保留生产核心的配置、内存 IO、安全、生命周期和平台构建回归，
+命令见 [scripts](../scripts/README.md)。容器编排、外部消费者、对端下载及内存/吞吐实验
+由独立的 container-benchmark 工程执行，通过 `--vcore` 指定被测 checkout。
+VCore 的日常检查和 CI 不依赖 benchmark 的路径或安装状态。
 
 | 层次 | 保留内容 | 入口 |
 | --- | --- | --- |
 | 日常 | 严格配置、feature、协议/TLS 内存 IO、局部上限、取消、FFI 边界和确定性回归 | check core --profile debug/release |
 | 构建 | 精简 feature、生产 feature、全目标编译 | check core --profile features |
-| 工具 | 子进程/容器清理、下载、原始证据完整性、平台产物 | scripts/tests |
-| 对端设施 | 官方客户端到官方服务端的真实 TCP/UDP 能力，不计 VCore 支持 | check protocol-peers |
-| 网络 | 公开消费者、真实原生认证/传输/UDP/上游和资源 | protocol-interop --suite … |
-| 发布候选 | 有序两跳、故障/重建/长测、平台产物/ABI | integration suite 与平台构建 |
-| Apple 平台 | tvOS/iOS 生产库 ABI、模拟器生命周期、容器原站与合成 fd | check apple-runtime --platform tvos/ios |
-| 内存实验 | 独立 Release ABI 进程、内核峰值校准、完整 CN 参考与实际路由、容器带宽对照 | [check memory](memory/README.md) |
+| 工具 | 平台构建、产物身份、TLS 来源和有界子进程回收 | scripts/tests |
+| 平台产物 | Apple/Android/Windows 架构、最低版本、hash 和原生 ABI | build --delivery 与 platform-artifacts/platform-abi |
+| 外部网络与内存 | 容器协议互通、合成 fd-TUN、完整 CN 分流、内存峰值、吞吐和长测 | 独立 container-benchmark |
 
-所有服务端遵守[隔离规则](../docs/testing-isolation.md)，包括原站和对照客户端入口。
-默认测试命令不执行历史宿主 listener。全目标仅 --no-run；ignored 不算通过。
-物理设备和正式安装不由本地测试推导。
+所有服务端遵守[隔离规则](../docs/testing-isolation.md)。默认检查仅执行纯内存白名单，
+全目标只编译 `--no-run`；ignored 不算通过。物理设备和正式安装不由本地测试推导。
 
 ## 必要回归与独立输入
 
 - h2_stream_regression：完整 END_STREAM 后 RST 不丢响应，未完成响应仍报错。
-- stream_foundations 与 sing-mux 单元回归：延迟响应已就绪仍遵守原建链期限，
-  先前 Pending 或首次延迟读取均不能绕过；确认建立后允许继续读取。
-- stream_shutdown：gRPC/legacy H2/池化 gRPC 和 XHTTP H1/H2 在有界、带缓冲 IO 上先送完
-  再关闭；Stop 可取消待写，XHTTP 关闭有一秒上限。
-- xhttp_h3_shutdown：纯内存 QUIC 背压下的上传完成屏障，不用下载尾包证明关闭。
-  覆盖延迟握手；测试对端显式取消并 join 后台任务，不把随 RTT 变化的 QUIC 关闭保留期
-  当作客户端关闭期限。上传完整性、一秒关闭上限和 Stop 验证保持独立。
-- shadowsocks_backpressure：三算法 Pending 重试长度、读先于写时的 codec 刷新，以及
-  官方服务端对空首包零 padding 的确定性拒绝；不修改官方库，不把 codec 夹具当作互通。
-  SS/SS v3/EIH TCP 容器数据验收使用非空首段的 client-first，保留完整数据量；
-  server-first/空首包为已知限制，其他协议仍验证服务器先发。
+- stream_foundations 与 sing-mux：延迟响应遵守原建链期限；确认建立后允许继续读取。
+- stream_shutdown：gRPC/legacy H2/池化 gRPC 和 XHTTP H1/H2 先送完再关闭；
+  Stop 可取消待写，XHTTP 关闭有一秒上限。
+- xhttp_h3_shutdown：纯内存 QUIC 背压下上传完成屏障、延迟握手、一秒关闭上限和 Stop。
+  测试对端取消并 join 后台任务，不把 QUIC 关闭保留期当作客户端关闭期限。
+- shadowsocks_backpressure：三算法 Pending 重试长度、读先于写时 codec 刷新，
+  以及官方服务端对空首包零 padding 的确定性拒绝。不修改官方库。
 - hysteria2_packet_ids：完成后重用 16 位分片 ID，不误丢后续业务包。
-- shadowtls_config/stream 与 security::shadow_tls_tests：严格 v3、原生签名/Finished、
-  残留 cover、背压/flush、读取取消和关闭期限；shadowtls suite 另验官方容器对端。
-- uot_config、shadowsocks_uot 与共享 outbound::uot：仅 v2、SS 首包/读取门控、
-  三算法 u16 边界、收发预算、受控 DNS、取消/Stop；uot suite 验 TCP-only 官方
-  Mihomo 六组合、上游/切组及无原生 UDP 回退，不把 ssserver 作为 UoT 正向服务端。
-- security_capabilities：公开配置经真实 SecurityClient 在主/下载腿产生实际混合 share；
-  不再重复测试 fork 的纯 API 准入。
-- tuic_config/tuic_memory 与 outbound::tuic：严格 v5、当前 TLS exporter、无 ACK、
-  双 UDP wire、分片/重组、关联 ID 退役、窗口/credit、Heartbeat 和 Stop；tuic suite
-  验官方 Mihomo 数据与身份负例、独立上游容器、嵌套组/重建/测速，并回归 HY2/H3。
-- httpupgrade_config/httpupgrade_memory：类型化普通/fast-open、ED 边界、严格 101、
-  部分写、首包恰好一次和原期限；等待后的就绪响应/写入不能越过期限，已建连接不受限。
-  httpupgrade suite 另验 VMess/Trojan 真实消费者、
-  UDP、Mihomo 关闭对照、命名 TLS 模板及既有 Upgrade/WS/其他传输。
-- vless_public::integration：64 个基础有序两跳与 SS v3/UoT/TUIC 强耦合链、公开入站/
-  合成 TUN、DNS/测速和旧连接组快照；100 次生命周期、100 轮混合重建、1800 秒长测。
-  新组合不替代七协议回归；资源归零、五秒静默、堆/队列与实际轮换配置独立复核。
-- fingerprints/mihomo-selected-v1.json：官方独立 ClientHello golden，不从待测实现重新生成期望；
-  [指纹验证](fingerprints/README.md)分别维护独立基线、内存报文与容器互通。
-- protocols/encryption-crypto.json 及 Go 生成器：独立密码向量；许可证和来源必须保留。
-- protocols/limits.json：实际常量、边界与越界行为；不另建一套产品配置。
-- GeoData 的 core 回归覆盖超旧数量/内存/文件额度的完整加载、整数溢出、缺失/损坏和原子快照；`geodata_cn`
-  是显式的完整官方资产参考检查，不把其诊断进程内存当成生产宿主峰值。
+- shadowtls_config/stream：严格 v3、原生签名/Finished、残留 cover、背压/flush、
+  读取取消和关闭期限；真实官方对端由外部 benchmark 验证。
+- uot_config、shadowsocks_uot 与共享 outbound::uot：仅 v2、首包/读取门控、
+  三算法 u16 边界、收发预算、受控 DNS、取消和 Stop。codec 上限不代表对端容量。
+- security_capabilities：公开配置经真实 SecurityClient 在主/下载腿产生实际混合 share。
+- tuic_config/tuic_memory 与 outbound::tuic：严格 v5、TLS exporter、无 ACK、
+  双 UDP wire、分片/重组、关联 ID 退役、窗口/credit、Heartbeat 和 Stop。
+- httpupgrade_config/httpupgrade_memory：普通/fast-open、ED、严格 101、部分写、
+  首包恰好一次及原期限；已建连接不受建链期限限制。
+- GeoData：超旧数量/内存/文件额度的完整加载、整数溢出、缺失/损坏和原子快照。
+  完整官方 CN 独立参考、实际分流与生产宿主峰值由外部 benchmark 同轮验证。
+- 独立 ClientHello golden、Encryption 密码向量与 limits 输入保留，
+  不能用待测实现生成期望或以声明清单替代行为。
 
-## 保留而未自动执行的 fixture
-
-anytls_interop、xray_interop、mihomo_interop 仍含会话复用计数、双向 HTTP/SOCKS5、
-CONNECT 预读/Upgrade 等独有断言。保留这些 Rust 消费者用于迁移，不能把“其他 echo 通过”
-当作已覆盖而删除。旧宿主启动入口不再开放，迁移前只编译，不计为当前容器验收。
-协议容器消费者已覆盖其共享数据、安全、组快照和 Stop 路径。
-
-其他 tests 中含宿主 listener 的旧 fixture 同样不在 core 白名单；新增网络断言放容器
-suite，或在能真实覆盖行为时改为纯内存 IO。不要把宿主服务端改称 mock 绕过规则。
-
-阶段实验、重复规划表和只测试 BLOCKED 文案的诊断已删除；原始记录在 Git 历史。
-必要负例、资源归零/静默检查和尚未替代的独有断言不按行数裁剪。
+尚未迁移的历史宿主 listener fixture 只编译，不在 core 白名单，也不作为新的容器验收。
+容器和实验生成文件在每轮结束后清理，仅保存脱敏文字结论。版本、源码/锁文件 hash、
+命令、实测数据及清理结果必须写明；文字结论不能抵扣未经执行的设备或发布门禁。
