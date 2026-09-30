@@ -30,6 +30,7 @@ def dns_names(asset_directory):
 
 
 def dns_overlap(port, names, origin, bandwidth, mihomo, spec):
+    from .memory_protocols import source
     from .memory_socks_load import _dns_stats, _route_probe, address
 
     wanted = spec["overlap"]
@@ -45,7 +46,13 @@ def dns_overlap(port, names, origin, bandwidth, mihomo, spec):
         return stats["queries"].get(item["id"] + ":" + qtype + ":core", 0)
 
     def probe(item):
-        _route_probe(port, item["value"], address(mihomo, spec), bandwidth, spec)
+        _route_probe(
+            port,
+            item["value"],
+            source(mihomo) or address(mihomo, spec),
+            bandwidth,
+            spec,
+        )
 
     def batch(items):
         # Submit at most 32 at once: no task/future list proportional to domains.
@@ -92,19 +99,44 @@ def dns_overlap(port, names, origin, bandwidth, mihomo, spec):
 
 
 def churn_overlap(
-    root, work, port, reference, bandwidth, mihomo, positive, spec, cn_bandwidth=None
+    root,
+    work,
+    port,
+    reference,
+    bandwidth,
+    mihomo,
+    positive,
+    spec,
+    cn_bandwidth=None,
+    selections=None,
 ):
+    from .memory_protocols import source, sources
     from .memory_socks_load import _load, address, endpoint
 
     wanted = spec["overlap"]
     if wanted["tcp"] != wanted["udp"] or positive is None:
         raise ValueError("churn requires equal TCP/UDP and two prescribed proxy paths")
     routes = {item["id"]: item for item in reference["routes"]}
+
+    def selection(route):
+        if not selections:
+            return None
+        chosen = selections["cn-route" if route == "domain-first" else "route"]
+        members = chosen["members"]
+        return chosen | {
+            "members": [
+                members[i % len(members)]
+                for i in range((wanted["tcp"] + wanted["udp"]) // 2)
+            ]
+        }
+
     branches = [
         {
-            "route": route + "-" + transport,
-            "transport": transport,
-            "source": address(peer, spec),
+            "route": route,
+            "transport": "mixed",
+            "source": source(peer) or address(peer, spec),
+            "sources": sources(peer, (wanted["tcp"] + wanted["udp"]) // 2),
+            "selection": selection(route),
             **(
                 {
                     "tun": port,
@@ -125,7 +157,6 @@ def churn_overlap(
             "target": routes[route]["value"],
         }
         for route, peer in (("domain-first", positive), ("domain-negative", mihomo))
-        for transport in ("tcp", "udp")
     ]
     began = time.monotonic()
 
@@ -143,7 +174,7 @@ def churn_overlap(
             "slow_read": None,
         }
         report = _load(root, directory, probe_spec, bandwidth, branches)
-        expected_flows = (wanted["tcp"] + wanted["udp"]) // 4
+        expected_flows = (wanted["tcp"] + wanted["udp"]) // 2
         for branch in report["branches"]:
             traffic = branch["traffic"]
             if not (

@@ -48,7 +48,7 @@ def bandwidth_complete(
         or direction == "both"
         and flows % 2
         and not duplex
-        or not 1 <= seconds <= 300
+        or not 1 <= seconds <= 1800
         or not 1 <= mbps <= 1000
     ):
         return False
@@ -113,7 +113,7 @@ def correctness_complete(report, transport, direction, flows, seconds, proxy_end
         transport not in {"tcp", "udp", "mixed"}
         or direction != "both"
         or not 1 <= flows <= 64
-        or not 1 <= seconds <= 300
+        or not 1 <= seconds <= 1800
     ):
         return False
     if transport == "mixed" and flows % 2:

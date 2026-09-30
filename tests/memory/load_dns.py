@@ -74,6 +74,11 @@ def main():
                     )
                     key = case_id + ":" + qtype + ":" + category
                     counters["queries"][key] = counters["queries"].get(key, 0) + 1
+                    control_path = Path("/data/fixture/load-dns-control.json")
+                    if control_path.exists() and case_id in json.loads(
+                        control_path.read_text()
+                    ).get("drop_ids", []):
+                        continue
                     dns.sendto(response, source)
                 except (ValueError, UnicodeError, IndexError):
                     counters["rejected"] += 1

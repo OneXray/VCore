@@ -115,6 +115,7 @@ def _parser() -> argparse.ArgumentParser:
     memory.add_argument("--preflight", dest="preflight_only", action="store_true")
     memory.add_argument("--udp-pacing-credit", type=int, choices=(0, 16))
     memory.add_argument("--peer-cpus", type=int, choices=(2, 4, 8))
+    memory.add_argument("--update-fixture", type=Path)
     reality = checks.add_parser(
         "reality-hybrid",
         help="verify isolated hybrid REALITY, not the complete security suite",
@@ -250,6 +251,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     preflight_only=args.preflight_only,
                     udp_pacing_credit=args.udp_pacing_credit,
                     peer_cpus=args.peer_cpus,
+                    update_fixture=args.update_fixture,
                 )
             elif args.check == "xhttp-peers":
                 from .protocol_xhttp_peers import main as xhttp_peers

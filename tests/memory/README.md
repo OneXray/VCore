@@ -113,7 +113,55 @@ env -u MallocNanoZone uv run --project scripts --locked vcore-scripts check memo
 env -u MallocNanoZone uv run --project scripts --locked vcore-scripts check memory --case profile-socks-mixed-eight-v4-smoke
 ```
 
-## 生产进程与观测
+## 更新、启停与长时负载
+
+`lifecycle-{socks|tun}-{lifetimes|rebuild}-{v4|v6}-{smoke|full}` 在同一个生产 PID
+执行主正确性轮次，再做 3/100 轮有负载的 Stop。lifetimes 销毁并重建实例，rebuild 保持
+实例、重新 prepare/start；每轮先验证非法 prepare 可恢复。轮换活动流、受控 DNS 黑洞、
+实际 SOCKS5 握手黑洞，客户端全部 join，Stop 返回立即检查 fd 基线与生产资源最终事件。
+full 每轮另观察五秒静默，smoke 为 0.25 秒；静默期不是给清理补时，进程峰值不重置。
+
+`profile-{entry}-mixed-eight-{family}-soak` 为 1800 秒、64 流固定正确性负载，期间叠加
+DNS 冷/热查询和 100 轮连接替换。`-soak-smoke` 独立为 20 秒、32 流，保留八协议、
+切组和两类叠加，只是驱动检查。每个路由组的 TCP/UDP 新连接由一个客户端顺序选择，
+不让两个选择器竞争；独立选路见证与叠加控制窗口错开，主业务一直运行。
+
+`profile-{entry}-{profile}-{family}-{soak|pressure}-{tcp|udp}-1000` 分别是 1800/300 秒、
+64 流聚合 1 Gbps，含更新、DNS、连接替换；仅在最终矩阵测出最重内存/CPU profile 后选用。
+不是对所有 profile 重复长测，也不能用低速 soak 代替。报表、逐秒数据和有界驱动支持
+至 1800 秒，原 300 秒用例没有被缩短或换名。
+
+更新用例 `profile-{entry}-{profile}-{family}-update-{geosite|geoip}-{replace|not-modified|corrupt|cancel}`
+为 64 流正确性；在 `update` 前增加 `tcp-`/`udp-`、最后加 `-1000` 为对应高速场景。
+两份完整官方快照须各自通过 checksum/CN 检查，待更新资产的 hash 必须不同；固定业务
+见证须在两份快照中均成立，差异匹配/原子发布继续由既有 GeoData 回归覆盖。
+
+这些用例必须提供 `--update-fixture /absolute/path/fixture.json`：
+
+```json
+{
+  "hostname": "assets.example.com",
+  "certificate": "fullchain.pem",
+  "private_key": "key.pem",
+  "previous_rules": "previous-run/rules"
+}
+```
+
+路径相对 fixture 文件；`previous_rules` 是已有官方下载轮次的 `rules` 目录（含 identity
+与 checksum），不是自制/裁剪的 DAT。域名、正式受信任证书及私钥须由操作者合法持有。
+证书只在隔离 HTTPS 原站使用；端点通过受控 DNS 映射到容器，不公开域名或修改公共 DNS。
+私钥只复制到 Git 忽略的私有运行目录，不能将该目录提交或公开上传。
+
+生产 WebPKI、下载器、完整解析和 24 小时间隔不变。驱动只在自有数据目录按既有持久
+格式构造到期状态，HTTPS 原站持有部分正文，验证旧 hash/快照、实际暂存字节和期间新流，
+再放行完整下载；304 检查 If-None-Match，损坏/取消保留旧文件并清空 staging。主业务正文
+在成功更新/304/损坏期间仍须全量正确。取消在业务存活时执行 Stop，独立记作
+`PASS_CANCELLATION`，**不**表示完成了 300 秒或 1 Gbps 正向吞吐验收。
+
+缺少合法证书/域名、不同完整快照或信任失败均为明确阻塞，不注入 CA、不禁用校验，
+不以离线替换代替在线更新证据。当前开发环境的真实在线更新尚未执行。
+
+## 生产测量边界
 
 - `host.c` 链接生产 feature 集合的 Release `libvcore.a`，通过正式 Invoke API v5 执行
   initialize → prepare → start → 流量 → stop → destroy。没有 `interop-test`、流量生成、

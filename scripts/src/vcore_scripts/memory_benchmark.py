@@ -495,6 +495,30 @@ def _peers(root, manifest):
                     positive,
                     mihomo_config,
                 )
+                if any(spec.get("lifecycle") for spec in workloads.values()):
+                    from . import memory_endurance
+
+                    auxiliary.append(
+                        memory_endurance.install(
+                            lab,
+                            stack,
+                            Path(temporary),
+                            origin,
+                        )
+                    )
+                if "update_fixture" in manifest:
+                    from . import memory_updates
+
+                    auxiliary.append(
+                        memory_updates.install(
+                            root,
+                            manifest,
+                            lab,
+                            stack,
+                            directories,
+                            origin,
+                        )
+                    )
                 if manifest.get("socks_load_workloads"):
                     save(
                         directories["origin"] / "load-dns.json",
@@ -515,15 +539,27 @@ def _peers(root, manifest):
                             "peer_sources": [mihomo.ipv4]
                             + ([positive.ipv4] if positive else [])
                             + [peer.ipv4 for peer in auxiliary],
-                            "targets": {
-                                item["id"]: socks_load.address(
-                                    cn_bandwidth, {"family": family}
+                            "targets": (
+                                {
+                                    item["id"]: socks_load.address(
+                                        cn_bandwidth, {"family": family}
+                                    )
+                                    for item in manifest["geodata_reference"]["routes"]
+                                    if cn_bandwidth
+                                    and item["kind"] == "site"
+                                    and item["matched"]
+                                }
+                                | (
+                                    {
+                                        "update-endpoint": socks_load.address(
+                                            origin.memory_update_peer,
+                                            {"family": family},
+                                        )
+                                    }
+                                    if "update_fixture" in manifest
+                                    else {}
                                 )
-                                for item in manifest["geodata_reference"]["routes"]
-                                if cn_bandwidth
-                                and item["kind"] == "site"
-                                and item["matched"]
-                            },
+                            ),
                         },
                     )
                 version = command(
@@ -1203,6 +1239,7 @@ def run(
     suite=None,
     udp_pacing_credit=None,
     peer_cpus=None,
+    update_fixture=None,
 ):
     if udp_pacing_credit not in (None, 0, 16) or peer_cpus not in (None, 2, 4, 8):
         raise ValueError("unsupported explicit peer-capacity experiment")
@@ -1296,6 +1333,13 @@ def run(
     }
     if len(profiles) > 1:
         raise ValueError("freeze one protocol profile per memory run")
+    from . import memory_updates
+
+    fixture = None
+    if not resume and memory_updates.required(
+        {n: socks_load.CASES[n] for n in selected if n in socks_load.CASES}
+    ):
+        fixture = memory_updates.read_fixture(update_fixture)
     inventory = prerequisites()
     if preflight_only:
         print(json.dumps(inventory, indent=2))
@@ -1492,7 +1536,10 @@ def run(
                     )
                     routes = manifest["geodata_reference"]["routes"]
                     if any(
-                        socks_load.CASES.get(name, {}).get("overlap")
+                        any(
+                            socks_load.CASES.get(name, {}).get(key)
+                            for key in ("overlap", "events", "lifecycle")
+                        )
                         for name in selected
                     ):
                         from .memory_events import dns_names
@@ -1590,6 +1637,8 @@ def run(
                 from . import memory_protocols
 
                 memory_protocols.prepare(root, manifest)
+                if fixture:
+                    memory_updates.prepare(root, manifest, fixture)
                 with frozen_image(root / "image-pull.log") as image:
                     manifest["image"] = image
                 manifest["files"] = {

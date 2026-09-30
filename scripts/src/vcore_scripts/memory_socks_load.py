@@ -11,7 +11,9 @@ import time
 from datetime import datetime
 
 from . import builds
+from . import memory_endurance as endurance
 from . import memory_protocols as protocols
+from . import memory_updates as updates
 from .memory_cold_start import available
 from .memory_inputs import bandwidth_complete, save
 from .memory_process import LIMIT, MeasuredProcess
@@ -243,6 +245,8 @@ for family in ("v4", "v6"):
         }
 CASES.update(TUN_CASES)
 CASES.update(protocols.cases())
+CASES.update(endurance.cases(CASES))
+CASES.update(updates.cases(CASES))
 
 
 def address(peer, spec):
@@ -447,6 +451,7 @@ def _witnesses(
         or any(key.endswith(":unknown") for key in after_dns["queries"])
         or (
             not spec.get("sniff")
+            and not spec.get("cached_witnesses")
             and not all(
                 delta.get(
                     item["id"]
@@ -497,7 +502,17 @@ def _peer_proxy(peer, spec):
 
 
 def _load(
-    root, work, spec, bandwidth, branches, *, witness=None, overlap=None, observe=None
+    root,
+    work,
+    spec,
+    bandwidth,
+    branches,
+    *,
+    witness=None,
+    overlap=None,
+    observe=None,
+    interrupt=None,
+    on_ready=None,
 ):
     """Simultaneous prescribed paths; one full-rate path for a single flow."""
     processes, outcomes = [], []
@@ -590,25 +605,39 @@ def _load(
                 raise TimeoutError("traffic driver readiness exceeded bound")
             time.sleep(0.005)
         transport_observation = observe() if observe else None
+        if on_ready:
+            on_ready()
         begin = time.monotonic()
         with release.open("x") as barrier:
             barrier.write("start\n")
         deadline = begin + spec["seconds"] + 20
         pending = iter(spec.get("witness_seconds", []) if witness else [])
         next_witness = next(pending, math.inf)
+        interrupted = False
+        schedule = iter(
+            spec.get("events") or ([spec["overlap"]] if spec.get("overlap") else [])
+        )
+        next_event = next(schedule, None)
         while any(owner.process.poll() is None for owner, *_ in processes):
             elapsed = time.monotonic() - begin
             if time.monotonic() >= deadline:
                 raise TimeoutError("joint traffic exceeded fixed window and drain")
             if any(owner.process.poll() not in (None, 0) for owner, *_ in processes):
                 break
-            if overlap and not events and elapsed >= spec["overlap"]["at"]:
-                observed = overlap()
+            if interrupt and not interrupted and elapsed >= 1:
+                interrupt()
+                interrupted = True
+            if overlap and next_event and elapsed >= next_event["at"]:
+                observed = overlap(next_event)
                 ended = time.monotonic() - begin
-                if any(owner.process.poll() is not None for owner, *_ in processes):
+                if not observed.get("interrupt") and any(
+                    owner.process.poll() is not None for owner, *_ in processes
+                ):
                     raise RuntimeError("resource overlap outlived the background load")
                 events.append({"begin": elapsed, "end": ended, **observed})
+                interrupted = interrupted or observed.get("interrupt", False)
                 save(work / "overlap.json", events)
+                next_event = next(schedule, None)
             if witness and elapsed >= next_witness:
                 rounds.append({"elapsed_seconds": elapsed, **witness()})
                 save(work / "witnesses.json", rounds)
@@ -636,6 +665,7 @@ def _load(
         "setup_seconds": begin - preparation,
         "overlap_events": events,
         "transport_observation": transport_observation,
+        "interrupted": interrupted,
     }
 
 
@@ -834,6 +864,8 @@ def run_case(
                 }
             tun = stack.enter_context(TunClient(root, work))
         selections = {}
+        if spec.get("updates"):
+            updates.configure(root, manifest, work, config)
         if spec.get("profile"):
             config["proxies"] = []
             for group, peer, prefix in (
@@ -948,18 +980,31 @@ def run_case(
                 counter_peers["cn-origin"] = cn_bandwidth
             _network_counters(work, "before", counter_peers)
 
-            def overlap():
+            def overlap(event):
                 from .memory_events import churn_overlap, dns_overlap
 
-                process.boundary("overlap:" + spec["overlap"]["kind"])
-                if spec["overlap"]["kind"] == "dns":
+                event_spec = spec | {"overlap": event}
+                if selections:
+                    protocols.reset_selection(config)
+                process.boundary("overlap:" + event["kind"])
+                if event["kind"] == "update":
+                    result = updates.exercise(
+                        event,
+                        process,
+                        work,
+                        root,
+                        manifest,
+                        origin,
+                        witness,
+                    )
+                elif event["kind"] == "dns":
                     result = dns_overlap(
                         entry,
                         manifest["load_dns_names"],
                         origin,
                         bandwidth,
                         mihomo,
-                        spec,
+                        event_spec,
                     )
                 else:
                     result = churn_overlap(
@@ -970,8 +1015,9 @@ def run_case(
                         bandwidth,
                         mihomo,
                         positive,
-                        spec,
+                        event_spec,
                         cn_bandwidth=cn_bandwidth,
+                        selections=selections,
                     )
                 process.boundary("joint-load")
                 return result
@@ -991,7 +1037,7 @@ def run_case(
                     cn_bandwidth,
                 )
 
-            def load_at(directory):
+            def load_at(directory, *, interrupt=None, on_ready=None):
                 return _load(
                     root,
                     directory,
@@ -1054,12 +1100,16 @@ def run_case(
                         spec,
                     ),
                     witness=witness,
-                    overlap=overlap if spec.get("overlap") else None,
+                    overlap=overlap
+                    if spec.get("overlap") or spec.get("events")
+                    else None,
                     observe=(
                         lambda: protocols.snapshot([mihomo, positive], record["pid"])
                     )
                     if spec.get("profile")
                     else None,
+                    interrupt=interrupt,
+                    on_ready=on_ready,
                 )
 
             record.update(load_at(work))
@@ -1074,6 +1124,19 @@ def run_case(
                     "transport reuse observed, not assumed TLS session resumption"
                 )
                 save(work / "warm.json", record["warm_load"])
+            if spec.get("lifecycle"):
+                record["lifecycle"] = endurance.cycles(
+                    process,
+                    spec,
+                    config,
+                    work,
+                    entry,
+                    origin,
+                    bandwidth,
+                    manifest["load_dns_names"],
+                    load_at,
+                    tun,
+                )
             for branch in record["branches"]:
                 branch.update(pid=record["pid"], attempt=record["attempt"])
             record["dns"] = _dns_stats(origin)
@@ -1107,7 +1170,11 @@ def run_case(
             tun.close()
             record["tun_client"] = tun.record
         record["status"] = joint_status(record, spec)
-        record["accepted"] = record["status"] in {"PASS", "DIAGNOSTIC"}
+        record["accepted"] = record["status"] in {
+            "PASS",
+            "DIAGNOSTIC",
+            "PASS_CANCELLATION",
+        }
         record["development"] = spec.get("development", False)
     return record
 
@@ -1143,8 +1210,11 @@ def joint_status(row, spec):
                 b["pid"] == row["pid"]
                 and b["attempt"] == row["attempt"]
                 and b["driver_joined"]
-                and b["driver_exit"] == 0
-                and b["traffic"].get("external_start_barrier") is True
+                and (spec.get("expected_cancel") or b["driver_exit"] == 0)
+                and (
+                    spec.get("expected_cancel")
+                    or b["traffic"].get("external_start_barrier") is True
+                )
                 for b in row["branches"]
             )
             and len(row["witness_rounds"]) == len(spec["witness_seconds"])
@@ -1157,6 +1227,8 @@ def joint_status(row, spec):
             and all(w["passed"] for w in row["witness_rounds"])
             and (
                 spec.get("development")
+                or spec.get("lifecycle")
+                or spec.get("updates")
                 or all(
                     any(
                         interval * spec["seconds"] / 3
@@ -1169,13 +1241,33 @@ def joint_status(row, spec):
             )
         ):
             return "INVALID"
+        if spec.get("expected_cancel"):
+            events = row.get("overlap_events", [])
+            if not (
+                row.get("interrupted")
+                and row["entry_route_witnesses"]["passed"]
+                and len(events) == 1
+                and events[0]["passed"]
+                and events[0]["interrupt"]
+                and events[0]["before_route"]["passed"]
+                and events[0]["during_route"]["passed"]
+                and row["resource_diagnostics"].get("final_current_zero")
+                and (
+                    spec.get("entrypoint") != "fd-TUN"
+                    or row["fd_before"] == row["fd_after_stop"]
+                )
+            ):
+                return "FAIL_CORRECTNESS"
+            return (
+                "FAIL_MEMORY" if measured["peak_bytes"] > LIMIT else "PASS_CANCELLATION"
+            )
         if any(
             not flow.get("source_verified")
             for branch in row["branches"]
             for flow in branch["traffic"]["flows"]
         ):
             return "FAIL_CORRECTNESS"
-        if spec.get("profile"):
+        if spec.get("profile") and spec.get("warm_reuse"):
             warm = row.get("warm_load", {})
             if not (
                 row["entry_route_witnesses"]["passed"]
@@ -1189,6 +1281,23 @@ def joint_status(row, spec):
                 )
                 and len(warm.get("witness_rounds", [])) == len(spec["witness_seconds"])
                 and all(w["passed"] for w in warm["witness_rounds"])
+            ):
+                return "FAIL_CORRECTNESS"
+        if spec.get("lifecycle"):
+            lifecycle = row.get("lifecycle", {})
+            rounds = lifecycle.get("rounds", [])
+            if not (
+                lifecycle.get("passed")
+                and lifecycle.get("pid") == row["pid"]
+                and len(rounds) == spec["lifecycle"]["rounds"]
+                and all(r["resources_zero"] and r["clients_joined"] for r in rounds)
+                and row["resource_diagnostics"].get("final_current_zero")
+                and sum(
+                    event.get("event") == "resource_stats_final"
+                    and event.get("scope") == "runtime_session_observation"
+                    for event in row["resource_diagnostics"].get("snapshots", [])
+                )
+                >= len(rounds) + 1
             ):
                 return "FAIL_CORRECTNESS"
         if spec.get("entrypoint") == "fd-TUN":
@@ -1209,13 +1318,12 @@ def joint_status(row, spec):
                 )
             ):
                 return "INVALID"
-        if spec.get("overlap"):
+        if spec.get("overlap") or spec.get("events"):
             events = row.get("overlap_events", [])
-            wanted = spec["overlap"]
-            if len(events) != 1:
+            wanted_events = spec.get("events") or [spec["overlap"]]
+            if len(events) != len(wanted_events):
                 return "FAIL_CORRECTNESS"
-            event = events[0]
-            if not (
+            if not all(
                 event["passed"] is True
                 and wanted["at"] <= event["begin"] < wanted["at"] + 5
                 and event["begin"] < event["end"] < spec["seconds"]
@@ -1225,12 +1333,16 @@ def joint_status(row, spec):
                     and event["hot_names"] == wanted["hot"]
                     and event["hot_rounds"] == wanted["hot_rounds"]
                     if wanted["kind"] == "dns"
+                    else event["asset"] == wanted["asset"]
+                    and event["mode"] == wanted["mode"]
+                    if wanted["kind"] == "update"
                     else event["rounds"] == wanted["rounds"]
                     and event["tcp_per_round"] == wanted["tcp"]
                     and event["udp_per_round"] == wanted["udp"]
                     and event["warm_connections"] == wanted["tcp"] + wanted["udp"]
                     and event["warm_exchanges_per_connection"] == wanted["rounds"]
                 )
+                for event, wanted in zip(events, wanted_events, strict=True)
             ):
                 return "FAIL_CORRECTNESS"
         if spec.get("distributed") and (

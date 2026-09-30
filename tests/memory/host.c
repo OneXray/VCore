@@ -68,7 +68,7 @@ int main(void) {
         else if (request[0] == 'D' && request[1] == ' ') {
             char *end;
             long fd = strtol(request + 2, &end, 10);
-            if (*end || fd < 3 || fd >= getdtablesize()) _exit(72);
+            if (*end || fd < 0 || fd >= getdtablesize()) _exit(72);
             int flags = fcntl((int)fd, F_GETFL);
             int count = 0;
             for (int current = 0; current < getdtablesize(); ++current)

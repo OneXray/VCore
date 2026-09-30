@@ -108,7 +108,7 @@ func totalBytes(r request) int64 {
 }
 func validate(r request) error {
 	if (r.Transport != "tcp" && r.Transport != "udp") ||
-		(r.Direction != "up" && r.Direction != "down" && r.Direction != "both") || r.Seconds < 1 || r.Seconds > 300 ||
+		(r.Direction != "up" && r.Direction != "down" && r.Direction != "both") || r.Seconds < 1 || r.Seconds > 1800 ||
 		r.BytesPerSecond < 1 || r.BytesPerSecond > 125000000 || count(r) == 0 {
 		return errors.New("invalid bounded workload")
 	}
@@ -1109,8 +1109,8 @@ func runClient(peer, proxy, transport, direction string, seconds, flows, mbps in
 	}
 	r := request{Transport: transport, Direction: "up", Seconds: seconds, BytesPerSecond: int64(mbps) * 125000 / int64(flows), Seed: 20260929}
 	if transport == "mixed" {
-		if !correctnessMode || flows%2 != 0 {
-			return errors.New("mixed transport requires an even fixed-rate workload")
+		if (!correctnessMode && !probeMode) || flows%2 != 0 {
+			return errors.New("mixed transport requires an even correctness/probe workload")
 		}
 		r.Transport = "tcp"
 	}
@@ -1198,15 +1198,15 @@ func runClient(peer, proxy, transport, direction string, seconds, flows, mbps in
 		}
 		flowProxy := proxies[i%len(proxies)]
 		current := r
+		if transport == "mixed" && i >= flows/2 {
+			current.Transport = "udp"
+		}
+		current.InitialHello = current.Transport == "tcp"
 		if expectedSources != "" {
 			current.ExpectedSource = sources[i]
 		}
 		if correctnessMode {
 			current.Correctness = true
-			if transport == "mixed" && i >= flows/2 {
-				current.Transport = "udp"
-			}
-			current.InitialHello = current.Transport == "tcp"
 			current.BytesPerSecond = 65536
 			if current.Transport == "udp" {
 				// Pacer units are 1200-byte slots: 20 slots/s, with the

@@ -12,6 +12,21 @@ from vcore_scripts.memory_socks_load import joint_status
 
 
 class SocksLoadTests(unittest.TestCase):
+    def test_online_updates_require_owned_trusted_https_inputs_before_start(self):
+        with self.assertRaisesRegex(RuntimeError, "trusted HTTPS"):
+            run(identifiers=["profile-socks-socks5-v4-update-geosite-replace"])
+
+    def test_endurance_cases_keep_smoke_and_full_workloads_distinct(self):
+        names = [
+            "lifecycle-socks-lifetimes-v4-smoke",
+            "lifecycle-tun-rebuild-v6-full",
+            "profile-socks-mixed-eight-v4-soak",
+        ]
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            for name in names:
+                run(identifiers=[name], list_only=True)
+        self.assertEqual(output.getvalue().splitlines(), names)
+
     def test_protocol_memory_profiles_have_public_two_entrypoint_cases(self):
         names = [
             "profile-socks-ss-aes128-v4-smoke",
