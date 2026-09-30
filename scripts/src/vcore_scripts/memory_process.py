@@ -75,7 +75,13 @@ class MeasuredProcess:
     """
 
     def __init__(
-        self, executable: Path, observer: Path, work: Path, *, diagnostic=False
+        self,
+        executable: Path,
+        observer: Path,
+        work: Path,
+        *,
+        diagnostic=False,
+        pass_fds=(),
     ):
         if any(key.startswith(("Malloc", "DYLD_")) for key in os.environ):
             raise ValueError("unset inherited allocator/tracer overrides")
@@ -103,6 +109,7 @@ class MeasuredProcess:
                 stderr=self.stderr,
                 start_new_session=True,
                 bufsize=0,
+                pass_fds=pass_fds,
                 env=os.environ
                 | (
                     {

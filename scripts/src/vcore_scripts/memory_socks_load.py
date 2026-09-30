@@ -1,12 +1,14 @@
 """Coupled public-SOCKS5 routing, received payload and whole-PID memory evidence."""
 
 import contextlib
+import errno
 import json
 import math
 import shutil
 import socket
 import subprocess
 import time
+from datetime import datetime
 
 from . import builds
 from .memory_cold_start import available
@@ -215,6 +217,30 @@ CASES = (
     | CORRECTNESS_CASES
     | DEVELOPMENT_CASES
 )
+TUN_CASES = {
+    name.replace("socks-", "tun-", 1): spec | {"entrypoint": "fd-TUN"}
+    for name, spec in CASES.items()
+    if name not in SPLIT_CASES
+}
+for family in ("v4", "v6"):
+    for kind in ("mixed", "sniff", "dns", "churn", "backpressure"):
+        TUN_CASES[f"tun-functional-{kind}-{family}"] = (
+            TUN_CASES[f"tun-smoke-{'tcp' if kind == 'sniff' else kind}-{family}"]
+            | {"correctness": True, "mbps": 0}
+            | ({"sniff": True} if kind == "sniff" else {})
+        )
+    TUN_CASES[f"tun-smoke-sniff-{family}"] = TUN_CASES[f"tun-smoke-tcp-{family}"] | {
+        "sniff": True
+    }
+    for transport in ("tcp", "udp"):
+        TUN_CASES[f"tun-smoke-{transport}-single-{family}"] = TUN_CASES[
+            f"tun-smoke-{transport}-{family}"
+        ] | {
+            "flows": 1,
+            "primary_route": "cn",
+            "mbps": 8,
+        }
+CASES.update(TUN_CASES)
 
 
 def address(peer, spec):
@@ -291,12 +317,36 @@ def _route_probe(port, host, source, bandwidth, spec):
                     "bytes_per_second": 65536,
                     "seed": 20260929,
                     "expected_source": source,
+                    **(
+                        {
+                            "initial_hello": True,
+                            "sniff_host": host if not _is_ip(host) else "",
+                        }
+                        if spec.get("sniff")
+                        else {}
+                    ),
                 }
             ).encode()
             + b"\n"
         )
         remote = _json_line(control)["port"]
-        lab._socks(stack, port, host, remote)
+        if spec.get("entrypoint") == "fd-TUN":
+            from .memory_tun import connect, resolve
+
+            target = host
+            if not _is_ip(host):
+                if not spec.get("sniff"):
+                    resolve(port, host, address(bandwidth, spec))
+                target = address(bandwidth, spec)
+            stream = stack.enter_context(connect(port, target, remote))
+            if spec.get("sniff"):
+                if not _is_ip(host):
+                    stream.sendall(
+                        f"GET /memory HTTP/1.1\r\nHost: {host}\r\n\r\n".encode("ascii")
+                    )
+                stream.sendall(b"*")
+        else:
+            lab._socks(stack, port, host, remote)
         ready = _json_line(control)
         if ready != {"ready": True, "source_verified": True}:
             raise RuntimeError("load route origin source mismatch")
@@ -304,7 +354,27 @@ def _route_probe(port, host, source, bandwidth, spec):
         # Closing the control makes the bounded origin release the data socket.
 
 
-def _witnesses(port, reference, origin, bandwidth, mihomo, source, spec, positive):
+def _is_ip(host):
+    import ipaddress
+
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        return False
+
+
+def _witnesses(
+    port,
+    reference,
+    origin,
+    bandwidth,
+    mihomo,
+    source,
+    spec,
+    positive,
+    cn_bandwidth=None,
+):
     from . import memory_benchmark as lab
 
     peers = [mihomo] + ([positive] if positive is not None else [])
@@ -314,7 +384,25 @@ def _witnesses(port, reference, origin, bandwidth, mihomo, source, spec, positiv
     for item in reference["routes"]:
         if item["kind"] == "ip" and item["matched"]:
             with contextlib.ExitStack() as stack:
-                lab._socks(stack, port, item["value"], 443, expected_status=2)
+                if spec.get("entrypoint") == "fd-TUN":
+                    from .memory_tun import connect
+
+                    try:
+                        stream = stack.enter_context(connect(port, item["value"], 443))
+                        stream.sendall(b"reject-witness")
+                        if stream.recv(1):
+                            raise RuntimeError("CN IP TUN rejection returned payload")
+                    except EOFError:
+                        pass
+                    except OSError as error:
+                        if error.errno not in (
+                            errno.ENOTCONN,
+                            errno.ECONNRESET,
+                            errno.EPIPE,
+                        ):
+                            raise
+                else:
+                    lab._socks(stack, port, item["value"], 443, expected_status=2)
             rejected.append(item["id"])
     if [_accepts(peer) for peer in peers] != before_accepts or _dns_stats(
         origin
@@ -330,7 +418,7 @@ def _witnesses(port, reference, origin, bandwidth, mihomo, source, spec, positiv
             (address(positive, spec) if positive else source)
             if item["matched"]
             else address(mihomo, spec),
-            bandwidth,
+            cn_bandwidth if item["matched"] and cn_bandwidth else bandwidth,
             spec,
         )
         forwarded.append(item)
@@ -344,16 +432,26 @@ def _witnesses(port, reference, origin, bandwidth, mihomo, source, spec, positiv
     if (
         after_dns["rejected"]
         or any(key.endswith(":unknown") for key in after_dns["queries"])
-        or not all(
-            delta.get(
-                item["id"]
-                + (":28:" if spec.get("family") == "IPv6" else ":1:")
-                + ("peer" if positive and item["matched"] else "core"),
-                0,
+        or (
+            not spec.get("sniff")
+            and not all(
+                delta.get(
+                    item["id"]
+                    + (":28:" if spec.get("family") == "IPv6" else ":1:")
+                    + (
+                        "peer"
+                        if positive
+                        and item["matched"]
+                        and spec.get("entrypoint") != "fd-TUN"
+                        else "core"
+                    ),
+                    0,
+                )
+                > 0
+                for item in forwarded
             )
-            > 0
-            for item in forwarded
         )
+        or (spec.get("sniff") and after_dns != before_dns)
     ):
         raise RuntimeError("new route probes did not exercise controlled core DNS")
     return {
@@ -391,7 +489,7 @@ def _load(root, work, spec, bandwidth, branches, *, witness=None, overlap=None):
             argv = [
                 str(root / "artifacts/traffic-darwin"),
                 "-peer",
-                endpoint(address(bandwidth, spec), 24003),
+                branch.get("origin", endpoint(address(bandwidth, spec), 24003)),
                 "-transport",
                 branch.get("transport", spec.get("transport", "tcp")),
                 "-direction",
@@ -415,6 +513,10 @@ def _load(root, work, spec, bandwidth, branches, *, witness=None, overlap=None):
             ]
             if branch.get("proxy"):
                 argv += ["-proxy", branch["proxy"]]
+            if branch.get("tun"):
+                argv += ["-tun-control", str(branch["tun"])]
+                if spec.get("sniff"):
+                    argv += ["-tun-sniff"]
             if branch.get("target"):
                 argv += ["-target", branch["target"]]
             if branch.get("selection"):
@@ -543,10 +645,25 @@ def _load_valid(row, spec, endpoints):
     )
 
 
-def run_case(name, root, manifest, work, origin, bandwidth, mihomo, positive=None):
+def run_case(
+    name,
+    root,
+    manifest,
+    work,
+    origin,
+    bandwidth,
+    mihomo,
+    positive=None,
+    cn_bandwidth=None,
+):
     from . import memory_benchmark as lab
 
     spec = CASES[name]
+    is_tun = spec.get("entrypoint") == "fd-TUN"
+    if is_tun and cn_bandwidth is None:
+        raise ValueError(
+            "TUN DNS hints require distinct positive and negative origin IPs"
+        )
     source = host_source(address(bandwidth, spec))
     positive = positive if spec.get("topology") == "proxy" else None
     if spec.get("topology") == "proxy" and positive is None:
@@ -558,7 +675,8 @@ def run_case(name, root, manifest, work, origin, bandwidth, mihomo, positive=Non
         "accepted": False,
         "facility_valid": False,
         "workload": spec,
-        "scope": f"SOCKS5-{spec.get('transport', 'tcp').upper()}-"
+        "scope": f"{spec.get('entrypoint', 'SOCKS5')}-"
+        f"{spec.get('transport', 'tcp').upper()}-"
         f"{spec['family']}-{spec['flows']}-flows-CN-"
         + ("full-outbound" if positive else "split; not full-outbound-1Gbps"),
     }
@@ -580,9 +698,22 @@ def run_case(name, root, manifest, work, origin, bandwidth, mihomo, positive=Non
                         "route": "positive",
                         "source": address(positive, spec),
                         "proxy": _peer_proxy(positive, spec),
+                        **(
+                            {"origin": endpoint(address(cn_bandwidth, spec), 24003)}
+                            if is_tun
+                            else {}
+                        ),
                     }
                     if positive
-                    else {"route": "direct", "source": source}
+                    else {
+                        "route": "direct",
+                        "source": source,
+                        **(
+                            {"origin": endpoint(address(cn_bandwidth, spec), 24003)}
+                            if is_tun
+                            else {}
+                        ),
+                    }
                 ),
                 {
                     "route": "mihomo",
@@ -662,6 +793,18 @@ def run_case(name, root, manifest, work, origin, bandwidth, mihomo, positive=Non
             config["proxy-groups"].append(
                 {"name": "cn-route", "type": "select", "proxies": ["cn-edge"]}
             )
+        tun = None
+        if is_tun:
+            from .memory_tun import TunClient
+
+            config.pop("socks-port")
+            config["tun"] = {"enable": True}
+            if spec.get("sniff"):
+                config["sniffer"] = {
+                    "enable": True,
+                    "sniff": {"HTTP": {"ports": ["1-65535"]}},
+                }
+            tun = stack.enter_context(TunClient(root, work))
         selections = {}
         if spec.get("distributed"):
             control_port, control_reservation = reserve_port(stack)
@@ -685,8 +828,12 @@ def run_case(name, root, manifest, work, origin, bandwidth, mihomo, positive=Non
                     "members": members,
                 }
         save(work / "config.json", config)
+        started = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         process = MeasuredProcess(
-            root / "artifacts/vcore-host", root / "artifacts/observer.dylib", work
+            root / "artifacts/vcore-host",
+            root / "artifacts/observer.dylib",
+            work,
+            pass_fds=(tun.host.fileno(),) if tun else (),
         )
         record["pid"] = process.child.pid
         try:
@@ -706,14 +853,36 @@ def run_case(name, root, manifest, work, origin, bandwidth, mihomo, positive=Non
             if selections:
                 control_reservation.release_ipv4()
                 control_reservation.release_ipv6()
-            lab._api(process, "start", instance=instance)
+            if tun:
+                record["fd_before"] = process.command(f"D {tun.host.fileno()}")
+            lab._api(
+                process,
+                "start",
+                {"tunFd": tun.host.fileno(), "tunFraming": "utun"} if tun else {},
+                instance=instance,
+            )
+            entry = tun.path if tun else port
             routes = {
                 item["id"]: item for item in manifest["geodata_reference"]["routes"]
             }
+            if tun:
+                record["entry_route_witnesses"] = _witnesses(
+                    entry,
+                    manifest["geodata_reference"],
+                    origin,
+                    bandwidth,
+                    mihomo,
+                    source,
+                    spec,
+                    positive,
+                    cn_bandwidth,
+                )
             process.boundary("joint-load")
             counter_peers = {"origin": bandwidth, "miss": mihomo}
             if positive:
                 counter_peers["cn"] = positive
+            if cn_bandwidth:
+                counter_peers["cn-origin"] = cn_bandwidth
             _network_counters(work, "before", counter_peers)
 
             def overlap():
@@ -722,7 +891,7 @@ def run_case(name, root, manifest, work, origin, bandwidth, mihomo, positive=Non
                 process.boundary("overlap:" + spec["overlap"]["kind"])
                 if spec["overlap"]["kind"] == "dns":
                     result = dns_overlap(
-                        port,
+                        entry,
                         manifest["load_dns_names"],
                         origin,
                         bandwidth,
@@ -733,12 +902,13 @@ def run_case(name, root, manifest, work, origin, bandwidth, mihomo, positive=Non
                     result = churn_overlap(
                         root,
                         work,
-                        port,
+                        entry,
                         manifest["geodata_reference"],
                         bandwidth,
                         mihomo,
                         positive,
                         spec,
+                        cn_bandwidth=cn_bandwidth,
                     )
                 process.boundary("joint-load")
                 return result
@@ -756,7 +926,9 @@ def run_case(name, root, manifest, work, origin, bandwidth, mihomo, positive=Non
                                 "source": address(positive, spec)
                                 if positive
                                 else source,
-                                "proxy": endpoint(
+                                "proxy": None
+                                if tun
+                                else endpoint(
                                     "::1"
                                     if spec.get("family") == "IPv6"
                                     else "127.0.0.1",
@@ -764,11 +936,23 @@ def run_case(name, root, manifest, work, origin, bandwidth, mihomo, positive=Non
                                 ),
                                 "target": routes["domain-first"]["value"],
                                 "selection": selections.get("cn-route"),
+                                **(
+                                    {
+                                        "tun": tun.path,
+                                        "origin": endpoint(
+                                            address(cn_bandwidth, spec), 24003
+                                        ),
+                                    }
+                                    if tun
+                                    else {}
+                                ),
                             },
                             {
                                 "route": "miss-proxy",
                                 "source": address(mihomo, spec),
-                                "proxy": endpoint(
+                                "proxy": None
+                                if tun
+                                else endpoint(
                                     "::1"
                                     if spec.get("family") == "IPv6"
                                     else "127.0.0.1",
@@ -776,12 +960,13 @@ def run_case(name, root, manifest, work, origin, bandwidth, mihomo, positive=Non
                                 ),
                                 "target": routes["domain-negative"]["value"],
                                 "selection": selections.get("route"),
+                                **({"tun": tun.path} if tun else {}),
                             },
                         ],
                         spec,
                     ),
                     witness=lambda: _witnesses(
-                        port,
+                        entry,
                         manifest["geodata_reference"],
                         origin,
                         bandwidth,
@@ -789,6 +974,7 @@ def run_case(name, root, manifest, work, origin, bandwidth, mihomo, positive=Non
                         source,
                         spec,
                         positive,
+                        cn_bandwidth,
                     ),
                     overlap=overlap if spec.get("overlap") else None,
                 )
@@ -808,6 +994,10 @@ def run_case(name, root, manifest, work, origin, bandwidth, mihomo, positive=Non
             try:
                 if process.instance is not None:
                     lab._api(process, "stop", instance=process.instance)
+                    if tun:
+                        record["fd_after_stop"] = process.command(
+                            f"D {tun.host.fileno()}"
+                        )
                     lab._api(process, "destroyInstance", instance=process.instance)
                 process.finalize()
             except (OSError, RuntimeError, ValueError) as error:
@@ -815,6 +1005,12 @@ def run_case(name, root, manifest, work, origin, bandwidth, mihomo, positive=Non
             finally:
                 process.close()
         record["measurement"] = process.record
+        from .memory_resources import capture
+
+        record["resource_diagnostics"] = capture(record["pid"], started, work)
+        if tun:
+            tun.close()
+            record["tun_client"] = tun.record
         record["status"] = joint_status(record, spec)
         record["accepted"] = record["status"] in {"PASS", "DIAGNOSTIC"}
         record["development"] = spec.get("development", False)
@@ -884,6 +1080,24 @@ def joint_status(row, spec):
             for flow in branch["traffic"]["flows"]
         ):
             return "FAIL_CORRECTNESS"
+        if spec.get("entrypoint") == "fd-TUN":
+            driver = row.get("tun_client", {})
+            if not (
+                driver.get("joined")
+                and driver.get("exit_code") == 0
+                and driver.get("traffic", {}).get("complete") is True
+                and driver["traffic"]["ip_packets_sent"] > 0
+                and driver["traffic"]["ip_packets_received"] > 0
+                and row["fd_before"] == row["fd_after_stop"]
+                and row["fd_after_stop"]["original_open"]
+                and row["fd_after_stop"]["nonblocking"]
+                and row["entry_route_witnesses"]["passed"]
+                and all(
+                    branch["traffic"].get("entrypoint") == "fd-TUN"
+                    for branch in row["branches"]
+                )
+            ):
+                return "INVALID"
         if spec.get("overlap"):
             events = row.get("overlap_events", [])
             wanted = spec["overlap"]
@@ -926,7 +1140,7 @@ def joint_status(row, spec):
                 branch["traffic"],
                 spec.get("transport", "tcp"),
                 spec["direction"],
-                proxy_endpoints=1,
+                proxy_endpoints=0 if spec.get("entrypoint") == "fd-TUN" else 1,
                 flows=spec["flows"] // len(routes),
                 seconds=spec["seconds"],
                 mbps=spec["mbps"] // len(routes),

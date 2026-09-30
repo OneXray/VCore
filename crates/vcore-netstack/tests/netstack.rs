@@ -13,6 +13,7 @@ const WAIT: Duration = Duration::from_secs(2);
 async fn synthetic_tun_supports_ipv4_and_ipv6_tcp_and_udp() {
     let stack = NetStack::start(NetStackConfig::default()).unwrap();
     let mut parts = stack.into_parts();
+    let mut streams = Vec::new();
 
     for flow in [Flow::v4(12_000), Flow::v6(12_001)] {
         parts
@@ -28,6 +29,7 @@ async fn synthetic_tun_supports_ipv4_and_ipv6_tcp_and_udp() {
             .expect("TCP listener stopped");
         assert_eq!(stream.source_addr(), flow.source);
         assert_eq!(stream.destination_addr(), flow.destination);
+        streams.push(stream);
     }
 
     for flow in [Flow::v4(13_000), Flow::v6(13_001)] {
@@ -105,6 +107,50 @@ async fn tcp_write_applies_backpressure_and_stop_unblocks_it() {
     assert!(write_result.is_err());
     assert!(stream.is_stopped());
     assert_eq!(parts.stats.snapshot().active_tcp, 0);
+}
+
+#[tokio::test]
+async fn rejecting_a_half_open_flow_emits_reset_before_reclaiming_it() {
+    for flow in [Flow::v4(14_100), Flow::v6(14_101)] {
+        let mut parts = NetStack::start(NetStackConfig {
+            packet_queue: 1,
+            max_poll_interval: Duration::from_millis(5),
+            ..NetStackConfig::default()
+        })
+        .unwrap()
+        .into_parts();
+        parts
+            .packet_sink
+            .send(build_tcp(&flow, 100, 0, TcpFlags::SYN, &[]))
+            .await
+            .unwrap();
+        let syn_ack = timeout_packet(&mut parts.packet_stream).await;
+        assert!(is_syn_ack(&syn_ack, &flow));
+        // The dispatcher can reject immediately, before the client's ACK.
+        drop(parts.tcp_listener.accept().await.unwrap());
+        let reset = timeout_packet(&mut parts.packet_stream).await;
+        let offset = ip_header_len(reset.data());
+        assert_ne!(reset.data()[offset + 13] & 0x04, 0, "missing TCP RST");
+        assert_eq!(
+            u16::from_be_bytes(reset.data()[offset..offset + 2].try_into().unwrap()),
+            flow.destination.port()
+        );
+        tokio::time::timeout(WAIT, async {
+            while parts.stats.snapshot().active_tcp != 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("rejected half-open flow was retained");
+        assert_eq!(parts.stats.snapshot().half_open_tcp, 0);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(20), parts.packet_stream.recv())
+                .await
+                .is_err(),
+            "rejected flow emitted a duplicate reset"
+        );
+        parts.control.stop().await;
+    }
 }
 
 #[tokio::test]

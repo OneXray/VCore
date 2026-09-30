@@ -1,0 +1,19 @@
+[package]
+name = "vcore-memory-tun-driver"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "MIT"
+
+# Standalone external load generator: none of these features enter libvcore.
+[workspace]
+
+[dependencies]
+libc = "0.2"
+smoltcp = { version = "0.14", default-features = false, features = [
+    "std", "medium-ip", "proto-ipv4", "proto-ipv6", "socket-tcp",
+    "socket-tcp-cubic", "socket-udp",
+] }
+
+[profile.release]
+opt-level = 3

@@ -7,6 +7,7 @@
 #include "vcore.h"
 #endif
 #include <errno.h>
+#include <fcntl.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -64,6 +65,22 @@ int main(void) {
     sample();
     while (line()) {
         if (!strcmp(request, "S")) sample();
+        else if (request[0] == 'D' && request[1] == ' ') {
+            char *end;
+            long fd = strtol(request + 2, &end, 10);
+            if (*end || fd < 3 || fd >= getdtablesize()) _exit(72);
+            int flags = fcntl((int)fd, F_GETFL);
+            int count = 0;
+            for (int current = 0; current < getdtablesize(); ++current)
+                if (fcntl(current, F_GETFD) >= 0) ++count;
+            char reply[128];
+            int size = snprintf(reply, sizeof(reply),
+                "{\"original_open\":%s,\"nonblocking\":%s,\"open_fds\":%d}\n",
+                flags >= 0 ? "true" : "false",
+                flags >= 0 && (flags & O_NONBLOCK) ? "true" : "false", count);
+            if (size <= 0 || (size_t)size >= sizeof(reply)) _exit(72);
+            output(reply, (size_t)size);
+        }
         else if (!strcmp(request, "F")) {
             if (held) _exit(72);
             sample();

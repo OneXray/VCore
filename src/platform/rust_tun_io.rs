@@ -90,6 +90,15 @@ impl RustTunIo {
         let written = loop {
             let mut ready = self.device.writable().await?;
             match ready.try_io(|inner| inner.get_ref().send(packet)) {
+                #[cfg(target_vendor = "apple")]
+                Ok(Err(error)) if error.raw_os_error() == Some(libc::ENOBUFS) => {
+                    // Darwin can exhaust packet/mbuf space after a cached
+                    // writable event. No packet was accepted: retain this one
+                    // packet, yield without spinning, and let Stop cancel the
+                    // future. Do not resize the host's shared socket buffers.
+                    drop(ready);
+                    tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                }
                 Ok(result) => break result?,
                 Err(_would_block) => continue,
             }
@@ -204,6 +213,84 @@ mod tests {
             error,
             VCoreError::Io(ref error) if error.kind() == io::ErrorKind::UnexpectedEof
         ));
+    }
+
+    #[cfg(target_vendor = "apple")]
+    #[tokio::test]
+    async fn utun_full_packet_queue_waits_without_losing_or_replaying_a_packet() {
+        let (host, peer) = UnixDatagram::pair().unwrap();
+        host.set_nonblocking(true).unwrap();
+        peer.set_nonblocking(true).unwrap();
+        let io = RustTunIo::new(
+            TunFd::duplicate(host.as_raw_fd()).unwrap(),
+            TunFraming::Utun,
+        )
+        .unwrap();
+        let mut frame = 2_u32.to_be_bytes().to_vec();
+        frame.extend_from_slice(&IPV4);
+        // Cache a writable readiness observation before the peer queue fills.
+        // Starting with an already-full fd would only test the initial wait.
+        io.write_packet(&IPV4).await.unwrap();
+        let mut queued = 1;
+        loop {
+            match host.send(&frame) {
+                Ok(_) => {
+                    queued += 1;
+                    assert!(queued < 65536);
+                }
+                Err(error)
+                    if error.kind() == io::ErrorKind::WouldBlock
+                        || error.raw_os_error() == Some(libc::ENOBUFS) =>
+                {
+                    break;
+                }
+                Err(error) => panic!("unexpected local queue error: {error}"),
+            }
+        }
+        let write = io.write_packet(&IPV6);
+        tokio::pin!(write);
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(5), &mut write)
+                .await
+                .is_err(),
+            "a full local packet queue must apply backpressure, not terminate TUN"
+        );
+        let mut received = [0; 64];
+        assert_eq!(peer.recv(&mut received).unwrap(), frame.len());
+        assert_eq!(
+            tokio::time::timeout(std::time::Duration::from_secs(1), &mut write)
+                .await
+                .unwrap()
+                .unwrap(),
+            IpVersion::V6
+        );
+        for _ in 1..queued {
+            assert_eq!(peer.recv(&mut received).unwrap(), frame.len());
+            assert_eq!(&received[..frame.len()], frame);
+        }
+        assert_eq!(peer.recv(&mut received).unwrap(), IPV6.len() + 4);
+        assert_eq!(&received[..4], 30_u32.to_be_bytes());
+        assert_eq!(&received[4..IPV6.len() + 4], IPV6);
+        assert_eq!(
+            peer.recv(&mut received).unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
+        // Cancelling a blocked write must not leave a retry task behind.
+        io.write_packet(&IPV4).await.unwrap();
+        while host.send(&frame).is_ok() {}
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(5), io.write_packet(&IPV6))
+                .await
+                .is_err()
+        );
+        while let Ok(size) = peer.recv(&mut received) {
+            assert_eq!(&received[..size], frame);
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        assert_eq!(
+            peer.recv(&mut received).unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
     }
 
     #[cfg(target_vendor = "apple")]

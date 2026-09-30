@@ -590,7 +590,12 @@ impl Driver {
             {
                 socket.close();
             }
-            if !socket.is_active() {
+            // smoltcp's abort enters Closed before dispatching RST. Its remote
+            // endpoint is cleared only once that packet reaches our bounded
+            // device queue. Keep it until then, including TX backpressure.
+            let reset_pending =
+                socket.state() == tcp::State::Closed && socket.remote_endpoint().is_some();
+            if !socket.is_active() && !reset_pending {
                 inactive.push(*flow);
             }
         }

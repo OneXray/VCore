@@ -91,7 +91,9 @@ def dns_overlap(port, names, origin, bandwidth, mihomo, spec):
     }
 
 
-def churn_overlap(root, work, port, reference, bandwidth, mihomo, positive, spec):
+def churn_overlap(
+    root, work, port, reference, bandwidth, mihomo, positive, spec, cn_bandwidth=None
+):
     from .memory_socks_load import _load, address, endpoint
 
     wanted = spec["overlap"]
@@ -103,7 +105,23 @@ def churn_overlap(root, work, port, reference, bandwidth, mihomo, positive, spec
             "route": route + "-" + transport,
             "transport": transport,
             "source": address(peer, spec),
-            "proxy": endpoint("::1" if spec["family"] == "IPv6" else "127.0.0.1", port),
+            **(
+                {
+                    "tun": port,
+                    "origin": endpoint(
+                        address(
+                            cn_bandwidth if route == "domain-first" else bandwidth, spec
+                        ),
+                        24003,
+                    ),
+                }
+                if spec.get("entrypoint") == "fd-TUN"
+                else {
+                    "proxy": endpoint(
+                        "::1" if spec["family"] == "IPv6" else "127.0.0.1", port
+                    ),
+                }
+            ),
             "target": routes[route]["value"],
         }
         for route, peer in (("domain-first", positive), ("domain-negative", mihomo))

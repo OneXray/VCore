@@ -95,6 +95,18 @@ def _parser() -> argparse.ArgumentParser:
             "socks-overlap-v6",
             "socks-correctness-v4",
             "socks-correctness-v6",
+            "tun-smoke-v4",
+            "tun-smoke-v6",
+            "tun-functional-v4",
+            "tun-functional-v6",
+            "tun-tcp-v4",
+            "tun-tcp-v6",
+            "tun-udp-v4",
+            "tun-udp-v6",
+            "tun-overlap-v4",
+            "tun-overlap-v6",
+            "tun-correctness-v4",
+            "tun-correctness-v6",
         ),
     )
     memory.add_argument("--run-dir", type=Path)

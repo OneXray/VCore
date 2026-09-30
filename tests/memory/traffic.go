@@ -41,6 +41,7 @@ type request struct {
 	InitialHello   bool   `json:"initial_hello,omitempty"`
 	Correctness    bool   `json:"correctness,omitempty"`
 	ProbeRounds    int    `json:"probe_rounds,omitempty"`
+	SniffHost      string `json:"sniff_host,omitempty"`
 }
 type result struct {
 	Bytes      int64   `json:"bytes"`
@@ -321,6 +322,42 @@ func sendUDP(conn net.Conn, r request) result {
 	return <-job.done
 }
 
+// Read deadlines interrupt even a read already waiting inside a 64 KiB record.
+// Testing only between records skips pause windows on low-rate TCP workloads.
+func readTCP(conn net.Conn, buf []byte, r request, start time.Time, nextPause *time.Time, out *result) (int, error) {
+	if r.PauseEveryMS == 0 {
+		return io.ReadFull(conn, buf)
+	}
+	end := start.Add(time.Duration(r.Seconds) * time.Second)
+	drain := end.Add(3 * time.Second)
+	n := 0
+	for n < len(buf) {
+		deadline := drain
+		if nextPause.Before(end) {
+			if !time.Now().Before(*nextPause) {
+				out.ReadPauses = append(out.ReadPauses, time.Since(start).Milliseconds())
+				time.Sleep(time.Duration(r.PauseForMS) * time.Millisecond)
+				*nextPause = nextPause.Add(time.Duration(r.PauseEveryMS) * time.Millisecond)
+				continue
+			}
+			deadline = *nextPause
+		}
+		conn.SetReadDeadline(deadline)
+		count, err := conn.Read(buf[n:])
+		n += count
+		if timeout, ok := err.(net.Error); ok && timeout.Timeout() && deadline.Before(drain) {
+			continue
+		}
+		if err != nil {
+			return n, err
+		}
+		if count == 0 {
+			return n, io.ErrNoProgress
+		}
+	}
+	return n, nil
+}
+
 func transfer(conn net.Conn, r request, send bool) result {
 	if send && r.Transport == "udp" && !r.Probe {
 		return sendUDP(conn, r)
@@ -357,15 +394,10 @@ func transfer(conn net.Conn, r request, send bool) result {
 				break
 			}
 		} else {
-			if r.PauseEveryMS > 0 && !time.Now().Before(nextPause) && time.Since(start) < time.Duration(r.Seconds)*time.Second {
-				out.ReadPauses = append(out.ReadPauses, time.Since(start).Milliseconds())
-				time.Sleep(time.Duration(r.PauseForMS) * time.Millisecond)
-				nextPause = nextPause.Add(time.Duration(r.PauseEveryMS) * time.Millisecond)
-			}
 			var n int
 			var err error
 			if r.Transport == "tcp" {
-				n, err = io.ReadFull(conn, buf)
+				n, err = readTCP(conn, buf, r, start, &nextPause, &out)
 			} else {
 				n, err = conn.Read(buf)
 			}
@@ -500,6 +532,18 @@ func serveFlow(control net.Conn) {
 			return
 		}
 		defer data.Close()
+		if r.SniffHost != "" {
+			if len(r.SniffHost) > 253 {
+				return
+			}
+			expected := "GET /memory HTTP/1.1\r\nHost: " + r.SniffHost + "\r\n\r\n"
+			data.SetReadDeadline(time.Now().Add(10 * time.Second))
+			preface := make([]byte, len(expected))
+			if _, err := io.ReadFull(data, preface); err != nil || string(preface) != expected {
+				return
+			}
+			data.SetReadDeadline(time.Time{})
+		}
 		if r.InitialHello {
 			data.SetReadDeadline(time.Now().Add(10 * time.Second))
 			var hello [1]byte
@@ -650,6 +694,111 @@ type socksUDP struct {
 	writeBuffer [1463]byte
 }
 
+var tunControl string
+var tunSniff bool
+
+// Local IPC to the external raw-IP client, not a host TCP/UDP proxy server.
+type tunUDP struct{ net.Conn }
+
+func (c *tunUDP) Write(data []byte) (int, error) {
+	if len(data) > 1452 {
+		return 0, errors.New("TUN datagram exceeds MTU")
+	}
+	var length [2]byte
+	binary.BigEndian.PutUint16(length[:], uint16(len(data)))
+	if err := writeAll(c.Conn, length[:]); err != nil {
+		return 0, err
+	}
+	if err := writeAll(c.Conn, data); err != nil {
+		return 0, err
+	}
+	return len(data), nil
+}
+func (c *tunUDP) Read(data []byte) (int, error) {
+	var length [2]byte
+	if _, err := io.ReadFull(c.Conn, length[:]); err != nil {
+		return 0, err
+	}
+	n := int(binary.BigEndian.Uint16(length[:]))
+	if n > len(data) {
+		return 0, errors.New("oversized TUN datagram")
+	}
+	return io.ReadFull(c.Conn, data[:n])
+}
+func tunDial(host string, port int, udp bool) (net.Conn, error) {
+	ip := net.ParseIP(host)
+	if ip == nil || port < 1 || port > 65535 {
+		return nil, errors.New("literal TUN endpoint required")
+	}
+	conn, err := net.DialTimeout("unix", tunControl, 5*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	fail := func() (net.Conn, error) { conn.Close(); return nil, errors.New("TUN client setup") }
+	conn.SetDeadline(time.Now().Add(5 * time.Second))
+	header := make([]byte, 20)
+	header[0], header[1] = 1, 6
+	if udp {
+		header[0] = 2
+	}
+	binary.BigEndian.PutUint16(header[2:4], uint16(port))
+	if v4 := ip.To4(); v4 != nil {
+		header[1] = 4
+		copy(header[4:], v4)
+	} else {
+		copy(header[4:], ip.To16())
+	}
+	if writeAll(conn, header) != nil {
+		return fail()
+	}
+	var ack [1]byte
+	if _, err := io.ReadFull(conn, ack[:]); err != nil || ack[0] != 0 {
+		return fail()
+	}
+	conn.SetDeadline(time.Time{})
+	if udp {
+		return &tunUDP{conn}, nil
+	}
+	return conn, nil
+}
+func tunResolve(name, expected string) error {
+	conn, err := tunDial("198.18.0.1", 53, true)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(5 * time.Second))
+	query := []byte{0x07, 0xea, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0}
+	for _, label := range strings.Split(strings.TrimSuffix(name, "."), ".") {
+		if len(label) < 1 || len(label) > 63 {
+			return errors.New("invalid controlled name")
+		}
+		query = append(query, byte(len(label)))
+		query = append(query, label...)
+	}
+	qtype := byte(1)
+	ip := net.ParseIP(expected).To4()
+	if ip == nil {
+		qtype = 28
+		ip = net.ParseIP(expected).To16()
+	}
+	query = append(query, 0, 0, qtype, 0, 1)
+	if _, err := conn.Write(query); err != nil {
+		return err
+	}
+	reply := make([]byte, 1452)
+	n, err := conn.Read(reply)
+	if err != nil {
+		return err
+	}
+	reply = reply[:n]
+	if n < len(query)+12+len(ip) || !bytes.Equal(reply[:8], []byte{7, 0xea, 0x81, 0x80, 0, 1, 0, 1}) ||
+		!bytes.Equal(reply[12:len(query)], query[12:]) || !bytes.HasSuffix(reply, ip) {
+		return errors.New("TUN DNS origin mismatch")
+	}
+	return nil
+}
+
 type boundedUDP struct {
 	net.Conn
 	scratch [1201]byte
@@ -717,6 +866,41 @@ func datagramHeader(target string) ([]byte, error) {
 }
 
 func dialData(r request, proxy, target string) (net.Conn, error) {
+	if tunControl != "" {
+		if proxy != "" {
+			return nil, errors.New("TUN and SOCKS entrypoints are exclusive")
+		}
+		host, portText, err := net.SplitHostPort(target)
+		port, portErr := strconv.Atoi(portText)
+		if err != nil || portErr != nil {
+			return nil, errors.New("invalid TUN target")
+		}
+		if net.ParseIP(host) == nil {
+			if !tunSniff {
+				if err := tunResolve(host, r.TargetIP); err != nil {
+					return nil, err
+				}
+			}
+			host = r.TargetIP
+		}
+		conn, err := tunDial(host, port, r.Transport == "udp")
+		if err != nil {
+			return nil, err
+		}
+		if r.SniffHost != "" {
+			if err := writeAll(conn, []byte("GET /memory HTTP/1.1\r\nHost: "+r.SniffHost+"\r\n\r\n")); err != nil {
+				conn.Close()
+				return nil, err
+			}
+		}
+		if r.InitialHello {
+			if err := writeAll(conn, []byte{42}); err != nil {
+				conn.Close()
+				return nil, err
+			}
+		}
+		return conn, nil
+	}
 	if proxy == "" {
 		conn, err := net.DialTimeout(r.Transport, target, 5*time.Second)
 		if err != nil {
@@ -931,6 +1115,12 @@ func runClient(peer, proxy, transport, direction string, seconds, flows, mbps in
 		r.BytesPerSecond /= 2
 	}
 	r.TargetHost, r.ExpectedSource = target, source
+	if tunSniff {
+		if tunControl == "" || transport != "tcp" || target == "" || net.ParseIP(target) != nil {
+			return errors.New("sniff probe requires named TUN TCP")
+		}
+		r.SniffHost = target
+	}
 	r.InitialHello = transport == "tcp"
 	if correctnessMode {
 		r.Correctness, r.BytesPerSecond = true, 65536
@@ -947,7 +1137,7 @@ func runClient(peer, proxy, transport, direction string, seconds, flows, mbps in
 		}
 		r.Probe, r.ProbeRounds, r.BytesPerSecond = true, probeRounds, 640
 	}
-	if target != "" && proxy == "" {
+	if target != "" && proxy == "" && tunControl == "" {
 		return errors.New("named workload must use the SOCKS5 entrypoint, not host DNS")
 	}
 	if source != "" && net.ParseIP(source) == nil {
@@ -1073,6 +1263,10 @@ func runClient(peer, proxy, transport, direction string, seconds, flows, mbps in
 	if selection != nil {
 		report["selected_flow_members"] = selection.Members
 	}
+	if tunControl != "" {
+		report["entrypoint"] = "fd-TUN"
+		report["http_sniff"] = tunSniff
+	}
 	if probeMode {
 		report["probe"] = true
 		report["probe_rounds"] = probeRounds
@@ -1109,6 +1303,8 @@ func main() {
 	startFile := flag.String("start-file", "", "owned common release file for paired load")
 	flag.IntVar(&udpPacingCredit, "udp-pacing-credit", 16, "bounded scheduling credit, never discarded payload")
 	flag.StringVar(&selectionFile, "selection-file", "", "owned per-flow controller selection configuration")
+	flag.StringVar(&tunControl, "tun-control", "", "external raw-IP client Unix IPC path; no host DNS")
+	flag.BoolVar(&tunSniff, "tun-sniff", false, "HTTP sniff preface instead of DNS hint; not business payload")
 	flag.IntVar(&slowFlows, "slow-flows", 0, "number of TCP flows with slow receivers")
 	flag.IntVar(&pauseEveryMS, "pause-every-ms", 10000, "slow receiver pause period")
 	flag.IntVar(&pauseForMS, "pause-for-ms", 2000, "slow receiver pause duration")

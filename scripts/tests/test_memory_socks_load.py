@@ -12,6 +12,13 @@ from vcore_scripts.memory_socks_load import joint_status
 
 
 class SocksLoadTests(unittest.TestCase):
+    def test_tun_development_load_has_a_separate_public_entrypoint(self):
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            run(identifiers=["tun-smoke-tcp-v4", "tun-smoke-udp-v4"], list_only=True)
+        self.assertEqual(
+            output.getvalue().splitlines(), ["tun-smoke-tcp-v4", "tun-smoke-udp-v4"]
+        )
+
     def test_distributed_udp_development_case_has_a_public_entrypoint(self):
         with contextlib.redirect_stdout(io.StringIO()) as output:
             run(identifiers=["socks-smoke-udp-distributed-v6"], list_only=True)

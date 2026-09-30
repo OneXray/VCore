@@ -300,11 +300,17 @@ def _peers(root, manifest):
         needs_positive = any(
             spec.get("topology") == "proxy" for spec in workloads.values()
         )
+        needs_tun = any(
+            spec.get("entrypoint") == "fd-TUN" for spec in workloads.values()
+        )
         positive = None
+        cn_bandwidth = None
         try:
             with contextlib.ExitStack() as stack:
-                for role in ("origin", "bandwidth", "mihomo") + (
-                    ("positive",) if needs_positive else ()
+                for role in (
+                    ("origin", "bandwidth", "mihomo")
+                    + (("positive",) if needs_positive else ())
+                    + (("cn-bandwidth",) if needs_tun else ())
                 ):
                     directory = Path(temporary) / role
                     directory.mkdir()
@@ -392,6 +398,24 @@ def _peers(root, manifest):
                     ],
                     cpus=4,
                 )
+                if needs_tun:
+                    shutil.copy2(
+                        root / "artifacts/traffic-linux",
+                        directories["cn-bandwidth"] / "traffic",
+                    )
+                    cn_bandwidth = lab.start(
+                        stack,
+                        directories["cn-bandwidth"],
+                        "memory-cn-bandwidth",
+                        [
+                            "env",
+                            "VCORE_ISOLATED_ORIGIN=1",
+                            "/data/fixture/traffic",
+                            "-mode",
+                            "origin",
+                        ],
+                        cpus=4,
+                    )
                 # A failed CN reject test must never dial a public rule target.
                 mihomo_config["rules"] = [
                     f"IP-CIDR,{origin.ipv4}/32,DIRECT,no-resolve",
@@ -400,6 +424,11 @@ def _peers(root, manifest):
                     f"IP-CIDR6,{bandwidth.ipv6}/128,DIRECT,no-resolve",
                     "MATCH,REJECT",
                 ]
+                if cn_bandwidth:
+                    mihomo_config["rules"][:0] = [
+                        f"IP-CIDR,{cn_bandwidth.ipv4}/32,DIRECT,no-resolve",
+                        f"IP-CIDR6,{cn_bandwidth.ipv6}/128,DIRECT,no-resolve",
+                    ]
                 if workloads:
                     # CN hits remain domain targets when VCore delegates DNS to
                     # SOCKS5. IP-only no-resolve fences would reject them before
@@ -470,6 +499,15 @@ def _peers(root, manifest):
                             "peer_source": mihomo.ipv4,
                             "peer_sources": [mihomo.ipv4]
                             + ([positive.ipv4] if positive else []),
+                            "targets": {
+                                item["id"]: socks_load.address(
+                                    cn_bandwidth, {"family": family}
+                                )
+                                for item in manifest["geodata_reference"]["routes"]
+                                if cn_bandwidth
+                                and item["kind"] == "site"
+                                and item["matched"]
+                            },
                         },
                     )
                 version = command(
@@ -500,12 +538,20 @@ def _peers(root, manifest):
                     peer.release()
                     peer.wait_tcp(port)
                     peer.record.update(ipv4=peer.ipv4, ipv6=peer.ipv6)
+                if cn_bandwidth:
+                    cn_bandwidth.release()
+                    cn_bandwidth.wait_tcp(24003)
+                    cn_bandwidth.record.update(
+                        ipv4=cn_bandwidth.ipv4, ipv6=cn_bandwidth.ipv6
+                    )
                 save(root / "resources.json", record)
-                yield origin, bandwidth, mihomo, positive
+                yield origin, bandwidth, mihomo, positive, cn_bandwidth
                 for peer in (origin, bandwidth, mihomo) + (
                     (positive,) if positive else ()
                 ):
                     peer.ensure_alive()
+                if cn_bandwidth:
+                    cn_bandwidth.ensure_alive()
         finally:
             save(root / "resources.json", record)
             logs = root / ("peer-logs-" + str(time.time_ns()))
@@ -1145,7 +1191,18 @@ def run(
     if identifiers and suite:
         raise ValueError("choose a suite or specific cases, not both")
     selected = identifiers or (
-        cold.cases() + [cold.DIAGNOSTIC_CASE]
+        [
+            name
+            for name, spec in socks_load.TUN_CASES.items()
+            if spec["family"] == ("IPv6" if suite.endswith("v6") else "IPv4")
+            and (
+                spec.get("development", False)
+                if suite.startswith("tun-smoke-")
+                else name.startswith(suite.removesuffix("v4").removesuffix("v6"))
+            )
+        ]
+        if suite and suite.startswith("tun-")
+        else cold.cases() + [cold.DIAGNOSTIC_CASE]
         if suite == "cold-start"
         else list(CAPACITY_CASES)
         if suite == "peer-capacity"
@@ -1371,6 +1428,30 @@ def run(
                 ):
                     manifest["toolchain"][tool] = _command(argv, root, tool)
                 artifacts, library_hash = _build(root / "artifacts")
+                if any(
+                    socks_load.CASES.get(name, {}).get("entrypoint") == "fd-TUN"
+                    for name in selected
+                ):
+                    _command(
+                        [
+                            "cargo",
+                            "build",
+                            "--locked",
+                            "--release",
+                            "--manifest-path",
+                            FIXTURES / "tun-driver/Cargo.toml",
+                            "--target-dir",
+                            builds.CORE_DIR / "target/memory-tun-driver",
+                        ],
+                        root / "artifacts",
+                        "tun-driver-build",
+                        timeout=300,
+                    )
+                    shutil.copy2(
+                        builds.CORE_DIR
+                        / "target/memory-tun-driver/release/vcore-memory-tun-driver",
+                        root / "artifacts/tun-driver",
+                    )
                 manifest["library_sha256"] = library_hash
                 manifest["rules"] = acquire_rules(root / "rules")
                 if (
@@ -1497,7 +1578,13 @@ def run(
                     raise RuntimeError("source changed during memory preparation")
                 manifest["ready"] = True
                 save(root / "manifest.json", manifest)
-            with _peers(root, manifest) as (origin, bandwidth, mihomo, positive):
+            with _peers(root, manifest) as (
+                origin,
+                bandwidth,
+                mihomo,
+                positive,
+                cn_bandwidth,
+            ):
                 for name in selected:
                     old = store.completed(name)
                     if old is not None and old.get("accepted"):
@@ -1561,6 +1648,7 @@ def run(
                             bandwidth,
                             mihomo,
                             positive,
+                            cn_bandwidth,
                         )
                     elif name.startswith("cold-") or name == cold.DIAGNOSTIC_CASE:
                         result = cold.run_case(

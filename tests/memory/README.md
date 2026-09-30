@@ -43,6 +43,13 @@ uv run --project scripts --locked vcore-scripts check memory --suite socks-smoke
 uv run --project scripts --locked vcore-scripts check memory --suite socks-udp-v6 --list
 uv run --project scripts --locked vcore-scripts check memory --suite socks-correctness-v6 --list
 uv run --project scripts --locked vcore-scripts check memory --suite socks-overlap-v6 --list
+# 外部 raw-IP 客户端；同样完整 CN、校准原站、精确正文和独立峰值观测：
+uv run --project scripts --locked vcore-scripts check memory --suite tun-smoke-v4
+uv run --project scripts --locked vcore-scripts check memory --suite tun-smoke-v6
+# 低速固定正确性，不替换高速 smoke 的原始失败证据：
+uv run --project scripts --locked vcore-scripts check memory --suite tun-functional-v6
+uv run --project scripts --locked vcore-scripts check memory --suite tun-tcp-v4 --list
+uv run --project scripts --locked vcore-scripts check memory --suite tun-udp-v6 --list
 # 保留同一源码、产物、输入和用例集合：
 uv run --project scripts --locked vcore-scripts check memory --resume target/memory/<run-id>
 ```
@@ -52,6 +59,25 @@ uv run --project scripts --locked vcore-scripts check memory --resume target/mem
 宿主仅运行客户端、观察器及被测 VCore SOCKS5 入站。停止只清理本轮拥有的进程和容器。
 运行前须移除继承的 `Malloc*` / `DYLD_*` 覆盖项（例如 `env -u MallocNanoZone`），
 不更换分配器或把诊断开销算成正式结果。
+
+fd-TUN 用例使用独立 `tun-driver` 进程中的官方 smoltcp TCP/UDP 客户端，将完整原始 IP
+与四字节 utun 头通过非阻塞 datagram socketpair 交给生产 ABI；本地 Unix-stream 仅为
+外部流量客户端的 IPC，不是宿主网络服务。独立 crate/lockfile 不进入生产链接或被测 PID。
+客户端的有界队列和每流缓冲只是测量设施边界，不修改 VCore 业务配额。高档前仍须验证
+设施承载能力，不能以驱动瓶颈推断核心已达到吞吐上限。
+
+TUN 与 SOCKS5 复用正文、种子、负载和内核峰值判定。TUN 前置见证覆盖双栈 GeoIP
+拒绝、完整 CN 命中/未命中；DNS 提示的两分支使用不同原站 IP，避免提示相互覆盖。
+`tun-smoke-sniff-*` 另用 HTTP Host 嗅探、无 DNS 提示的真实 GeoSite 分流。Stop 前后
+核验宿主原 fd 仍开放且非阻塞、被测进程打开 fd 数回到基线；外部客户端必须退出并 join。
+`resource-diagnostics.json` 采集本轮 PID/时间窗的既有生产资源事件，记录 TCP/半开、UDP、
+DNS、队列丢弃与池峰值/回收；不可获得时明确 unavailable，不伪造计数或代替内核 footprint。
+逐流缓冲/报文复制按现有 netstack 结构与这些计数归因；分配诊断不得混入正式峰值。
+
+外部驱动必要回归：`go test tests/memory/traffic.go tests/memory/traffic_test.go`；
+独立 raw-IP 客户端检查：`cargo clippy --locked --manifest-path
+tests/memory/tun-driver/Cargo.toml --target-dir target/memory-tun-driver -- -D warnings`。
+背压读期限必须能中断正在等待一条记录的读取，并保留部分正文，不能只在记录间暂停。
 
 ## 测量边界
 

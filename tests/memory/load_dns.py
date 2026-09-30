@@ -60,6 +60,10 @@ def main():
                 packet, source = dns.recvfrom(513)
                 try:
                     response, case_id, qtype = answer(packet, names, config["target"])
+                    if case_id in config.get("targets", {}):
+                        response, case_id, qtype = answer(
+                            packet, names, config["targets"][case_id]
+                        )
                     category = (
                         "core"
                         if source[0] == config["core_source"]
