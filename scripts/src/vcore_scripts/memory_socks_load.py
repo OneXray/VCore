@@ -11,6 +11,7 @@ import time
 from datetime import datetime
 
 from . import builds
+from . import memory_protocols as protocols
 from .memory_cold_start import available
 from .memory_inputs import bandwidth_complete, save
 from .memory_process import LIMIT, MeasuredProcess
@@ -241,6 +242,7 @@ for family in ("v4", "v6"):
             "mbps": 8,
         }
 CASES.update(TUN_CASES)
+CASES.update(protocols.cases())
 
 
 def address(peer, spec):
@@ -317,6 +319,7 @@ def _route_probe(port, host, source, bandwidth, spec):
                     "bytes_per_second": 65536,
                     "seed": 20260929,
                     "expected_source": source,
+                    "initial_hello": True,
                     **(
                         {
                             "initial_hello": True,
@@ -339,14 +342,13 @@ def _route_probe(port, host, source, bandwidth, spec):
                     resolve(port, host, address(bandwidth, spec))
                 target = address(bandwidth, spec)
             stream = stack.enter_context(connect(port, target, remote))
-            if spec.get("sniff"):
-                if not _is_ip(host):
-                    stream.sendall(
-                        f"GET /memory HTTP/1.1\r\nHost: {host}\r\n\r\n".encode("ascii")
-                    )
-                stream.sendall(b"*")
+            if spec.get("sniff") and not _is_ip(host):
+                stream.sendall(
+                    f"GET /memory HTTP/1.1\r\nHost: {host}\r\n\r\n".encode("ascii")
+                )
+            stream.sendall(b"*")
         else:
-            lab._socks(stack, port, host, remote)
+            lab._socks(stack, port, host, remote, prefix=b"*")
         ready = _json_line(control)
         if ready != {"ready": True, "source_verified": True}:
             raise RuntimeError("load route origin source mismatch")
@@ -378,6 +380,7 @@ def _witnesses(
     from . import memory_benchmark as lab
 
     peers = [mihomo] + ([positive] if positive is not None else [])
+    peers += [p.memory_native for p in list(peers) if hasattr(p, "memory_native")]
     before_dns = _dns_stats(origin)
     before_accepts = [_accepts(peer) for peer in peers]
     rejected = []
@@ -415,14 +418,24 @@ def _witnesses(
         _route_probe(
             port,
             item["value"],
-            (address(positive, spec) if positive else source)
+            (
+                (protocols.source(positive) or address(positive, spec))
+                if positive
+                else source
+            )
             if item["matched"]
-            else address(mihomo, spec),
+            else (protocols.source(mihomo) or address(mihomo, spec)),
             cn_bandwidth if item["matched"] and cn_bandwidth else bandwidth,
             spec,
         )
         forwarded.append(item)
-    _route_probe(port, address(bandwidth, spec), address(mihomo, spec), bandwidth, spec)
+    _route_probe(
+        port,
+        address(bandwidth, spec),
+        protocols.source(mihomo) or address(mihomo, spec),
+        bandwidth,
+        spec,
+    )
     after_dns = _dns_stats(origin)
     delta = {
         key: count - before_dns["queries"].get(key, 0)
@@ -472,11 +485,20 @@ def _selected(branches, spec):
 
 
 def _peer_proxy(peer, spec):
+    if spec.get("profile"):
+        members = peer.record["memory_profile"]["members"]
+        count = spec["flows"] // 2 if len(members) > 1 else 1
+        return ",".join(
+            endpoint(address(peer, spec), 25000 + i % len(members))
+            for i in range(count)
+        )
     count = spec["flows"] // 2 if spec.get("distributed") else 1
     return ",".join(endpoint(address(peer, spec), 1080 + i) for i in range(count))
 
 
-def _load(root, work, spec, bandwidth, branches, *, witness=None, overlap=None):
+def _load(
+    root, work, spec, bandwidth, branches, *, witness=None, overlap=None, observe=None
+):
     """Simultaneous prescribed paths; one full-rate path for a single flow."""
     processes, outcomes = [], []
     preparation = time.monotonic()
@@ -513,6 +535,8 @@ def _load(root, work, spec, bandwidth, branches, *, witness=None, overlap=None):
             ]
             if branch.get("proxy"):
                 argv += ["-proxy", branch["proxy"]]
+            if branch.get("sources"):
+                argv += ["-expect-sources", ",".join(branch["sources"])]
             if branch.get("tun"):
                 argv += ["-tun-control", str(branch["tun"])]
                 if spec.get("sniff"):
@@ -565,6 +589,7 @@ def _load(root, work, spec, bandwidth, branches, *, witness=None, overlap=None):
             if time.monotonic() > ready_deadline:
                 raise TimeoutError("traffic driver readiness exceeded bound")
             time.sleep(0.005)
+        transport_observation = observe() if observe else None
         begin = time.monotonic()
         with release.open("x") as barrier:
             barrier.write("start\n")
@@ -610,6 +635,7 @@ def _load(root, work, spec, bandwidth, branches, *, witness=None, overlap=None):
         "start_barrier": True,
         "setup_seconds": begin - preparation,
         "overlap_events": events,
+        "transport_observation": transport_observation,
     }
 
 
@@ -696,7 +722,10 @@ def run_case(
                 (
                     {
                         "route": "positive",
-                        "source": address(positive, spec),
+                        "source": protocols.source(positive) or address(positive, spec),
+                        "sources": protocols.sources(
+                            positive, max(1, spec["flows"] // 2)
+                        ),
                         "proxy": _peer_proxy(positive, spec),
                         **(
                             {"origin": endpoint(address(cn_bandwidth, spec), 24003)}
@@ -717,7 +746,8 @@ def run_case(
                 ),
                 {
                     "route": "mihomo",
-                    "source": address(mihomo, spec),
+                    "source": protocols.source(mihomo) or address(mihomo, spec),
+                    "sources": protocols.sources(mihomo, max(1, spec["flows"] // 2)),
                     "proxy": _peer_proxy(mihomo, spec),
                 },
             ],
@@ -730,10 +760,8 @@ def run_case(
         calibration_spec,
         _selected(
             [
-                (spec["flows"] // 2 if spec.get("distributed") else 1)
-                if positive
-                else 0,
-                spec["flows"] // 2 if spec.get("distributed") else 1,
+                len(set(_peer_proxy(positive, spec).split(","))) if positive else 0,
+                len(set(_peer_proxy(mihomo, spec).split(","))),
             ],
             spec,
         ),
@@ -806,6 +834,41 @@ def run_case(
                 }
             tun = stack.enter_context(TunClient(root, work))
         selections = {}
+        if spec.get("profile"):
+            config["proxies"] = []
+            for group, peer, prefix in (
+                (config["proxy-groups"][0], mihomo, "edge"),
+                (config["proxy-groups"][1], positive, "cn-edge"),
+            ):
+                profile = peer.record["memory_profile"]
+                renamed = {
+                    node["name"]: prefix
+                    if len(profile["members"]) == 1
+                    and node["name"] in profile["members"]
+                    else prefix + "-" + node["name"]
+                    for node in profile["nodes"]
+                }
+                for template in profile["nodes"]:
+                    node = template | {"name": renamed[template["name"]]}
+                    if upstream := node.get("dialer-proxy"):
+                        node["dialer-proxy"] = renamed[upstream]
+                    config["proxies"].append(node)
+                group["proxies"] = [renamed[member] for member in profile["members"]]
+            record["protocol_profile"] = manifest["protocol_profile"]
+        if spec.get("profile") == "mixed-eight":
+            control_port, control_reservation = reserve_port(stack)
+            config["external-controller"] = endpoint("127.0.0.1", control_port)
+            config["secret"] = "memory-fixture-controller"
+            for group in config["proxy-groups"]:
+                members = group["proxies"]
+                selections[group["name"]] = {
+                    "controller": config["external-controller"],
+                    "secret": config["secret"],
+                    "group": group["name"],
+                    "members": [
+                        members[i % len(members)] for i in range(spec["flows"] // 2)
+                    ],
+                }
         if spec.get("distributed"):
             control_port, control_reservation = reserve_port(stack)
             config["external-controller"] = endpoint("127.0.0.1", control_port)
@@ -865,7 +928,7 @@ def run_case(
             routes = {
                 item["id"]: item for item in manifest["geodata_reference"]["routes"]
             }
-            if tun:
+            if tun or spec.get("profile"):
                 record["entry_route_witnesses"] = _witnesses(
                     entry,
                     manifest["geodata_reference"],
@@ -913,19 +976,40 @@ def run_case(
                 process.boundary("joint-load")
                 return result
 
-            record.update(
-                _load(
+            def witness():
+                if selections:
+                    protocols.reset_selection(config)
+                return _witnesses(
+                    entry,
+                    manifest["geodata_reference"],
+                    origin,
+                    bandwidth,
+                    mihomo,
+                    source,
+                    spec,
+                    positive,
+                    cn_bandwidth,
+                )
+
+            def load_at(directory):
+                return _load(
                     root,
-                    work,
+                    directory,
                     spec,
                     bandwidth,
                     _selected(
                         [
                             {
                                 "route": "cn-proxy" if positive else "cn-direct",
-                                "source": address(positive, spec)
+                                "source": protocols.source(positive)
+                                or address(positive, spec)
                                 if positive
                                 else source,
+                                "sources": protocols.sources(
+                                    positive, max(1, spec["flows"] // 2)
+                                )
+                                if positive
+                                else None,
                                 "proxy": None
                                 if tun
                                 else endpoint(
@@ -949,7 +1033,11 @@ def run_case(
                             },
                             {
                                 "route": "miss-proxy",
-                                "source": address(mihomo, spec),
+                                "source": protocols.source(mihomo)
+                                or address(mihomo, spec),
+                                "sources": protocols.sources(
+                                    mihomo, max(1, spec["flows"] // 2)
+                                ),
                                 "proxy": None
                                 if tun
                                 else endpoint(
@@ -965,20 +1053,27 @@ def run_case(
                         ],
                         spec,
                     ),
-                    witness=lambda: _witnesses(
-                        entry,
-                        manifest["geodata_reference"],
-                        origin,
-                        bandwidth,
-                        mihomo,
-                        source,
-                        spec,
-                        positive,
-                        cn_bandwidth,
-                    ),
+                    witness=witness,
                     overlap=overlap if spec.get("overlap") else None,
+                    observe=(
+                        lambda: protocols.snapshot([mihomo, positive], record["pid"])
+                    )
+                    if spec.get("profile")
+                    else None,
                 )
-            )
+
+            record.update(load_at(work))
+            if spec.get("warm_reuse"):
+                warm = work / "warm"
+                warm.mkdir()
+                process.boundary("warm-load")
+                record["warm_load"] = load_at(warm)
+                record["warm_load"]["pid"] = record["pid"]
+                record["warm_load"]["scope"] = (
+                    "same running instance and nodes; new business flows; "
+                    "transport reuse observed, not assumed TLS session resumption"
+                )
+                save(work / "warm.json", record["warm_load"])
             for branch in record["branches"]:
                 branch.update(pid=record["pid"], attempt=record["attempt"])
             record["dns"] = _dns_stats(origin)
@@ -1080,6 +1175,22 @@ def joint_status(row, spec):
             for flow in branch["traffic"]["flows"]
         ):
             return "FAIL_CORRECTNESS"
+        if spec.get("profile"):
+            warm = row.get("warm_load", {})
+            if not (
+                row["entry_route_witnesses"]["passed"]
+                and row.get("transport_observation")
+                and warm.get("pid") == row["pid"]
+                and warm.get("transport_observation")
+                and _load_valid(
+                    warm,
+                    spec,
+                    [0 if spec.get("entrypoint") == "fd-TUN" else 1] * len(routes),
+                )
+                and len(warm.get("witness_rounds", [])) == len(spec["witness_seconds"])
+                and all(w["passed"] for w in warm["witness_rounds"])
+            ):
+                return "FAIL_CORRECTNESS"
         if spec.get("entrypoint") == "fd-TUN":
             driver = row.get("tun_client", {})
             if not (

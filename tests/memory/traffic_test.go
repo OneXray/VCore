@@ -1,9 +1,35 @@
 package main
 
 import (
+	"bytes"
 	"net"
 	"testing"
 )
+
+func TestSOCKSDatagramPreservesAnExactDomainSource(t *testing.T) {
+	for _, source := range []string{"origin.test:443", "192.0.2.1:443", "other.test:443", "origin.test:444"} {
+		t.Run(source, func(t *testing.T) {
+			client, server := net.Pipe()
+			defer client.Close()
+			defer server.Close()
+			header, _ := datagramHeader("origin.test:443")
+			expected, _ := datagramHeader("192.0.2.1:443")
+			actual, _ := datagramHeader(source)
+			payload := []byte("bounded datagram")
+			go server.Write(append(actual, payload...))
+			adapter := socksUDP{Conn: client, header: header, expected: expected}
+			got := make([]byte, 64)
+			n, err := adapter.Read(got)
+			valid := source == "origin.test:443" || source == "192.0.2.1:443"
+			if valid && (err != nil || !bytes.Equal(got[:n], payload)) {
+				t.Fatalf("exact source rejected: %v", err)
+			}
+			if !valid && err == nil {
+				t.Fatal("unrelated source accepted")
+			}
+		})
+	}
+}
 
 // The external load driver's only local peer is in-memory IPC, not a host server.
 func TestSlowReaderPausesEvenInsideARecordRead(t *testing.T) {

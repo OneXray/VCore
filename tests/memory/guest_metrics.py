@@ -20,6 +20,22 @@ udp6 = {
     if key.startswith("Udp6")
 }
 network = {}
+owned_sockets = set()
+for fd in Path("/proc/1/fd").iterdir():
+    try:
+        link = os.readlink(fd)
+    except FileNotFoundError:
+        continue
+    if link.startswith("socket:["):
+        owned_sockets.add(link[8:-1])
+sockets = {}
+for transport in ("tcp", "tcp6", "udp", "udp6"):
+    values = []
+    for line in Path("/proc/net", transport).read_text().splitlines()[1:]:
+        fields = line.split()
+        if fields[9] in owned_sockets:
+            values.append({"local": fields[1], "remote": fields[2], "state": fields[3]})
+    sockets[transport] = values
 for line in Path("/proc/net/dev").read_text().splitlines()[2:]:
     interface, fields = line.split(":")
     values = list(map(int, fields.split()))
@@ -41,6 +57,8 @@ print(
             "udp6": udp6,
             "tcp": protocols["Tcp"],
             "network": network,
+            "pid1_sockets": sockets,
+            "socket_scope": "kernel sockets, not TLS or QUIC session counts",
         }
     )
 )

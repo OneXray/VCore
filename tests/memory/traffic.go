@@ -181,6 +181,7 @@ type flowSelection struct {
 }
 
 var selectionFile string
+var expectedSources string
 var slowFlows, pauseEveryMS, pauseForMS int
 var probeMode bool
 var correctnessMode bool
@@ -402,7 +403,7 @@ func transfer(conn net.Conn, r request, send bool) result {
 				n, err = conn.Read(buf)
 			}
 			if err != nil || n < 8 {
-				out.Error = "receive incomplete"
+				out.Error = fmt.Sprintf("receive incomplete: bytes=%d error=%v", n, err)
 				break
 			}
 			id := binary.LittleEndian.Uint64(buf)
@@ -835,10 +836,12 @@ func (c *socksUDP) Read(buf []byte) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	if n < len(c.expected) || n-len(c.expected) > len(buf) || !bytes.Equal(c.readBuffer[:len(c.expected)], c.expected) {
-		return 0, errors.New("SOCKS datagram source/size")
+	for _, source := range [][]byte{c.expected, c.header} {
+		if n >= len(source) && n-len(source) <= len(buf) && bytes.Equal(c.readBuffer[:len(source)], source) {
+			return copy(buf, c.readBuffer[len(source):n]), nil
+		}
 	}
-	return copy(buf, c.readBuffer[len(c.expected):n]), nil
+	return 0, errors.New("SOCKS datagram source/size")
 }
 func (c *socksUDP) Close() error { c.control.Close(); return c.Conn.Close() }
 
@@ -1147,6 +1150,17 @@ func runClient(peer, proxy, transport, direction string, seconds, flows, mbps in
 		return err
 	}
 	proxies := strings.Split(proxy, ",")
+	sources := strings.Split(expectedSources, ",")
+	if expectedSources != "" {
+		if len(sources) != flows {
+			return errors.New("one expected origin source required per flow")
+		}
+		for _, source := range sources {
+			if net.ParseIP(source) == nil {
+				return errors.New("invalid expected origin source")
+			}
+		}
+	}
 	endpointCount := 0
 	if proxy != "" {
 		if len(proxies) != 1 && len(proxies) != flows {
@@ -1157,12 +1171,14 @@ func runClient(peer, proxy, transport, direction string, seconds, flows, mbps in
 			host, portText, err := net.SplitHostPort(endpoint)
 			port, portErr := strconv.Atoi(portText)
 			ip := net.ParseIP(host)
-			if err != nil || portErr != nil || ip == nil || port < 1 || port > 65535 || seen[endpoint] {
-				return errors.New("invalid or repeated proxy endpoint")
+			if err != nil || portErr != nil || ip == nil || port < 1 || port > 65535 {
+				return errors.New("invalid proxy endpoint")
 			}
 			seen[endpoint] = true
 		}
-		endpointCount = len(proxies)
+		// A protocol can serve both TCP and UDP flows in a mixed profile.
+		// Count distinct endpoints, not entries in the prescribed flow map.
+		endpointCount = len(seen)
 	}
 	var ready sync.WaitGroup
 	selection, err := loadSelection(flows)
@@ -1182,6 +1198,9 @@ func runClient(peer, proxy, transport, direction string, seconds, flows, mbps in
 		}
 		flowProxy := proxies[i%len(proxies)]
 		current := r
+		if expectedSources != "" {
+			current.ExpectedSource = sources[i]
+		}
 		if correctnessMode {
 			current.Correctness = true
 			if transport == "mixed" && i >= flows/2 {
@@ -1303,6 +1322,7 @@ func main() {
 	startFile := flag.String("start-file", "", "owned common release file for paired load")
 	flag.IntVar(&udpPacingCredit, "udp-pacing-credit", 16, "bounded scheduling credit, never discarded payload")
 	flag.StringVar(&selectionFile, "selection-file", "", "owned per-flow controller selection configuration")
+	flag.StringVar(&expectedSources, "expect-sources", "", "literal expected origin source per flow for mixed peers")
 	flag.StringVar(&tunControl, "tun-control", "", "external raw-IP client Unix IPC path; no host DNS")
 	flag.BoolVar(&tunSniff, "tun-sniff", false, "HTTP sniff preface instead of DNS hint; not business payload")
 	flag.IntVar(&slowFlows, "slow-flows", 0, "number of TCP flows with slow receivers")

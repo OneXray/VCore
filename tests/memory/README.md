@@ -79,7 +79,41 @@ DNS、队列丢弃与池峰值/回收；不可获得时明确 unavailable，不�
 tests/memory/tun-driver/Cargo.toml --target-dir target/memory-tun-driver -- -D warnings`。
 背压读期限必须能中断正在等待一条记录的读取，并保留部分正文，不能只在记录间暂停。
 
-## 测量边界
+## 协议与复用配置
+
+`profile-{socks|tun}-{profile}-{v4|v6}-smoke` 是独立五秒正确性诊断；
+`-standard-{1|2|3}` 是 64 流、300 秒正确性；
+`-{tcp|udp}-{up|down|both}-1000-{1|2|3}` 是 16 流、300 秒聚合 1 Gbps。
+每轮仅一个 profile、一个地址族，可同时选择 SOCKS5/TUN，均完整 CN、全代理正文，
+先校准相同协议的官方路径。端点按逐流映射，重复使用一个协议端点不算新的监听器。
+
+profile：`socks5`、`ss-aes128`、`ss-aes256`、`ss-chacha`、`trojan-tls`、`anytls`、
+`vmess-ws-tls`、`vless-tls`、`vless-chrome`、`vless-reality-vision`、`vless-grpc`、
+`vless-xhttp-h2`、`vless-xhttp-h3`、`ss-uot`、`ss-shadowtls`、`ss-shadowtls-uot`、
+`hysteria2`、`tuic-native`、`tuic-quic`、`mixed-eight`、`two-hop`。
+Trojan 域名 UDP 和 XHTTP H3 使用官方 latest Xray，其余优先已有 Mihomo 夹具；
+ShadowTLS 始终 strict v3，单独包装的原生 UDP 不经过 ShadowTLS，UoT v2 才经过 TCP
+包装。两跳为 TCP-only SOCKS5 → SS UoT v2 + ShadowTLS v3，不新增协议服务实现。
+
+每个生产 PID 从第一次 prepare/路由见证至冷、热两轮的同等工作量持续观察，不重置峰值。
+热轮新建业务连接，保留同一实例和节点的可复用传输；不保证或冒称 TLS session resumption。
+`mixed-eight` 将 TCP/UDP 均匀分配到八协议，通过正式 Controller 在首包前切组，
+已建立业务继续校验正文和原站来源。32 流 smoke 与正式 64 流明确区分。
+SS 使用非空 client-first，未改变官方 server-first 例外。SOCKS UDP 回复只接受精确
+原始目标或已知隔离原站 IP（含端口），不接受其他来源。
+
+报告区分逻辑业务数、正式对端 tracker、观测源元组、guest PID 1 内核 socket 及
+被测 PID 的 `lsof` TCP/UDP socket。排除校准客户端的 tracker；内核 socket 包含入口/DNS，
+UDP socket 或 tracker **不是** QUIC connection ID、TLS 握手/恢复计数。该诊断不能替代
+同 PID 的内核峰值与正文断言。未执行的 profile/地址族/入口保持 NOT RUN。
+
+```sh
+env -u MallocNanoZone uv run --project scripts --locked vcore-scripts check memory --case profile-socks-ss-aes128-v4-smoke
+env -u MallocNanoZone uv run --project scripts --locked vcore-scripts check memory --case profile-tun-vless-chrome-v6-smoke
+env -u MallocNanoZone uv run --project scripts --locked vcore-scripts check memory --case profile-socks-mixed-eight-v4-smoke
+```
+
+## 生产进程与观测
 
 - `host.c` 链接生产 feature 集合的 Release `libvcore.a`，通过正式 Invoke API v5 执行
   initialize → prepare → start → 流量 → stop → destroy。没有 `interop-test`、流量生成、

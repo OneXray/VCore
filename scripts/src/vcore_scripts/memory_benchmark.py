@@ -480,6 +480,21 @@ def _peers(root, manifest):
                         ],
                         cpus=manifest.get("peer_cpus", 8),
                     )
+                from . import memory_protocols
+
+                auxiliary = memory_protocols.install(
+                    root,
+                    manifest,
+                    lab,
+                    stack,
+                    directories,
+                    origin,
+                    bandwidth,
+                    cn_bandwidth,
+                    mihomo,
+                    positive,
+                    mihomo_config,
+                )
                 if manifest.get("socks_load_workloads"):
                     save(
                         directories["origin"] / "load-dns.json",
@@ -498,7 +513,8 @@ def _peers(root, manifest):
                             "core_source": socks_load.host_source(bandwidth.ipv4),
                             "peer_source": mihomo.ipv4,
                             "peer_sources": [mihomo.ipv4]
-                            + ([positive.ipv4] if positive else []),
+                            + ([positive.ipv4] if positive else [])
+                            + [peer.ipv4 for peer in auxiliary],
                             "targets": {
                                 item["id"]: socks_load.address(
                                     cn_bandwidth, {"family": family}
@@ -552,6 +568,8 @@ def _peers(root, manifest):
                     peer.ensure_alive()
                 if cn_bandwidth:
                     cn_bandwidth.ensure_alive()
+                for peer in auxiliary:
+                    peer.ensure_alive()
         finally:
             save(root / "resources.json", record)
             logs = root / ("peer-logs-" + str(time.time_ns()))
@@ -593,14 +611,14 @@ def _address(host, port):
     return raw + struct.pack("!H", port)
 
 
-def _socks(stack, port, host, remote, command_id=1, *, expected_status=0):
+def _socks(stack, port, host, remote, command_id=1, *, expected_status=0, prefix=b""):
     stream = stack.enter_context(
         socket.create_connection(("127.0.0.1", port), timeout=5)
     )
     stream.sendall(b"\x05\x01\x00")
     if _exact(stream, 2) != b"\x05\x00":
         raise RuntimeError("SOCKS greeting failed")
-    stream.sendall(bytes([5, command_id, 0]) + _address(host, remote))
+    stream.sendall(bytes([5, command_id, 0]) + _address(host, remote) + prefix)
     header = _exact(stream, 4)
     if header != bytes([5, expected_status, 0, 1]):
         raise RuntimeError("SOCKS request failed")
@@ -1271,6 +1289,13 @@ def run(
     if list_only:
         print("\n".join(selected))
         return
+    profiles = {
+        socks_load.CASES[name].get("profile")
+        for name in selected
+        if name in socks_load.CASES
+    }
+    if len(profiles) > 1:
+        raise ValueError("freeze one protocol profile per memory run")
     inventory = prerequisites()
     if preflight_only:
         print(json.dumps(inventory, indent=2))
@@ -1562,6 +1587,9 @@ def run(
                     directory=root / "artifacts",
                     identity=manifest["peer"],
                 )
+                from . import memory_protocols
+
+                memory_protocols.prepare(root, manifest)
                 with frozen_image(root / "image-pull.log") as image:
                     manifest["image"] = image
                 manifest["files"] = {

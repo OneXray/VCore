@@ -12,6 +12,18 @@ from vcore_scripts.memory_socks_load import joint_status
 
 
 class SocksLoadTests(unittest.TestCase):
+    def test_protocol_memory_profiles_have_public_two_entrypoint_cases(self):
+        names = [
+            "profile-socks-ss-aes128-v4-smoke",
+            "profile-tun-vless-chrome-v6-smoke",
+            "profile-socks-mixed-eight-v4-standard-1",
+        ]
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            run(identifiers=names[:1], list_only=True)
+            run(identifiers=names[1:2], list_only=True)
+            run(identifiers=names[2:], list_only=True)
+        self.assertEqual(output.getvalue().splitlines(), names)
+
     def test_tun_development_load_has_a_separate_public_entrypoint(self):
         with contextlib.redirect_stdout(io.StringIO()) as output:
             run(identifiers=["tun-smoke-tcp-v4", "tun-smoke-udp-v4"], list_only=True)
