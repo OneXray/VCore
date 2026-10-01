@@ -54,6 +54,8 @@ quic-transport = ["dep:quinn"]
 # Enables local interoperability-only trust-root injection. Release build
 # scripts must not enable this feature.
 interop-test = ["outbound-anytls", "outbound-vless"]
+# Allows plaintext GeoData fixtures for isolated benchmarks, never production.
+benchmark-geodata-http = []
 ffi = ["tun", "dep:windows", "dep:windows-collections", "dep:windows-core"]
 tun = [
     "dep:rust-tun",

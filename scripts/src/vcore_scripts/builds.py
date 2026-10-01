@@ -140,6 +140,13 @@ def _profile() -> tuple[str, list[str]]:
     raise RuntimeError(f"unsupported VCORE_BUILD_PROFILE: {profile}")
 
 
+def _production_features(features: str) -> str:
+    names = {name.rsplit("/", 1)[-1] for name in re.split(r"[,\s]+", features)}
+    if names & {"interop-test", "benchmark-geodata-http"}:
+        raise RuntimeError("platform builds cannot enable test-only features")
+    return features
+
+
 def _installed_rust_targets() -> set[str]:
     result = subprocess.run(
         ["rustup", "target", "list", "--installed"],
@@ -163,6 +170,7 @@ def _cargo_build(
     features: str,
     env: dict[str, str],
 ) -> None:
+    _production_features(features)
     _run(
         [
             "cargo",
@@ -270,7 +278,7 @@ def build_android() -> None:
     ).resolve()
     android_api = _env("VCORE_ANDROID_API", "24")
     profile_name, profile_flags = _profile()
-    features = _env("VCORE_FEATURES", DEFAULT_FEATURES)
+    features = _production_features(_env("VCORE_FEATURES", DEFAULT_FEATURES))
     targets = _env(
         "VCORE_ANDROID_TARGETS", "aarch64-linux-android x86_64-linux-android"
     ).split()
@@ -344,7 +352,7 @@ def build_apple() -> None:
     dist = Path(_env("VCORE_APPLE_DIST_DIR", CORE_DIR / "dist" / "apple")).resolve()
     work = _cargo_target_dir() / "vcore-apple"
     profile_name, profile_flags = _profile()
-    features = _env("VCORE_FEATURES", DEFAULT_FEATURES)
+    features = _production_features(_env("VCORE_FEATURES", DEFAULT_FEATURES))
     targets = [
         "aarch64-apple-ios",
         "aarch64-apple-ios-sim",
@@ -561,6 +569,7 @@ def _windows_msvc_environment(architecture: str) -> dict[str, str]:
 def build_windows() -> None:
     if os.name != "nt":
         raise RuntimeError("Windows artifacts must be built on Windows")
+    _production_features(_env("VCORE_FEATURES", DEFAULT_FEATURES))
     architecture = _windows_architecture()
     output = CORE_DIR / "dist" / "windows" / architecture
     shutil.rmtree(output, ignore_errors=True)

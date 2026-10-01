@@ -1524,7 +1524,10 @@ fn normalize_geox_url(raw: String, field: &str) -> Result<String> {
     }
     let url = Url::parse(&raw)
         .map_err(|error| VCoreError::InvalidConfig(format!("{field} is invalid: {error}")))?;
-    if url.scheme() != "https" {
+    let allowed_scheme = url.scheme() == "https";
+    #[cfg(feature = "benchmark-geodata-http")]
+    let allowed_scheme = allowed_scheme || url.scheme() == "http";
+    if !allowed_scheme {
         return invalid(format!("{field} must use HTTPS"));
     }
     let authority = raw
@@ -3494,7 +3497,7 @@ geo-update-interval: 24"#,
                 "24.0",
             ),
             complete(
-                "http://geo.example.test/geoip.dat",
+                "ftp://geo.example.test/geoip.dat",
                 "https://geo.example.test/geosite.dat",
                 "24",
             ),
@@ -3542,6 +3545,28 @@ geo-update-interval: 24"#,
         )
         .unwrap_err();
         assert!(error.to_string().contains("4096-byte limit"), "{error}");
+    }
+
+    #[test]
+    fn geodata_update_http_is_benchmark_only() {
+        for url in [
+            "http://geo.example.test/geoip.dat",
+            "http://geo.example.test:8080/geosite.dat",
+        ] {
+            assert_eq!(
+                normalize_geox_url(url.to_owned(), "geox-url.geoip").is_ok(),
+                cfg!(feature = "benchmark-geodata-http")
+            );
+        }
+        for url in [
+            "http://127.0.0.1/geoip.dat",
+            "http://[::1]/geoip.dat",
+            "http://user:password@geo.example.test/geoip.dat",
+            "http://@geo.example.test/geoip.dat",
+            "http://geo.example.test/geoip.dat#latest",
+        ] {
+            assert!(normalize_geox_url(url.to_owned(), "geox-url.geoip").is_err());
+        }
     }
 
     #[test]

@@ -65,6 +65,13 @@ geo-update-interval: 24
 - 下载以固定大小缓冲流式写入同目录暂存文件，不限制资产总字节；保留 90 秒期限、取消、HTTPS/HTTP 解析边界和字节计数溢出检查。文件大小必须与下载报告一致，通过 wire 和分类需求校验后原子替换，SHA-256 随状态保存；失败保留上一份有效资产。
 - 跨进程更新锁和原子重命名只保护共享数据目录，不提供多实例调度协议。
 
+隔离实验可显式编译独立、非默认 `benchmark-geodata-http` feature，使 GeoData 更新
+接受以域名为主机、无 userinfo/fragment 的 HTTP fixture；仍通过同一个 dispatcher 和
+流式下载器，不建立 TLS。HTTP 重定向可保持 HTTP 或升级到 HTTPS，HTTPS 不允许降级。
+该入口没有环境变量或新的 YAML/FFI 开关；未编译该 feature 时仍强制 HTTPS，HTTPS 的
+公开根和完整证书验证不变。平台构建及 delivery 拒绝该测试 feature。HTTP 实验只验收
+更新逻辑与资源占用，不构成生产 HTTPS 信任链验收，不应启用 `interop-test`。
+
 ## GeoSite 匹配
 
 选路域名来源的优先级为：

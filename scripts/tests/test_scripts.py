@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
 import tempfile
 import tomllib
 import unittest
@@ -41,6 +42,22 @@ class ScriptTest(unittest.TestCase):
             features, set(manifest["features"]["default"]) | {"ffi", "tun"}
         )
         self.assertNotIn("interop-test", features)
+        self.assertNotIn("benchmark-geodata-http", features)
+
+    def test_platform_cargo_build_rejects_test_features_before_spawn(self):
+        for features in (
+            "ffi,benchmark-geodata-http",
+            "ffi interop-test",
+            "ffi vcore/benchmark-geodata-http",
+        ):
+            with self.subTest(features=features), patch.object(builds, "_run") as run:
+                with self.assertRaisesRegex(RuntimeError, "test-only"):
+                    builds._cargo_build("fixture-target", ["--release"], features, {})
+                run.assert_not_called()
+        self.assertEqual(
+            builds._production_features(builds.DEFAULT_FEATURES),
+            builds.DEFAULT_FEATURES,
+        )
 
     def test_cargo_target_directory_uses_cargo_environment_and_checkout_cwd(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -225,7 +242,11 @@ class ScriptTest(unittest.TestCase):
 
                 with (
                     patch.object(builds, "CORE_DIR", root),
-                    patch.object(builds, "os", SimpleNamespace(name="nt")),
+                    patch.object(
+                        builds,
+                        "os",
+                        SimpleNamespace(name="nt", environ={}, fspath=os.fspath),
+                    ),
                     patch.object(builds, "_windows_architecture", return_value="arm64"),
                     patch.object(
                         builds,

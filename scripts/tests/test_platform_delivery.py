@@ -18,6 +18,23 @@ from vcore_scripts.cli import main
 
 
 class PlatformDeliveryTest(unittest.TestCase):
+    def test_delivery_rejects_benchmark_http_feature_before_reading_source_or_building(
+        self,
+    ):
+        with (
+            patch.dict(
+                os.environ,
+                {"VCORE_FEATURES": builds.DEFAULT_FEATURES + ",benchmark-geodata-http"},
+                clear=True,
+            ),
+            patch.object(platform_delivery, "_source") as source,
+            patch.object(builds, "build_apple") as build,
+        ):
+            with self.assertRaisesRegex(ValueError, "production feature set"):
+                platform_delivery.build_delivery("apple")
+            source.assert_not_called()
+            build.assert_not_called()
+
     def test_all_delivery_platforms_reject_linked_output_before_mutation(self):
         for platform_name in ("apple", "windows", "android"):
             relative = Path("dist") / platform_name
