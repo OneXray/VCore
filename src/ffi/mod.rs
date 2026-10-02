@@ -1,4 +1,4 @@
-//! Runtime-local JSON Invoke boundary for Apple and Android hosts.
+//! Runtime-local JSON Invoke boundary for platform hosts.
 //!
 //! `VCoreInvoke` is the only public business entry point. A runtime-local
 //! per-request size limit bounds parsing memory. One public lifecycle
@@ -42,7 +42,8 @@ use crate::{
     target_os = "android",
     target_os = "ios",
     target_os = "tvos",
-    target_os = "macos"
+    target_os = "macos",
+    target_os = "linux"
 ))]
 use crate::platform::{TunFd, TunIo};
 
@@ -50,14 +51,16 @@ use crate::platform::{TunFd, TunIo};
     target_os = "android",
     target_os = "ios",
     target_os = "tvos",
-    target_os = "macos"
+    target_os = "macos",
+    target_os = "linux"
 ))]
 type InvokeTun = (TunFd, TunFraming);
 #[cfg(not(any(
     target_os = "android",
     target_os = "ios",
     target_os = "tvos",
-    target_os = "macos"
+    target_os = "macos",
+    target_os = "linux"
 )))]
 type InvokeTun = ();
 
@@ -218,10 +221,10 @@ impl Drop for InstanceRemovalGuard<'_> {
     }
 }
 
-struct RuntimeThreadGuard;
+pub(crate) struct RuntimeThreadGuard;
 
 impl RuntimeThreadGuard {
-    fn enter() -> Self {
+    pub(crate) fn enter() -> Self {
         IS_RUNTIME_THREAD.with(|marker| {
             // Admission state must also be set when debug assertions are disabled.
             let was_runtime_thread = marker.replace(true);
@@ -235,6 +238,44 @@ impl Drop for RuntimeThreadGuard {
     fn drop(&mut self) {
         IS_RUNTIME_THREAD.with(|marker| marker.set(false));
     }
+}
+
+// Logging is restored before Invoke admission is released on worker exit.
+struct RuntimeWorkerScope {
+    #[cfg(any(target_os = "ios", target_os = "tvos", target_os = "macos"))]
+    _logging: tracing::dispatcher::DefaultGuard,
+    _admission: RuntimeThreadGuard,
+}
+
+impl RuntimeWorkerScope {
+    fn enter() -> Self {
+        let admission = RuntimeThreadGuard::enter();
+        Self {
+            #[cfg(any(target_os = "ios", target_os = "tvos", target_os = "macos"))]
+            _logging: crate::platform::apple_logging::enter(),
+            _admission: admission,
+        }
+    }
+}
+
+thread_local! {
+    static RUNTIME_WORKER_SCOPE: std::cell::RefCell<Option<RuntimeWorkerScope>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+pub(crate) fn engine_runtime_builder() -> tokio::runtime::Builder {
+    let mut builder = tokio::runtime::Builder::new_multi_thread();
+    builder
+        .on_thread_start(|| {
+            RUNTIME_WORKER_SCOPE.with(|scope| {
+                *scope.borrow_mut() = Some(RuntimeWorkerScope::enter());
+            });
+        })
+        .on_thread_stop(|| {
+            let scope = RUNTIME_WORKER_SCOPE.with(|scope| scope.borrow_mut().take());
+            drop(scope);
+        });
+    builder
 }
 
 impl Engine {
@@ -942,11 +983,6 @@ impl CoreController {
         payload: StartPayload,
         presence: StartFieldPresence,
     ) -> Result<(), InvokeFailure> {
-        if cfg!(target_os = "linux") {
-            return Err(InvokeFailure::new(
-                "VCore runtime startup is unsupported on Linux",
-            ));
-        }
         let _command = self.try_command()?;
         let (prepared, tun, has_tun, allocator_relief) = {
             let mut inner = lock(&self.inner);
@@ -995,7 +1031,6 @@ impl CoreController {
         };
         let spawned = thread::Builder::new()
             .name(format!("vcore-runtime-{instance_id}"))
-            .stack_size(1024 * 1024)
             .spawn(crate::resources::observation::inherit_thread(move || {
                 let _runtime_thread = RuntimeThreadGuard::enter();
                 run_engine(context, prepared.core, tun, dialer, stop_rx, startup_tx)
@@ -1248,7 +1283,8 @@ fn geodata_resource_data(state: GeoResourceState) -> Value {
     target_os = "android",
     target_os = "ios",
     target_os = "tvos",
-    target_os = "macos"
+    target_os = "macos",
+    target_os = "linux"
 ))]
 fn duplicate_start_tun(tun: Option<(i32, TunFraming)>) -> Result<Option<InvokeTun>, InvokeFailure> {
     tun.map(|(fd, framing)| TunFd::duplicate(fd).map(|fd| (fd, framing)))
@@ -1260,12 +1296,13 @@ fn duplicate_start_tun(tun: Option<(i32, TunFraming)>) -> Result<Option<InvokeTu
     target_os = "android",
     target_os = "ios",
     target_os = "tvos",
-    target_os = "macos"
+    target_os = "macos",
+    target_os = "linux"
 )))]
 fn duplicate_start_tun(tun: Option<(i32, TunFraming)>) -> Result<Option<InvokeTun>, InvokeFailure> {
     if tun.is_some() {
         return Err(InvokeFailure::invalid_request(
-            "TUN fd is unsupported on this target; only iOS, tvOS, macOS, and Android are supported",
+            "TUN fd is unsupported on this target",
         ));
     }
     Ok(None)
@@ -1316,6 +1353,16 @@ fn validate_platform_tun_framing(framing: TunFraming) -> Result<(), InvokeFailur
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
+fn validate_platform_tun_framing(framing: TunFraming) -> Result<(), InvokeFailure> {
+    if framing != TunFraming::RawIp {
+        return Err(InvokeFailure::invalid_request(
+            "Linux TUN requires rawIp framing",
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(any(target_os = "ios", target_os = "tvos", target_os = "macos"))]
 fn validate_platform_tun_framing(framing: TunFraming) -> Result<(), InvokeFailure> {
     if framing != TunFraming::Utun {
@@ -1330,12 +1377,13 @@ fn validate_platform_tun_framing(framing: TunFraming) -> Result<(), InvokeFailur
     target_os = "android",
     target_os = "ios",
     target_os = "tvos",
-    target_os = "macos"
+    target_os = "macos",
+    target_os = "linux"
 )))]
 fn validate_platform_tun_framing(framing: TunFraming) -> Result<(), InvokeFailure> {
     let _ = framing;
     Err(InvokeFailure::invalid_request(
-        "TUN fd is unsupported on this target; only iOS, tvOS, macOS, and Android are supported",
+        "TUN fd is unsupported on this target",
     ))
 }
 
@@ -1388,11 +1436,7 @@ fn run_engine_inner(
     stop: oneshot::Receiver<()>,
     startup: SyncSender<Result<(), InvokeFailure>>,
 ) -> io::Result<()> {
-    let runtime = match tokio::runtime::Builder::new_current_thread()
-        .enable_io()
-        .enable_time()
-        .build()
-    {
+    let runtime = match engine_runtime_builder().enable_io().enable_time().build() {
         Ok(runtime) => runtime,
         Err(error) => {
             let message = error.to_string();
@@ -1405,7 +1449,8 @@ fn run_engine_inner(
             target_os = "android",
             target_os = "ios",
             target_os = "tvos",
-            target_os = "macos"
+            target_os = "macos",
+            target_os = "linux"
         ))]
         let started = match tun {
             Some((duplicate, framing)) => {
@@ -1419,7 +1464,8 @@ fn run_engine_inner(
             target_os = "android",
             target_os = "ios",
             target_os = "tvos",
-            target_os = "macos"
+            target_os = "macos",
+            target_os = "linux"
         )))]
         let started = {
             debug_assert!(tun.is_none());
@@ -1520,7 +1566,8 @@ fn reset_failed_operation(
     target_os = "android",
     target_os = "ios",
     target_os = "tvos",
-    target_os = "macos"
+    target_os = "macos",
+    target_os = "linux"
 ))]
 fn vcore_to_io(error: VCoreError) -> io::Error {
     match error {
@@ -1598,7 +1645,8 @@ mod tests {
         target_os = "android",
         target_os = "ios",
         target_os = "tvos",
-        target_os = "macos"
+        target_os = "macos",
+        target_os = "linux"
     ))]
     use std::os::{fd::AsRawFd, unix::net::UnixDatagram};
 
@@ -1979,6 +2027,89 @@ rules:
     }
 
     #[test]
+    fn engine_workers_preserve_invoke_admission_and_shutdown() {
+        use crate::resources::observation::{self, ResourceKind, ResourceProbe};
+
+        let (sent, received) = std::sync::mpsc::channel();
+        let thread = thread::spawn(move || {
+            let result = catch_unwind(AssertUnwindSafe(|| {
+                let defaults = tokio::runtime::Builder::new_multi_thread().build().unwrap();
+                let default_workers = defaults.metrics().num_workers();
+                drop(defaults);
+
+                let _engine_admission = RuntimeThreadGuard::enter();
+                let runtime = engine_runtime_builder()
+                    .enable_io()
+                    .enable_time()
+                    .build()
+                    .unwrap();
+                assert_eq!(
+                    runtime.handle().runtime_flavor(),
+                    tokio::runtime::RuntimeFlavor::MultiThread,
+                );
+                assert_eq!(runtime.metrics().num_workers(), default_workers);
+                let rejected = || {
+                    assert!(is_runtime_thread());
+                    let response: Value = serde_json::from_slice(&invoke_bytes(
+                        br#"{"apiVersion":5,"method":"version","payload":{}}"#,
+                    ))
+                    .unwrap();
+                    assert_failure(&response);
+                    assert!(
+                        response["error"]
+                            .as_str()
+                            .unwrap()
+                            .contains("runtime thread")
+                    );
+                };
+                let probe = ResourceProbe::default();
+                // Keep the handle outside block_on so Runtime::drop, rather
+                // than awaiting the deliberately pending task, proves shutdown.
+                #[allow(clippy::async_yields_async)]
+                let pending = probe.scope_sync(|| {
+                    runtime.block_on(async {
+                        rejected();
+                        let asynchronous = tokio::spawn(async move { rejected() });
+                        let blocking = tokio::task::spawn_blocking(rejected);
+                        tokio::time::timeout(Duration::from_secs(1), async {
+                            asynchronous.await.unwrap();
+                            blocking.await.unwrap();
+                        })
+                        .await
+                        .unwrap();
+                        let (started, ready) = oneshot::channel();
+                        let pending = observation::spawn(async move {
+                            let _session = observation::track(ResourceKind::Session);
+                            let _ = started.send(());
+                            std::future::pending::<()>().await;
+                        });
+                        tokio::time::timeout(Duration::from_secs(1), ready)
+                            .await
+                            .unwrap()
+                            .unwrap();
+                        pending
+                    })
+                });
+                assert_eq!(probe.snapshot().current(ResourceKind::Task), 1);
+                assert_eq!(probe.snapshot().current(ResourceKind::Session), 1);
+                drop(runtime);
+                assert!(pending.is_finished());
+                drop(pending);
+                assert!(probe.snapshot().is_idle());
+                assert!(is_runtime_thread(), "worker exit cleared the engine marker");
+            }));
+            let _ = sent.send(result);
+        });
+        let result = received
+            .recv_timeout(Duration::from_secs(3))
+            .expect("runtime admission/shutdown regression exceeded three seconds");
+        thread.join().unwrap();
+        if let Err(panic) = result {
+            std::panic::resume_unwind(panic);
+        }
+    }
+
+    #[test]
     fn null_invalid_utf8_and_oversized_input_return_json_failures() {
         let _guard = TEST_LOCK.lock().unwrap();
         reset_registry();
@@ -2049,7 +2180,8 @@ rules:
             target_os = "android",
             target_os = "ios",
             target_os = "tvos",
-            target_os = "macos"
+            target_os = "macos",
+            target_os = "linux"
         ))]
         assert_eq!(
             validate_start_tun(true, tun, presence).unwrap(),
@@ -2070,7 +2202,8 @@ rules:
             target_os = "android",
             target_os = "ios",
             target_os = "tvos",
-            target_os = "macos"
+            target_os = "macos",
+            target_os = "linux"
         )))]
         assert!(validate_start_tun(true, tun, presence).is_err());
 
@@ -2078,10 +2211,11 @@ rules:
             target_os = "android",
             target_os = "ios",
             target_os = "tvos",
-            target_os = "macos"
+            target_os = "macos",
+            target_os = "linux"
         ))]
         {
-            let wrong_framing = if cfg!(target_os = "android") {
+            let wrong_framing = if cfg!(any(target_os = "android", target_os = "linux")) {
                 "utun"
             } else {
                 "rawIp"
@@ -2306,7 +2440,7 @@ rules:
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn linux_runtime_start_fails_closed() {
+    fn linux_tun_start_rejects_non_tun_fd_and_preserves_prepared_state() {
         let _guard = TEST_LOCK.lock().unwrap();
         reset_registry();
         let _directory = initialize_test_data_directory();
@@ -2314,25 +2448,47 @@ rules:
         let prepared = request(
             "prepare",
             Some(&instance_id),
-            json!({"configYaml": http_config(free_ports(1)[0])}),
+            json!({"configYaml": tun_config()}),
         );
         assert_eq!(prepared["success"], true, "{prepared}");
 
-        let started = request("start", Some(&instance_id), json!({}));
-        assert_failure(&started);
-        assert!(
-            started["error"]
-                .as_str()
-                .unwrap()
-                .contains("unsupported on Linux")
-        );
-        assert_eq!(state(&instance_id)["data"]["state"], "prepared");
+        let (original, peer) = UnixDatagram::pair().unwrap();
+        original.set_nonblocking(true).unwrap();
+        // SAFETY: original stays open throughout the failed starts and Stop.
+        let before = unsafe { libc::fcntl(original.as_raw_fd(), libc::F_GETFL) };
+        for framing in ["utun", "rawIp", "rawIp"] {
+            let started = request(
+                "start",
+                Some(&instance_id),
+                json!({"tunFd": original.as_raw_fd(), "tunFraming": framing}),
+            );
+            assert_failure(&started);
+            let error = started["error"].as_str().unwrap();
+            assert!(
+                error.contains(if framing == "utun" {
+                    "Linux TUN requires rawIp"
+                } else {
+                    "Linux TUNGETIFF"
+                }),
+                "{started}"
+            );
+            assert_eq!(state(&instance_id)["data"]["state"], "prepared");
+        }
 
         assert_eq!(
             request("stop", Some(&instance_id), json!({}))["success"],
             true
         );
         destroy_instance(&instance_id);
+        // SAFETY: VCore never owns or changes the borrowed host descriptor.
+        assert_eq!(
+            unsafe { libc::fcntl(original.as_raw_fd(), libc::F_GETFL) },
+            before
+        );
+        original.send(b"ok").unwrap();
+        let mut bytes = [0; 2];
+        assert_eq!(peer.recv(&mut bytes).unwrap(), 2);
+        assert_eq!(&bytes, b"ok");
         assert_registry_is_idle();
     }
 

@@ -121,10 +121,10 @@ impl SocketProtector for RejectProtect {
 }
 
 #[test]
-fn split_xhttp_construction_fits_the_runtime_stack_and_protect_failure_has_no_fallback() {
-    // Same stack budget as the Invoke runtime. No server or outbound packet:
+fn split_xhttp_construction_uses_default_stack_and_protect_failure_has_no_fallback() {
+    // Use the default Rust thread stack. No server or outbound packet:
     // the first socket is rejected by the host-owned protection boundary.
-    std::thread::Builder::new().stack_size(1024 * 1024).spawn(|| {
+    std::thread::Builder::new().spawn(|| {
         tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(async {
             for alpn in ["h3", "h2", "http/1.1"] {
                 let raw=serde_json::json!({"socks-port":1080,"proxies":[{"name":"edge","type":"vless","server":"192.0.2.1","port":443,"uuid":"07070707-0707-0707-0707-070707070707","network":"xhttp","tls":true,"alpn":[alpn],"xhttp-opts":{"mode":"packet-up","reuse-settings":{},"download-settings":{"reuse-settings":{}}}}],"rules":["MATCH,edge"]});

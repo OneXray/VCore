@@ -1,10 +1,11 @@
 use std::{
     collections::{HashMap, HashSet},
     io,
-    net::IpAddr,
+    net::{IpAddr, SocketAddr},
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
+    time::Duration,
 };
 
 use async_trait::async_trait;
@@ -13,6 +14,7 @@ use tokio::{
     io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _, DuplexStream, ReadBuf},
     sync::Notify,
     task::JoinHandle,
+    time::Instant,
 };
 
 use crate::{
@@ -30,6 +32,8 @@ use super::{
 };
 
 const TCP_DNS_DUPLEX_CAPACITY: usize = 8 * 1024;
+const UDP_FLOW_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
+const UDP_FLOW_CLEANUP_INTERVAL: Duration = Duration::from_secs(10);
 
 #[async_trait]
 trait RoutingDns: Send + Sync {
@@ -172,8 +176,8 @@ pub(crate) type RouteTargetDispatchers = ProxyDispatchers;
 ///
 /// The outer session observer records returned transport lifetimes without
 /// admitting or rejecting work. This layer creates at most one transport per
-/// proxy id and one direct transport for each association and chooses between
-/// them independently for every datagram.
+/// route target and one direct transport for each source association. TUN IP
+/// flows independently pin a rule action, without owning additional IO.
 pub struct RoutingDispatcher {
     route_targets: ProxyDispatchers,
     direct: Arc<dyn Dispatcher>,
@@ -269,11 +273,12 @@ impl RoutingDispatcher {
         let mut context = RoutingContext::with_domain_hint(network, destination, domain_hint)
             .map_err(|_| DispatchError::HostUnreachable)?;
 
+        // All GeoData rules in this decision see the same immutable view.
+        let snapshot = self.geo_matcher.routing_snapshot();
+        let geo_matcher = snapshot.as_deref().unwrap_or(self.geo_matcher.as_ref());
+
         let mut resolved = None;
-        let evaluation = match self
-            .rules
-            .evaluate_with_geo(&context, self.geo_matcher.as_ref())
-        {
+        let evaluation = match self.rules.evaluate_with_geo(&context, geo_matcher) {
             RuleEvaluation::NeedsIpResolution { rule_index } => {
                 let addresses = match (destination, &self.dns) {
                     (Destination::Domain { host, .. }, Some(dns)) => {
@@ -285,7 +290,7 @@ impl RoutingDispatcher {
                 resolved = Some(addresses);
                 self.rules.evaluate_with_resolved_ips(
                     &mut context,
-                    self.geo_matcher.as_ref(),
+                    geo_matcher,
                     rule_index,
                     resolved.as_deref().unwrap_or_default(),
                 )
@@ -348,7 +353,7 @@ impl RoutingDispatcher {
 
     fn dns_tcp_stream(&self, dns: Arc<dyn RoutingDns>) -> BoxStream {
         let (client, mut server) = tokio::io::duplex(TCP_DNS_DUPLEX_CAPACITY);
-        let relay = tokio::spawn(async move {
+        let relay = crate::resources::observation::spawn(async move {
             let mut query = vec![0_u8; MAX_MESSAGE_SIZE];
             let mut length = [0_u8; 2];
             loop {
@@ -525,6 +530,7 @@ impl Dispatcher for RoutingDispatcher {
             session,
             route_transports: HashMap::new(),
             direct_transport: None,
+            flows: DatagramRoutes::new(),
             logged_route_actions: HashSet::new(),
             receive_wakeup: Arc::new(Notify::new()),
         }))
@@ -549,6 +555,7 @@ struct RoutedDatagramTransport {
     session: DatagramSession,
     route_transports: HashMap<RouteTargetId, CachedRouteTransport>,
     direct_transport: Option<Box<dyn DatagramTransport>>,
+    flows: DatagramRoutes,
     logged_route_actions: HashSet<LoggedRouteAction>,
     receive_wakeup: Arc<Notify>,
 }
@@ -556,6 +563,65 @@ struct RoutedDatagramTransport {
 struct CachedRouteTransport {
     transport: Box<dyn DatagramTransport>,
     direct: bool,
+}
+
+/// Source, UDP protocol and inbound are fixed by the association owner; the
+/// destination IP/port completes the five-tuple. Entries retain no DNS/GeoData.
+struct DatagramRoute {
+    action: RuleAction,
+    last_used: Instant,
+    flow_id: Option<Box<[u8]>>,
+}
+
+struct DatagramRoutes {
+    entries: HashMap<SocketAddr, DatagramRoute>,
+    next_cleanup: Instant,
+}
+
+impl DatagramRoutes {
+    fn new() -> Self {
+        Self {
+            entries: HashMap::new(),
+            next_cleanup: Instant::now() + UDP_FLOW_CLEANUP_INTERVAL,
+        }
+    }
+
+    fn expire(&mut self, now: Instant) {
+        if now < self.next_cleanup {
+            return;
+        }
+        self.next_cleanup = now + UDP_FLOW_CLEANUP_INTERVAL;
+        self.entries
+            .retain(|_, route| now.duration_since(route.last_used) < UDP_FLOW_IDLE_TIMEOUT);
+        // Entry removal alone retains buckets. Reclaim burst capacity without
+        // resizing on the hot path or imposing a business-flow count ceiling.
+        if self.entries.capacity() > self.entries.len().saturating_mul(4).max(8) {
+            self.entries.shrink_to(self.entries.len().saturating_mul(2));
+        }
+    }
+
+    fn action(&mut self, destination: SocketAddr, now: Instant) -> Option<RuleAction> {
+        self.expire(now);
+        let route = self.entries.get_mut(&destination)?;
+        if now.duration_since(route.last_used) >= UDP_FLOW_IDLE_TIMEOUT {
+            self.entries.remove(&destination);
+            return None;
+        }
+        route.last_used = now;
+        Some(route.action)
+    }
+
+    fn observe_response(&mut self, destination: SocketAddr, now: Instant) {
+        self.expire(now);
+        if let Some(route) = self.entries.get_mut(&destination) {
+            // An already expired entry is not revived by a late response.
+            if now.duration_since(route.last_used) < UDP_FLOW_IDLE_TIMEOUT {
+                route.last_used = now;
+            } else {
+                self.entries.remove(&destination);
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -641,6 +707,23 @@ impl RoutedDatagramTransport {
 
     async fn receive_inner(&mut self) -> Result<Datagram, DispatchError> {
         loop {
+            // Only send/close can change these caches, and they also require
+            // &mut self. The sole backend cannot change during this receive;
+            // cancellation releases the borrow before another route is opened.
+            if self.route_transports.is_empty() {
+                if let Some(direct) = self.direct_transport.as_mut() {
+                    return direct.receive().await;
+                }
+            } else if self.route_transports.len() == 1 && self.direct_transport.is_none() {
+                return self
+                    .route_transports
+                    .values_mut()
+                    .next()
+                    .expect("the only route transport exists")
+                    .transport
+                    .receive()
+                    .await;
+            }
             let mut receives = self
                 .route_transports
                 .values_mut()
@@ -664,15 +747,43 @@ impl RoutedDatagramTransport {
 #[async_trait]
 impl DatagramTransport for RoutedDatagramTransport {
     async fn send(&mut self, mut datagram: Datagram) -> Result<(), DispatchError> {
-        let decision = self
-            .router
-            .route(
-                Network::Udp,
-                self.session.inbound,
-                &datagram.remote,
-                datagram.sniffed_domain.as_deref(),
-            )
-            .await?;
+        let now = Instant::now();
+        if self.session.inbound == InboundKind::Tun {
+            self.flows.expire(now);
+        }
+        let flow = match (self.session.inbound, &datagram.remote) {
+            (InboundKind::Tun, Destination::Ip(address)) => Some(*address),
+            _ => None,
+        };
+        let action = flow.and_then(|destination| self.flows.action(destination, now));
+        let decision = if let Some(action) = action {
+            RouteDecision {
+                action,
+                destination: datagram.remote.clone(),
+                resolved_addresses: None,
+            }
+        } else {
+            let decision = self
+                .router
+                .route(
+                    Network::Udp,
+                    self.session.inbound,
+                    &datagram.remote,
+                    datagram.sniffed_domain.as_deref(),
+                )
+                .await?;
+            if let Some(destination) = flow {
+                self.flows.entries.insert(
+                    destination,
+                    DatagramRoute {
+                        action: decision.action,
+                        last_used: Instant::now(),
+                        flow_id: None,
+                    },
+                );
+            }
+            decision
+        };
         if self.should_log_route_action(decision.action) {
             log_route_decision(Network::Udp, &decision);
         }
@@ -689,8 +800,49 @@ impl DatagramTransport for RoutedDatagramTransport {
         }
     }
 
+    async fn send_with_flow_id(
+        &mut self,
+        datagram: Datagram,
+        flow_id: &[u8],
+    ) -> Result<(), DispatchError> {
+        if flow_id.is_empty() || flow_id.len() > 25 {
+            return Err(DispatchError::NotAllowed);
+        }
+        let flow = match (self.session.inbound, &datagram.remote) {
+            (InboundKind::Tun, Destination::Ip(address)) => Some(*address),
+            _ => None,
+        };
+        if let Some(destination) = flow {
+            self.flows.expire(Instant::now());
+            if self
+                .flows
+                .entries
+                .get(&destination)
+                .is_some_and(|route| route.flow_id.as_deref() != Some(flow_id))
+            {
+                self.flows.entries.remove(&destination);
+            }
+        }
+        self.send(datagram).await?;
+        if let Some(destination) = flow
+            && let Some(route) = self.flows.entries.get_mut(&destination)
+            && route.flow_id.as_deref() != Some(flow_id)
+        {
+            route.flow_id = Some(flow_id.into());
+        }
+        Ok(())
+    }
+
     async fn receive(&mut self) -> Result<Datagram, DispatchError> {
-        self.receive_inner().await
+        let datagram = self.receive_inner().await?;
+        if self.session.inbound == InboundKind::Tun {
+            let now = Instant::now();
+            self.flows.expire(now);
+            if let Destination::Ip(destination) = datagram.remote {
+                self.flows.observe_response(destination, now);
+            }
+        }
+        Ok(datagram)
     }
 
     async fn close(&mut self) -> Result<(), DispatchError> {
@@ -710,6 +862,7 @@ impl DatagramTransport for RoutedDatagramTransport {
         }
         self.route_transports.clear();
         self.direct_transport = None;
+        self.flows.entries = HashMap::new();
         if let Some(error) = first_error {
             Err(error)
         } else {
@@ -735,6 +888,7 @@ mod tests {
             IpCidr, PortRange, ProxyGroupId, ProxyGroupMemberConfig, ProxyGroupMemberTarget,
             ProxyId, RuleKind, RuleSpec, SelectProxyGroupConfig,
         },
+        geodata::{DynamicGeoData, GeoData},
         routing::EmptyGeoMatcher,
     };
     use bytes::Bytes;
@@ -794,6 +948,27 @@ mod tests {
         resolve_calls: AtomicUsize,
         exchange_calls: AtomicUsize,
         hint_calls: AtomicUsize,
+    }
+
+    #[derive(Default)]
+    struct UpdatingDns {
+        addresses: Mutex<Vec<IpAddr>>,
+        hint: Mutex<Option<String>>,
+    }
+
+    #[async_trait]
+    impl RoutingDns for UpdatingDns {
+        async fn resolve(&self, _host: &str) -> Result<Vec<IpAddr>, DispatchError> {
+            Ok(self.addresses.lock().unwrap().clone())
+        }
+
+        async fn exchange(&self, _query: &[u8]) -> Result<DnsWireResponse, DispatchError> {
+            Err(DispatchError::HostUnreachable)
+        }
+
+        async fn domain_hint(&self, _address: IpAddr) -> Option<String> {
+            self.hint.lock().unwrap().clone()
+        }
     }
 
     impl MockDns {
@@ -944,7 +1119,7 @@ mod tests {
             dns,
             ipv6,
             RuleSet::compile(rules).unwrap(),
-            Arc::new(EmptyGeoMatcher),
+            Arc::new(DynamicGeoData::empty()),
         )
     }
 
@@ -1064,7 +1239,7 @@ mod tests {
             direct,
             None,
             RuleSet::compile(vec![rule(RuleKind::Match, group_action(0))]).unwrap(),
-            Arc::new(EmptyGeoMatcher),
+            Arc::new(DynamicGeoData::empty()),
         );
         let mut old_association = router
             .open_datagram(association(InboundKind::Http))
@@ -1696,6 +1871,148 @@ mod tests {
         assert_eq!(proxy.udp_opens.load(Ordering::Relaxed), 1);
     }
 
+    #[tokio::test]
+    async fn cancelled_udp_receive_can_add_another_route_and_receive_both() {
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            for direct_first in [true, false] {
+                let proxy = Arc::new(RecordingDispatcher::default());
+                let direct = Arc::new(RecordingDispatcher::default());
+                let router = dispatcher(
+                    proxy.clone(),
+                    direct.clone(),
+                    None,
+                    vec![
+                        rule(
+                            RuleKind::IpCidr(IpCidr {
+                                network: IpAddr::V4(Ipv4Addr::new(10, 0, 0, 0)),
+                                prefix_len: 8,
+                            }),
+                            RuleAction::Direct,
+                        ),
+                        rule(RuleKind::Match, proxy_action(0)),
+                    ],
+                );
+                let mut transport = router
+                    .open_datagram(association(InboundKind::Tun))
+                    .await
+                    .unwrap();
+                // No backend exists yet. Dropping this receive must leave
+                // the association available for its first send.
+                {
+                    let mut receive = transport.receive();
+                    assert!(futures_util::poll!(receive.as_mut()).is_pending());
+                }
+                let direct_address = "10.0.0.1:1234".parse().unwrap();
+                let proxy_address = "192.0.2.1:1234".parse().unwrap();
+                let (first_address, next_address) = if direct_first {
+                    (direct_address, proxy_address)
+                } else {
+                    (proxy_address, direct_address)
+                };
+                let first = datagram(first_address, b"first");
+                transport.send(first.clone()).await.unwrap();
+                assert_eq!(transport.receive().await.unwrap(), first);
+
+                // Poll the only cached backend until pending, then cancel
+                // before a send opens the other route.
+                {
+                    let mut receive = transport.receive();
+                    assert!(futures_util::poll!(receive.as_mut()).is_pending());
+                }
+                let next = datagram(next_address, b"next-route");
+                let previous = datagram(first_address, b"previous-route");
+                transport.send(next.clone()).await.unwrap();
+                transport.send(previous.clone()).await.unwrap();
+                let responses = [
+                    transport.receive().await.unwrap(),
+                    transport.receive().await.unwrap(),
+                ];
+                assert!(responses.contains(&next));
+                assert!(responses.contains(&previous));
+                assert_eq!(direct.udp_opens.load(Ordering::Relaxed), 1);
+                assert_eq!(proxy.udp_opens.load(Ordering::Relaxed), 1);
+                transport.close().await.unwrap();
+            }
+        })
+        .await
+        .expect("cancelled UDP receives did not preserve dynamic routing");
+    }
+
+    #[tokio::test]
+    async fn single_udp_route_propagates_receive_errors() {
+        struct FailingReceiveDispatcher;
+        struct FailingReceiveDatagrams {
+            fail_next: bool,
+            responses: VecDeque<Datagram>,
+        }
+
+        #[async_trait]
+        impl Dispatcher for FailingReceiveDispatcher {
+            async fn connect_tcp(
+                &self,
+                _session: StreamSession,
+            ) -> Result<BoxStream, DispatchError> {
+                unreachable!("UDP-only mock")
+            }
+
+            async fn open_datagram(
+                &self,
+                _session: DatagramSession,
+            ) -> Result<Box<dyn DatagramTransport>, DispatchError> {
+                Ok(Box::new(FailingReceiveDatagrams {
+                    fail_next: true,
+                    responses: VecDeque::new(),
+                }))
+            }
+        }
+
+        #[async_trait]
+        impl DatagramTransport for FailingReceiveDatagrams {
+            async fn send(&mut self, datagram: Datagram) -> Result<(), DispatchError> {
+                self.responses.push_back(datagram);
+                Ok(())
+            }
+
+            async fn receive(&mut self) -> Result<Datagram, DispatchError> {
+                if std::mem::take(&mut self.fail_next) {
+                    return Err(DispatchError::ConnectionRefused);
+                }
+                if let Some(response) = self.responses.pop_front() {
+                    return Ok(response);
+                }
+                std::future::pending().await
+            }
+        }
+
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            for action in [RuleAction::Direct, proxy_action(0)] {
+                let backend = Arc::new(FailingReceiveDispatcher);
+                let router = RoutingDispatcher::with_dns_service(
+                    backend.clone(),
+                    backend,
+                    None,
+                    true,
+                    RuleSet::compile(vec![rule(RuleKind::Match, action)]).unwrap(),
+                    Arc::new(EmptyGeoMatcher),
+                );
+                let mut transport = router
+                    .open_datagram(association(InboundKind::Tun))
+                    .await
+                    .unwrap();
+                let request = datagram("192.0.2.1:1234".parse().unwrap(), b"request");
+                transport.send(request.clone()).await.unwrap();
+                assert!(matches!(
+                    transport.receive().await,
+                    Err(DispatchError::ConnectionRefused)
+                ));
+                assert_eq!(transport.receive().await.unwrap(), request);
+                transport.close().await.unwrap();
+            }
+        })
+        .await
+        .expect("the only UDP backend's receive error was not propagated");
+    }
+
     #[test]
     fn udp_associations_share_the_immutable_rule_set() {
         let router = dispatcher(
@@ -1741,6 +2058,326 @@ mod tests {
 
         assert!(direct.datagrams.lock().unwrap().is_empty());
         assert_eq!(proxy.datagrams.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn tun_udp_pins_each_destination_while_observing_new_flows() {
+        let proxy = Arc::new(RecordingDispatcher::default());
+        let direct = Arc::new(RecordingDispatcher::default());
+        let dns = Arc::new(UpdatingDns::default());
+        let router = dispatcher(
+            proxy.clone(),
+            direct.clone(),
+            Some(dns.clone()),
+            vec![
+                rule(RuleKind::Domain("blocked.test".into()), RuleAction::Reject),
+                rule(RuleKind::Domain("direct.test".into()), RuleAction::Direct),
+                rule(RuleKind::Match, proxy_action(0)),
+            ],
+        );
+        let mut udp = router
+            .open_datagram(association(InboundKind::Tun))
+            .await
+            .unwrap();
+        let first = "198.51.100.7:443".parse().unwrap();
+        let second = "198.51.100.7:8443".parse().unwrap();
+        let third = "198.51.100.8:443".parse().unwrap();
+        *dns.hint.lock().unwrap() = Some("direct.test".into());
+        udp.send(datagram(first, b"initial")).await.unwrap();
+        *dns.hint.lock().unwrap() = Some("blocked.test".into());
+        udp.send(datagram(second, b"reject")).await.unwrap();
+        udp.send(datagram(first, b"pinned")).await.unwrap();
+        *dns.hint.lock().unwrap() = None;
+        udp.send(datagram(third, b"proxy")).await.unwrap();
+        udp.send(datagram(second, b"still-reject")).await.unwrap();
+        assert_eq!(direct.datagrams.lock().unwrap().len(), 2);
+        assert_eq!(proxy.datagrams.lock().unwrap().len(), 1);
+        assert_eq!(direct.udp_opens.load(Ordering::Relaxed), 1);
+        assert_eq!(proxy.udp_opens.load(Ordering::Relaxed), 1);
+        udp.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn tun_udp_uses_new_hints_only_for_a_new_authenticated_flow() {
+        let proxy = Arc::new(RecordingDispatcher::default());
+        let direct = Arc::new(RecordingDispatcher::default());
+        let dns = Arc::new(UpdatingDns::default());
+        let router = dispatcher(
+            proxy.clone(),
+            direct.clone(),
+            Some(dns.clone()),
+            vec![
+                rule(RuleKind::Domain("blocked.test".into()), RuleAction::Reject),
+                rule(RuleKind::Domain("direct.test".into()), RuleAction::Direct),
+                rule(RuleKind::Match, proxy_action(0)),
+            ],
+        );
+        let mut udp = router
+            .open_datagram(association(InboundKind::Tun))
+            .await
+            .unwrap();
+        let destination = "198.51.100.7:443".parse().unwrap();
+        for hint in [Some("direct.test"), Some("blocked.test"), None] {
+            *dns.hint.lock().unwrap() = hint.map(Into::into);
+            for _ in 0..2 {
+                udp.send(datagram(destination, b"current")).await.unwrap();
+            }
+        }
+        assert_eq!(direct.datagrams.lock().unwrap().len(), 6);
+        assert!(proxy.datagrams.lock().unwrap().is_empty());
+
+        *dns.hint.lock().unwrap() = Some("blocked.test".into());
+        for (id, hint) in [
+            (b"first".as_slice(), "blocked.test"),
+            (b"second".as_slice(), "Direct.TEST."),
+            (b"third".as_slice(), "not a domain"),
+        ] {
+            let mut request = datagram(destination, b"sniffed");
+            request.sniffed_domain = Some(Arc::from(hint));
+            for _ in 0..2 {
+                udp.send_with_flow_id(request.clone(), id).await.unwrap();
+            }
+        }
+        assert_eq!(direct.datagrams.lock().unwrap().len(), 8);
+        assert_eq!(proxy.datagrams.lock().unwrap().len(), 2);
+        // A retransmitted authenticated Initial keeps its established action,
+        // even if the tiny sniff table had to reconstruct its domain hint.
+        let mut replay = datagram(destination, b"replay");
+        replay.sniffed_domain = Some(Arc::from("blocked.test"));
+        udp.send_with_flow_id(replay, b"third").await.unwrap();
+        assert_eq!(proxy.datagrams.lock().unwrap().len(), 3);
+        for request in direct.datagrams.lock().unwrap().iter() {
+            assert_eq!(request.remote, Destination::Ip(destination));
+            assert!(request.sniffed_domain.is_none());
+        }
+    }
+
+    #[tokio::test]
+    async fn udp_geo_activation_affects_new_flows_without_retaining_old_data() {
+        let dir = tempfile::tempdir().unwrap();
+        // Independent Xray GeoIP fixture: cn -> 192.0.2.0/24.
+        std::fs::write(
+            dir.path().join("geoip.dat"),
+            [
+                0x0a, 14, 0x0a, 2, b'c', b'n', 0x12, 8, 0x0a, 4, 192, 0, 2, 0, 0x10, 24,
+            ],
+        )
+        .unwrap();
+        let rules = vec![
+            rule(RuleKind::GeoIp("cn".into()), RuleAction::Reject),
+            rule(RuleKind::Match, proxy_action(0)),
+        ];
+        let initial = Arc::new(GeoData::load(dir.path(), &rules).unwrap());
+        let old_data = Arc::downgrade(&initial);
+        let geo = Arc::new(DynamicGeoData::new(initial));
+        let proxy = Arc::new(RecordingDispatcher::default());
+        let router = RoutingDispatcher::new(
+            ProxyDispatchers::new(vec![proxy.clone()]).unwrap(),
+            Arc::new(RecordingDispatcher::default()),
+            None,
+            RuleSet::compile(rules).unwrap(),
+            geo.clone(),
+        );
+        let mut udp = router
+            .open_datagram(association(InboundKind::Tun))
+            .await
+            .unwrap();
+        let destination = "192.0.2.8:443".parse().unwrap();
+        for _ in 0..2 {
+            udp.send(datagram(destination, b"blocked")).await.unwrap();
+        }
+        assert!(proxy.datagrams.lock().unwrap().is_empty());
+        geo.activate(Arc::new(GeoData::EMPTY));
+        assert!(
+            old_data.upgrade().is_none(),
+            "active UDP must release obsolete GeoData"
+        );
+        for _ in 0..2 {
+            udp.send(datagram(destination, b"still-blocked"))
+                .await
+                .unwrap();
+        }
+        assert!(proxy.datagrams.lock().unwrap().is_empty());
+        for _ in 0..2 {
+            udp.send(datagram("192.0.2.8:8443".parse().unwrap(), b"allowed"))
+                .await
+                .unwrap();
+        }
+        assert_eq!(proxy.datagrams.lock().unwrap().len(), 2);
+        udp.send_with_flow_id(datagram(destination, b"new-connection"), b"new")
+            .await
+            .unwrap();
+        assert_eq!(proxy.datagrams.lock().unwrap().len(), 3);
+        udp.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn udp_domain_destinations_observe_fresh_resolution() {
+        let dns = Arc::new(UpdatingDns::default());
+        let direct = Arc::new(RecordingDispatcher::default());
+        let router = dispatcher(
+            Arc::new(RecordingDispatcher::default()),
+            direct.clone(),
+            Some(dns.clone()),
+            vec![rule(RuleKind::Match, RuleAction::Direct)],
+        );
+        let mut udp = router
+            .open_datagram(association(InboundKind::Tun))
+            .await
+            .unwrap();
+        for ip in ["192.0.2.1", "192.0.2.2"] {
+            *dns.addresses.lock().unwrap() = vec![ip.parse().unwrap()];
+            udp.send(Datagram {
+                remote: Destination::domain("example.test", 443).unwrap(),
+                payload: Bytes::from_static(b"fresh"),
+                sniffed_domain: None,
+            })
+            .await
+            .unwrap();
+        }
+        let sent = direct.datagrams.lock().unwrap();
+        assert_eq!(
+            sent[0].remote,
+            Destination::Ip("192.0.2.1:443".parse().unwrap())
+        );
+        assert_eq!(
+            sent[1].remote,
+            Destination::Ip("192.0.2.2:443".parse().unwrap())
+        );
+    }
+
+    #[tokio::test]
+    async fn tun_udp_mutable_matcher_changes_apply_to_new_flows() {
+        struct MutableGeo(AtomicBool);
+
+        impl GeoMatcher for MutableGeo {
+            fn matches_geosite(&self, _code: &str, _domain: &str) -> bool {
+                false
+            }
+            fn matches_geoip(&self, _code: &str, _address: IpAddr) -> bool {
+                self.0.load(Ordering::Relaxed)
+            }
+        }
+
+        let geo = Arc::new(MutableGeo(AtomicBool::new(false)));
+        let proxy = Arc::new(RecordingDispatcher::default());
+        let router = RoutingDispatcher::new(
+            ProxyDispatchers::new(vec![proxy.clone()]).unwrap(),
+            Arc::new(RecordingDispatcher::default()),
+            None,
+            RuleSet::compile(vec![
+                rule(RuleKind::GeoIp("cn".into()), RuleAction::Reject),
+                rule(RuleKind::Match, proxy_action(0)),
+            ])
+            .unwrap(),
+            geo.clone(),
+        );
+        let mut udp = router
+            .open_datagram(association(InboundKind::Tun))
+            .await
+            .unwrap();
+        let destination = "192.0.2.8:443".parse().unwrap();
+        udp.send(datagram(destination, b"allowed")).await.unwrap();
+        geo.0.store(true, Ordering::Relaxed);
+        udp.send(datagram(destination, b"pinned")).await.unwrap();
+        udp.send(datagram("192.0.2.8:8443".parse().unwrap(), b"blocked"))
+            .await
+            .unwrap();
+        assert_eq!(proxy.datagrams.lock().unwrap().len(), 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn udp_idle_sweep_reclaims_burst_capacity_without_a_count_limit() {
+        let start = Instant::now();
+        let mut routes = DatagramRoutes::new();
+        for port in 1..=16_384 {
+            routes.entries.insert(
+                SocketAddr::from(([192, 0, 2, 1], port)),
+                DatagramRoute {
+                    action: RuleAction::Reject,
+                    last_used: start,
+                    flow_id: None,
+                },
+            );
+        }
+        let burst_capacity = routes.entries.capacity();
+        assert!(burst_capacity >= 16_384);
+        let busy = SocketAddr::from(([192, 0, 2, 1], 1));
+        assert_eq!(
+            routes.action(busy, start + Duration::from_secs(25)),
+            Some(RuleAction::Reject)
+        );
+        routes.expire(start + Duration::from_secs(35));
+        assert_eq!(routes.entries.len(), 1);
+        assert!(routes.entries.capacity() < burst_capacity / 4);
+        routes.expire(start + Duration::from_secs(60));
+        assert!(routes.entries.is_empty());
+        assert!(routes.entries.capacity() <= 8);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn tun_udp_expires_idle_destinations_while_the_source_stays_active() {
+        let proxy = Arc::new(RecordingDispatcher::default());
+        let direct = Arc::new(RecordingDispatcher::default());
+        let dns = Arc::new(UpdatingDns::default());
+        let router = dispatcher(
+            proxy.clone(),
+            direct.clone(),
+            Some(dns.clone()),
+            vec![
+                rule(RuleKind::Domain("blocked.test".into()), RuleAction::Reject),
+                rule(RuleKind::Domain("direct.test".into()), RuleAction::Direct),
+                rule(RuleKind::Match, proxy_action(0)),
+            ],
+        );
+        let mut udp = router
+            .open_datagram(association(InboundKind::Tun))
+            .await
+            .unwrap();
+        let idle = "198.51.100.7:443".parse().unwrap();
+        let busy = "198.51.100.7:8443".parse().unwrap();
+        *dns.hint.lock().unwrap() = Some("direct.test".into());
+        udp.send(datagram(idle, b"old")).await.unwrap();
+        udp.send(datagram(busy, b"busy")).await.unwrap();
+        *dns.hint.lock().unwrap() = Some("blocked.test".into());
+        tokio::time::advance(Duration::from_secs(25)).await;
+        udp.send(datagram(busy, b"refresh")).await.unwrap();
+        tokio::time::advance(Duration::from_secs(5)).await;
+        udp.send(datagram(idle, b"expired")).await.unwrap();
+        udp.send(datagram(busy, b"still-pinned")).await.unwrap();
+        assert_eq!(direct.datagrams.lock().unwrap().len(), 4);
+        assert!(proxy.datagrams.lock().unwrap().is_empty());
+        udp.close().await.unwrap();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn tun_udp_responses_refresh_only_their_own_flow() {
+        let direct = Arc::new(RecordingDispatcher::default());
+        let dns = Arc::new(UpdatingDns::default());
+        let router = dispatcher(
+            Arc::new(RecordingDispatcher::default()),
+            direct.clone(),
+            Some(dns.clone()),
+            vec![
+                rule(RuleKind::Domain("blocked.test".into()), RuleAction::Reject),
+                rule(RuleKind::Match, RuleAction::Direct),
+            ],
+        );
+        let mut udp = router
+            .open_datagram(association(InboundKind::Tun))
+            .await
+            .unwrap();
+        let reply = "198.51.100.7:443".parse().unwrap();
+        let idle = "198.51.100.8:443".parse().unwrap();
+        udp.send(datagram(reply, b"reply")).await.unwrap();
+        udp.send(datagram(idle, b"idle")).await.unwrap();
+        tokio::time::advance(Duration::from_secs(20)).await;
+        assert_eq!(udp.receive().await.unwrap().remote, Destination::Ip(reply));
+        *dns.hint.lock().unwrap() = Some("blocked.test".into());
+        tokio::time::advance(Duration::from_secs(20)).await;
+        udp.send(datagram(reply, b"still-pinned")).await.unwrap();
+        udp.send(datagram(idle, b"expired")).await.unwrap();
+        assert_eq!(direct.datagrams.lock().unwrap().len(), 3);
     }
 
     #[tokio::test]
@@ -1876,6 +2513,76 @@ mod tests {
         })
         .await
         .expect("dropping the caller stream did not abort the DNS relay");
+    }
+
+    #[cfg(feature = "ffi")]
+    #[test]
+    fn tun_dns_tcp_relay_preserves_probe_across_workers_and_releases_on_drop() {
+        use crate::resources::observation::{self, ResourceKind, ResourceProbe};
+
+        struct ProbeDns {
+            started: std::sync::mpsc::SyncSender<std::thread::ThreadId>,
+        }
+
+        #[async_trait]
+        impl RoutingDns for ProbeDns {
+            async fn resolve(&self, _host: &str) -> Result<Vec<IpAddr>, DispatchError> {
+                Ok(Vec::new())
+            }
+
+            async fn exchange(&self, _query: &[u8]) -> Result<DnsWireResponse, DispatchError> {
+                let _query = observation::track(ResourceKind::Waiter);
+                self.started.send(std::thread::current().id()).unwrap();
+                std::future::pending().await
+            }
+
+            async fn domain_hint(&self, _address: IpAddr) -> Option<String> {
+                None
+            }
+        }
+
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .unwrap();
+        let probe = ResourceProbe::default();
+        let (started, ready) = std::sync::mpsc::sync_channel(1);
+        let dns = Arc::new(ProbeDns { started });
+        let router = dispatcher(
+            Arc::new(RecordingDispatcher::default()),
+            Arc::new(RecordingDispatcher::default()),
+            Some(dns),
+            vec![rule(RuleKind::Match, proxy_action(0))],
+        );
+        let caller = std::thread::current().id();
+        let stream = runtime.block_on(probe.scope(async {
+            let mut stream = router
+                .connect_tcp(stream("1.1.1.1:53".parse().unwrap(), InboundKind::Tun))
+                .await
+                .unwrap();
+            stream.write_u16(5).await.unwrap();
+            stream.write_all(b"query").await.unwrap();
+            stream
+        }));
+        let relay = ready
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .expect("DNS relay did not enter a worker thread");
+        assert_ne!(caller, relay);
+
+        assert_eq!(probe.snapshot().current(ResourceKind::Task), 1);
+        assert_eq!(probe.snapshot().current(ResourceKind::Waiter), 1);
+        assert_eq!(probe.snapshot().peak(ResourceKind::Waiter), 1);
+        drop(stream);
+        runtime.block_on(async {
+            tokio::time::timeout(std::time::Duration::from_secs(1), async {
+                while !probe.snapshot().is_idle() {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .expect("dropped DNS relay did not release its observed resources");
+        });
     }
 
     #[tokio::test]

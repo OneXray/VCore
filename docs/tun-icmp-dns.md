@@ -147,15 +147,24 @@ Controller 切换代理组后，只在后续需要创建新 DNS transport 时使
 
 | 队列 | 容量 |
 | --- | ---: |
-| TUN DNS 入站 | 128 |
+| 每普通 UDP 关联入站 | 64 |
 | DNS 响应 | 128 |
-| 普通 UDP 响应 | 128 |
+| 普通 UDP 响应 | 1,024 |
 
-DNS 和普通 UDP 响应使用不同队列，但共享 netstack UDP 入站接收器。队列满时只丢当前请求或响应，不阻塞全局 UDP 循环。TUN UDP 响应按有效 MTU 减去 48 字节保守限制；其他平台为 1,452 字节，Windows 为 1,352 字节。
+reader 在进入 TCP netstack 前分流 UDP，拥有按源地址建立的关联表，没有共享 UDP 入站接收器或独立 DNS 请求准入数。每普通 UDP 关联有独立请求队列；DNS 查询继续提交受跟踪的任务，不等待上游。队列满时只丢当前请求或响应，不阻塞 reader；TCP accept 仍为 128 项。TUN UDP 响应按有效 MTU 减去 48 字节保守限制；其他平台为 1,452 字节，Windows 为 1,352 字节。
+
+唯一受跟踪的 TUN writer 公平读取普通 UDP、DNS 和 TCP/ICMP raw 三个通道，任一通道关闭不丢弃其他通道的待写响应。UDP 构包后直接写平台，不再转发到共享 raw output。DNS 查询观测 permit 保留至该包被平台接受、最终丢弃或取消，写回阻塞和 ENOBUFS 重试不提前释放；Windows Adapter 成功处理不等于框架最终交付。MTU/地址族错误只丢当前响应。
 
 运行时停止会取消 open、send、receive、retry 和 response-send，释放全部传输并等待已跟踪任务结束。停止返回后不得再向 TUN 回包。
 
 普通非 DNS UDP 关联不设固定总数，采用代次感知所有权、30 秒空闲超时和 10 秒清理周期。只有成功入队的请求或响应刷新活动时间。
+
+普通 TUN UDP 的 IP 目标在源关联内按目的 IP/端口固定规则 action，即五元组独立
+选路，不把整个源的所有目标固定到同一个动作。首包完成嗅探/选路后，活动流不随
+DNS 提示或 GeoData 更新改路；新流使用当前数据。每目标独立 30 秒空闲失效，
+10 秒间隔借既有关联收发回收；无逐流任务/队列/socket。新认证 QUIC 连接的首包
+重新选路，同连接 Initial 重传不重选。具体边界见 [GeoData 生命周期](geodata.md#生命周期)。
+DNS/53 劫持仍先于普通关联，每个查询独立执行 nameserver-policy，不受五元组固定影响。
 
 ## IP-only协议与独立测速接点
 

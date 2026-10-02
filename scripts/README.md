@@ -58,6 +58,9 @@ uv run --project scripts --locked vcore-scripts check platform-abi --manifest di
 - Windows 在原生 ARM64/x64、Visual Studio C++ 环境构建，输出配套 DLL/Provider Host/
   Session Host 及架构/摘要。ARM64 需要 clang-cl/clang、Ninja；保持 BoringSSL 汇编启用。
   契约见 [Windows VPN](../docs/windows-vpn.md)。
+- Linux 的借用 fd 运行时使用原生 GNU/glibc 工具链：`cargo build --locked --release
+  --features ffi`，需要 C/C++、CMake、Perl 和 libclang。真实 TUN 宿主和压力测试在
+  独立 benchmark 的 Linux 容器中验证；暂不扩展安装包或 `--delivery` 交付矩阵。
 
 Apple/Android 可设置 VCORE_BUILD_PROFILE、VCORE_FEATURES、VCORE_APPLE_DIST_DIR、
 VCORE_IOS_DEPLOYMENT_TARGET、VCORE_TVOS_DEPLOYMENT_TARGET（至少 17.0）、
@@ -89,15 +92,17 @@ platform-abi 在原生 macOS/Windows 链接/加载并执行 C ABI；Apple 额外
 
 ```sh
 uv run --project /path/to/container-benchmark --locked container-benchmark --vcore /path/to/VCore check protocol-interop --suite integration --list
-uv run --project /path/to/container-benchmark --locked container-benchmark --vcore /path/to/VCore check memory --list
+uv run --project /path/to/container-benchmark --locked container-benchmark --vcore /path/to/VCore stress --help
 uv run --project /path/to/container-benchmark --locked container-benchmark --vcore /path/to/VCore check apple-runtime --platform tvos
 ```
 
 benchmark 的用例、输入和运行约束由其 README 维护。所有协议端、原站、DNS 和
 提供入口的对照客户端遵守[测试隔离](../docs/testing-isolation.md)，不能退回宿主服务端。
-内存专项仅使用 fd-TUN 入站，SOCKS5 出站与独立对端容量校准保留。
-每次测试结束后清理生成的构建、下载、规则、镜像、日志及原始流量证据，仅保留
-脱敏文字结论；需要复验时重新准备输入并执行。生产构建交付产物独立管理。
+压测使用 Linux 真实 TUN 入站，加载完整 CN，连续运行 TCP、UDP 和混合负载，
+VCore 与代理服务/原站分容器并通过容器网络连接，记录指定 VCore PID 的 RSS 峰值；
+协议互通独立执行，不要求对端容量校准或发布矩阵作为压测前置。
+每次结束清理本轮构建、规则副本、配置、日志和原始流量证据，保留脱敏文字结论及
+按日检查的共享公共依赖/镜像；复验重新运行。生产构建交付产物独立管理。
 
 ## CI 与证据
 

@@ -111,7 +111,11 @@ fn registry_matches_live_production_constants_and_has_owned_boundary_cases() {
         ("tcp-buffer", defaults.tcp_buffer_per_direction),
         ("dns-cache", defaults.dns_address_cache_entries),
         ("dns-hints", defaults.dns_redir_host_entries),
-        ("tun-dns-ingress", defaults.tun_dns_ingress_queue_capacity),
+        (
+            "tun-udp-association",
+            defaults.tun_udp_association_queue_capacity,
+        ),
+        ("tun-udp-response", defaults.tun_udp_response_queue_capacity),
         ("tun-dns-response", defaults.tun_dns_response_queue_capacity),
         ("xhttp-send", defaults.xhttp_send_buffer_size),
         ("xhttp-upload", defaults.xhttp_upload_chunk_size),

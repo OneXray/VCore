@@ -7,6 +7,7 @@ of historical milestone runners: compiling all targets is safe; executing them i
 from __future__ import annotations
 
 import re
+import sys
 
 from .builds import CORE_DIR, DEFAULT_FEATURES
 from .processes import run_command
@@ -61,6 +62,7 @@ TARGETS = (
 )
 LIB_FILTERS = (
     "geodata::",
+    "routing::",
     "security::",
     "outbound::vless::encryption",
     "config::",
@@ -77,9 +79,17 @@ EXACT_LIB_TESTS = (
     "outbound::connector::tests::authenticated_continuation_keeps_group_choice_but_has_a_new_io_deadline",
     FEATURE_TEST,
     "ffi::tests::runtime_thread_cannot_reenter_invoke",
+    "ffi::tests::engine_workers_preserve_invoke_admission_and_shutdown",
+    "dns::runtime::tests::concurrent_redir_host_hint_reads_and_dns_updates_complete",
     "ffi::tests::null_invalid_utf8_and_oversized_input_return_json_failures",
     "ffi::tests::same_instance_command_is_fail_fast",
     "ffi::tests::android_protector_is_required_only_for_tun",
+)
+LINUX_EXACT_LIB_TESTS = (
+    "ffi::tests::linux_tun_start_rejects_non_tun_fd_and_preserves_prepared_state",
+    "platform::tun_fd::tests::non_tun_descriptor_is_rejected_without_changing_host_ownership_or_flags",
+    "platform::linux_tun::tests::raw_ip_single_queue_requires_exact_flags_and_kernel_parameters",
+    "platform::linux_tun::tests::link_metadata_rejects_truncation_duplicates_and_wrong_identity",
 )
 
 
@@ -91,7 +101,23 @@ def commands(profile: str) -> list[list[str]]:
         return [
             cargo + [arg for target in TARGETS for arg in ("--test", target)],
             *(cargo + ["--lib", name] for name in LIB_FILTERS),
-            *(cargo + ["--lib", name, "--", "--exact"] for name in EXACT_LIB_TESTS),
+            *(
+                cargo + ["--lib", name]
+                for name in (
+                    (
+                        "platform::rust_tun_io::tests::",
+                        "platform::windows_tun_io::tests::",
+                        "tun_runtime::tests::",
+                    )
+                    if sys.platform in {"darwin", "linux"}
+                    else ("platform::windows_tun_io::tests::",)
+                )
+            ),
+            *(
+                cargo + ["--lib", name, "--", "--exact"]
+                for name in EXACT_LIB_TESTS
+                + (LINUX_EXACT_LIB_TESTS if sys.platform == "linux" else ())
+            ),
             cargo
             + [
                 "--test",

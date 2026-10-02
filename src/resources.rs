@@ -10,10 +10,11 @@ use std::time::{Duration, Instant};
 
 const RESOURCE_SUMMARY_INTERVAL: Duration = Duration::from_secs(30);
 const FIRST_PACKET_QUEUE_DROP: u64 = 1 << 0;
-const FIRST_UDP_QUEUE_DROP: u64 = 1 << 1;
+const FIRST_UDP_ASSOCIATION_QUEUE_DROP: u64 = 1 << 1;
 const FIRST_DNS_QUEUE_DROP: u64 = 1 << 2;
 const FIRST_SINGLEFLIGHT_JOIN: u64 = 1 << 3;
 const FIRST_DNS_CACHE_HIT: u64 = 1 << 4;
+const FIRST_UDP_RESPONSE_QUEUE_DROP: u64 = 1 << 5;
 
 /// Fixed-schema, runtime-owned resource telemetry.
 ///
@@ -45,6 +46,8 @@ struct RuntimeResourceStatsInner {
     dns_cache_hits: AtomicU64,
     packet_queue_drops: AtomicU64,
     udp_queue_drops: AtomicU64,
+    udp_association_queue_drops: AtomicU64,
+    udp_response_queue_drops: AtomicU64,
     dns_queue_drops: AtomicU64,
 }
 
@@ -66,7 +69,8 @@ pub(crate) enum ResourceActivity {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ResourceQueue {
     Packet,
-    Udp,
+    UdpAssociation,
+    UdpResponse,
     Dns,
 }
 
@@ -95,6 +99,8 @@ pub(crate) struct RuntimeResourceSnapshot {
     pub(crate) dns_cache_hits: u64,
     pub(crate) packet_queue_drops: u64,
     pub(crate) udp_queue_drops: u64,
+    pub(crate) udp_association_queue_drops: u64,
+    pub(crate) udp_response_queue_drops: u64,
     pub(crate) dns_queue_drops: u64,
 }
 
@@ -117,6 +123,8 @@ impl RuntimeResourceStats {
                 dns_cache_hits: AtomicU64::new(0),
                 packet_queue_drops: AtomicU64::new(0),
                 udp_queue_drops: AtomicU64::new(0),
+                udp_association_queue_drops: AtomicU64::new(0),
+                udp_response_queue_drops: AtomicU64::new(0),
                 dns_queue_drops: AtomicU64::new(0),
             }),
         }
@@ -177,9 +185,22 @@ impl RuntimeResourceStats {
     }
 
     pub(crate) fn queue_drop(&self, queue: ResourceQueue, limit: usize) {
+        if matches!(
+            queue,
+            ResourceQueue::UdpAssociation | ResourceQueue::UdpResponse
+        ) {
+            self.inner.udp_queue_drops.fetch_add(1, Ordering::Relaxed);
+        }
         let (counter, first) = match queue {
             ResourceQueue::Packet => (&self.inner.packet_queue_drops, FIRST_PACKET_QUEUE_DROP),
-            ResourceQueue::Udp => (&self.inner.udp_queue_drops, FIRST_UDP_QUEUE_DROP),
+            ResourceQueue::UdpAssociation => (
+                &self.inner.udp_association_queue_drops,
+                FIRST_UDP_ASSOCIATION_QUEUE_DROP,
+            ),
+            ResourceQueue::UdpResponse => (
+                &self.inner.udp_response_queue_drops,
+                FIRST_UDP_RESPONSE_QUEUE_DROP,
+            ),
             ResourceQueue::Dns => (&self.inner.dns_queue_drops, FIRST_DNS_QUEUE_DROP),
         };
         counter.fetch_add(1, Ordering::Relaxed);
@@ -191,7 +212,13 @@ impl RuntimeResourceStats {
                     limit,
                     "runtime queue dropped an item for the first time"
                 ),
-                ResourceQueue::Udp => tracing::warn!(
+                ResourceQueue::UdpAssociation => tracing::warn!(
+                    event = "tun_udp_association_drop",
+                    scope = self.inner.scope,
+                    limit,
+                    "runtime queue dropped an item for the first time"
+                ),
+                ResourceQueue::UdpResponse => tracing::warn!(
                     event = "tun_udp_response_drop",
                     scope = self.inner.scope,
                     limit,
@@ -232,6 +259,11 @@ impl RuntimeResourceStats {
             dns_cache_hits: self.inner.dns_cache_hits.load(Ordering::Acquire),
             packet_queue_drops: self.inner.packet_queue_drops.load(Ordering::Acquire),
             udp_queue_drops: self.inner.udp_queue_drops.load(Ordering::Acquire),
+            udp_association_queue_drops: self
+                .inner
+                .udp_association_queue_drops
+                .load(Ordering::Acquire),
+            udp_response_queue_drops: self.inner.udp_response_queue_drops.load(Ordering::Acquire),
             dns_queue_drops: self.inner.dns_queue_drops.load(Ordering::Acquire),
         }
     }
@@ -308,6 +340,8 @@ impl RuntimeResourceStatsInner {
             handshake_peak = self.handshakes.peak.load(Ordering::Acquire),
             packet_queue_drops = self.packet_queue_drops.load(Ordering::Acquire),
             udp_queue_drops = self.udp_queue_drops.load(Ordering::Acquire),
+            udp_association_queue_drops = self.udp_association_queue_drops.load(Ordering::Acquire),
+            udp_response_queue_drops = self.udp_response_queue_drops.load(Ordering::Acquire),
             dns_queue_drops = self.dns_queue_drops.load(Ordering::Acquire),
             "runtime resource statistics"
         );
@@ -348,7 +382,8 @@ mod tests {
         stats.singleflight_join();
         stats.dns_cache_hit();
         stats.queue_drop(ResourceQueue::Packet, 32);
-        stats.queue_drop(ResourceQueue::Udp, 16);
+        stats.queue_drop(ResourceQueue::UdpAssociation, 64);
+        stats.queue_drop(ResourceQueue::UdpResponse, 1024);
         stats.queue_drop(ResourceQueue::Dns, 16);
 
         let snapshot = stats.snapshot();
@@ -365,7 +400,9 @@ mod tests {
         assert_eq!(snapshot.singleflight_joins, 1);
         assert_eq!(snapshot.dns_cache_hits, 1);
         assert_eq!(snapshot.packet_queue_drops, 1);
-        assert_eq!(snapshot.udp_queue_drops, 1);
+        assert_eq!(snapshot.udp_queue_drops, 2);
+        assert_eq!(snapshot.udp_association_queue_drops, 1);
+        assert_eq!(snapshot.udp_response_queue_drops, 1);
         assert_eq!(snapshot.dns_queue_drops, 1);
 
         drop((dns, tcp, udp, handshake, singleflight));

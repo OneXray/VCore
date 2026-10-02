@@ -218,7 +218,7 @@ stopped -> preparing -> prepared -> starting -> running
 
 ### `start`
 
-Apple 和 Android 的 TUN 启动参数：
+Apple、Android 和 Linux 的 TUN 启动参数：
 
 ```json
 {
@@ -229,11 +229,16 @@ Apple 和 Android 的 TUN 启动参数：
 }
 ```
 
-Android 使用 `rawIp`。非 TUN 配置必须省略 `tunFd` 和 `tunFraming`。
+Android 和 Linux 使用 `rawIp`。非 TUN 配置必须省略 `tunFd` 和 `tunFraming`。
 
 - `tunFd` 由宿主借用，宿主必须预先设置 nonblocking。
 - VCore 校验后建立带 `CLOEXEC` 的副本，只关闭副本。
-- Apple 只接受 `utun`，Android 只接受 `rawIp`。
+- Apple 只接受 `utun`，Android 和 Linux 只接受 `rawIp`。
+- Linux 要求真实单队列 TUN、关闭 PI/VNET header、实际 MTU 1500；普通 socket/pipe
+  不能作为生产 TUN fd。校验失败保持 prepared，可修正宿主输入后重试。
+- Linux 宿主创建并保持 TUN 参数和路由隔离，保证 VCore 物理出站不重新进入 TUN；
+  VCore 不创建接口或修改系统路由。跨网络命名空间的参数校验需要宿主提供相应权限，
+  完整 fd 契约见 [TUN 平台层](tun-platform.md)。
 - 从 prepared 配置创建本次 session 的代理组选择状态。
 - 所有监听器和关键数据面成功后才进入 running。
 - GeoData 更新只在启动后按需后台运行，不属于启动关键路径。

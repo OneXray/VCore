@@ -4,13 +4,13 @@ use tokio::io::unix::AsyncFd;
 
 use crate::{IpVersion, Result, TunFraming, VCoreError};
 
-use super::TunFd;
+use super::{TUN_PACKET_BATCH_SIZE, TunFd};
 
 // The current config protocol accepts only MTU 1500. Keeping the slice passed
 // to rust-tun at exactly that size is also important on Apple: its PI adapter
 // uses a fixed 1504-byte stack buffer at this size, but allocates a temporary
 // Vec for larger reads and writes.
-const TUN_MTU: usize = 1_500;
+pub(super) const TUN_MTU: usize = 1_500;
 
 /// Non-blocking raw-IP packet I/O backed by rust-tun.
 ///
@@ -35,6 +35,14 @@ impl fmt::Debug for RustTunIo {
 
 impl RustTunIo {
     pub fn new(fd: TunFd, framing: TunFraming) -> Result<Self> {
+        #[cfg(target_os = "linux")]
+        if framing != TunFraming::RawIp {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Linux TUN requires rawIp framing",
+            )
+            .into());
+        }
         let mut configuration = rust_tun::Configuration::default();
         configuration
             .raw_fd(fd.into_raw_fd())
@@ -78,15 +86,95 @@ impl RustTunIo {
         Ok(version)
     }
 
+    /// Waits for the first packet, then drains only immediately ready packets.
+    /// Each consumed packet has its own outcome, so an invalid packet cannot
+    /// discard valid neighbours. A fatal error preserves the consumed prefix.
+    pub(crate) async fn read_packets(
+        &self,
+        packets: &mut [Vec<u8>],
+        outcomes: &mut Vec<Result<IpVersion>>,
+    ) -> Result<()> {
+        debug_assert!(!packets.is_empty() && packets.len() <= TUN_PACKET_BATCH_SIZE);
+        outcomes.clear();
+        while outcomes.len() < packets.len() {
+            let mut ready = self.device.readable().await?;
+            loop {
+                let packet = &mut packets[outcomes.len()];
+                packet.clear();
+                packet.resize(TUN_MTU, 0);
+                match ready.try_io(|inner| inner.get_ref().recv(packet)) {
+                    Ok(Ok(0)) => {
+                        return Err(
+                            io::Error::new(io::ErrorKind::UnexpectedEof, "TUN closed").into()
+                        );
+                    }
+                    Ok(Ok(size)) => {
+                        packet.truncate(size);
+                        outcomes.push(TunFraming::RawIp.decode(packet).map(|(version, _)| version));
+                        if outcomes.len() == packets.len() {
+                            return Ok(());
+                        }
+                    }
+                    Ok(Err(error)) => return Err(error.into()),
+                    Err(_would_block) if !outcomes.is_empty() => return Ok(()),
+                    Err(_would_block) => break,
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Writes independent packets while sharing a readiness observation.
+    /// Outcomes are recorded immediately, including local invalid-packet
+    /// drops, so failure or cancellation never hides an accepted prefix.
+    pub(crate) async fn write_packets(
+        &self,
+        packets: &[&[u8]],
+        outcomes: &mut Vec<Result<IpVersion>>,
+    ) -> Result<()> {
+        debug_assert!(!packets.is_empty() && packets.len() <= TUN_PACKET_BATCH_SIZE);
+        outcomes.clear();
+        let mut readiness = None;
+        for packet in packets {
+            let version = match validate_write_packet(packet) {
+                Ok(version) => version,
+                Err(error) => {
+                    outcomes.push(Err(error));
+                    continue;
+                }
+            };
+            let written = loop {
+                let ready = match &mut readiness {
+                    Some(ready) => ready,
+                    None => readiness.insert(self.device.writable().await?),
+                };
+                match ready.try_io(|inner| inner.get_ref().send(packet)) {
+                    #[cfg(target_vendor = "apple")]
+                    Ok(Err(error)) if error.raw_os_error() == Some(libc::ENOBUFS) => {
+                        // Only this unaccepted packet is retried. Drop the
+                        // guard across the same cancellable Darwin backoff
+                        // used by the single-packet path.
+                        readiness = None;
+                        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                    }
+                    Ok(result) => break result?,
+                    Err(_would_block) => readiness = None,
+                }
+            };
+            if written != packet.len() {
+                return Err(
+                    io::Error::new(io::ErrorKind::WriteZero, "partial TUN packet write").into(),
+                );
+            }
+            outcomes.push(Ok(version));
+        }
+        Ok(())
+    }
+
     /// Writes one complete packet. Partial writes are rejected because retrying
     /// a suffix would create a second malformed TUN packet.
     pub async fn write_packet(&self, packet: &[u8]) -> Result<IpVersion> {
-        if packet.len() > TUN_MTU {
-            return Err(VCoreError::InvalidPacket(
-                "TUN packet exceeds configured MTU",
-            ));
-        }
-        let (version, _) = TunFraming::RawIp.decode(packet)?;
+        let version = validate_write_packet(packet)?;
         let written = loop {
             let mut ready = self.device.writable().await?;
             match ready.try_io(|inner| inner.get_ref().send(packet)) {
@@ -111,6 +199,15 @@ impl RustTunIo {
         }
         Ok(version)
     }
+}
+
+fn validate_write_packet(packet: &[u8]) -> Result<IpVersion> {
+    if packet.len() > TUN_MTU {
+        return Err(VCoreError::InvalidPacket(
+            "TUN packet exceeds configured MTU",
+        ));
+    }
+    TunFraming::RawIp.decode(packet).map(|(version, _)| version)
 }
 
 #[cfg(target_vendor = "apple")]
@@ -149,7 +246,7 @@ mod tests {
     async fn raw_ip_read_reuses_caller_buffer_for_ipv4_and_ipv6() {
         let (host, peer) = UnixDatagram::pair().unwrap();
         host.set_nonblocking(true).unwrap();
-        let fd = TunFd::duplicate(host.as_raw_fd()).unwrap();
+        let fd = TunFd::duplicate_mock(host.as_raw_fd()).unwrap();
         let io = RustTunIo::new(fd, TunFraming::RawIp).unwrap();
 
         let mut packet = Vec::with_capacity(1500);
@@ -162,12 +259,146 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn batch_read_preserves_valid_neighbours_of_an_invalid_packet() {
+        let (host, peer) = UnixDatagram::pair().unwrap();
+        host.set_nonblocking(true).unwrap();
+        let io = RustTunIo::new(
+            TunFd::duplicate_mock(host.as_raw_fd()).unwrap(),
+            TunFraming::RawIp,
+        )
+        .unwrap();
+        for packet in [&IPV4[..], &[0x70][..], &IPV6[..]] {
+            peer.send(packet).unwrap();
+        }
+        let mut packets =
+            std::array::from_fn::<_, TUN_PACKET_BATCH_SIZE, _>(|_| Vec::with_capacity(TUN_MTU));
+        let mut outcomes = Vec::with_capacity(TUN_PACKET_BATCH_SIZE);
+        io.read_packets(&mut packets, &mut outcomes).await.unwrap();
+
+        assert_eq!(outcomes.len(), 3);
+        assert_eq!(outcomes[0].as_ref().unwrap(), &IpVersion::V4);
+        assert!(matches!(outcomes[1], Err(VCoreError::InvalidPacket(_))));
+        assert_eq!(outcomes[2].as_ref().unwrap(), &IpVersion::V6);
+        assert_eq!(packets[0], IPV4);
+        assert_eq!(packets[1], [0x70]);
+        assert_eq!(packets[2], IPV6);
+        assert!(packets.iter().all(|packet| packet.capacity() == TUN_MTU));
+    }
+
+    #[tokio::test]
+    async fn batch_read_is_bounded_and_does_not_wait_to_fill() {
+        let (host, peer) = UnixDatagram::pair().unwrap();
+        host.set_nonblocking(true).unwrap();
+        peer.set_nonblocking(true).unwrap();
+        let io = RustTunIo::new(
+            TunFd::duplicate_mock(host.as_raw_fd()).unwrap(),
+            TunFraming::RawIp,
+        )
+        .unwrap();
+        for _ in 0..=TUN_PACKET_BATCH_SIZE {
+            peer.send(&IPV4).unwrap();
+        }
+        let mut packets = std::array::from_fn::<_, TUN_PACKET_BATCH_SIZE, _>(|_| Vec::new());
+        let mut outcomes = Vec::new();
+        io.read_packets(&mut packets, &mut outcomes).await.unwrap();
+        assert_eq!(outcomes.len(), TUN_PACKET_BATCH_SIZE);
+        tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            io.read_packets(&mut packets, &mut outcomes),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(outcomes.len(), 1);
+        assert_eq!(packets[0], IPV4);
+    }
+
+    #[tokio::test]
+    async fn batch_read_waits_for_first_packet_and_can_be_cancelled() {
+        let (host, peer) = UnixDatagram::pair().unwrap();
+        host.set_nonblocking(true).unwrap();
+        let io = RustTunIo::new(
+            TunFd::duplicate_mock(host.as_raw_fd()).unwrap(),
+            TunFraming::RawIp,
+        )
+        .unwrap();
+        let mut packets = [Vec::new()];
+        let mut outcomes = vec![Ok(IpVersion::V6)];
+        assert!(
+            tokio::time::timeout(
+                std::time::Duration::from_millis(5),
+                io.read_packets(&mut packets, &mut outcomes),
+            )
+            .await
+            .is_err()
+        );
+        assert!(outcomes.is_empty());
+        peer.send(&IPV4).unwrap();
+        io.read_packets(&mut packets, &mut outcomes).await.unwrap();
+        assert_eq!(outcomes.len(), 1);
+        assert_eq!(packets[0], IPV4);
+    }
+
+    #[tokio::test]
+    async fn batch_read_preserves_consumed_prefix_on_eof() {
+        let (host, mut peer) = UnixStream::pair().unwrap();
+        host.set_nonblocking(true).unwrap();
+        let io = RustTunIo::new(
+            TunFd::duplicate_mock(host.as_raw_fd()).unwrap(),
+            TunFraming::RawIp,
+        )
+        .unwrap();
+        peer.write_all(&IPV4).unwrap();
+        drop(peer);
+        let mut packets = [Vec::new(), Vec::new()];
+        let mut outcomes = Vec::new();
+        assert!(matches!(
+            io.read_packets(&mut packets, &mut outcomes).await,
+            Err(VCoreError::Io(ref error)) if error.kind() == io::ErrorKind::UnexpectedEof
+        ));
+        assert_eq!(outcomes.len(), 1);
+        assert_eq!(outcomes[0].as_ref().unwrap(), &IpVersion::V4);
+        assert_eq!(packets[0], IPV4);
+    }
+
+    #[tokio::test]
+    async fn batch_write_keeps_packet_boundaries_and_isolates_invalid_packets() {
+        let (host, peer) = UnixDatagram::pair().unwrap();
+        host.set_nonblocking(true).unwrap();
+        peer.set_nonblocking(true).unwrap();
+        let io = RustTunIo::new(
+            TunFd::duplicate_mock(host.as_raw_fd()).unwrap(),
+            TunFraming::RawIp,
+        )
+        .unwrap();
+        let oversized = vec![0x45; TUN_MTU + 1];
+        let mut outcomes = Vec::new();
+        io.write_packets(&[&IPV4, &[0x70], &oversized, &IPV6], &mut outcomes)
+            .await
+            .unwrap();
+        assert_eq!(outcomes.len(), 4);
+        assert_eq!(outcomes[0].as_ref().unwrap(), &IpVersion::V4);
+        assert!(matches!(outcomes[1], Err(VCoreError::InvalidPacket(_))));
+        assert!(matches!(outcomes[2], Err(VCoreError::InvalidPacket(_))));
+        assert_eq!(outcomes[3].as_ref().unwrap(), &IpVersion::V6);
+        let mut received = [0_u8; TUN_MTU];
+        for packet in [&IPV4[..], &IPV6[..]] {
+            let size = peer.recv(&mut received).unwrap();
+            assert_eq!(&received[..size], packet);
+        }
+        assert_eq!(
+            peer.recv(&mut received).unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
+    }
+
+    #[tokio::test]
     async fn rust_tun_drop_closes_only_duplicate_and_preserves_host_flags() {
         let (mut host, mut peer) = UnixStream::pair().unwrap();
         host.set_nonblocking(true).unwrap();
         // SAFETY: host remains open for both flag reads.
         let before = unsafe { libc::fcntl(host.as_raw_fd(), libc::F_GETFL) };
-        let fd = TunFd::duplicate(host.as_raw_fd()).unwrap();
+        let fd = TunFd::duplicate_mock(host.as_raw_fd()).unwrap();
         let io = RustTunIo::new(fd, TunFraming::RawIp).unwrap();
         drop(io);
         // SAFETY: rust-tun owns only the duplicate; host remains open.
@@ -184,7 +415,7 @@ mod tests {
     async fn raw_ip_rejects_invalid_version_and_oversized_write() {
         let (host, peer) = UnixDatagram::pair().unwrap();
         host.set_nonblocking(true).unwrap();
-        let fd = TunFd::duplicate(host.as_raw_fd()).unwrap();
+        let fd = TunFd::duplicate_mock(host.as_raw_fd()).unwrap();
         let io = RustTunIo::new(fd, TunFraming::RawIp).unwrap();
 
         peer.send(&[0x70]).unwrap();
@@ -204,7 +435,7 @@ mod tests {
     async fn zero_length_read_is_tun_eof() {
         let (host, peer) = UnixStream::pair().unwrap();
         host.set_nonblocking(true).unwrap();
-        let fd = TunFd::duplicate(host.as_raw_fd()).unwrap();
+        let fd = TunFd::duplicate_mock(host.as_raw_fd()).unwrap();
         let io = RustTunIo::new(fd, TunFraming::RawIp).unwrap();
         drop(peer);
 
@@ -222,7 +453,7 @@ mod tests {
         host.set_nonblocking(true).unwrap();
         peer.set_nonblocking(true).unwrap();
         let io = RustTunIo::new(
-            TunFd::duplicate(host.as_raw_fd()).unwrap(),
+            TunFd::duplicate_mock(host.as_raw_fd()).unwrap(),
             TunFraming::Utun,
         )
         .unwrap();
@@ -295,10 +526,96 @@ mod tests {
 
     #[cfg(target_vendor = "apple")]
     #[tokio::test]
+    async fn cancelling_batch_write_preserves_accepted_prefix_without_replaying_it() {
+        let (host, peer) = UnixDatagram::pair().unwrap();
+        host.set_nonblocking(true).unwrap();
+        peer.set_nonblocking(true).unwrap();
+        let io = RustTunIo::new(
+            TunFd::duplicate_mock(host.as_raw_fd()).unwrap(),
+            TunFraming::Utun,
+        )
+        .unwrap();
+        let mut frame = 2_u32.to_be_bytes().to_vec();
+        frame.extend_from_slice(&IPV4);
+        io.write_packet(&IPV4).await.unwrap();
+        let mut queued = 1;
+        loop {
+            match host.send(&frame) {
+                Ok(_) => {
+                    queued += 1;
+                    assert!(queued < 65536);
+                }
+                Err(error)
+                    if error.kind() == io::ErrorKind::WouldBlock
+                        || error.raw_os_error() == Some(libc::ENOBUFS) =>
+                {
+                    break;
+                }
+                Err(error) => panic!("unexpected local queue error: {error}"),
+            }
+        }
+        let mut received = [0_u8; 64];
+        peer.recv(&mut received).unwrap();
+        let mut outcomes = Vec::new();
+        assert!(
+            tokio::time::timeout(
+                std::time::Duration::from_millis(10),
+                io.write_packets(&[&IPV4, &IPV6], &mut outcomes),
+            )
+            .await
+            .is_err()
+        );
+        assert_eq!(outcomes.len(), 1);
+        assert_eq!(outcomes[0].as_ref().unwrap(), &IpVersion::V4);
+        // One original frame was removed, and the first batch packet replaced
+        // it. Cancelling the pending second packet leaves exactly this count.
+        for _ in 0..queued {
+            let size = peer.recv(&mut received).unwrap();
+            assert_eq!(&received[..size], frame);
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        assert_eq!(
+            peer.recv(&mut received).unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
+    }
+
+    #[cfg(target_vendor = "apple")]
+    #[tokio::test]
+    async fn utun_batches_keep_each_packet_information_header_independent() {
+        let (host, peer) = UnixDatagram::pair().unwrap();
+        host.set_nonblocking(true).unwrap();
+        let io = RustTunIo::new(
+            TunFd::duplicate_mock(host.as_raw_fd()).unwrap(),
+            TunFraming::Utun,
+        )
+        .unwrap();
+        let mut outcomes = Vec::new();
+        io.write_packets(&[&IPV4, &IPV6], &mut outcomes)
+            .await
+            .unwrap();
+        let mut received = [0_u8; 64];
+        for (packet, family) in [(&IPV4[..], 2_u32), (&IPV6[..], 30_u32)] {
+            let size = peer.recv(&mut received).unwrap();
+            assert_eq!(&received[..4], family.to_be_bytes());
+            assert_eq!(&received[4..size], packet);
+            peer.send(&received[..size]).unwrap();
+        }
+        let mut packets = [Vec::new(), Vec::new()];
+        io.read_packets(&mut packets, &mut outcomes).await.unwrap();
+        assert_eq!(outcomes.len(), 2);
+        assert_eq!(outcomes[0].as_ref().unwrap(), &IpVersion::V4);
+        assert_eq!(outcomes[1].as_ref().unwrap(), &IpVersion::V6);
+        assert_eq!(packets[0], IPV4);
+        assert_eq!(packets[1], IPV6);
+    }
+
+    #[cfg(target_vendor = "apple")]
+    #[tokio::test]
     async fn utun_write_adds_darwin_family_header_for_ipv4_and_ipv6() {
         let (host, peer) = UnixDatagram::pair().unwrap();
         host.set_nonblocking(true).unwrap();
-        let fd = TunFd::duplicate(host.as_raw_fd()).unwrap();
+        let fd = TunFd::duplicate_mock(host.as_raw_fd()).unwrap();
         let io = RustTunIo::new(fd, TunFraming::Utun).unwrap();
 
         for (packet, family, version) in [
@@ -318,7 +635,7 @@ mod tests {
     async fn utun_read_strips_darwin_family_header_for_ipv4_and_ipv6() {
         let (host, peer) = UnixDatagram::pair().unwrap();
         host.set_nonblocking(true).unwrap();
-        let fd = TunFd::duplicate(host.as_raw_fd()).unwrap();
+        let fd = TunFd::duplicate_mock(host.as_raw_fd()).unwrap();
         let io = RustTunIo::new(fd, TunFraming::Utun).unwrap();
 
         let mut packet = Vec::new();

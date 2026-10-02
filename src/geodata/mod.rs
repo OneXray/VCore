@@ -23,7 +23,7 @@ use thiserror::Error;
 use crate::{
     VCoreError,
     config::{DnsNameserverPolicy, RuleKind, RuleSpec},
-    routing::{GeoMatcher, normalize_domain_name},
+    routing::GeoMatcher,
 };
 
 mod manager;
@@ -202,12 +202,25 @@ impl GeoData {
             load_ip_file(config_dir, &requested.ips, &mut ips, &mut ledger)?;
         }
 
-        Ok(Self {
+        Ok(Self::from_loaded(sites, ips, ledger.used, ledger.peak))
+    }
+
+    fn from_loaded(
+        mut sites: Vec<SiteCategory>,
+        mut ips: Vec<IpCategory>,
+        allocation_capacity: usize,
+        peak_allocation_capacity: usize,
+    ) -> Self {
+        // Sort categories, never routing rules. Both standalone loading and
+        // manager reloads share this allocation-free indexing step.
+        sites.sort_unstable_by_key(|category| category.code);
+        ips.sort_unstable_by_key(|category| category.code);
+        Self {
             sites,
             ips,
-            allocation_capacity: ledger.used,
-            peak_allocation_capacity: ledger.peak,
-        })
+            allocation_capacity,
+            peak_allocation_capacity,
+        }
     }
 
     /// Accounted retained matcher capacity, not allocator or process memory.
@@ -231,12 +244,26 @@ impl GeoData {
 
     #[must_use]
     pub fn geosite_available(&self, code: &str) -> bool {
-        self.sites.iter().any(|category| category.code.eq_str(code))
+        self.site_category(code).is_some()
     }
 
     #[must_use]
     pub fn geoip_available(&self, code: &str) -> bool {
-        self.ips.iter().any(|category| category.code.eq_str(code))
+        self.ip_category(code).is_some()
+    }
+
+    fn site_category(&self, code: &str) -> Option<&SiteCategory> {
+        self.sites
+            .binary_search_by(|category| category.code.cmp_str(code))
+            .ok()
+            .map(|index| &self.sites[index])
+    }
+
+    fn ip_category(&self, code: &str) -> Option<&IpCategory> {
+        self.ips
+            .binary_search_by(|category| category.code.cmp_str(code))
+            .ok()
+            .map(|index| &self.ips[index])
     }
 }
 
@@ -250,16 +277,12 @@ impl GeoMatcher for GeoData {
     }
 
     fn matches_geosite(&self, code: &str, domain: &str) -> bool {
-        self.sites
-            .iter()
-            .find(|category| category.code.eq_str(code))
+        self.site_category(code)
             .is_some_and(|category| category.matches(domain))
     }
 
     fn matches_geoip(&self, code: &str, address: IpAddr) -> bool {
-        self.ips
-            .iter()
-            .find(|category| category.code.eq_str(code))
+        self.ip_category(code)
             .is_some_and(|category| category.matches(address))
     }
 }
@@ -305,8 +328,10 @@ impl Code {
         str::from_utf8(&self.bytes[..usize::from(self.len)]).expect("validated ASCII GeoData code")
     }
 
-    fn eq_str(&self, other: &str) -> bool {
-        self.as_str().eq_ignore_ascii_case(other)
+    fn cmp_str(&self, other: &str) -> std::cmp::Ordering {
+        self.as_str()
+            .bytes()
+            .cmp(other.bytes().map(|byte| byte.to_ascii_lowercase()))
     }
 }
 
@@ -929,27 +954,41 @@ fn parse_domain_record(
             });
         }
         2 | 3 => {
-            // Account a bounded normalization output while both the reusable
-            // input scratch and final compact byte arena are live.
-            ledger.reserve(253)?;
-            let normalized = normalize_domain_name(raw).map_err(|error| {
-                invalid_domain_error(code, &format!("invalid domain value: {error}"))
+            // These are static literal match values, not DNS lookup targets.
+            // Keep opaque ASCII (including non-hostname labels) without STD3
+            // validation or per-record allocation. Preserve valid IDN support,
+            // but an IDNA failure must not discard a record or its category.
+            let raw = raw.strip_suffix('.').unwrap_or(raw);
+            if raw.is_empty() {
+                return invalid_domain(code, "Domain/Full value must be non-empty");
+            }
+            let normalized = (!raw.is_ascii()).then(|| {
+                idna::domain_to_ascii(raw)
+                    .ok()
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or_else(|| raw.to_lowercase())
             });
-            ledger.release(253);
-            let normalized = normalized?;
-            ledger.reserve(normalized.capacity())?;
+            let temporary_capacity = normalized.as_ref().map_or(0, String::capacity);
+            let value = if let Some(normalized) = normalized.as_deref() {
+                normalized.as_bytes()
+            } else {
+                scratch.truncate(raw.len());
+                scratch.make_ascii_lowercase();
+                scratch.as_slice()
+            };
+            ledger.reserve(temporary_capacity)?;
             let result = append_site_value(
                 if domain_type == 2 {
                     SitePatternKind::Domain
                 } else {
                     SitePatternKind::Full
                 },
-                normalized.as_bytes(),
+                value,
                 patterns,
                 values,
                 ledger,
             );
-            ledger.release(normalized.capacity());
+            ledger.release(temporary_capacity);
             result?;
         }
         other => {

@@ -75,6 +75,10 @@ impl std::fmt::Debug for DynamicGeoData {
 }
 
 impl GeoMatcher for DynamicGeoData {
+    fn routing_snapshot(&self) -> Option<Arc<dyn GeoMatcher>> {
+        Some(self.current.load_full())
+    }
+
     fn geosite_available(&self, code: &str) -> bool {
         self.current.load().geosite_available(code)
     }
@@ -973,12 +977,7 @@ fn load_snapshot(
         }
     }
 
-    let snapshot = Arc::new(GeoData {
-        sites,
-        ips,
-        allocation_capacity: used,
-        peak_allocation_capacity: peak,
-    });
+    let snapshot = Arc::new(GeoData::from_loaded(sites, ips, used, peak));
     (
         snapshot,
         GeoDataLoadReport {

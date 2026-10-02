@@ -3,7 +3,10 @@ use std::{fs, net::IpAddr};
 use tempfile::tempdir;
 
 use super::*;
-use crate::config::{DnsNameserverPolicy, RuleAction, RuleKind, RuleSpec};
+use crate::{
+    config::{DnsNameserverPolicy, RuleAction, RuleKind, RuleSpec},
+    routing::normalize_domain_name,
+};
 
 fn varint(mut value: u64) -> Vec<u8> {
     let mut output = Vec::new();
@@ -117,6 +120,143 @@ fn empty_rules_do_not_open_assets() {
     assert!(data.is_empty());
     assert_eq!(data.allocation_capacity(), 0);
     assert_eq!(data.peak_allocation_capacity(), 0);
+}
+
+#[test]
+fn category_lookup_preserves_independent_codes_through_load_and_reload() {
+    let dir = tempdir().unwrap();
+    write_asset(
+        dir.path(),
+        GEOSITE_FILE_NAME,
+        &site_list(&[
+            site("Az", &[domain(3, "az.example")]),
+            site("AA", &[domain(3, "aa.example")]),
+            site("Z", &[domain(3, "z.example")]),
+            site("a-b", &[domain(3, "hyphen.example")]),
+            site("a", &[domain(3, "a.example")]),
+        ]),
+    );
+    write_asset(
+        dir.path(),
+        GEOIP_FILE_NAME,
+        &geoip_list(&[
+            geoip("a-B", &[cidr(&[10, 4, 0, 0], 16)], false),
+            geoip("z", &[cidr(&[10, 5, 0, 0], 16)], false),
+            geoip("a", &[cidr(&[10, 1, 0, 0], 16)], false),
+            geoip("AZ", &[cidr(&[10, 3, 0, 0], 16)], false),
+            geoip("aa", &[cidr(&[10, 2, 0, 0], 16)], false),
+        ]),
+    );
+    let rules: Vec<_> = ["z", "a-b", "a", "az", "aa"]
+        .into_iter()
+        .flat_map(|code| {
+            [
+                rule(RuleKind::GeoSite(code.to_owned())),
+                rule(RuleKind::GeoIp(code.to_owned())),
+            ]
+        })
+        .collect();
+    let data = GeoData::load(dir.path(), &rules).unwrap();
+    let manager = GeoDataManager::open(dir.path(), std::time::Duration::from_secs(60)).unwrap();
+    let registration = manager
+        .register(GeoRequirements::collect(&rules, &[]).unwrap())
+        .unwrap();
+    assert!(registration.initial_report().geosite.available);
+    assert!(registration.initial_report().geoip.available);
+    let matcher = registration.matcher();
+    for loaded in [&data as &dyn GeoMatcher, matcher.as_ref()] {
+        for (code, domain, address) in [
+            ("A", "a.example", "10.1.0.1"),
+            ("aA", "aa.example", "10.2.0.1"),
+            ("AZ", "az.example", "10.3.0.1"),
+            ("A-b", "hyphen.example", "10.4.0.1"),
+            ("z", "z.example", "10.5.0.1"),
+        ] {
+            assert!(loaded.geosite_available(code), "{code}");
+            assert!(loaded.geoip_available(code), "{code}");
+            assert!(loaded.matches_geosite(code, domain), "{code}");
+            assert!(
+                loaded.matches_geoip(code, address.parse().unwrap()),
+                "{code}"
+            );
+            assert!(!loaded.matches_geosite(code, "absent.example"), "{code}");
+            assert!(
+                !loaded.matches_geoip(code, "192.0.2.1".parse().unwrap()),
+                "{code}"
+            );
+        }
+        for code in ["", "0", "a-", "a-bb", "aaa", "ay", "zz", "a?", " a"] {
+            assert!(!loaded.geosite_available(code), "{code}");
+            assert!(!loaded.geoip_available(code), "{code}");
+            assert!(!loaded.matches_geosite(code, "a.example"), "{code}");
+            assert!(
+                !loaded.matches_geoip(code, "10.1.0.1".parse().unwrap()),
+                "{code}"
+            );
+        }
+    }
+
+    write_asset(
+        dir.path(),
+        GEOSITE_FILE_NAME,
+        &site_list(&[
+            site("a", &[domain(3, "new-a.example")]),
+            site("a-b", &[domain(3, "new-hyphen.example")]),
+            site("z", &[domain(3, "new-z.example")]),
+            site("aa", &[domain(3, "new-aa.example")]),
+            site("az", &[domain(3, "new-az.example")]),
+        ]),
+    );
+    write_asset(
+        dir.path(),
+        GEOIP_FILE_NAME,
+        &geoip_list(&[
+            geoip("aa", &[cidr(&[172, 2, 0, 0], 16)], false),
+            geoip("az", &[cidr(&[172, 3, 0, 0], 16)], false),
+            geoip("a", &[cidr(&[172, 1, 0, 0], 16)], false),
+            geoip("z", &[cidr(&[172, 5, 0, 0], 16)], false),
+            geoip("a-b", &[cidr(&[172, 4, 0, 0], 16)], false),
+        ]),
+    );
+    let report = manager.reload();
+    assert!(report.geosite_available);
+    assert!(report.geoip_available);
+    for (code, old_domain, new_domain, old_address, new_address) in [
+        ("A", "a.example", "new-a.example", "10.1.0.1", "172.1.0.1"),
+        (
+            "aA",
+            "aa.example",
+            "new-aa.example",
+            "10.2.0.1",
+            "172.2.0.1",
+        ),
+        (
+            "AZ",
+            "az.example",
+            "new-az.example",
+            "10.3.0.1",
+            "172.3.0.1",
+        ),
+        (
+            "A-b",
+            "hyphen.example",
+            "new-hyphen.example",
+            "10.4.0.1",
+            "172.4.0.1",
+        ),
+        ("z", "z.example", "new-z.example", "10.5.0.1", "172.5.0.1"),
+    ] {
+        assert!(!matcher.matches_geosite(code, old_domain), "{code}");
+        assert!(matcher.matches_geosite(code, new_domain), "{code}");
+        assert!(
+            !matcher.matches_geoip(code, old_address.parse().unwrap()),
+            "{code}"
+        );
+        assert!(
+            matcher.matches_geoip(code, new_address.parse().unwrap()),
+            "{code}"
+        );
+    }
 }
 
 #[test]
@@ -301,6 +441,98 @@ fn geosite_normalizes_unicode_domain_values() {
     let data = GeoData::load(dir.path(), &[rule(RuleKind::GeoSite("IDNA".to_owned()))]).unwrap();
     let normalized = normalize_domain_name("子.例子.测试").unwrap();
     assert!(data.matches_geosite("idna", &normalized));
+}
+
+#[test]
+fn geosite_literal_patterns_do_not_require_dns_hostname_syntax() {
+    let dir = tempdir().unwrap();
+    let long_label = format!("{}.test", "x".repeat(64));
+    let records = [
+        domain(2, "EXAMPLE.TEST"),
+        domain(2, "\"QUOTED.TEST"),
+        domain(2, "FOO_BAR.TEST"),
+        domain(3, "FULL_VALUE.TEST"),
+        domain(2, "-EDGE-.TEST"),
+        domain(2, "PERCENT%VALUE.TEST"),
+        domain(2, "BACK\\SLASH.TEST"),
+        domain(2, &long_label),
+        domain(2, "*.LITERAL.TEST"),
+    ];
+    write_asset(
+        dir.path(),
+        GEOSITE_FILE_NAME,
+        &site_list(&[site("compat", &records)]),
+    );
+    let data = GeoData::load(dir.path(), &[rule(RuleKind::GeoSite("compat".into()))]).unwrap();
+    assert!(data.geosite_available("compat"));
+    assert_eq!(data.sites[0].patterns.len(), records.len());
+    for value in [
+        "example.test",
+        "sub.example.test",
+        "\"quoted.test",
+        "sub.\"quoted.test",
+        "foo_bar.test",
+        "sub.foo_bar.test",
+        "full_value.test",
+        "-edge-.test",
+        "percent%value.test",
+        "back\\slash.test",
+        long_label.as_str(),
+        "*.literal.test",
+    ] {
+        assert!(data.matches_geosite("compat", value), "{value}");
+    }
+    for value in [
+        "quoted.test",
+        "notfoo_bar.test",
+        "sub.full_value.test",
+        "host.literal.test",
+        "absent.test",
+    ] {
+        assert!(!data.matches_geosite("compat", value), "{value}");
+    }
+}
+
+#[test]
+fn geosite_preserves_utf8_patterns_when_idna_is_not_applicable() {
+    let dir = tempdir().unwrap();
+    // A joiner without a valid IDNA context is still a static literal pattern.
+    let value = "\u{200d}.EXAMPLE";
+    assert!(idna::domain_to_ascii(value).is_err());
+    // Successful IDNA conversion can also erase an ignored-only value.
+    assert_eq!(idna::domain_to_ascii("\u{ad}").unwrap(), "");
+    write_asset(
+        dir.path(),
+        GEOSITE_FILE_NAME,
+        &site_list(&[site("opaque", &[domain(2, value), domain(3, "\u{ad}")])]),
+    );
+    let data = GeoData::load(dir.path(), &[rule(RuleKind::GeoSite("opaque".into()))]).unwrap();
+    assert!(data.matches_geosite("opaque", "\u{200d}.example"));
+    assert!(data.matches_geosite("opaque", "\u{ad}"));
+    assert!(!data.matches_geosite("opaque", ""));
+    assert!(!data.matches_geosite("opaque", "example"));
+}
+
+#[test]
+fn geosite_pattern_compatibility_does_not_accept_invalid_records() {
+    let dir = tempdir().unwrap();
+    for record in [
+        domain(2, ""),
+        domain(3, ""),
+        field_varint(1, 2),
+        [field_varint(1, 2), field_bytes(2, &[0xff])].concat(),
+        domain(4, "example.test"),
+    ] {
+        write_asset(
+            dir.path(),
+            GEOSITE_FILE_NAME,
+            &site_list(&[site("invalid", &[record])]),
+        );
+        assert!(matches!(
+            GeoData::load(dir.path(), &[rule(RuleKind::GeoSite("invalid".into()))]),
+            Err(GeoDataError::InvalidDomain { .. })
+        ));
+    }
 }
 
 #[test]

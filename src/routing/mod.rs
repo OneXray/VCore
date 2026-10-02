@@ -5,7 +5,7 @@
 //! match values are normalized once and the resulting ordered rule set can be
 //! evaluated without allocating for each rule.
 
-use std::{fmt, net::IpAddr};
+use std::{fmt, net::IpAddr, sync::Arc};
 
 use crate::{
     config::{IpCidr, Network, RuleAction, RuleKind, RuleSpec},
@@ -188,6 +188,14 @@ fn valid_opaque_ascii_dns_name(value: &str) -> bool {
 /// matches, allowing the base rule engine to ship before the bounded GeoData
 /// loader without treating absent data as an error or wildcard.
 pub trait GeoMatcher: Send + Sync {
+    /// Captures one immutable view for a whole routing decision. Changed
+    /// contents require a new view, never interior mutation of the snapshot.
+    /// Unknown or mutable providers may return None. Established TUN IP UDP
+    /// flows pin their action independently of later matcher updates.
+    fn routing_snapshot(&self) -> Option<Arc<dyn GeoMatcher>> {
+        None
+    }
+
     /// Whether a prepared GeoSite category is currently available.
     ///
     /// The default preserves existing complete matchers. Dynamic or empty

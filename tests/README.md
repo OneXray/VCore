@@ -11,7 +11,7 @@ VCore 的日常检查和 CI 不依赖 benchmark 的路径或安装状态。
 | 构建 | 精简 feature、生产 feature、全目标编译 | check core --profile features |
 | 工具 | 平台构建、产物身份、TLS 来源和有界子进程回收 | scripts/tests |
 | 平台产物 | Apple/Android/Windows 架构、最低版本、hash 和原生 ABI | build --delivery 与 platform-artifacts/platform-abi |
-| 外部网络与内存 | 容器协议互通、合成 fd-TUN、完整 CN 分流、内存峰值、吞吐和长测 | 独立 container-benchmark |
+| 外部网络与内存 | 容器协议互通、Linux 真实 TUN、完整 CN 分流、PID RSS 峰值、吞吐和长测 | 独立 container-benchmark |
 
 所有服务端遵守[隔离规则](../docs/testing-isolation.md)。默认检查仅执行纯内存白名单，
 全目标只编译 `--no-run`；ignored 不算通过。物理设备和正式安装不由本地测试推导。
@@ -37,7 +37,18 @@ VCore 的日常检查和 CI 不依赖 benchmark 的路径或安装状态。
 - httpupgrade_config/httpupgrade_memory：普通/fast-open、ED、严格 101、部分写、
   首包恰好一次及原期限；已建连接不受建链期限限制。
 - GeoData：超旧数量/内存/文件额度的完整加载、整数溢出、缺失/损坏和原子快照。
-  完整官方 CN 独立参考、实际分流与生产宿主峰值由外部 benchmark 同轮验证。
+  分类异序/大小写定位与重载保持独立；TUN UDP 五元组独立固定 action，提示/GeoData
+  更新只影响新流并释放旧快照；认证 QUIC 连接标识变更、同标识重传、逐目标空闲回收
+  与响应刷新保持独立。域名 DNS 答案和非 TUN 路径继续更新，已有组 transport 不迁移。
+  完整官方 CN 的真实 fd-TUN 分流负载及生产宿主峰值由独立 benchmark 压测；
+  不把少量选路见证当作逐条规则语义证明。
+- TUN UDP：reader 直接分流、慢关联隔离、TCP ingress Full 不阻塞 UDP/DNS；唯一 writer
+  三通道公平/关闭/非法包隔离、平台接受前 DNS permit 生命周期、取消及关联/DNS 任务
+  同步回收。纯 codec 的 MTU/族边界、TCP-only 与通用 endpoint 回归在 netstack 内。
+- TUN 批次：首包等待后仅收已就绪包、最多 8 包、独立包边界、IPv6 策略及逐包流量、
+  非法包邻居保留、EOF/取消前缀与不重放；Windows 队列/唤醒纯内存回归不替代设备验证。
+  netstack 入站维护按有界批次摊薄，TCP 仍逐包 ingress；同目标端口 SYN 的流绑定、
+  相邻 ICMP、输出满时未消费后缀及取消/关闭保持独立回归。
 - 独立 ClientHello golden、Encryption 密码向量与 limits 输入保留，
   不能用待测实现生成期望或以声明清单替代行为。
 

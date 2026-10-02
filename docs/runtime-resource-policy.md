@@ -11,14 +11,25 @@
 5. 当前值和峰值只用于诊断，不参与 admission。
 6. 平台内存采样是尽力而为的遥测，不改变生命周期结果。
 
+长期业务引擎（FFI 的 TUN / 非 TUN 及 Windows Session Host）统一使用
+Tokio `new_multi_thread()`，不按 TUN 分叉，不自行读取 CPU 数或设置 worker 数。
+worker 数遵循 Tokio 默认行为（包括其 `TOKIO_WORKER_THREADS` 环境覆盖）；
+线程栈使用 Tokio / Rust 默认值，不固定为 1 MiB。
+短生命周期的 `prepare` / `measureDelay` 保留共用的单线程执行策略，不按 TUN 分叉。
+工作线程（含阻塞任务线程）继承 Invoke 重入保护，
+Apple 平台另保留线程局部日志作用域；同步停止仍等待子任务与运行时线程退出。
+Release 构建优先吞吐（`opt-level = 3`），保留 thin LTO 与现有缓冲、队列边界。
+
 ## TUN 结构上限
 
 ```text
 原始包 / MTU                    1,500 字节
 最终代理 UDP 负载               1,452 字节（Windows 1,352）
 包队列                          256
-普通事件 / UDP 响应             128
-DNS 入站 / DNS 响应             128 / 128
+普通事件 / TCP accept           128
+每关联 UDP 入站                 64
+普通 UDP 响应                   1,024
+DNS 响应                        128
 每个 TCP 方向缓冲区             32 KiB
 TLS / XHTTP 缓冲区              64 KiB
 DNS 类型化缓存                  256 项
@@ -28,9 +39,15 @@ TUN 域名提示                    256 项（按需）
 
 Windows L3 接口及其 Session Host netstack 使用 1400 MTU，因此按 IPv6 UDP 头保守计算的响应负载上限是 1352；表中的 1500 是跨平台原始包解析上限和其他 TUN 平台的固定 MTU。
 
-- DNS 响应和普通 UDP 响应使用不同队列，但共享 netstack UDP 入站接收器。
+- 普通 UDP 在 reader 同步分流并直接提交到每源关联，不经过 TCP Driver 或共享 UDP 入站队列；DNS 查询独立提交受跟踪任务。
+- 每关联请求、普通响应和 DNS 响应使用独立内部容量，不扩大 128 项的 TCP accept，也不增加公开配置字段。
 - TUN 域名提示只在 TUN 配置实际包含域名规则时创建，并从空容量按需增长。
+- 域名提示的读写使用短同步锁，临界区内不等待 IO 或执行异步操作；新 TUN IP 流读取当前提示，活动 UDP 五元组保持既定 action。
 - ICMP 响应复用原始包出站队列，不创建独立任务或长期状态。
+- TUN 读写每批最多处理 8 个已就绪包，不等待凑批。复用至多 8 个 1500 字节读缓冲区；
+  唯一 writer 公平轮转 TCP/ICMP raw、普通 UDP/DNS 响应三通道，至多暂持 8 包，
+  UDP 在复用 MTU frame 中构包，不增加中转队列。非法输出也计入工作预算。批次中途取消或
+  失败仍按已完成结果逐包统计；非法包局部隔离，Unix 系统调用保持单包边界。
 - 有局部预算的结构在扩容前检查额度；GeoData 仅检查整数可表示性和实际分配失败。
 
 ## TCP 与握手
@@ -62,12 +79,21 @@ XUDP现在只拥有已认证流上的帧编码；VLESS响应头由VLESS包装层
 普通 TUN UDP 关联：
 
 - 关联表不设固定项数；
-- 每个关联的入站队列有界，满时只丢当前数据报；
+- 每个关联的入站队列最多 64 项，满时只丢当前数据报，不等待慢关联并阻塞其他来源；
+- 普通响应队列最多 1,024 项，满时只丢当前响应；没有共享 UDP 入站中转队列；
+- reader 拥有关联表和入站分发，唯一 TUN writer 直接、公平消费普通/DNS/TCP raw 三个通道；写回等待不阻塞 reader，不增加逐关联写回任务；
+- TCP/ICMP ingress 满时非阻塞丢当前完整 IP 包，避免阻塞 UDP/DNS，记录 packet queue drop；TCP 重传恢复，不引入 pending FIFO；
 - 使用代次感知所有权和子取消令牌；
 - 空闲超时 30 秒，清理周期 10 秒；
 - 清理时先从表中删除，再取消子任务；
 - 只有成功入队的请求或响应刷新活动时间；
-- 父运行时停止时删除、取消并等待全部子任务。
+- 源关联内的 IP 五元组仅保留规则 action、活动时间和可选 QUIC 连接标识，
+  不创建逐流任务、队列或 socket；不设流数量上限。各目标独立 30 秒空闲失效，
+  关联收发时最多每 10 秒扫描回收并收缩明显过大的表容量；关联关闭释放整个表。
+  响应只刷新自身已存在且未过期的目标，不创建状态或复活过期流。
+  五元组活动以接收请求或读到匹配出口响应为准；源关联仍只以成功入队刷新，
+  响应队列满不会延长源关联所有者的生命周期。
+- reader EOF、错误或取消时，先取消其 UDP 子作用域，再删除、取消并等待全部关联和 DNS 任务；父运行时统一取消并等待唯一 writer 与 netstack。UDP 子作用域停止不取消调用者令牌。
 
 嵌套代理协议可以增加有界帧头，但最终解封装负载仍不得超过调用方按有效 MTU 给出的上限；其他 TUN 平台为 1,452 字节，Windows 为 1,352 字节。
 
@@ -117,6 +143,9 @@ IP-only协议接点持有`ResolutionContext`，runtime DNS通过Weak绑定，不
 - GeoSite/GeoIP 不设分类、引用、记录、文件大小、累计源码/值字节或加载内存配额；DNS GeoSite policy 也不保留独立项数/引用数上限。
 - Loader 只解析被引用的分类，其他分类按 wire 长度跳过。
 - 匹配器使用紧凑连续存储，运行期匹配不分配。
+- 分类按 code 二分定位；TUN UDP 五元组固定规则 action，不保留 GeoData 快照
+  或域名。没有全局目的缓存、规则配额或旧快照引用；各目标独立空闲回收。
+  活动流的规则数据更新在新流生效；DNS 查询、域名目标和非 TUN 路径不受此固定策略影响。
 - 正则编译和保留 DFA 不设固定内存预算。容量账本仅作诊断，不涵盖编译器全部临时内存，不能充当进程峰值上界。
 - 资产缺失或更新失败只使对应种类不可用，不阻塞准备或启动。
 
@@ -129,7 +158,7 @@ IP-only协议接点持有`ResolutionContext`，runtime DNS通过Weak绑定，不
 这不是完整矩阵、长期最坏值或正式 Provider 的签收。是否需要移动专用策略，等同一
 最终候选的完整矩阵与真机结果再判定。若以后确需数量限制，只作用于明确选择的
 iOS/tvOS low-memory 场景，不传播到 macOS/Android/Windows，也不恢复 GeoData 数量
-或内存预算。局部队列、解析和缓冲边界保持不变。
+或内存预算。局部队列、解析和缓冲继续保持有界。
 
 完整 CN、IPv4、16 条背景 TCP、300 秒、DIRECT/代理各承担一半流量的 1 Gbps 子集
 曾测得最坏 7,864,824 bytes；它不覆盖最大并发、DNS 冷查询风暴、UDP、TUN、协议池
@@ -158,6 +187,12 @@ iOS/tvOS TUN 通过 `TASK_VM_INFO` 尽力记录当前 physical footprint、进�
 ## 日志与观测
 
 运行时可记录 TCP、半开连接、UDP、握手和 DNS 的当前值/峰值，以及缓存命中、singleflight、队列丢弃、连接池回收、非法包和 ICMP 统计。
+
+独立 netstack 的 `udp_drops` 只记录通用 UDP endpoint 的入站丢弃；生产 TUN 使用
+TCP-only netstack，因此该值为零不代表 UDP 无丢包。运行时记录
+`udp_association_queue_drops` 和 `udp_response_queue_drops`，保留两者合计的
+`udp_queue_drops`；TCP/ICMP ingress Full 记录 `packet_queue_drops`。这些计数
+不包含物理 socket、内核 TUN 或对端设施中的丢包。
 
 日志必须有界且脱敏，不记录目标、DNS question、UUID、凭据、密钥、负载或完整配置。
 

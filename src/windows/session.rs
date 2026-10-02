@@ -75,7 +75,8 @@ pub fn run() -> io::Result<()> {
 fn run_initialized() -> io::Result<()> {
     let (local_folder, installed_folder) = package_folders()?;
     log::append(&local_folder, "session", "Session Host starting");
-    let runtime = tokio::runtime::Builder::new_current_thread()
+    let _runtime_thread = crate::ffi::RuntimeThreadGuard::enter();
+    let runtime = crate::ffi::engine_runtime_builder()
         .enable_io()
         .enable_time()
         .build()?;

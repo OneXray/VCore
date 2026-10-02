@@ -16,7 +16,42 @@ VCore does not assume the host process role:
 The repository-root `LICENSE` covers this crate. Upstream projects are credited
 in the repository `README.md`.
 
-## Main API
+## TCP/ICMP driver and UDP codec
+
+`NetStack::start_tcp(config)` returns `TcpNetStackParts` directly. It creates
+bounded raw ingress, raw output and TCP-accept endpoints, but no shared UDP
+datagram queue. The TUN runtime can own UDP association admission and use the
+pure codec without sending ordinary UDP through the TCP driver:
+
+```rust,ignore
+let vcore_netstack::TcpNetStackParts {
+    packet_sink,
+    mut packet_stream,
+    tcp_listener,
+    control,
+    stats,
+} = vcore_netstack::NetStack::start_tcp(config)?;
+
+if let Some(view) = vcore_netstack::parse_udp_packet_view(raw_ip_packet.data()) {
+    // Admit the association first; copy view.payload only for async ownership.
+} else {
+    packet_sink.try_send(raw_ip_packet)?;
+}
+
+let mut frame = Vec::with_capacity(mtu);
+vcore_netstack::encode_udp_packet_into(&response_datagram, mtu, &mut frame)?;
+// The platform's single writer can write this frame or a driver output packet.
+let raw = packet_stream.try_recv();
+control.stop().await;
+```
+
+The borrowed parser checks IPv4/IPv6 and UDP header lengths and supports direct
+UDP next headers only. It preserves the existing policy: no additional checksum,
+fragment or IPv6 extension-header validation. Encoding emits checksums, reuses
+the caller's `Vec`, and leaves it unchanged on address-family or MTU errors.
+UDP mistakenly sent into the TCP-only driver is ignored.
+
+## Generic TCP and UDP API
 
 ```rust,ignore
 let stack = vcore_netstack::NetStack::start(config)?;
@@ -36,4 +71,29 @@ control.stop().await;
 ```
 
 `NetStackControl::stop()` returns only after the driver has released all
-smoltcp sockets and woken pending TCP operations.
+smoltcp sockets and woken pending TCP operations. Dropping the sole
+`PacketStream` also stops the driver and releases all endpoints.
+
+## Driver buffering and scheduling
+
+Device ingress holds at most one pending packet, not another packet queue.
+smoltcp TX tokens reserve capacity in the existing bounded raw output queue
+before consuming ingress or allocating an output packet. Consuming a token
+sends directly into that queue; dropping an unused token returns its permit.
+There is no intermediate device TX backlog. TCP protocol state retains pending
+output, including resets, until a token is available. Low-priority ICMP echo
+replies are dropped when output is full, without waiting or retaining a reply.
+
+`PacketStream::recv`, `recv_batch` and `try_recv` wake the driver when they
+restore output capacity. An immediate protocol timer is deferred while output
+is full, avoiding a zero-delay retry loop; the wakeup resumes it promptly.
+Bounded periodic polling still performs lifecycle maintenance.
+
+The driver consumes at most eight already-ready ingress packets before full
+socket maintenance. TCP ingress still advances packet by packet; cancellation
+or a full output queue leaves the unconsumed suffix in the existing ingress
+queue. One TCP packet may remain in the device pending output capacity.
+It neither waits to fill a batch nor introduces another packet queue.
+Cooperative scheduling is charged per consumed packet, including the ready
+suffix. TCP egress can be deferred to batch maintenance; relative ordering with
+an immediate ICMP reply is not guaranteed.

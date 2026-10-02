@@ -4,10 +4,84 @@ use std::{
 };
 
 use bytes::Bytes;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use vcore_netstack::{NetStack, NetStackConfig, NetStackError, Packet, UdpDatagram};
 
 const WAIT: Duration = Duration::from_secs(2);
+
+#[tokio::test]
+async fn ready_tcp_burst_preserves_flow_binding_and_neighboring_icmp() {
+    let mut parts = NetStack::start(NetStackConfig {
+        fake_icmp_echo: true,
+        ..NetStackConfig::default()
+    })
+    .unwrap()
+    .into_parts();
+    let flows = [Flow::v4(11_000), Flow::v4(11_001), Flow::v6(11_002)];
+    // Queue the whole burst before yielding to the driver. The two IPv4 SYNs
+    // share a listen endpoint but must retain separate source/stream bindings.
+    for flow in &flows {
+        parts
+            .packet_sink
+            .try_send(build_tcp(flow, 100, 0, TcpFlags::SYN, &[]))
+            .unwrap();
+    }
+    parts
+        .packet_sink
+        .try_send(build_icmpv4_echo(b"tcp-neighbor"))
+        .unwrap();
+    let mut server_sequences = [None; 3];
+    let mut echo = false;
+    for _ in 0..4 {
+        let reply = timeout_packet(&mut parts.packet_stream).await;
+        if let Some(index) = flows.iter().position(|flow| is_syn_ack(&reply, flow)) {
+            assert!(
+                server_sequences[index]
+                    .replace(tcp_sequence(&reply))
+                    .is_none()
+            );
+        } else {
+            let offset = ip_header_len(reply.data());
+            assert_eq!(reply.data()[9], 1);
+            assert_eq!(reply.data()[offset], 0);
+            assert_eq!(&reply.data()[offset + 8..], b"tcp-neighbor");
+            assert!(!echo);
+            echo = true;
+        }
+    }
+    assert!(echo);
+    let mut streams = Vec::new();
+    for _ in &flows {
+        streams.push(parts.tcp_listener.accept().await.unwrap());
+    }
+    for (index, flow) in flows.iter().enumerate() {
+        parts
+            .packet_sink
+            .try_send(build_tcp(
+                flow,
+                101,
+                server_sequences[index].unwrap().wrapping_add(1),
+                TcpFlags::ACK,
+                &[u8::try_from(index).unwrap()],
+            ))
+            .unwrap();
+    }
+    for mut stream in streams {
+        let index = flows
+            .iter()
+            .position(|flow| flow.source == stream.source_addr())
+            .unwrap();
+        assert_eq!(stream.destination_addr(), flows[index].destination);
+        let mut byte = [0];
+        tokio::time::timeout(WAIT, stream.read_exact(&mut byte))
+            .await
+            .expect("batched TCP payload was not delivered")
+            .unwrap();
+        assert_eq!(byte, [u8::try_from(index).unwrap()]);
+    }
+    assert_eq!(parts.stats.snapshot().icmp_dropped, 0);
+    parts.control.stop().await;
+}
 
 #[tokio::test]
 async fn synthetic_tun_supports_ipv4_and_ipv6_tcp_and_udp() {
@@ -55,6 +129,186 @@ async fn synthetic_tun_supports_ipv4_and_ipv6_tcp_and_udp() {
 
     parts.control.stop().await;
     assert_eq!(parts.stats.snapshot().active_tcp, 0);
+}
+
+#[tokio::test]
+async fn tcp_only_mode_keeps_tcp_icmp_and_stop_without_a_udp_queue() {
+    let mut parts = NetStack::start_tcp(NetStackConfig {
+        // Would exceed Tokio's channel capacity limit if a UDP queue existed.
+        udp_queue: usize::MAX,
+        fake_icmp_echo: true,
+        ..NetStackConfig::default()
+    })
+    .unwrap();
+    let flow = Flow::v4(13_100);
+    parts
+        .packet_sink
+        .send(build_udp(&flow, b"handled-by-caller"))
+        .await
+        .unwrap();
+    parts
+        .packet_sink
+        .send(build_icmpv4_echo(b"tcp-only"))
+        .await
+        .unwrap();
+    let echo = timeout_packet(&mut parts.packet_stream).await;
+    assert_eq!(&echo.data()[28..], b"tcp-only");
+    parts
+        .packet_sink
+        .send(build_tcp(&flow, 100, 0, TcpFlags::SYN, &[]))
+        .await
+        .unwrap();
+    assert!(is_syn_ack(
+        &timeout_packet(&mut parts.packet_stream).await,
+        &flow
+    ));
+    let stream = parts.tcp_listener.accept().await.unwrap();
+    assert_eq!(stream.source_addr(), flow.source);
+    assert_eq!(parts.stats.snapshot().dropped_udp, 0);
+    parts.control.stop().await;
+    assert!(parts.packet_stream.recv().await.is_none());
+    assert!(stream.is_stopped());
+    assert_eq!(parts.stats.snapshot().active_tcp, 0);
+}
+
+#[tokio::test]
+async fn output_capacity_recovery_wakes_a_pending_tcp_reset_before_its_timer() {
+    for flow in [Flow::v4(13_200), Flow::v6(13_201)] {
+        let mut parts = NetStack::start(NetStackConfig {
+            packet_queue: 1,
+            max_poll_interval: Duration::from_secs(5),
+            ..NetStackConfig::default()
+        })
+        .unwrap()
+        .into_parts();
+        parts
+            .packet_sink
+            .send(build_tcp(&flow, 100, 0, TcpFlags::SYN, &[]))
+            .await
+            .unwrap();
+        let syn_ack = timeout_packet(&mut parts.packet_stream).await;
+        assert!(is_syn_ack(&syn_ack, &flow));
+        let stream = parts.tcp_listener.accept().await.unwrap();
+
+        // Fill the sole raw output queue before asking smoltcp to emit RST.
+        let blocker = UdpDatagram::new(flow.destination, flow.source, b"blocker".as_slice());
+        parts.udp_socket.send(blocker.clone()).await.unwrap();
+        drop(stream);
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert_eq!(parts.stats.snapshot().active_tcp, 1);
+
+        let queued = parts.packet_stream.try_recv().unwrap();
+        assert_udp_packet(&queued, &blocker);
+        let reset = tokio::time::timeout(Duration::from_millis(500), parts.packet_stream.recv())
+            .await
+            .expect("output capacity recovery did not wake the driver")
+            .unwrap();
+        let offset = ip_header_len(reset.data());
+        assert_ne!(reset.data()[offset + 13] & 0x04, 0, "missing TCP RST");
+        tokio::time::timeout(WAIT, async {
+            while parts.stats.snapshot().active_tcp != 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("reset flow was not reclaimed");
+        assert!(parts.packet_stream.try_recv().is_err());
+        parts.control.stop().await;
+    }
+}
+
+#[tokio::test]
+async fn tcp_only_full_output_retains_one_pending_syn_and_stops_without_draining() {
+    for recover_capacity in [false, true] {
+        let mut parts = NetStack::start_tcp(NetStackConfig {
+            packet_queue: 1,
+            fake_icmp_echo: true,
+            max_poll_interval: Duration::from_secs(5),
+            ..NetStackConfig::default()
+        })
+        .unwrap();
+        let flow = Flow::v4(13_300);
+        parts
+            .packet_sink
+            .send(build_icmpv4_echo(b"blocker"))
+            .await
+            .unwrap();
+        parts
+            .packet_sink
+            .send(build_tcp(&flow, 100, 0, TcpFlags::SYN, &[]))
+            .await
+            .unwrap();
+        let stream = tokio::time::timeout(WAIT, parts.tcp_listener.accept())
+            .await
+            .expect("SYN was not retained behind full output")
+            .unwrap();
+        assert_eq!(parts.stats.snapshot().active_tcp, 1);
+        assert_eq!(parts.stats.snapshot().rejected_tcp, 0);
+        if recover_capacity {
+            let echo = parts.packet_stream.try_recv().unwrap();
+            assert_eq!(&echo.data()[28..], b"blocker");
+            let syn_ack =
+                tokio::time::timeout(Duration::from_millis(500), parts.packet_stream.recv())
+                    .await
+                    .expect("pending SYN did not resume when output capacity returned")
+                    .unwrap();
+            assert!(is_syn_ack(&syn_ack, &flow));
+        }
+        tokio::time::timeout(Duration::from_millis(500), parts.control.stop())
+            .await
+            .expect("full output or pending ingress blocked stop");
+        assert!(stream.is_stopped());
+        assert_eq!(parts.stats.snapshot().active_tcp, 0);
+        assert!(parts.packet_stream.recv().await.is_none());
+    }
+}
+
+#[tokio::test]
+async fn dropping_the_only_output_consumer_stops_active_tcp_and_other_endpoints() {
+    let mut parts = NetStack::start(NetStackConfig {
+        max_poll_interval: Duration::from_secs(5),
+        ..NetStackConfig::default()
+    })
+    .unwrap()
+    .into_parts();
+    let flow = Flow::v4(13_400);
+    parts
+        .packet_sink
+        .send(build_tcp(&flow, 100, 0, TcpFlags::SYN, &[]))
+        .await
+        .unwrap();
+    assert!(is_syn_ack(
+        &timeout_packet(&mut parts.packet_stream).await,
+        &flow
+    ));
+    let stream = parts.tcp_listener.accept().await.unwrap();
+    assert_eq!(parts.stats.snapshot().active_tcp, 1);
+
+    drop(parts.packet_stream);
+    tokio::time::timeout(Duration::from_millis(500), parts.control.wait_stopped())
+        .await
+        .expect("closed output did not stop the driver promptly");
+    assert!(stream.is_stopped());
+    assert_eq!(parts.stats.snapshot().active_tcp, 0);
+    assert!(parts.tcp_listener.accept().await.is_none());
+    assert!(parts.udp_socket.recv().await.is_none());
+    assert!(matches!(
+        parts
+            .packet_sink
+            .try_send(build_tcp(&flow, 101, 1, TcpFlags::ACK, &[])),
+        Err(NetStackError::Stopped)
+    ));
+    assert_eq!(
+        parts
+            .udp_socket
+            .send(UdpDatagram::new(
+                flow.destination,
+                flow.source,
+                b"stopped".as_slice(),
+            ))
+            .await,
+        Err(vcore_netstack::UdpError::Stopped)
+    );
 }
 
 #[tokio::test]

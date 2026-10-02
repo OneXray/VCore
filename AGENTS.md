@@ -2,7 +2,7 @@
 
 VCore is a standalone Rust proxy core. The current public contract is Invoke API v5 with internal schema revision 31. Runtime configuration uses the strict schema documented in `docs/config.yaml` and is passed inline as `configYaml` / `configYamls`; YAML contains neither `configVersion` nor `default-proxy`. Public lifecycle state is runtime-local and single-instance.
 
-iOS, tvOS 17+ (ARM64 device/simulator), macOS and Android use host-owned TUN fds through the Unix `rust-tun` adapter. Apple packetFlow does not publicly guarantee raw-fd access; simulator fd tests do not sign off a physical Network Extension. Windows uses `windows-rs` / `Windows.Networking.Vpn`; the packaged ARM64 foreground, AppContainer provider, per-session full-trust runtime, lifecycle, pressure, and packet-channel gates pass on Windows 11. Windows 10, native x64, physical IPv6, WACK, and Store publishing remain release gates. Linux remains unsupported.
+iOS, tvOS 17+ (ARM64 device/simulator), macOS, Android and Linux use host-owned TUN fds through the Unix `rust-tun` adapter. Linux accepts a real single-queue raw-IP TUN; the host owns namespace/routing isolation and physical egress. Apple packetFlow does not publicly guarantee raw-fd access; Linux or simulator results do not sign off a physical Network Extension. Windows uses `windows-rs` / `Windows.Networking.Vpn`; the packaged ARM64 foreground, AppContainer provider, per-session full-trust runtime, lifecycle, pressure, and packet-channel gates pass on Windows 11. Windows 10, native x64, physical IPv6, WACK, and Store publishing remain release gates.
 
 # Sources of Truth
 

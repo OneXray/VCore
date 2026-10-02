@@ -82,6 +82,19 @@ pub(crate) struct QuicConnectionKey {
     destination_connection_id: Box<[u8]>,
 }
 
+impl QuicConnectionKey {
+    /// An exact, allocation-free identity for an authenticated Initial flow.
+    /// Length is explicit so zero padding cannot alias a different DCID.
+    pub(crate) fn routing_identity(&self) -> [u8; 25] {
+        let mut identity = [0; 25];
+        identity[..4].copy_from_slice(&self.wire_version.to_be_bytes());
+        let length = self.destination_connection_id.len();
+        identity[4] = u8::try_from(length).expect("parsed QUIC DCIDs fit in 20 bytes");
+        identity[5..5 + length].copy_from_slice(&self.destination_connection_id);
+        identity
+    }
+}
+
 enum QuicConnectionObservation {
     Initial(QuicConnectionKey),
     UnsupportedVersion,

@@ -622,11 +622,22 @@
       ]
     },
     {
-      "id": "tun-dns-ingress",
-      "value": 128,
+      "id": "tun-udp-association",
+      "value": 64,
+      "unit": "items-per-association",
+      "owner": "ResourceLimits::tun_udp_association_queue_capacity",
+      "saturation": "drop only the current request without blocking other sources or refreshing activity",
+      "cancellation": "association child cancellation and runtime Stop join all owned tasks",
+      "boundary_cases": [
+        "FOUNDATIONS-REGRESSION"
+      ]
+    },
+    {
+      "id": "tun-udp-response",
+      "value": 1024,
       "unit": "items",
-      "owner": "ResourceLimits::tun_dns_ingress_queue_capacity",
-      "saturation": "retain existing per-object queue/cache/buffer policy in docs/runtime-resource-policy.md",
+      "owner": "ResourceLimits::tun_udp_response_queue_capacity",
+      "saturation": "drop only the current ordinary UDP response without refreshing association activity",
       "cancellation": "existing runtime-owned cancellation and Stop barrier",
       "boundary_cases": [
         "FOUNDATIONS-REGRESSION"

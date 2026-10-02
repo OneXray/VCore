@@ -93,7 +93,9 @@ pub struct RuntimeDns {
     egress: DnsEgress,
     cache: Mutex<DnsCache>,
     opaque_cache: Mutex<OpaqueDnsCache>,
-    hints: Option<Mutex<RedirHostHints>>,
+    // Hint lookup and insertion are bounded synchronous work. Keep this
+    // shared TUN hot path free of asynchronous mutex scheduling.
+    hints: Option<StdMutex<RedirHostHints>>,
     singleflight: Arc<SingleflightRegistry>,
     tcp_pool: Arc<TcpConnectionPool>,
     next_id: AtomicU16,
@@ -872,7 +874,7 @@ impl RuntimeDns {
             cache: Mutex::new(DnsCache::with_max_entries(address_cache_entries)),
             opaque_cache: Mutex::new(OpaqueDnsCache::new()),
             hints: (redir_host_entries != 0)
-                .then(|| Mutex::new(RedirHostHints::with_max_entries(redir_host_entries))),
+                .then(|| StdMutex::new(RedirHostHints::with_max_entries(redir_host_entries))),
             singleflight: SingleflightRegistry::new(resource_stats.clone()),
             tcp_pool: TcpConnectionPool::new(),
             next_id: AtomicU16::new(1),
@@ -1225,7 +1227,10 @@ impl RuntimeDns {
             return None;
         }
         let hints = self.hints.as_ref()?;
-        hints.lock().await.get(address, Instant::now())
+        hints
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(address, Instant::now())
     }
 
     async fn resolve_type(
@@ -1536,7 +1541,9 @@ impl RuntimeDns {
             .insert_positive(name, query_type, &answers.addresses, ttl, now)
             .map_err(RuntimeDnsError::Cache)?;
         if let Some(hints) = &self.hints {
-            let mut hints = hints.lock().await;
+            let mut hints = hints
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             for address in answers.addresses {
                 hints
                     .insert(address, name, ttl, now)
@@ -3618,6 +3625,99 @@ mod tests {
             resolver.domain_hint(address).await,
             Some("example.com".to_owned())
         );
+    }
+
+    #[test]
+    fn concurrent_redir_host_hint_reads_and_dns_updates_complete() {
+        fn require_send<T: Send>(value: T) -> T {
+            value
+        }
+
+        let address = IpAddr::V4(Ipv4Addr::new(203, 0, 113, 13));
+        let domains = Arc::new(
+            (0..64)
+                .map(|index| format!("concurrent-{index}.example"))
+                .collect::<Vec<_>>(),
+        );
+        let dispatcher = Arc::new(MockDispatcher::with_replies(
+            (0..domains.len())
+                .map(|_| MockReply::Response(ResponseSpec::answer(address)))
+                .collect(),
+            vec![],
+        ));
+        let resolver = Arc::new(RuntimeDns::new(
+            &config(false, vec![nameserver(1, DnsTransport::Udp)]),
+            dispatcher.clone(),
+        ));
+        let seeded = Arc::new(Notify::new());
+        let reader_started = Arc::new(Notify::new());
+        let writer_done = Arc::new(AtomicBool::new(false));
+        let (completed, completion) = std::sync::mpsc::channel();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut workers = Vec::new();
+        for writer in [true, false] {
+            let resolver = resolver.clone();
+            let domains = domains.clone();
+            let seeded = seeded.clone();
+            let reader_started = reader_started.clone();
+            let writer_done = writer_done.clone();
+            let completed = completed.clone();
+            workers.push(std::thread::spawn(move || {
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let runtime = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .unwrap();
+                    runtime.block_on(require_send(async {
+                        tokio::time::timeout(Duration::from_secs(1), async {
+                            if writer {
+                                assert_eq!(resolver.resolve(&domains[0]).await.unwrap(), [address]);
+                                seeded.notify_one();
+                                reader_started.notified().await;
+                                for domain in domains.iter().skip(1) {
+                                    assert_eq!(resolver.resolve(domain).await.unwrap(), [address]);
+                                    assert_eq!(
+                                        resolver.domain_hint(address).await,
+                                        Some(domain.clone())
+                                    );
+                                    std::thread::yield_now();
+                                }
+                                writer_done.store(true, Ordering::Release);
+                            } else {
+                                seeded.notified().await;
+                                assert_eq!(
+                                    resolver.domain_hint(address).await,
+                                    Some(domains[0].clone())
+                                );
+                                reader_started.notify_one();
+                                while !writer_done.load(Ordering::Acquire) {
+                                    let hint = resolver.domain_hint(address).await.unwrap();
+                                    assert!(domains.contains(&hint));
+                                    tokio::task::yield_now().await;
+                                }
+                            }
+                        })
+                        .await
+                        .expect("concurrent DNS hint operations did not complete");
+                    }));
+                }));
+                let _ = completed.send(result);
+            }));
+        }
+        drop(completed);
+        for _ in 0..workers.len() {
+            let result = completion
+                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+                .expect("concurrent DNS hint workers exceeded the test deadline");
+            if let Err(panic) = result {
+                std::panic::resume_unwind(panic);
+            }
+        }
+        for worker in workers {
+            worker.join().unwrap();
+        }
+        assert_eq!(dispatcher.udp_calls.load(Ordering::Acquire), domains.len());
+        assert_eq!(dispatcher.tcp_calls.load(Ordering::Acquire), 0);
     }
 
     #[tokio::test]

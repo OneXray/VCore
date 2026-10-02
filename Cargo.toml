@@ -56,7 +56,7 @@ quic-transport = ["dep:quinn"]
 interop-test = ["outbound-anytls", "outbound-vless"]
 # Allows plaintext GeoData fixtures for isolated benchmarks, never production.
 benchmark-geodata-http = []
-ffi = ["tun", "dep:windows", "dep:windows-collections", "dep:windows-core"]
+ffi = ["tun", "tokio/rt-multi-thread", "dep:windows", "dep:windows-collections", "dep:windows-core"]
 tun = [
     "dep:rust-tun",
     "dep:vcore-netstack",
@@ -177,7 +177,7 @@ tempfile = "3"
 [profile.release]
 codegen-units = 1
 lto = "thin"
-opt-level = "z"
+opt-level = 3
 panic = "unwind"
 strip = "symbols"
 
