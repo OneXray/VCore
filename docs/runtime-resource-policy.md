@@ -28,7 +28,7 @@ Release 构建优先吞吐（`opt-level = 3`），保留 thin LTO 与现有缓�
 包队列                          256
 普通事件 / TCP accept           128
 每关联 UDP 入站                 64
-普通 UDP 响应                   1,024
+普通 UDP 响应                   4,096
 DNS 响应                        128
 每个 TCP 方向缓冲区             32 KiB
 TLS / XHTTP 缓冲区              64 KiB
@@ -60,6 +60,20 @@ Windows L3 接口及其 Session Host netstack 使用 1400 MTU，因此按 IPv6 U
 - 超时、取消、EOF 和协议错误负责回收；停止必须等待全部已跟踪任务结束。
 - 引导解析器最多使用四个工作线程；全部忙时在调用方既有期限内等待，不返回人为容量错误。
 
+### 物理 socket 初始化
+
+TCP/UDP 共用 Dialer：创建 socket、nonblocking、源地址/Windows 接口绑定与 protect
+在当前 Tokio runtime 的受跟踪阻塞任务中完成，避免 FD 表扩容等同步系统调用占满
+业务 worker。异步 connect、reactor 注册与收发仍在原 runtime，不新增独立线程池、
+CPU 数判断、业务数量配额、FD 预热或 DNS socket 复用。
+
+取消关闭结果接收器并跳过尚未开始的初始化；已开始的系统调用或同步 protect 不能
+强制中断，完成后丢弃未交付的 socket。每个 Running Session/测速图拥有独立的
+初始化作用域。Stop 先关闭 admission，再取消并等待业务/协议任务，最后等待已登记
+初始化任务完成，才释放平台回调租约。测速 runtime 的销毁也使用完整 join，不能
+以有限 shutdown timeout 脱离在途初始化。protect 仍必须快速、同步、非阻塞；
+线程位置变化不放宽宿主回调契约，也不改变保护失败关闭或 Windows 双绑定策略。
+
 ## 共享流传输基础
 
 `stream-transport` 仅包装传入 IO，不创建 socket 或 DNS。WS/HTTP响应首部最多16 KiB、100字段；WS用户请求头最多100字段，额外固定升级头和early-data仍计入16 KiB总预算。WS early-data最多2,048原始字节，头名称/路径后缀由类型化选项区分。WS消息和单帧最多64 KiB，写入切块16 KiB；HTTP首包正文直接写入，不整体复制或持续按HTTP正文定界。
@@ -80,7 +94,7 @@ XUDP现在只拥有已认证流上的帧编码；VLESS响应头由VLESS包装层
 
 - 关联表不设固定项数；
 - 每个关联的入站队列最多 64 项，满时只丢当前数据报，不等待慢关联并阻塞其他来源；
-- 普通响应队列最多 1,024 项，满时只丢当前响应；没有共享 UDP 入站中转队列；
+- 普通响应队列最多 4,096 项，满时只丢当前响应；没有共享 UDP 入站中转队列；
 - reader 拥有关联表和入站分发，唯一 TUN writer 直接、公平消费普通/DNS/TCP raw 三个通道；写回等待不阻塞 reader，不增加逐关联写回任务；
 - TCP/ICMP ingress 满时非阻塞丢当前完整 IP 包，避免阻塞 UDP/DNS，记录 packet queue drop；TCP 重传恢复，不引入 pending FIFO；
 - 使用代次感知所有权和子取消令牌；
@@ -94,6 +108,26 @@ XUDP现在只拥有已认证流上的帧编码；VLESS响应头由VLESS包装层
   五元组活动以接收请求或读到匹配出口响应为准；源关联仍只以成功入队刷新，
   响应队列满不会延长源关联所有者的生命周期。
 - reader EOF、错误或取消时，先取消其 UDP 子作用域，再删除、取消并等待全部关联和 DNS 任务；父运行时统一取消并等待唯一 writer 与 netstack。UDP 子作用域停止不取消调用者令牌。
+
+### 高吞吐优化边界
+
+普通响应的 4,096 项是所有 TUN 平台共用的内部默认值，用于吸收收包任务与唯一
+writer 之间的短时突发。Linux NAT 的无热路径探针 Release 容量对照支持从
+1,024 项扩大至此值；它不是逐关联容量、业务并发配额或无损吞吐保证。
+相对原值，多出的 3,072 项在 1,452 字节负载下最多多持有 4,460,544 字节
+payload，另有元数据与分配器开销；实测 RSS 增量不能作为最坏内存上界。
+
+已采用分类二分定位、TUN UDP 五元组 action 复用、reader 直接分流、单 writer
+三通道公平轮转和已就绪批次处理。netstack 每批执行维护，沿用单个待处理 RX 包
+和原有 TX 队列，不增加重复中转队列。每关联容量、DNS 保留容量、socket 缓冲、
+批次大小和线程策略不随普通响应容量扩大；队列 Full 不等待、重试或刷新源关联活动。
+
+剩余丢包必须分别核对 VCore 队列、内核 TUN、物理出口和客户端 socket，不能以
+内部 drop 为零推断端到端无损。2 Gbps UDP 叠加 DNS 的端到端无损目标仍未通过。
+Linux TUN `txqueuelen` 属于宿主网络配置，VCore
+不修改借用接口的队列长度或 qdisc。扩大宿主队列的实验结果不能直接推广到其他
+平台；Linux 吞吐与 RSS 结果也不替代 iOS/tvOS physical footprint 或真机验收。
+诊断计时探针、强制让步、Full 后重试和无协作预算发送不属于生产优化策略。
 
 嵌套代理协议可以增加有界帧头，但最终解封装负载仍不得超过调用方按有效 MTU 给出的上限；其他 TUN 平台为 1,452 字节，Windows 为 1,352 字节。
 

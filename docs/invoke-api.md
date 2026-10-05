@@ -312,6 +312,8 @@ ProtectFd(fd) -> bool
 
 - 含 TUN 的实例必须在 `prepare` 前注册；非 TUN 和 `measureDelay` 不需要。
 - 每个出站 TCP/UDP socket 在 connect 前同步调用 protect。
+- socket 初始化和 protect 可以在受跟踪的 Tokio 阻塞线程执行；不保证回调来自某个
+  固定业务线程。取消不能中断已经开始的同步回调，Stop 返回前必须等待其完成。
 - 返回 false、抛出异常或 controller 失效都会使当前连接失败关闭。
 - 回调必须快速、同步、非阻塞，且不能重入 Invoke 或注册接口。
 - TUN 租约存活期间不能替换或注销 controller；`stop`/`destroyInstance` 是释放屏障。

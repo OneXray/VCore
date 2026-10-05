@@ -19,13 +19,13 @@ use std::{
 };
 
 use async_trait::async_trait;
-#[cfg(all(windows, feature = "ffi"))]
 use socket2::{Domain, Protocol, Socket, Type};
 use tokio::{
     net::{TcpSocket, UdpSocket},
     sync::Notify,
     time::timeout,
 };
+use tokio_util::{sync::CancellationToken, task::TaskTracker};
 #[cfg(all(windows, feature = "ffi"))]
 use windows::Win32::Networking::WinSock::{
     IP_UNICAST_IF, IPPROTO_IP, IPPROTO_IPV6, IPV6_UNICAST_IF, SOCKET, SOCKET_ERROR,
@@ -246,6 +246,85 @@ pub trait SocketProtector: Send + Sync {
     fn protect(&self, socket: i32) -> io::Result<()>;
 }
 
+/// Owns synchronous socket setup independently of the async I/O workers.
+/// A started syscall cannot be aborted; shutdown must wait for its result to
+/// be delivered or destroyed before releasing any platform callback lease.
+#[derive(Debug, Default)]
+struct SocketInitialization {
+    closed: Mutex<bool>,
+    cancellation: CancellationToken,
+    tasks: TaskTracker,
+}
+
+impl SocketInitialization {
+    async fn run<T, F>(&self, operation: F) -> io::Result<T>
+    where
+        T: Send + 'static,
+        F: FnOnce(&dyn Fn() -> io::Result<()>) -> io::Result<T> + Send + 'static,
+    {
+        let (response, receiver) = tokio::sync::oneshot::channel();
+        let token = {
+            let closed = self
+                .closed
+                .lock()
+                .map_err(|_| io::Error::other("socket initialization lock is poisoned"))?;
+            if *closed {
+                return Err(socket_initialization_cancelled());
+            }
+            // close() alone does not prohibit TaskTracker from admitting tasks.
+            // Register while holding the same short lock as begin_shutdown().
+            self.tasks.token()
+        };
+        let cancellation = self.cancellation.clone();
+        let guard = track(ResourceKind::Task);
+        let task =
+            tokio::task::spawn_blocking(crate::resources::observation::inherit_thread(move || {
+                let _token = token;
+                let _guard = guard;
+                let check = || {
+                    if cancellation.is_cancelled() || response.is_closed() {
+                        Err(socket_initialization_cancelled())
+                    } else {
+                        Ok(())
+                    }
+                };
+                let result = check().and_then(|()| operation(&check));
+                // Do not return a socket as the blocking task's output: Tokio
+                // could retain it after our tracking token has been released.
+                // A cancelled receiver destroys the result inside this scope.
+                drop(response.send(result));
+            }));
+        let _abort = tokio_util::task::AbortOnDropHandle::new(task);
+        tokio::select! {
+            biased;
+            () = self.cancellation.cancelled() => Err(socket_initialization_cancelled()),
+            result = receiver => result.map_err(|_| io::Error::other("socket initialization task failed"))?,
+        }
+    }
+
+    fn begin_shutdown(&self) {
+        let mut closed = self
+            .closed
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        *closed = true;
+        self.cancellation.cancel();
+        self.tasks.close();
+    }
+
+    async fn shutdown(&self) {
+        self.begin_shutdown();
+        self.tasks.wait().await;
+    }
+}
+
+fn socket_initialization_cancelled() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::Interrupted,
+        "socket initialization cancelled",
+    )
+}
+
 #[derive(Debug, Clone, Copy)]
 struct SourceBinding {
     ipv4: Option<Ipv4Addr>,
@@ -261,6 +340,7 @@ struct InterfaceBinding {
 
 #[derive(Clone)]
 pub struct Dialer {
+    initialization: Arc<SocketInitialization>,
     protector: Option<Arc<dyn SocketProtector>>,
     source_binding: Option<SourceBinding>,
     #[cfg(all(windows, feature = "ffi"))]
@@ -287,6 +367,7 @@ impl std::fmt::Debug for Dialer {
 impl Default for Dialer {
     fn default() -> Self {
         Self {
+            initialization: Arc::new(SocketInitialization::default()),
             protector: None,
             source_binding: None,
             #[cfg(all(windows, feature = "ffi"))]
@@ -298,6 +379,21 @@ impl Default for Dialer {
 }
 
 impl Dialer {
+    /// Start a new owner for a Running Session or private measurement. Policy
+    /// is retained, but stopping one graph must not close another session.
+    pub(crate) fn with_fresh_initialization(mut self) -> Self {
+        self.initialization = Arc::new(SocketInitialization::default());
+        self
+    }
+
+    pub(crate) fn begin_shutdown(&self) {
+        self.initialization.begin_shutdown();
+    }
+
+    pub(crate) async fn shutdown(&self) {
+        self.initialization.shutdown().await;
+    }
+
     #[must_use]
     pub(crate) const fn with_ipv6(mut self, ipv6: bool) -> Self {
         self.ipv6 = ipv6;
@@ -384,32 +480,28 @@ impl Dialer {
         let bind_address = self
             .source_address_for(destination)?
             .unwrap_or_else(|| wildcard_address(ipv6));
-        #[cfg(all(windows, feature = "ffi"))]
-        let socket = {
-            let socket = Socket::new(
-                if ipv6 { Domain::IPV6 } else { Domain::IPV4 },
-                Type::DGRAM,
-                Some(Protocol::UDP),
-            )?;
-            self.apply_interface_binding(socket.as_raw_socket(), destination)?;
-            socket.bind(&bind_address.into())?;
-            socket.set_nonblocking(true)?;
-            UdpSocket::from_std(socket.into())?
-        };
-        #[cfg(not(all(windows, feature = "ffi")))]
-        let socket = UdpSocket::bind(bind_address).await?;
-        #[cfg(unix)]
-        if let Some(protector) = &self.protector {
-            protector.protect(socket.as_raw_fd())?;
-        }
-        #[cfg(not(unix))]
-        if self.protector.is_some() {
-            return Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "socket protection is only supported on Unix platforms",
-            ));
-        }
-        Ok(ObservedIo::new(socket, ResourceKind::Socket))
+        let dialer = self.clone();
+        let (socket, guard) = self
+            .initialization
+            .run(move |check| {
+                let socket = Socket::new(
+                    if ipv6 { Domain::IPV6 } else { Domain::IPV4 },
+                    Type::DGRAM,
+                    Some(Protocol::UDP),
+                )?;
+                let guard = track(ResourceKind::Socket);
+                check()?;
+                #[cfg(all(windows, feature = "ffi"))]
+                dialer.apply_interface_binding(socket.as_raw_socket(), destination)?;
+                socket.bind(&bind_address.into())?;
+                socket.set_nonblocking(true)?;
+                check()?;
+                dialer.protect_socket(&socket)?;
+                check()?;
+                Ok((std::net::UdpSocket::from(socket), guard))
+            })
+            .await?;
+        Ok(ObservedIo::with_guard(UdpSocket::from_std(socket)?, guard))
     }
 
     fn source_address_for(&self, destination: SocketAddr) -> io::Result<Option<SocketAddr>> {
@@ -500,33 +592,53 @@ impl Dialer {
     async fn connect_one(&self, address: SocketAddr) -> io::Result<PhysicalStream> {
         self.require_permitted(address)?;
         let ipv6 = address.is_ipv6();
-        let socket = if ipv6 {
-            TcpSocket::new_v6()?
-        } else {
-            TcpSocket::new_v4()?
-        };
-        let guard = track(ResourceKind::Socket);
-        #[cfg(unix)]
-        if let Some(protector) = &self.protector {
-            protector.protect(socket.as_raw_fd())?;
-        }
-        #[cfg(not(unix))]
-        if self.protector.is_some() {
-            return Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "socket protection is only supported on Unix platforms",
-            ));
-        }
-        #[cfg(all(windows, feature = "ffi"))]
-        self.apply_interface_binding(socket.as_raw_socket(), address)?;
-        if let Some(source_address) = self.source_address_for(address)? {
-            socket.bind(source_address)?;
-        }
+        let source_address = self.source_address_for(address)?;
+        let dialer = self.clone();
+        let (socket, guard) = self
+            .initialization
+            .run(move |check| {
+                let socket = if ipv6 {
+                    TcpSocket::new_v6()?
+                } else {
+                    TcpSocket::new_v4()?
+                };
+                let guard = track(ResourceKind::Socket);
+                check()?;
+                dialer.protect_socket(&socket)?;
+                check()?;
+                #[cfg(all(windows, feature = "ffi"))]
+                dialer.apply_interface_binding(socket.as_raw_socket(), address)?;
+                if let Some(source_address) = source_address {
+                    socket.bind(source_address)?;
+                }
+                check()?;
+                Ok((socket, guard))
+            })
+            .await?;
         let stream = timeout(self.connect_timeout, socket.connect(address))
             .await
             .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "connect timed out"))??;
         stream.set_nodelay(true)?;
         Ok(ObservedIo::with_guard(stream, guard))
+    }
+
+    #[cfg(unix)]
+    fn protect_socket(&self, socket: &impl AsRawFd) -> io::Result<()> {
+        self.protector
+            .as_ref()
+            .map_or(Ok(()), |protector| protector.protect(socket.as_raw_fd()))
+    }
+
+    #[cfg(not(unix))]
+    fn protect_socket<T>(&self, _socket: &T) -> io::Result<()> {
+        if self.protector.is_some() {
+            Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "socket protection is only supported on Unix platforms",
+            ))
+        } else {
+            Ok(())
+        }
     }
 
     fn require_permitted(&self, address: SocketAddr) -> io::Result<()> {

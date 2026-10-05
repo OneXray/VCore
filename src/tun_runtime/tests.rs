@@ -1631,7 +1631,7 @@ fn quic_flow_state_is_isolated_by_destination_and_unconfigured_ports_are_skipped
 #[test]
 fn tun_response_capacities_are_independent_of_tcp_accept_and_each_other() {
     let tun = ResourceLimits::default();
-    assert_eq!(tun.tun_udp_response_queue_capacity, 1_024);
+    assert_eq!(tun.tun_udp_response_queue_capacity, 4_096);
     assert_eq!(tun.tun_dns_response_queue_capacity, 128);
     let altered = ResourceLimits {
         event_queue_capacity: 3,
@@ -1645,6 +1645,105 @@ fn tun_response_capacities_are_independent_of_tcp_accept_and_each_other() {
     assert_eq!(altered.tun_udp_association_queue_capacity, 2);
     assert_eq!(altered.tun_udp_response_queue_capacity, 5);
     assert_eq!(altered.tun_dns_response_queue_capacity, 7);
+}
+
+#[tokio::test]
+async fn default_udp_response_queue_absorbs_bounded_bursts_without_blocking_dns() {
+    let stats = RuntimeResourceStats::new("tun_response_capacity_test");
+    let cancellation = CancellationToken::new();
+    let (mut ingress, mut ordinary, mut dns) = UdpIngress::new(
+        UdpIngressContext {
+            dispatcher: Arc::new(MockDispatcher::default()),
+            dns: None,
+            sniffer: None,
+            limits: ResourceLimits::default(),
+            resource_stats: stats.clone(),
+        },
+        cancellation.clone(),
+    );
+    assert_eq!(ordinary.max_capacity(), 4_096);
+    assert_eq!(dns.max_capacity(), 128);
+    let source: SocketAddr = "192.0.2.10:12000".parse().unwrap();
+    let server: SocketAddr = "198.51.100.20:443".parse().unwrap();
+    let response =
+        |sequence: u32| UdpDatagram::new(server, source, sequence.to_be_bytes().to_vec());
+    let last_activity = AtomicU64::new(5);
+    for sequence in 0..4_096 {
+        assert!(matches!(
+            try_queue_tun_udp_response(
+                &ingress.responses,
+                response(sequence),
+                &last_activity,
+                u64::from(sequence) + 100,
+                &stats,
+            ),
+            ResponseQueueResult::Queued
+        ));
+    }
+    assert_eq!(ordinary.len(), 4_096);
+    assert!(matches!(
+        try_queue_tun_udp_response(
+            &ingress.responses,
+            response(4_096),
+            &last_activity,
+            5_000,
+            &stats,
+        ),
+        ResponseQueueResult::Dropped
+    ));
+    assert_eq!(last_activity.load(Ordering::Acquire), 4_195);
+    assert_eq!(stats.snapshot().udp_response_queue_drops, 1);
+    assert_eq!(stats.snapshot().udp_association_queue_drops, 0);
+    assert_eq!(stats.snapshot().dns_queue_drops, 0);
+
+    // Saturating the ordinary channel neither consumes DNS capacity nor
+    // overwrites any accepted response. Freeing one slot admits only new work.
+    try_queue_tun_dns_response(&ingress.dns_responses, response(7), None, &stats);
+    assert_eq!(&dns.try_recv().unwrap().payload[..], 7_u32.to_be_bytes());
+    assert_eq!(
+        &ordinary.try_recv().unwrap().payload[..],
+        0_u32.to_be_bytes()
+    );
+    assert!(matches!(
+        try_queue_tun_udp_response(
+            &ingress.responses,
+            response(4_097),
+            &last_activity,
+            5_001,
+            &stats,
+        ),
+        ResponseQueueResult::Queued
+    ));
+    for sequence in 1_u32..4_096 {
+        assert_eq!(
+            &ordinary.try_recv().unwrap().payload[..],
+            sequence.to_be_bytes()
+        );
+    }
+    assert_eq!(
+        &ordinary.try_recv().unwrap().payload[..],
+        4_097_u32.to_be_bytes()
+    );
+    assert!(matches!(
+        ordinary.try_recv(),
+        Err(mpsc::error::TryRecvError::Empty)
+    ));
+    ordinary.close();
+    assert!(matches!(
+        try_queue_tun_udp_response(
+            &ingress.responses,
+            response(4_098),
+            &last_activity,
+            6_000,
+            &stats,
+        ),
+        ResponseQueueResult::Closed
+    ));
+    assert_eq!(last_activity.load(Ordering::Acquire), 5_001);
+    assert_eq!(stats.snapshot().udp_queue_drops, 1);
+    assert_eq!(stats.snapshot().dns_queue_drops, 0);
+    ingress.stop().await;
+    assert!(!cancellation.is_cancelled());
 }
 
 #[test]

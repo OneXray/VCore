@@ -149,6 +149,7 @@ struct BuiltRuntimeParts {
 }
 
 struct BuiltProxyGraph {
+    dialer: Dialer,
     resolution: ResolutionContext,
     nodes: Vec<Arc<dyn OutboundConnector>>,
     lifecycle_order: Vec<BuiltRouteTarget>,
@@ -175,6 +176,7 @@ impl BuiltProxyGraph {
     }
 
     fn begin_shutdown(&self) {
+        self.dialer.begin_shutdown();
         self.resolution.close();
         for target in self.lifecycle_order.iter().rev() {
             if let BuiltRouteTarget::Proxy(connector) = target {
@@ -189,6 +191,7 @@ impl BuiltProxyGraph {
                 connector.shutdown().await;
             }
         }
+        self.dialer.shutdown().await;
     }
 }
 
@@ -311,7 +314,9 @@ impl PreparedCore {
     }
 
     fn build_dispatcher(&self, dialer: Dialer) -> io::Result<BuiltRuntimeParts> {
-        let dialer = dialer.with_ipv6(self.config.ipv6);
+        let dialer = dialer
+            .with_ipv6(self.config.ipv6)
+            .with_fresh_initialization();
         let handshake_stats = RuntimeResourceStats::new("runtime_handshake_observation");
         let proxy_graph = self.build_proxy_graph(dialer.clone())?;
         let proxy_dispatchers = self.wrap_proxy_dispatchers(
@@ -551,6 +556,7 @@ impl PreparedMeasurement {
         dialer: Dialer,
         resolver: Arc<dyn Resolver>,
     ) -> io::Result<MeasurementRuntime> {
+        let dialer = dialer.with_fresh_initialization();
         let proxy_graph = build_proxy_graph(
             &self.config.proxies,
             &[],
@@ -632,6 +638,7 @@ fn build_proxy_graph(
     // failure they drop first, then this guard releases the DAG in reverse
     // dependency order without recursive destruction of configuration-sized chains.
     let mut graph = BuiltProxyGraph {
+        dialer: dialer.clone(),
         resolution,
         nodes: Vec::new(),
         lifecycle_order: Vec::with_capacity(order.len()),

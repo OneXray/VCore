@@ -131,7 +131,7 @@ Windows 使用 `Windows.Networking.Vpn` 回调，不使用文件描述符或适�
 包队列                        256
 普通事件 / TCP accept         128
 每关联 UDP 入站               64
-普通 UDP 响应                 1,024
+普通 UDP 响应                 4,096
 DNS 响应                      128
 ```
 

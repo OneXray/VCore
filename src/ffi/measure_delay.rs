@@ -115,7 +115,9 @@ pub(super) fn measure_delay(
         .build()
         .map_err(InvokeFailure::from)?;
     let results = runtime.block_on(run_batch(request));
-    runtime.shutdown_timeout(Duration::from_millis(100));
+    // A probe panic skips its async cleanup. Runtime Drop is the final join
+    // barrier for synchronous physical setup; never detach it with a timeout.
+    drop(runtime);
     Ok(results)
 }
 
