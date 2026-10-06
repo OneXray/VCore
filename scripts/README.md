@@ -38,6 +38,9 @@ Android NDK 优先使用 `ANDROID_NDK_HOME`；否则从 `ANDROID_HOME/ndk` 选�
 为 30，排除预览版。Windows ARM64 还需要 clang-cl / clang 和 Ninja，并保留
 BoringSSL 汇编；Windows 构建固定使用 Release 和完整生产 feature 集合。
 
+Android 的 C/C++、CMake 与 bindgen 使用同一 API level（默认 24）；绑定生成显式
+传入带 API 版本的 clang target，兼容 NDK 30 的版本要求，并保留生效的额外 clang 参数。
+
 普通 Apple/Android 构建可通过 `VCORE_BUILD_PROFILE`、`VCORE_FEATURES` 和各平台
 输出/部署目标/NDK/API/ABI 环境变量定制，具体默认值以 `builds.py` 为准。
 `CARGO_TARGET_DIR` 改变普通构建的中间产物位置，相对路径从本 VCore checkout 解析；

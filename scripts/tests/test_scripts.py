@@ -5,6 +5,7 @@ import hashlib
 import io
 import json
 import os
+import shlex
 import tempfile
 import tomllib
 import unittest
@@ -162,9 +163,42 @@ class ScriptTest(unittest.TestCase):
             _android_target("mips-linux-android", "24")
 
     def test_android_build_packages_the_matching_ndk_cpp_runtime(self):
-        for configured in (False, True):
+        for configured, api, bindgen_overrides, expected_extra in (
+            (False, "24", {}, []),
+            (True, "28", {"BINDGEN_EXTRA_CLANG_ARGS": "-DGLOBAL=1"}, ["-DGLOBAL=1"]),
+            (
+                False,
+                "28",
+                {
+                    "BINDGEN_EXTRA_CLANG_ARGS": "-DGLOBAL=1",
+                    "BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android": "-DARM64=1",
+                },
+                ["-DARM64=1"],
+            ),
+            (
+                True,
+                "24",
+                {
+                    "BINDGEN_EXTRA_CLANG_ARGS": "-DGLOBAL=1",
+                    "BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android": "-DLOWER=1",
+                    "BINDGEN_EXTRA_CLANG_ARGS_aarch64-linux-android": (
+                        '-I"fixture include"'
+                    ),
+                },
+                ["-Ifixture include"],
+            ),
+            (
+                False,
+                "24",
+                {
+                    "BINDGEN_EXTRA_CLANG_ARGS": "-DGLOBAL=1",
+                    "BINDGEN_EXTRA_CLANG_ARGS_aarch64-linux-android": "",
+                },
+                [],
+            ),
+        ):
             with (
-                self.subTest(configured=configured),
+                self.subTest(configured=configured, api=api, bindgen=bindgen_overrides),
                 tempfile.TemporaryDirectory() as directory,
             ):
                 root = Path(directory)
@@ -174,7 +208,7 @@ class ScriptTest(unittest.TestCase):
                 (toolchain / "bin/llvm-ar").touch()
                 targets = ("aarch64-linux-android", "x86_64-linux-android")
                 for target in targets:
-                    abi, clang, _ = _android_target(target, "24")
+                    abi, clang, _ = _android_target(target, api)
                     (toolchain / "bin" / clang).touch()
                     (toolchain / "bin" / (clang + "++")).touch()
                     runtime = (
@@ -188,7 +222,11 @@ class ScriptTest(unittest.TestCase):
                 with (
                     patch.dict(
                         builds.os.environ,
-                        {"ANDROID_NDK_HOME": str(root / "ndk")}
+                        {
+                            "ANDROID_NDK_HOME": str(root / "ndk"),
+                            "VCORE_ANDROID_API": api,
+                        }
+                        | bindgen_overrides
                         | ({"CARGO_TARGET_DIR": str(target_dir)} if configured else {}),
                         clear=True,
                     ),
@@ -202,10 +240,21 @@ class ScriptTest(unittest.TestCase):
                 for invocation, target in zip(
                     cargo.call_args_list, targets, strict=True
                 ):
-                    abi, clang, _ = _android_target(target, "24")
+                    abi, clang, _ = _android_target(target, api)
                     env = invocation.args[3]
                     self.assertEqual(env["VCORE_CMAKE_ANDROID_ABI"], abi)
-                    self.assertEqual(env["VCORE_CMAKE_ANDROID_API"], "24")
+                    self.assertEqual(env["VCORE_CMAKE_ANDROID_API"], api)
+                    extra = (
+                        expected_extra
+                        if target == "aarch64-linux-android"
+                        else shlex.split(
+                            bindgen_overrides.get("BINDGEN_EXTRA_CLANG_ARGS", "")
+                        )
+                    )
+                    self.assertEqual(
+                        shlex.split(env[f"BINDGEN_EXTRA_CLANG_ARGS_{target}"]),
+                        [f"--target={clang.removesuffix('-clang')}", *extra],
+                    )
                     self.assertEqual(
                         env[f"CMAKE_TOOLCHAIN_FILE_{target.replace('-', '_')}"],
                         str(root / "scripts/cmake/android.toolchain.cmake"),

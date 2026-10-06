@@ -239,8 +239,14 @@ class PlatformDeliveryTest(unittest.TestCase):
                         {"ANDROID_HOME": str(root / "sdk")} | overrides,
                         clear=True,
                     ),
+                    patch.object(
+                        Path,
+                        "home",
+                        side_effect=RuntimeError("Could not determine home directory"),
+                    ) as home,
                 ):
                     self.assertEqual(builds._android_ndk_home(), expected)
+                    home.assert_not_called()
             with (
                 patch.dict(
                     os.environ,
@@ -250,9 +256,29 @@ class PlatformDeliveryTest(unittest.TestCase):
                     },
                     clear=True,
                 ),
+                patch.object(
+                    Path,
+                    "home",
+                    side_effect=RuntimeError("Could not determine home directory"),
+                ),
                 self.assertRaisesRegex(RuntimeError, "stable Android NDK.*32"),
             ):
                 builds._android_ndk_home()
+
+    def test_android_ndk_default_sdk_uses_home_only_without_sdk_override(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            ndk = root / "Library/Android/sdk/ndk/30.1.1"
+            ndk.mkdir(parents=True)
+            (ndk / "source.properties").write_text("Pkg.Revision = 30.1.1\n")
+            for sdk_environment in ({}, {"ANDROID_HOME": ""}):
+                with (
+                    self.subTest(environment=sdk_environment),
+                    patch.dict(os.environ, sdk_environment, clear=True),
+                    patch.object(Path, "home", return_value=root) as home,
+                ):
+                    self.assertEqual(builds._android_ndk_home(), ndk)
+                    home.assert_called_once_with()
 
     def test_delivery_rejects_debug_before_starting_a_build(self):
         with patch.dict(os.environ, {"VCORE_BUILD_PROFILE": "debug"}):

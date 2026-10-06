@@ -268,8 +268,10 @@ def _android_ndk_home() -> Path:
     """Resolve an explicit NDK path/version or the newest installed stable major."""
     if override := os.environ.get("ANDROID_NDK_HOME"):
         return Path(override).resolve()
-    android_home = Path(
-        _env("ANDROID_HOME", Path.home() / "Library" / "Android" / "sdk")
+    android_home = (
+        Path(sdk_home)
+        if (sdk_home := os.environ.get("ANDROID_HOME"))
+        else Path.home() / "Library" / "Android" / "sdk"
     )
     installed = android_home / "ndk"
     selector = _env("VCORE_ANDROID_NDK_VERSION", "30")
@@ -346,6 +348,14 @@ def build_android() -> None:
         if not cpp_runtime.is_file():
             raise RuntimeError(f"Android C++ runtime not found: {cpp_runtime}")
         target_env = target.replace("-", "_")
+        bindgen_key = f"BINDGEN_EXTRA_CLANG_ARGS_{target}"
+        bindgen_extra = base_env.get(
+            bindgen_key,
+            base_env.get(
+                f"BINDGEN_EXTRA_CLANG_ARGS_{target_env}",
+                base_env.get("BINDGEN_EXTRA_CLANG_ARGS", ""),
+            ),
+        )
         env = base_env | {
             f"CC_{target_env}": str(linker),
             f"CXX_{target_env}": str(cpp),
@@ -357,6 +367,11 @@ def build_android() -> None:
             ),
             "VCORE_CMAKE_ANDROID_ABI": abi,
             "VCORE_CMAKE_ANDROID_API": android_api,
+            # NDK 30 rejects bindgen's default unversioned Rust target. Use
+            # the same API-qualified compiler triple as CC/CXX and CMake.
+            bindgen_key: (
+                f"--target={clang.removesuffix('-clang')} {bindgen_extra}"
+            ).strip(),
         }
         _cargo_build(target, profile_flags, features, env)
         artifact = _cargo_target_dir(env) / target / profile_name / "libvcore.so"
