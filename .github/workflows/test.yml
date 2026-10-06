@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   client-contracts:
     name: ${{ matrix.name }}
@@ -39,6 +43,14 @@ jobs:
         run: |
           uv python install 3 --no-bin --no-registry
           echo "UV_PYTHON=$(uv python find --managed-python --no-project 3)" >> "$GITHUB_ENV"
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: tests-${{ matrix.profile }}
+          workspaces: ". -> target"
+          # Native TLS artifacts must not cross runner SDK/image changes.
+          env-vars: ImageOS ImageVersion SDKROOT DEVELOPER_DIR BORING AWS_LC LIBCLANG BINDGEN
+          cache-bin: "false"
       - name: Formatting and build helper contracts
         if: matrix.profile == 'features'
         run: |
@@ -143,7 +155,8 @@ jobs:
         run: |
           set -euo pipefail
           test_command=(cargo test --locked --all-features)
-          if [[ "$CORE_TEST_PROFILE" == release ]]; then test_command+=(--release); fi
+          # Keep release semantics without production LTO for each test binary.
+          if [[ "$CORE_TEST_PROFILE" == release ]]; then test_command+=(--profile ci-release); fi
           run_test() {
             local expected_summaries="$1"
             shift
@@ -218,8 +231,8 @@ jobs:
           cargo check --locked --lib
           # Compilation only: historical listener fixtures must not execute on CI hosts.
           cargo test --locked --all-features --all-targets --no-run
-          production_features="$(uv run --project scripts --locked python -c 'from vcore_scripts.builds import DEFAULT_FEATURES; print(DEFAULT_FEATURES)')"
-          cargo build --locked --release --no-default-features --features "$production_features" --lib
+          # The platform delivery matrix builds the complete production feature
+          # set with the unchanged release profile, including both macOS targets.
       - name: Memory-only netstack tests
         if: matrix.profile == 'features'
         run: cargo test --locked --manifest-path crates/vcore-netstack/Cargo.toml --all-targets

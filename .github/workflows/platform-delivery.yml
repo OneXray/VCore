@@ -73,6 +73,13 @@ jobs:
           test -n "$ndk_package" || { echo "Stable NDK r30 is unavailable" >&2; exit 1; }
           "$sdkmanager" --channel=0 "$ndk_package"
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${ndk_package#ndk;}" >> "$GITHUB_ENV"
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: delivery-${{ matrix.name }}-${{ hashFiles('scripts/src/vcore_scripts/builds.py', 'scripts/cmake/**') }}
+          workspaces: ". -> target"
+          env-vars: ImageOS ImageVersion SDKROOT DEVELOPER_DIR ANDROID_NDK_HOME VCORE BORING AWS_LC LIBCLANG BINDGEN
+          cache-bin: "false"
       - name: Build production artifacts and validate identity
         run: uv run --project scripts --locked vcore-scripts build ${{ matrix.platform }} --delivery
       - name: Preserve unsigned build artifacts

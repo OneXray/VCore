@@ -27,6 +27,18 @@ container-benchmark stress --source vcore=PATH
 内存用例；全目标测试编译使用 `--no-run`，ignored 不算通过。物理设备和正式安装
 不由本地测试或 Linux 内存压力推导。
 
+## CI 构建策略
+
+CI 同时运行 Debug 和 Release 语义的纯内存用例，测试目标与明确的过滤清单保持相同。
+后者使用 `cargo test --profile ci-release`：继承 Release 的 `opt-level=3` 等设置，
+仅关闭 LTO 并使用 16 个 codegen units，避免为每个测试二进制重复昂贵的优化链接。
+它不等同于运行正式发布产物；平台交付仍使用未修改的 `release` 配置和身份检查。
+
+Quality 保留生产 Clippy、精简 feature 的编译/实际准入测试和全部目标的编译检查，
+完整生产 Release 构建由必跑的平台矩阵覆盖，不在 Quality 中重复执行。
+Rust 依赖缓存区分检查种类、工具链、锁文件和 runner 镜像/SDK；命中后仍执行验证，
+不缓存交付目录或复用已发布的核心产物。同一 PR 的新提交自动取消旧 CI，main 运行不主动取消。
+
 ## 必要回归与独立输入
 
 - Dialer 物理初始化：client-only TCP/UDP 的快速创建、64 个未完成提交、共享阻塞池

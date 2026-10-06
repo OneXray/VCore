@@ -182,6 +182,13 @@ opt-level = 3
 panic = "unwind"
 strip = "symbols"
 
+# Optimized offline tests keep release semantics without linking every test
+# executable with production LTO. Platform delivery still uses `release`.
+[profile.ci-release]
+inherits = "release"
+codegen-units = 16
+lto = "off"
+
 [lints.rust]
 unsafe_code = "allow"
 unsafe_op_in_unsafe_fn = "deny"
