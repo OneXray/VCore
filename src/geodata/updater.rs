@@ -1,4 +1,4 @@
-//! Bounded GeoData downloads forced through one raw proxy dispatcher.
+//! Streaming GeoData downloads forced through one raw proxy dispatcher.
 //!
 //! This module deliberately does not know about routing or DIRECT. The caller
 //! must pass the raw dispatcher for the selected default proxy. Every hop,
@@ -48,7 +48,6 @@ pub(crate) struct GeoDataDownloadRequest {
     /// A new temporary file. The downloader refuses to replace an existing
     /// path; publishing the completed file is the manager's responsibility.
     pub temporary_path: PathBuf,
-    pub size_limit: u64,
     pub timeout: Duration,
     pub cancellation: CancellationToken,
 }
@@ -88,8 +87,6 @@ pub(crate) enum GeoDataDownloadError {
     HttpStatus(u16),
     #[error("GeoData download followed more than {MAX_REDIRECTS} redirects")]
     TooManyRedirects,
-    #[error("GeoData response body is at least {actual} bytes; limit is {maximum} bytes")]
-    BodyTooLarge { actual: u64, maximum: u64 },
     #[error("GeoData download timed out after {0:?}")]
     TimedOut(Duration),
     #[error("GeoData download was cancelled")]
@@ -167,7 +164,7 @@ async fn download_with_connector(
     request: GeoDataDownloadRequest,
     connector: &dyn HttpsConnector,
 ) -> Result<GeoDataDownloadOutcome, GeoDataDownloadError> {
-    let initial_url = parse_https_url(&request.url)?;
+    let initial_url = parse_geodata_url(&request.url)?;
     validate_etag(request.etag.as_deref())?;
 
     let temporary_path = request.temporary_path.clone();
@@ -213,7 +210,7 @@ async fn download_inner(
     let mut file = Some(file);
 
     for redirects_followed in 0..=MAX_REDIRECTS {
-        let endpoint = HttpsEndpoint::from_url(&current_url)?;
+        let endpoint = DownloadEndpoint::from_url(&current_url)?;
         let session = StreamSession {
             inbound: InboundKind::InternalGeoData,
             source: SocketAddr::from(([0, 0, 0, 0], 0)),
@@ -226,6 +223,13 @@ async fn download_inner(
             .connect_tcp(session)
             .await
             .map_err(GeoDataDownloadError::Dispatch)?;
+        #[cfg(feature = "benchmark-geodata-http")]
+        let stream = if current_url.scheme() == "http" {
+            stream
+        } else {
+            connector.connect(&endpoint.host, stream).await?
+        };
+        #[cfg(not(feature = "benchmark-geodata-http"))]
         let stream = connector.connect(&endpoint.host, stream).await?;
         let mut response = HttpReader::new(stream);
 
@@ -266,11 +270,11 @@ async fn download_inner(
         }
 
         validate_content_encoding(head.content_encoding.as_deref())?;
-        let framing = body_framing(&head, request.size_limit)?;
+        let framing = body_framing(&head)?;
         let target = file
             .take()
             .expect("temporary file must be consumed by one final response");
-        let mut sink = BodySink::new(target, request.size_limit);
+        let mut sink = BodySink::new(target);
         match framing {
             BodyFraming::ContentLength(length) => {
                 response.copy_exact_body(length, &mut sink).await?;
@@ -295,14 +299,14 @@ async fn download_inner(
 }
 
 #[derive(Debug)]
-struct HttpsEndpoint {
+struct DownloadEndpoint {
     host: String,
     port: u16,
     authority: String,
     origin_form: String,
 }
 
-impl HttpsEndpoint {
+impl DownloadEndpoint {
     fn from_url(url: &Url) -> Result<Self, GeoDataDownloadError> {
         let host = match url.host() {
             Some(Host::Domain(host)) => host.to_owned(),
@@ -310,8 +314,9 @@ impl HttpsEndpoint {
         };
         let port = url
             .port_or_known_default()
-            .ok_or_else(|| GeoDataDownloadError::InvalidUrl("missing HTTPS port".to_owned()))?;
-        let authority = if port == 443 {
+            .ok_or_else(|| GeoDataDownloadError::InvalidUrl("missing HTTP(S) port".to_owned()))?;
+        let default_port = if url.scheme() == "http" { 80 } else { 443 };
+        let authority = if port == default_port {
             host.clone()
         } else {
             format!("{host}:{port}")
@@ -334,7 +339,7 @@ impl HttpsEndpoint {
     }
 }
 
-fn parse_https_url(raw: &str) -> Result<Url, GeoDataDownloadError> {
+fn parse_geodata_url(raw: &str) -> Result<Url, GeoDataDownloadError> {
     if raw.len() > MAX_URL_BYTES {
         return Err(GeoDataDownloadError::InvalidUrl(format!(
             "URL exceeds {MAX_URL_BYTES} bytes"
@@ -342,7 +347,10 @@ fn parse_https_url(raw: &str) -> Result<Url, GeoDataDownloadError> {
     }
     let mut url =
         Url::parse(raw).map_err(|error| GeoDataDownloadError::InvalidUrl(error.to_string()))?;
-    if url.scheme() != "https" {
+    let allowed_scheme = url.scheme() == "https";
+    #[cfg(feature = "benchmark-geodata-http")]
+    let allowed_scheme = allowed_scheme || url.scheme() == "http";
+    if !allowed_scheme {
         return Err(GeoDataDownloadError::HttpsRequired);
     }
     if !url.username().is_empty() || url.password().is_some() {
@@ -350,6 +358,22 @@ fn parse_https_url(raw: &str) -> Result<Url, GeoDataDownloadError> {
     }
     if !matches!(url.host(), Some(Host::Domain(_))) {
         return Err(GeoDataDownloadError::DomainRequired);
+    }
+    #[cfg(feature = "benchmark-geodata-http")]
+    if url.scheme() == "http" {
+        let authority = raw
+            .split_once("://")
+            .map(|(_, suffix)| suffix)
+            .and_then(|suffix| suffix.split(['/', '?', '#']).next())
+            .unwrap_or_default();
+        if authority.contains('@') {
+            return Err(GeoDataDownloadError::CredentialsNotAllowed);
+        }
+        if url.fragment().is_some() {
+            return Err(GeoDataDownloadError::InvalidUrl(
+                "URL must not contain a fragment".to_owned(),
+            ));
+        }
     }
     url.set_fragment(None);
     Ok(url)
@@ -364,7 +388,10 @@ fn resolve_redirect(base: &Url, location: &str) -> Result<Url, GeoDataDownloadEr
     let joined = base
         .join(location)
         .map_err(|error| GeoDataDownloadError::InvalidUrl(error.to_string()))?;
-    parse_https_url(joined.as_str())
+    if base.scheme() == "https" && joined.scheme() != "https" {
+        return Err(GeoDataDownloadError::HttpsRequired);
+    }
+    parse_geodata_url(joined.as_str())
 }
 
 fn validate_etag(etag: Option<&str>) -> Result<(), GeoDataDownloadError> {
@@ -376,7 +403,7 @@ fn validate_etag(etag: Option<&str>) -> Result<(), GeoDataDownloadError> {
     Ok(())
 }
 
-fn build_request(endpoint: &HttpsEndpoint, etag: Option<&str>) -> Vec<u8> {
+fn build_request(endpoint: &DownloadEndpoint, etag: Option<&str>) -> Vec<u8> {
     let conditional = etag.map_or_else(String::new, |etag| format!("If-None-Match: {etag}\r\n"));
     format!(
         "GET {} HTTP/1.1\r\nHost: {}\r\nAccept: application/octet-stream\r\nAccept-Encoding: identity\r\nUser-Agent: VCore/0.1\r\nConnection: close\r\n{}\r\n",
@@ -406,7 +433,7 @@ enum BodyFraming {
     UntilEof,
 }
 
-fn body_framing(head: &ResponseHead, size_limit: u64) -> Result<BodyFraming, GeoDataDownloadError> {
+fn body_framing(head: &ResponseHead) -> Result<BodyFraming, GeoDataDownloadError> {
     if head.transfer_encoding.is_some() && head.content_length.is_some() {
         return Err(GeoDataDownloadError::Protocol(
             "response contains both Transfer-Encoding and Content-Length".to_owned(),
@@ -421,12 +448,6 @@ fn body_framing(head: &ResponseHead, size_limit: u64) -> Result<BodyFraming, Geo
         return Ok(BodyFraming::Chunked);
     }
     if let Some(length) = head.content_length {
-        if length > size_limit {
-            return Err(GeoDataDownloadError::BodyTooLarge {
-                actual: length,
-                maximum: size_limit,
-            });
-        }
         return Ok(BodyFraming::ContentLength(length));
     }
     Ok(BodyFraming::UntilEof)
@@ -876,16 +897,14 @@ struct BodySink {
     file: File,
     hasher: Sha256,
     size: u64,
-    maximum: u64,
 }
 
 impl BodySink {
-    fn new(file: File, maximum: u64) -> Self {
+    fn new(file: File) -> Self {
         Self {
             file,
             hasher: Sha256::new(),
             size: 0,
-            maximum,
         }
     }
 
@@ -894,16 +913,7 @@ impl BodySink {
         let next = self
             .size
             .checked_add(added)
-            .ok_or(GeoDataDownloadError::BodyTooLarge {
-                actual: u64::MAX,
-                maximum: self.maximum,
-            })?;
-        if next > self.maximum {
-            return Err(GeoDataDownloadError::BodyTooLarge {
-                actual: next,
-                maximum: self.maximum,
-            });
-        }
+            .ok_or_else(|| GeoDataDownloadError::Protocol("body size overflows u64".to_owned()))?;
         self.file
             .write_all(bytes)
             .map_err(GeoDataDownloadError::NetworkIo)?;
@@ -952,6 +962,23 @@ mod tests {
             _server_name: &str,
             stream: BoxStream,
         ) -> Result<BoxStream, GeoDataDownloadError> {
+            Ok(stream)
+        }
+    }
+
+    #[cfg(feature = "benchmark-geodata-http")]
+    #[derive(Default)]
+    struct RecordingHttpsConnector(Mutex<Vec<String>>);
+
+    #[cfg(feature = "benchmark-geodata-http")]
+    #[async_trait]
+    impl HttpsConnector for RecordingHttpsConnector {
+        async fn connect(
+            &self,
+            server_name: &str,
+            stream: BoxStream,
+        ) -> Result<BoxStream, GeoDataDownloadError> {
+            self.0.lock().unwrap().push(server_name.to_owned());
             Ok(stream)
         }
     }
@@ -1040,17 +1067,140 @@ mod tests {
         dispatcher: Arc<dyn Dispatcher>,
         url: &str,
         temporary_path: PathBuf,
-        size_limit: u64,
     ) -> GeoDataDownloadRequest {
         GeoDataDownloadRequest {
             dispatcher,
             url: url.to_owned(),
             etag: Some("\"old\"".to_owned()),
             temporary_path,
-            size_limit,
             timeout: Duration::from_secs(2),
             cancellation: CancellationToken::new(),
         }
+    }
+
+    #[cfg(feature = "benchmark-geodata-http")]
+    #[tokio::test]
+    async fn benchmark_http_uses_the_raw_stream_and_existing_download_outcomes() {
+        for (name, response) in [
+            (
+                "download",
+                b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n4\r\ndata\r\n0\r\n\r\n"
+                    .as_slice(),
+            ),
+            (
+                "not-modified",
+                b"HTTP/1.1 304 Not Modified\r\n\r\n".as_slice(),
+            ),
+            (
+                "truncated",
+                b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\n\r\nshort".as_slice(),
+            ),
+        ] {
+            let directory = tempdir().unwrap();
+            let path = directory.path().join("fixture.new");
+            let dispatcher = Arc::new(ScriptedDispatcher::new([response.to_vec()]));
+            // The real connector would reject this plaintext in-memory peer if
+            // HTTP accidentally attempted a TLS handshake.
+            let outcome = download_geodata_via_proxy(request(
+                dispatcher.clone(),
+                "http://rules.example.test/geoip.dat",
+                path.clone(),
+            ))
+            .await;
+            match name {
+                "download" => {
+                    assert!(matches!(
+                        outcome,
+                        Ok(GeoDataDownloadOutcome::Downloaded { size: 4, .. })
+                    ));
+                    assert_eq!(fs::read(&path).unwrap(), b"data");
+                }
+                "not-modified" => {
+                    assert_eq!(outcome.unwrap(), GeoDataDownloadOutcome::NotModified);
+                    assert!(!path.exists());
+                }
+                "truncated" => {
+                    assert!(matches!(outcome, Err(GeoDataDownloadError::Protocol(_))));
+                    assert!(!path.exists());
+                }
+                _ => unreachable!(),
+            }
+            let sessions = dispatcher.sessions();
+            assert_eq!(sessions.len(), 1);
+            assert_eq!(sessions[0].inbound, InboundKind::InternalGeoData);
+            assert_eq!(
+                sessions[0].destination,
+                Destination::domain("rules.example.test", 80).unwrap()
+            );
+            assert!(
+                std::str::from_utf8(&dispatcher.requests()[0])
+                    .unwrap()
+                    .contains("\r\nHost: rules.example.test\r\n")
+            );
+        }
+    }
+
+    #[cfg(feature = "benchmark-geodata-http")]
+    #[tokio::test]
+    async fn benchmark_http_redirects_allow_plaintext_hops_and_https_upgrade() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("redirect.new");
+        let dispatcher = Arc::new(ScriptedDispatcher::new([
+            b"HTTP/1.1 302 Found\r\nLocation: http://cdn.example.test:8080/next.dat\r\nContent-Length: 0\r\n\r\n".to_vec(),
+            b"HTTP/1.1 302 Found\r\nLocation: https://secure.example.test/final.dat\r\nContent-Length: 0\r\n\r\n".to_vec(),
+            b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\ndata".to_vec(),
+        ]));
+        let connector = RecordingHttpsConnector::default();
+        let outcome = download_with_connector(
+            request(
+                dispatcher.clone(),
+                "http://rules.example.test/start.dat",
+                path,
+            ),
+            &connector,
+        )
+        .await
+        .unwrap();
+        assert!(
+            matches!(outcome, GeoDataDownloadOutcome::Downloaded { final_url, .. } if final_url == "https://secure.example.test/final.dat")
+        );
+        assert_eq!(*connector.0.lock().unwrap(), ["secure.example.test"]);
+        let destinations: Vec<_> = dispatcher
+            .sessions()
+            .into_iter()
+            .map(|session| session.destination)
+            .collect();
+        assert_eq!(
+            destinations,
+            [
+                Destination::domain("rules.example.test", 80).unwrap(),
+                Destination::domain("cdn.example.test", 8080).unwrap(),
+                Destination::domain("secure.example.test", 443).unwrap(),
+            ]
+        );
+        assert!(
+            std::str::from_utf8(&dispatcher.requests()[1])
+                .unwrap()
+                .contains("\r\nHost: cdn.example.test:8080\r\n")
+        );
+    }
+
+    #[cfg(not(feature = "benchmark-geodata-http"))]
+    #[tokio::test]
+    async fn plaintext_geodata_is_rejected_before_dispatch() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("http.new");
+        let dispatcher = Arc::new(ScriptedDispatcher::new([]));
+        let error = download_geodata_via_proxy(request(
+            dispatcher.clone(),
+            "http://rules.example.test/geoip.dat",
+            path.clone(),
+        ))
+        .await
+        .unwrap_err();
+        assert!(matches!(error, GeoDataDownloadError::HttpsRequired));
+        assert!(dispatcher.sessions().is_empty());
+        assert!(!path.exists());
     }
 
     #[tokio::test]
@@ -1066,7 +1216,6 @@ mod tests {
                 dispatcher.clone(),
                 "https://rules.example.test/geosite.dat",
                 temporary_path.clone(),
-                1024,
             ),
             &PlainHttpsConnector,
         )
@@ -1131,7 +1280,6 @@ mod tests {
                 dispatcher,
                 "https://rules.example.test/geoip.dat",
                 temporary_path.clone(),
-                1024,
             ),
             &PlainHttpsConnector,
         )
@@ -1154,7 +1302,6 @@ mod tests {
                 content_length_dispatcher,
                 "https://rules.example.test/content-length",
                 content_length_path.clone(),
-                5,
             ),
             &PlainHttpsConnector,
         )
@@ -1178,7 +1325,6 @@ mod tests {
                 eof_dispatcher,
                 "https://rules.example.test/eof",
                 eof_path.clone(),
-                32,
             ),
             &PlainHttpsConnector,
         )
@@ -1192,32 +1338,47 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rejects_oversized_body_and_removes_partial_file() {
-        let directory = tempdir().expect("tempdir");
-        let temporary_path = directory.path().join("oversized.new");
+    async fn streams_body_beyond_former_file_size_limits() {
+        let directory = tempdir().unwrap();
+        let temporary_path = directory.path().join("large.new");
+        let length = 32 * 1024 * 1024 + 1;
+        let mut response =
+            format!("HTTP/1.1 200 OK\r\nContent-Length: {length}\r\n\r\n").into_bytes();
+        response.resize(response.len() + length, b'x');
+        let dispatcher = Arc::new(ScriptedDispatcher::new([response]));
+        let mut request = request(
+            dispatcher,
+            "https://rules.example.test/geoip.dat",
+            temporary_path.clone(),
+        );
+        request.timeout = Duration::from_secs(15);
+        let outcome = download_with_connector(request, &PlainHttpsConnector)
+            .await
+            .unwrap();
+        assert!(
+            matches!(outcome, GeoDataDownloadOutcome::Downloaded { size, .. } if size == length as u64)
+        );
+        assert_eq!(fs::metadata(temporary_path).unwrap().len(), length as u64);
+    }
+
+    #[tokio::test]
+    async fn truncated_body_still_removes_partial_file() {
+        let directory = tempdir().unwrap();
+        let temporary_path = directory.path().join("truncated.new");
         let dispatcher = Arc::new(ScriptedDispatcher::new([
-            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n8\r\n12345678\r\n0\r\n\r\n"
-                .to_vec(),
+            b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\n\r\nshort".to_vec(),
         ]));
         let error = download_with_connector(
             request(
                 dispatcher,
                 "https://rules.example.test/geoip.dat",
                 temporary_path.clone(),
-                4,
             ),
             &PlainHttpsConnector,
         )
         .await
-        .expect_err("body must be rejected");
-
-        assert!(matches!(
-            error,
-            GeoDataDownloadError::BodyTooLarge {
-                actual: 8,
-                maximum: 4
-            }
-        ));
+        .unwrap_err();
+        assert!(matches!(error, GeoDataDownloadError::Protocol(_)));
         assert!(!temporary_path.exists());
     }
 
@@ -1233,7 +1394,6 @@ mod tests {
                 dispatcher.clone(),
                 "https://rules.example.test/geoip.dat",
                 temporary_path.clone(),
-                1024,
             ),
             &PlainHttpsConnector,
         )
@@ -1256,7 +1416,6 @@ mod tests {
             dispatcher.clone(),
             "https://rules.example.test/geoip.dat",
             temporary_path.clone(),
-            1024,
         );
         request.cancellation.cancel();
         let error = download_with_connector(request, &PlainHttpsConnector)
@@ -1276,7 +1435,6 @@ mod tests {
             Arc::new(HangingDispatcher),
             "https://rules.example.test/geoip.dat",
             temporary_path.clone(),
-            1024,
         );
         request.timeout = Duration::from_millis(10);
         let error = download_with_connector(request, &PlainHttpsConnector)
@@ -1298,38 +1456,94 @@ mod tests {
         )
         .expect("head parses");
         assert!(matches!(
-            body_framing(&both, 10),
+            body_framing(&both),
             Err(GeoDataDownloadError::Protocol(_))
         ));
 
-        let length =
-            parse_response_head(b"HTTP/1.1 200 OK\r\nContent-Length: 11").expect("head parses");
-        assert!(matches!(
-            body_framing(&length, 10),
-            Err(GeoDataDownloadError::BodyTooLarge {
-                actual: 11,
-                maximum: 10
-            })
-        ));
+        let length = parse_response_head(b"HTTP/1.1 200 OK\r\nContent-Length: 33554433")
+            .expect("head parses");
+        assert_eq!(
+            body_framing(&length).unwrap(),
+            BodyFraming::ContentLength(33_554_433)
+        );
+        assert!(
+            parse_response_head(b"HTTP/1.1 200 OK\r\nContent-Length: 18446744073709551616")
+                .is_err()
+        );
     }
 
     #[test]
-    fn url_and_etag_validation_preserve_domain_only_https_contract() {
+    fn url_and_etag_validation_preserve_the_geodata_contract() {
+        #[cfg(not(feature = "benchmark-geodata-http"))]
         assert!(matches!(
-            parse_https_url("http://example.test/file"),
+            parse_geodata_url("http://example.test/file"),
             Err(GeoDataDownloadError::HttpsRequired)
         ));
         assert!(matches!(
-            parse_https_url("https://127.0.0.1/file"),
+            parse_geodata_url("https://127.0.0.1/file"),
             Err(GeoDataDownloadError::DomainRequired)
         ));
         assert!(matches!(
-            parse_https_url("https://user@example.test/file"),
+            parse_geodata_url("https://user@example.test/file"),
             Err(GeoDataDownloadError::CredentialsNotAllowed)
         ));
+        assert_eq!(
+            parse_geodata_url("https://example.test/file#fragment")
+                .unwrap()
+                .as_str(),
+            "https://example.test/file"
+        );
+        assert!(parse_geodata_url("ftp://example.test/file").is_err());
         assert!(matches!(
             validate_etag(Some("\"ok\"\r\nX-Evil: yes")),
             Err(GeoDataDownloadError::InvalidEtag)
         ));
+    }
+
+    #[test]
+    fn download_endpoints_use_scheme_specific_ports_and_authorities() {
+        for (raw, port, authority) in [
+            ("https://example.test/file", 443, "example.test"),
+            ("https://example.test:80/file", 80, "example.test:80"),
+            ("https://example.test:8443/file", 8443, "example.test:8443"),
+        ] {
+            let endpoint = DownloadEndpoint::from_url(&parse_geodata_url(raw).unwrap()).unwrap();
+            assert_eq!(endpoint.port, port);
+            assert_eq!(endpoint.authority, authority);
+        }
+        #[cfg(feature = "benchmark-geodata-http")]
+        {
+            for (raw, port, authority) in [
+                ("http://example.test/file", 80, "example.test"),
+                ("http://example.test:443/file", 443, "example.test:443"),
+            ] {
+                let endpoint =
+                    DownloadEndpoint::from_url(&parse_geodata_url(raw).unwrap()).unwrap();
+                assert_eq!(endpoint.port, port);
+                assert_eq!(endpoint.authority, authority);
+            }
+            for raw in [
+                "http://127.0.0.1/file",
+                "http://[::1]/file",
+                "http://user@example.test/file",
+                "http://@example.test/file",
+                "http://example.test/file#fragment",
+            ] {
+                assert!(parse_geodata_url(raw).is_err());
+            }
+            let base = parse_geodata_url("http://example.test/start").unwrap();
+            assert_eq!(
+                resolve_redirect(&base, "/next").unwrap().as_str(),
+                "http://example.test/next"
+            );
+            for location in [
+                "ftp://example.test/file",
+                "http://127.0.0.1/file",
+                "http://user@example.test/file",
+                "/file#fragment",
+            ] {
+                assert!(resolve_redirect(&base, location).is_err());
+            }
+        }
     }
 }

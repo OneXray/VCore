@@ -75,6 +75,10 @@ impl std::fmt::Debug for DynamicGeoData {
 }
 
 impl GeoMatcher for DynamicGeoData {
+    fn routing_snapshot(&self) -> Option<Arc<dyn GeoMatcher>> {
+        Some(self.current.load_full())
+    }
+
     fn geosite_available(&self, code: &str) -> bool {
         self.current.load().geosite_available(code)
     }
@@ -199,12 +203,6 @@ pub enum GeoDataManagerError {
     UpdateBusy,
     #[error("GeoData manager already has an active registration")]
     RegistrationActive,
-    #[error("GeoData update for {kind} is {actual} bytes; limit is {maximum} bytes")]
-    FileTooLarge {
-        kind: GeoDataKind,
-        actual: u64,
-        maximum: u64,
-    },
     #[error("GeoData updater reported {reported} bytes but staged file contains {actual} bytes")]
     SizeMismatch { reported: u64, actual: u64 },
     #[error("GeoData update ETag exceeds {MAX_ETAG_BYTES} bytes")]
@@ -884,13 +882,6 @@ impl GeoUpdateSession {
                 actual: actual_size,
             });
         }
-        if actual_size > self.kind.file_limit() {
-            return Err(GeoDataManagerError::FileTooLarge {
-                kind: self.kind,
-                actual: actual_size,
-                maximum: self.kind.file_limit(),
-            });
-        }
 
         self.manager.validate_candidate(
             self.kind,
@@ -953,6 +944,23 @@ fn load_snapshot(
     let mut site_report = GeoDataResourceReport::not_required();
     let mut ip_report = GeoDataResourceReport::not_required();
 
+    if requirements.requires(GeoDataKind::GeoIp) {
+        match load_ips_for_requirements(
+            asset_dir,
+            requirements.code_set(GeoDataKind::GeoIp),
+            used,
+            peak,
+        ) {
+            Ok(loaded) => {
+                ips = loaded.values;
+                used = loaded.used;
+                peak = loaded.peak;
+                ip_report = GeoDataResourceReport::available();
+            }
+            // A failed kind does not disable independent GeoSite routing.
+            Err(error) => ip_report = GeoDataResourceReport::degraded(error),
+        }
+    }
     if requirements.requires(GeoDataKind::GeoSite) {
         match load_sites_for_requirements(
             asset_dir,
@@ -969,29 +977,8 @@ fn load_snapshot(
             Err(error) => site_report = GeoDataResourceReport::degraded(error),
         }
     }
-    if requirements.requires(GeoDataKind::GeoIp) {
-        match load_ips_for_requirements(
-            asset_dir,
-            requirements.code_set(GeoDataKind::GeoIp),
-            used,
-            peak,
-        ) {
-            Ok(loaded) => {
-                ips = loaded.values;
-                used = loaded.used;
-                peak = loaded.peak;
-                ip_report = GeoDataResourceReport::available();
-            }
-            Err(error) => ip_report = GeoDataResourceReport::degraded(error),
-        }
-    }
 
-    let snapshot = Arc::new(GeoData {
-        sites,
-        ips,
-        allocation_capacity: used,
-        peak_allocation_capacity: peak,
-    });
+    let snapshot = Arc::new(GeoData::from_loaded(sites, ips, used, peak));
     (
         snapshot,
         GeoDataLoadReport {
@@ -1327,7 +1314,7 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use super::super::{GENERAL_ALLOCATION_BUDGET_BYTES, GeoDataError};
+    use super::super::GeoDataError;
     use super::*;
     use crate::config::{DnsNameserverPolicy, RuleAction, RuleKind, RuleSpec};
 
@@ -1948,8 +1935,6 @@ mod tests {
             .register(GeoRequirements::collect(&[], &[]).unwrap())
             .unwrap();
         assert_eq!(registration.initial_report().allocation_capacity, 0);
-        assert!(
-            registration.initial_report().allocation_capacity <= GENERAL_ALLOCATION_BUDGET_BYTES
-        );
+        assert_eq!(registration.initial_report().peak_allocation_capacity, 0);
     }
 }

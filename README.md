@@ -4,142 +4,126 @@
   English · <a href="./readme/README.zh_CN.md">简体中文</a> · <a href="./readme/README.ru.md">Русский</a>
 </p>
 
-VCore is a standalone, host-agnostic Rust client proxy core. It provides proxy graphs, static `select` proxy groups, DNS, routing rules, GeoData, HTTP/SOCKS5 listeners, a TUN data plane, and a loopback Controller through strict YAML configuration and Invoke API v5. The internal configuration schema revision is 31; the revision appears only in the `version` response and `buildIdentity`, not in YAML.
+VCore is an embeddable Rust proxy core for VPN clients and local proxies. It routes TCP/UDP traffic through direct connections, proxy nodes, groups, and chains, with integrated DNS, GeoData, and a cross-platform TUN data plane.
 
-## Features
+Configuration uses **Mihomo-compatible YAML for the supported feature set**. VCore focuses on client-side capabilities rather than implementing every Mihomo field or its complete Dashboard API.
 
-SS2022 additionally supports [strict ShadowTLS v3](docs/outbounds.md#shadowtls-v3) TCP wrapping and UoT v2; native UDP remains separate. [TUIC v5](docs/outbounds.md#tuic-v5) supports TCP and native/quic UDP over controlled QUIC.
+## What VCore can do
 
-- Outbounds: [VLESS TCP/WS/gRPC/HTTP/H2/XHTTP, TLS/REALITY and Vision](docs/vless.md), SOCKS5 CONNECT/UDP ASSOCIATE, AnyTLS TCP/UoT, Shadowsocks 2022, [Trojan TCP/UDP over TLS/WS/gRPC](docs/outbounds.md#trojan), [VMess AEAD over TCP/WS/gRPC/HTTP/H2](docs/outbounds.md#vmess-aead), [Hysteria2 TCP/UDP, bandwidth, Salamander and port hopping](docs/outbounds.md#hysteria2), and DIRECT. SS supports three standard 2022 algorithms and AES identity chains; see its [upstream risks and acceptance boundaries](docs/outbounds.md#shadowsocks-2022).
-- Proxy chains: `dialer-proxy` forms a directed acyclic graph of arbitrary length. If node A points to B, the physical path is `client -> B -> A -> target`.
-- Proxy groups: static `select` groups keep ordered members, including concrete nodes, nested groups, `DIRECT`, and `REJECT`; their current-session selection can be changed live through the Controller. `dialer-proxy` may reference nodes or groups; DIRECT in an upstream group connects the current node's prepared server.
-- Routing: ordered `DOMAIN`, `DOMAIN-SUFFIX`, `DOMAIN-KEYWORD`, `GEOSITE`, `GEOIP`, `IP-CIDR`, `IP-CIDR6`, `DST-PORT`, `NETWORK`, and final `MATCH` rules.
-- DNS: fixed-IP UDP/TCP nameservers, explicit outbounds, ordered policy/failover, typed and opaque caches, singleflight, and TUN UDP/TCP port 53 interception.
-- TUN: raw IPv4/IPv6, TCP/UDP, local ICMPv4/ICMPv6 Echo replies, HTTP/TLS/QUIC sniffing, and four per-session traffic counters.
-- Listeners: HTTP CONNECT/forward with per-request authentication/routing, streaming bodies, Keep-Alive and Upgrade; SOCKS5 CONNECT and TCP-authorized UDP ASSOCIATE. Local access is unauthenticated by default; opt-in LAN sharing requires one shared username/password.
-- GeoData: VCore manages `geosite.dat` and `geoip.dat` under `dataDir/geodata`, loads them on demand, and can update them through a proxy chain.
-- Delay measurement: `measureDelay` accepts 1–5 node-only configurations per call, uses up to five private workers, and preserves input order in its results.
-- TLS: independent certificate pins and four opt-in ClientHello templates (Chrome120/133, Firefox120, Safari16.0) over TCP TLS/REALITY/JLS; see [public names, scope and limitations](docs/tls-client-fingerprint.md). [VLESS JLS](docs/vless.md#jls) uses separate shared credentials with complete native TLS authentication. [Static ECH](docs/vless.md#静态-ech) uses explicit VLESS main/download-leg configuration with no dynamic DNS lookup or fallback.
+- **Accept application and VPN traffic:** HTTP forwarding, CONNECT and Upgrade; SOCKS5 CONNECT and UDP ASSOCIATE; host-provided IPv4/IPv6 TUN packets.
+- **Route by destination:** domain, domain suffix/keyword, IP CIDR, destination port, TCP/UDP, GeoSite and GeoIP rules, with explicit DIRECT and REJECT actions.
+- **Choose and chain proxies:** nested `select` groups, live group selection, and `dialer-proxy` chains that can reference nodes or groups. Selection changes apply to new physical transports without moving existing connections.
+- **Handle DNS:** controlled UDP/TCP nameservers, GeoSite-based nameserver policies, sequential failover, caching and duplicate-query coalescing; intercept TCP/UDP port 53 in TUN mode.
+- **Identify traffic for routing:** HTTP, TLS and QUIC domain sniffing, plus TUN DNS hints, without rewriting the actual destination. ICMPv4/ICMPv6 Echo is answered locally.
+- **Manage routing assets:** load referenced categories from `geosite.dat` / `geoip.dat` on demand and update them through the configured route. GeoSite supports Domain, Full, Plain and Regex records, attribute intersections and inverted selectors; GeoIP supports inverted selectors. All platforms retain selected records without a count cap or truncation; GeoData has no total memory quota. See [GeoData boundaries](docs/geodata.md#内存与安全边界).
+- **Expose client controls:** a loopback Controller for group selection and TUN traffic rates/totals, plus isolated node/chain delay measurement through Invoke API.
 
-## Configuration
+## Proxy protocols
 
-[`docs/config.yaml`](docs/config.yaml) is the only complete example. Key constraints:
+All eight protocols below are enabled in the default build. UDP support is configured per node.
 
-- YAML is limited to 256 KiB and rejects unknown fields, anchors, aliases, custom tags, and obsolete structures.
-- The top level must contain at least one proxy and an enabled `port`, `socks-port`, or `tun`.
-- Proxy and group definition names share one exact, case-sensitive namespace. Names are 1–64 UTF-8 bytes, reject surrounding Unicode whitespace, controls, `, # / ? & = % \`, `.` and `..`, and reserve `DIRECT`, `REJECT`, and `RULES`; internal ordinary spaces, CJK, and emoji are allowed.
-- `proxy-groups` accepts only `select`. Member order and duplicates are preserved; an omitted `default-selected` selects the first member, while an explicit value must name a direct member. All node upstreams and group members, including unselected members, must form one acyclic graph.
-- `rules` is required and must end with exactly one `MATCH` targeting a configured proxy node or proxy group.
-- `DIRECT` and `REJECT` are built-in actions and group members; every other route target must be a configured proxy node or proxy group. DNS alone also reserves `RULES`.
-- Configuration is delivered inline through `configYaml` / `configYamls`; VCore does not read host configuration paths.
-- Runtime values such as the Controller, TUN fd, Controller port, and secret are generated by the host and are not stored in user RAW YAML.
+| Protocol | Capabilities |
+| --- | --- |
+| [VLESS](docs/vless.md) | TCP, WebSocket / HTTPUpgrade, gRPC, HTTP first-packet camouflage, legacy H2, [XHTTP H1/H2/H3](docs/xhttp.md); Vision, Encryption, REALITY, JLS, static ECH and sing-mux in supported combinations |
+| [VMess AEAD](docs/outbounds.md#vmess-aead) | TCP, WebSocket / HTTPUpgrade, gRPC, HTTP first-packet camouflage and legacy H2; TCP/UDP, plaintext or standard TLS |
+| [Trojan](docs/outbounds.md#trojan) | TCP/UDP over TLS TCP, WebSocket / HTTPUpgrade or gRPC |
+| [Shadowsocks 2022](docs/outbounds.md#shadowsocks-2022) | TCP/UDP; AES-128-GCM, AES-256-GCM and ChaCha20-Poly1305; AES identity chains; optional strict ShadowTLS v3 TCP wrapping and UoT v2 |
+| [AnyTLS](docs/outbounds.md#anytls) | TLS sessions and UDP over TCP v2 |
+| [SOCKS5](docs/outbounds.md#socks5) | CONNECT and UDP ASSOCIATE, with optional username/password authentication |
+| [Hysteria2](docs/outbounds.md#hysteria2) | QUIC TCP/UDP, bandwidth control, Salamander, port hopping and mTLS |
+| [TUIC v5](docs/outbounds.md#tuic-v5) | QUIC TCP/UDP, native/quic UDP relay modes and selectable congestion control |
 
-## Lifecycle and ABI
+Standard TLS connections support certificate verification and SHA-256 certificate pins. Applicable TCP TLS paths can use Chrome, Firefox or Safari ClientHello templates; `client-fingerprint` is independent of the certificate `fingerprint`. See [TLS profiles and certificate policy](docs/tls-client-fingerprint.md) for the exact names and combinations. These features do not promise indistinguishability from a browser or unrestricted protocol combinations.
 
-Cross-platform entry points:
+SS2022 uses the unmodified official Rust library; its known empty-first-write/server-first and padding risks remain documented in the [Shadowsocks contract](docs/outbounds.md#shadowsocks-2022).
+
+## Mihomo-style configuration
+
+Use the familiar `proxies`, `proxy-groups`, `rules`, `dns`, `port`, `socks-port` and `tun` structures. For example:
+
+```yaml
+socks-port: 1080
+allow-lan: false
+
+proxies:
+  - name: edge
+    type: anytls
+    server: proxy.example.com
+    port: 443
+    password: replace-with-your-password
+    client-fingerprint: chrome
+    udp: true
+
+proxy-groups:
+  - name: Proxy
+    type: select
+    proxies: [edge, DIRECT]
+
+dns:
+  enable: true
+  nameserver:
+    - "udp://223.5.5.5:53#DIRECT"
+
+rules:
+  - GEOSITE,cn,DIRECT
+  - GEOIP,cn,DIRECT,no-resolve
+  - MATCH,Proxy
+```
+
+Replace the example endpoint and credentials. GeoSite/GeoIP rules require the corresponding assets under `<dataDir>/geodata`; missing assets leave those rule types unavailable. See the [complete configuration reference](docs/config.yaml) and [GeoData behavior](docs/geodata.md).
+
+Compatibility is scoped to documented fields and behavior, not arbitrary Mihomo configurations. Groups currently support static `select`; DNS nameservers use literal IPs over UDP/TCP. Providers, automatic group selection, encrypted DNS and fake-IP are outside the current feature set. Unknown fields and invalid combinations are rejected rather than silently ignored; VCore-specific semantics are called out in the relevant contracts.
+
+The host passes YAML inline through `configYaml`; TUN descriptors and platform callbacks are supplied separately through the runtime API. VCore does not read host configuration paths or configure Linux system routes automatically.
+
+## Platforms and integration
+
+| Platform | TUN integration |
+| --- | --- |
+| iOS / macOS | Host-provided utun file descriptor |
+| tvOS 17+ | Host-provided utun file descriptor; ARM64 device and simulator targets |
+| Android | `VpnService` file descriptor with outbound socket protection |
+| Linux | Real single-queue raw-IP TUN; the host owns interface creation and routing isolation |
+| Windows | Native `Windows.Networking.Vpn` Provider and a full-trust Session Host, without Wintun or fd emulation |
+
+VCore is a library, not a standalone VPN application. Unix hosts own the original TUN descriptor; VCore uses and closes its own duplicate. Apple's public packetFlow API does not guarantee raw-fd access, so actual Network Extension integration and device validation remain host responsibilities. See [TUN integration](docs/tun-platform.md) and [platform acceptance boundaries](docs/acceptance.md).
+
+The cross-platform C ABI accepts JSON requests through Invoke API v5:
 
 ```c
 char *VCoreInvoke(const char *request_json);
 void VCoreFree(char *response);
 ```
 
-Windows packages also use the revision-3 host bridge for the all-app VPN policy, profiles, Session Snapshots, and the optional session backend:
+One public instance follows `initialize → createInstance → prepare(configYaml) → start → stop → destroyInstance`. The API also provides configuration validation, state queries, GeoData status and delay measurement. See [Invoke API](docs/invoke-api.md), [Controller API](docs/controller-api.md) and the [Windows integration example](example/windows-uwp/README.md).
 
-```c
-char *VCoreWindowsVpnInvoke(const char *request_json);
-```
+## Benchmark
 
-The public runtime has one instance:
+[**VCore / Mihomo TUN benchmark**](https://github.com/OneXray/container-benchmark) contains the reproducible setup, measured results and comparison charts for both cores under the same native Linux TUN environment.
 
-```text
-initialize
-  -> createInstance
-  -> prepare(configYaml)
-  -> start
-  -> stop
-  -> destroyInstance
-```
+The benchmark project also owns protocol interoperability (`interop`) and memory-pressure runs (`stress`), with an explicit `--source vcore=PATH` checkout. VCore's own scripts only compile core and platform artifacts.
 
-`instanceId` is a generation token that is never reused by the current runtime. Commands for the same instance fail fast when another command is active; pure `validateConfig` calls may run concurrently. See [`docs/invoke-api.md`](docs/invoke-api.md) for the complete envelope, methods, fd ownership, and Android protect contract.
+It measures **1 / 1.5 / 2 Gbps** mixed TCP/UDP traffic with **1,000 DNS queries/s** and enhanced `geosite:cn` / `geoip:cn` rules, reporting actual throughput, CPU, observed peak Linux RSS, UDP packet loss and successful DNS queries. It evaluates the TUN/DNS/routing path with DIRECT egress, not encrypted proxy throughput; Linux RSS is not Apple Network Extension footprint.
 
-Runtime state is exposed through a session-local loopback Controller:
-
-```http
-GET /traffic
-GET /group
-GET /group/{name}
-GET /proxies/{name}
-PUT /proxies/{name}
-Authorization: Bearer <secret>
-```
-
-`GET /traffic` is a one-time `up/down/upTotal/downTotal` TUN snapshot. The group endpoints expose and change the selected direct member of static `select` groups; a successful change affects only new physical TCP, UDP, and DNS transports in the current session. It does not migrate existing connections, UDP associations, DNS state, or pooled TCP transports, and it never performs automatic failover. A Controller that manages groups requires one Bearer secret for all routes and may run without TUN. See [`docs/controller-api.md`](docs/controller-api.md).
-
-An authenticated Hysteria2 session keeps its upstream selection during port hopping. A replacement socket for that same QUIC session does not resample the group; only a new authenticated session does.
-
-## Platforms
-
-| Platform | Data plane | Status |
-| --- | --- | --- |
-| iOS / macOS | The host provides a utun fd; VCore duplicates it and uses a synchronous `rust-tun` device with Tokio `AsyncFd` | Implemented; the release iOS device footprint remains a release gate |
-| Android | `VpnService` provides a raw-IP fd; every outbound socket must pass the protect callback first | Implemented; the physical-device matrix remains a release gate |
-| Windows | `Windows.Networking.Vpn` AppContainer Provider plus one full-trust runtime per session; package-local named pipes carry raw IP | A development-signed Windows 11 ARM64 package passed functionality, lifecycle, pressure, and bounded-batching acceptance |
-| Linux | — | Unsupported; startup fails closed |
-
-Windows does not use an fd emulation layer. The Provider owns only `VpnChannel`, buffers, routes, physical-network monitoring, the packet gateway, and fail-closed Stop. The complete VCore runtime, Controller, DNS, rules, and outbounds live in the Session Host. The packet channel keeps protocol-v1 framing and batches at most eight already-ready frames without waiting for future packets.
-
-## Resource Bounds
-
-Safety is enforced through per-object queues, buffers, parser limits, deadlines and owned cancellation, not a global business-flow quota. See the [resource policy](docs/runtime-resource-policy.md) for shared limits and protocol-specific contracts for local budgets. Memory telemetry does not change lifecycle results.
+The separate `stress` command loads complete enhanced GeoData assets by default, with attribute/inversion witnesses and a 2 Gbps / 60-second / 1,000 DNS QPS workload. The benchmark README records actual input types, measurements and failures. Optional record sizing changes only the benchmark input, never production behavior. No observation is a 50,000,000-byte guarantee for arbitrary input or a substitute for Apple device validation.
 
 ## Documentation
 
 - [Documentation index](docs/README.md)
-- [Configuration](docs/config.yaml)
-- [Invoke API](docs/invoke-api.md)
-- [Build and test](scripts/README.md)
-- [Acceptance boundaries](docs/acceptance.md)
-
-## Example
-
-- [Minimal Windows UWP VPN integration](example/windows-uwp/README.md): a same-package Provider, Session Host, full-trust foreground host, MSIX manifest, and runnable command-line demo.
-
-## Validation
-
-```bash
-cargo fmt --all -- --check
-uv run --project scripts --locked vcore-scripts check core --profile debug
-cargo clippy --locked --all-features --lib --bins -- -D warnings
-cargo test --manifest-path crates/vcore-netstack/Cargo.toml --all-targets
-cargo clippy --manifest-path crates/vcore-netstack/Cargo.toml --all-targets -- -D warnings
-uv run --project scripts --locked vcore-scripts check c-header
-uv run --project scripts --locked vcore-scripts check tls-dependencies
-uv run --project scripts --locked python -m unittest discover -s scripts/tests
-uv run --project scripts --locked ruff check scripts
-uv run --project scripts --locked ruff format --check scripts
-```
-
-Platform artifacts (see [`scripts/README.md`](scripts/README.md) for complete commands and environment variables):
-
-```bash
-uv run --project scripts --locked vcore-scripts build apple
-uv run --project scripts --locked vcore-scripts build android
-uv run --project scripts --locked vcore-scripts build windows
-```
-
-See [`docs/acceptance.md`](docs/acceptance.md) for the current validated scope and deferred physical-device and Windows release gates.
+- [Configuration reference](docs/config.yaml)
+- [Core and platform builds](scripts/README.md)
+- [Core regression tests](tests/README.md)
+- [Resource policy](docs/runtime-resource-policy.md)
+- [Acceptance and known limitations](docs/acceptance.md)
 
 ## Credits
 
-VCore's dependencies, maintained forks, public API/protocol references, architectural references, and interoperability counterparts include:
+VCore builds on and learns from public dependencies, protocol implementations and platform references:
 
-- [smoltcp](https://github.com/smoltcp-rs/smoltcp), [clash-rs](https://github.com/Watfaq/clash-rs), and [netstack-smoltcp](https://github.com/automesh-network/netstack-smoltcp): userspace IP stacks and TUN netstacks.
-- [windows-rs](https://github.com/microsoft/windows-rs), [UWP VPN Plugin Sample](https://github.com/microsoft/UwpVpnPluginSample), [wireguard-uwp-rs](https://github.com/luqmana/wireguard-uwp-rs), [Maple](https://github.com/YtFlow/Maple), and [YtFlowCore](https://github.com/YtFlow/YtFlowCore): Windows VPN, WinRT activation, and packet flow.
-- [Xray-core](https://github.com/XTLS/Xray-core), [Mihomo](https://github.com/MetaCubeX/mihomo), and [Leaf](https://github.com/eycorsican/leaf): proxy protocols, routing, TUN architecture, and interoperability references.
-- [rustls](https://github.com/rustls/rustls): unprofiled TLS/QUIC and shared WebPKI certificate policy.
-- [boring](https://github.com/cloudflare/boring) and [BoringSSL](https://boringssl.googlesource.com/boringssl/): upstreams of the maintained fork for named ClientHello profiles and classic / opt-in hybrid REALITY.
-- [shadowsocks-rust](https://github.com/shadowsocks/shadowsocks-rust): the unmodified SS 2022 protocol dependency and source of the derived UDP replay window; see the [MIT notices in the source header](src/outbound/shadowsocks/packet_window.rs).
+- Networking and routing: [smoltcp](https://github.com/smoltcp-rs/smoltcp), [clash-rs](https://github.com/Watfaq/clash-rs), [netstack-smoltcp](https://github.com/automesh-network/netstack-smoltcp), [Mihomo](https://github.com/MetaCubeX/mihomo), [Xray-core](https://github.com/XTLS/Xray-core) and [Leaf](https://github.com/eycorsican/leaf).
+- TLS and Shadowsocks: [rustls](https://github.com/rustls/rustls), [boring](https://github.com/cloudflare/boring), [BoringSSL](https://boringssl.googlesource.com/boringssl/) and [shadowsocks-rust](https://github.com/shadowsocks/shadowsocks-rust). Derived replay-window code retains its [MIT notices](src/outbound/shadowsocks/packet_window.rs).
+- Windows integration: [windows-rs](https://github.com/microsoft/windows-rs), [UWP VPN Plugin Sample](https://github.com/microsoft/UwpVpnPluginSample), [wireguard-uwp-rs](https://github.com/luqmana/wireguard-uwp-rs), [Maple](https://github.com/YtFlow/Maple) and [YtFlowCore](https://github.com/YtFlow/YtFlowCore).
 
 ## License
 
-VCore is licensed under the [MIT License](LICENSE).
+[MIT](LICENSE).

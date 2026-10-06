@@ -4,6 +4,7 @@ use crate::dialer::PhysicalDatagram as UdpSocket;
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures_util::future::select_all;
+use tokio::io::ReadBuf;
 
 use crate::{
     dialer::Dialer,
@@ -140,6 +141,25 @@ impl DirectDatagramTransport {
                 return Err(DispatchError::Other(
                     "direct UDP receive requested before the first datagram".to_owned(),
                 ));
+            }
+            // A single physical socket has only this reader. Poll it directly
+            // instead of rebuilding boxed readiness waiters after cancellation.
+            if self.sockets.len() == 1 {
+                let socket = &self.sockets[0].1;
+                let mut receive_buffer = ReadBuf::new(&mut self.receive_buffer);
+                let remote = std::future::poll_fn(|context| {
+                    socket.poll_recv_from(context, &mut receive_buffer)
+                })
+                .await
+                .map_err(DispatchError::from)?;
+                if receive_buffer.filled().len() > self.max_response_payload_size {
+                    continue;
+                }
+                return Ok(Datagram {
+                    remote: Destination::Ip(remote),
+                    payload: Bytes::copy_from_slice(receive_buffer.filled()),
+                    sniffed_domain: None,
+                });
             }
             let readiness: Vec<Pin<Box<dyn Future<Output = io::Result<usize>> + Send + '_>>> = self
                 .sockets

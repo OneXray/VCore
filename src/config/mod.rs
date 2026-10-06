@@ -50,8 +50,6 @@ pub const MAX_RULES: usize = 1_024;
 pub const MAX_RULE_BYTES: usize = 1_024;
 pub const MAX_RULES_TOTAL_BYTES: usize = 128 * 1024;
 pub const MAX_DNS_NAMESERVERS: usize = 4;
-pub const MAX_DNS_NAMESERVER_POLICIES: usize = 16;
-pub const MAX_DNS_POLICY_GEOSITE_CODES: usize = 16;
 pub const MAX_SNIFFER_PORT_ITEMS: usize = 64;
 pub const MAX_GEOX_URL_BYTES: usize = 4_096;
 pub const MAX_CONTROLLER_SECRET_BYTES: usize = 255;
@@ -1526,7 +1524,10 @@ fn normalize_geox_url(raw: String, field: &str) -> Result<String> {
     }
     let url = Url::parse(&raw)
         .map_err(|error| VCoreError::InvalidConfig(format!("{field} is invalid: {error}")))?;
-    if url.scheme() != "https" {
+    let allowed_scheme = url.scheme() == "https";
+    #[cfg(feature = "benchmark-geodata-http")]
+    let allowed_scheme = allowed_scheme || url.scheme() == "http";
+    if !allowed_scheme {
         return invalid(format!("{field} must use HTTPS"));
     }
     let authority = raw
@@ -2594,12 +2595,6 @@ fn normalize_dns_nameserver_policies(
     route_targets: &RouteTargetsByName,
     default_route: DnsRoute,
 ) -> Result<Vec<DnsNameserverPolicy>> {
-    if raw_policies.len() > MAX_DNS_NAMESERVER_POLICIES {
-        return invalid(format!(
-            "dns.nameserver-policy exceeds the {MAX_DNS_NAMESERVER_POLICIES}-entry limit"
-        ));
-    }
-
     let mut normalized = Vec::with_capacity(raw_policies.len());
     let mut seen_codes = Vec::<String>::new();
     for raw_policy in raw_policies {
@@ -2628,11 +2623,6 @@ fn normalize_dns_nameserver_policies(
             if seen_codes.contains(&code) {
                 return invalid(format!(
                     "dns.nameserver-policy contains duplicate GeoSite code `{code}`"
-                ));
-            }
-            if seen_codes.len() == MAX_DNS_POLICY_GEOSITE_CODES {
-                return invalid(format!(
-                    "dns.nameserver-policy exceeds the {MAX_DNS_POLICY_GEOSITE_CODES}-code limit"
                 ));
             }
             seen_codes.push(code.clone());
@@ -2949,16 +2939,13 @@ fn normalize_rule_keyword(input: &str) -> Result<String> {
 }
 
 fn normalize_geo_code(input: &str, rule_type: &str) -> Result<String> {
-    let bytes = input.as_bytes();
-    if !(1..=64).contains(&bytes.len())
-        || !bytes[0].is_ascii_alphanumeric()
-        || !bytes.iter().skip(1).all(|byte| {
-            byte.is_ascii_alphanumeric() || matches!(*byte, b'.' | b'_' | b'+' | b'!' | b'-')
-        })
-    {
-        return invalid(format!("invalid {rule_type} code"));
-    }
-    Ok(input.to_ascii_lowercase())
+    let kind = if rule_type == "GEOIP" {
+        crate::geodata::GeoDataKind::GeoIp
+    } else {
+        crate::geodata::GeoDataKind::GeoSite
+    };
+    crate::geodata::normalize_selector(kind, input)
+        .map_err(|_| VCoreError::InvalidConfig(format!("invalid {rule_type} selector")))
 }
 
 fn parse_ip_cidr(input: &str, require_v6: bool) -> Result<IpCidr> {
@@ -3507,7 +3494,7 @@ geo-update-interval: 24"#,
                 "24.0",
             ),
             complete(
-                "http://geo.example.test/geoip.dat",
+                "ftp://geo.example.test/geoip.dat",
                 "https://geo.example.test/geosite.dat",
                 "24",
             ),
@@ -3555,6 +3542,28 @@ geo-update-interval: 24"#,
         )
         .unwrap_err();
         assert!(error.to_string().contains("4096-byte limit"), "{error}");
+    }
+
+    #[test]
+    fn geodata_update_http_is_benchmark_only() {
+        for url in [
+            "http://geo.example.test/geoip.dat",
+            "http://geo.example.test:8080/geosite.dat",
+        ] {
+            assert_eq!(
+                normalize_geox_url(url.to_owned(), "geox-url.geoip").is_ok(),
+                cfg!(feature = "benchmark-geodata-http")
+            );
+        }
+        for url in [
+            "http://127.0.0.1/geoip.dat",
+            "http://[::1]/geoip.dat",
+            "http://user:password@geo.example.test/geoip.dat",
+            "http://@geo.example.test/geoip.dat",
+            "http://geo.example.test/geoip.dat#latest",
+        ] {
+            assert!(normalize_geox_url(url.to_owned(), "geox-url.geoip").is_err());
+        }
     }
 
     #[test]
@@ -5749,6 +5758,40 @@ dns:
     }
 
     #[test]
+    fn current_config_parses_geodata_attributes_and_inversion() {
+        let yaml = current_yaml(
+            r#"port: 1080
+authentication:
+  - measure:secret
+dns:
+  enable: true
+  nameserver: [1.1.1.1]
+  nameserver-policy:
+    "geosite:GOOGLE@ads@CN,!GOOGLE@ads": ["tcp://223.5.5.5"]
+rules:
+  - GEOSITE,!GOOGLE@CN@ADS@cn,DIRECT
+  - GEOSITE,geolocation-!cn,DIRECT
+  - GEOIP,!CN,DIRECT,no-resolve
+  - MATCH,proxy"#,
+        );
+        let config = Config::parse_yaml(yaml.as_bytes()).unwrap();
+        assert_eq!(
+            config.rules[0].kind,
+            RuleKind::GeoSite("!google@ads@cn".to_owned())
+        );
+        assert_eq!(
+            config.rules[1].kind,
+            RuleKind::GeoSite("geolocation-!cn".to_owned())
+        );
+        assert_eq!(config.rules[2].kind, RuleKind::GeoIp("!cn".to_owned()));
+        assert!(config.rules[2].no_resolve);
+        assert_eq!(
+            &*config.dns.nameserver_policies[0].geosite_codes,
+            ["google@ads@cn", "!google@ads"]
+        );
+    }
+
+    #[test]
     fn current_config_strictly_validates_nameserver_policy_schema_and_limits() {
         for policy in [
             r#"    "geosite:cn": "tcp://223.5.5.5""#,
@@ -5782,27 +5825,42 @@ dns:
         );
         assert!(Config::parse_yaml(duplicate.as_bytes()).is_err());
 
-        let too_many_codes = (0..=MAX_DNS_POLICY_GEOSITE_CODES)
+        let many_codes = (0..=16)
             .map(|index| format!("code{index}"))
             .collect::<Vec<_>>()
             .join(",");
         let yaml = current_yaml(&format!(
             "port: 1080
 authentication:
-  - measure:secret\ndns:\n  enable: true\n  nameserver: [1.1.1.1]\n  nameserver-policy:\n    \"geosite:{too_many_codes}\": [tcp://223.5.5.5]"
+  - measure:secret\ndns:\n  enable: true\n  nameserver: [1.1.1.1]\n  nameserver-policy:\n    \"geosite:{many_codes}\": [tcp://223.5.5.5]"
         ));
-        assert!(Config::parse_yaml(yaml.as_bytes()).is_err());
+        assert_eq!(
+            Config::parse_yaml(yaml.as_bytes())
+                .unwrap()
+                .dns
+                .nameserver_policies[0]
+                .geosite_codes
+                .len(),
+            17
+        );
 
-        let too_many_policies = (0..=MAX_DNS_NAMESERVER_POLICIES)
+        let many_policies = (0..=16)
             .map(|index| format!("    \"geosite:code{index}\": [tcp://223.5.5.5]"))
             .collect::<Vec<_>>()
             .join("\n");
         let yaml = current_yaml(&format!(
             "port: 1080
 authentication:
-  - measure:secret\ndns:\n  enable: true\n  nameserver: [1.1.1.1]\n  nameserver-policy:\n{too_many_policies}"
+  - measure:secret\ndns:\n  enable: true\n  nameserver: [1.1.1.1]\n  nameserver-policy:\n{many_policies}"
         ));
-        assert!(Config::parse_yaml(yaml.as_bytes()).is_err());
+        assert_eq!(
+            Config::parse_yaml(yaml.as_bytes())
+                .unwrap()
+                .dns
+                .nameserver_policies
+                .len(),
+            17
+        );
 
         let disabled = current_yaml(
             r#"port: 1080
@@ -5887,6 +5945,9 @@ authentication:
             "  - DOMAIN,example.com,unknown\n  - MATCH,proxy",
             "  - DOMAIN,example.com,DIRECT,no-resolve\n  - MATCH,proxy",
             "  - GEOIP,CN,DIRECT,NO-RESOLVE\n  - MATCH,proxy",
+            "  - GEOIP,CN@ads,DIRECT\n  - MATCH,proxy",
+            "  - GEOSITE,!,DIRECT\n  - MATCH,proxy",
+            "  - GEOSITE,@ads,DIRECT\n  - MATCH,proxy",
             "  - IP-CIDR,2001:db8::/32,DIRECT\n  - MATCH,proxy",
             "  - IP-CIDR6,192.0.2.0/24,DIRECT\n  - MATCH,proxy",
             "  - IP-CIDR,192.0.2.0/33,DIRECT\n  - MATCH,proxy",

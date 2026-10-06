@@ -79,6 +79,11 @@ pub(crate) const DNS_WORKER_STACK_BYTES: usize = 512 * 1024;
 /// Process-wide ceiling for lazily created bootstrap resolver workers.
 pub(crate) const MAX_DNS_WORKERS: usize = 4;
 
+/// Unfinished physical socket setup jobs per lifecycle owner, shared by TCP
+/// and UDP. Callers wait for submission capacity; established connections are
+/// not counted and receive no business-concurrency quota.
+pub(crate) const MAX_SOCKET_INITIALIZATIONS: usize = 64;
+
 /// Retained-memory, queue and per-object safety boundaries.
 ///
 /// These values deliberately do not cap concurrent TCP sessions, UDP
@@ -99,8 +104,11 @@ pub struct ResourceLimits {
     pub dns_address_cache_entries: usize,
     /// Retained address-to-domain hints used by redir-host routing.
     pub dns_redir_host_entries: usize,
-    /// Netstack UDP ingress capacity while DNS hijacking is enabled.
-    pub tun_dns_ingress_queue_capacity: usize,
+    /// Pending request datagrams retained by each ordinary TUN UDP association.
+    pub tun_udp_association_queue_capacity: usize,
+    /// Bounded burst headroom for ordinary TUN UDP responses waiting for the
+    /// shared packet writer. Saturation drops only the current response.
+    pub tun_udp_response_queue_capacity: usize,
     /// Reserved TUN DNS response capacity. The isolated response path consumes
     /// this value once that path is enabled.
     pub tun_dns_response_queue_capacity: usize,
@@ -119,7 +127,8 @@ impl Default for ResourceLimits {
             tcp_buffer_per_direction: 32 * 1024,
             dns_address_cache_entries: 256,
             dns_redir_host_entries: 256,
-            tun_dns_ingress_queue_capacity: 128,
+            tun_udp_association_queue_capacity: 64,
+            tun_udp_response_queue_capacity: 4_096,
             tun_dns_response_queue_capacity: 128,
             tls_buffer_limit: 64 * 1024,
             xhttp_send_buffer_size: 64 * 1024,
@@ -139,8 +148,12 @@ impl ResourceLimits {
             ("dns_address_cache_entries", self.dns_address_cache_entries),
             ("dns_redir_host_entries", self.dns_redir_host_entries),
             (
-                "tun_dns_ingress_queue_capacity",
-                self.tun_dns_ingress_queue_capacity,
+                "tun_udp_association_queue_capacity",
+                self.tun_udp_association_queue_capacity,
+            ),
+            (
+                "tun_udp_response_queue_capacity",
+                self.tun_udp_response_queue_capacity,
             ),
             (
                 "tun_dns_response_queue_capacity",
@@ -189,7 +202,11 @@ mod tests {
                 ..ResourceLimits::default()
             },
             ResourceLimits {
-                tun_dns_ingress_queue_capacity: 0,
+                tun_udp_association_queue_capacity: 0,
+                ..ResourceLimits::default()
+            },
+            ResourceLimits {
+                tun_udp_response_queue_capacity: 0,
                 ..ResourceLimits::default()
             },
             ResourceLimits {
@@ -222,7 +239,8 @@ mod tests {
         assert_eq!(limits.tcp_buffer_per_direction, 32 * 1024);
         assert_eq!(limits.dns_address_cache_entries, 256);
         assert_eq!(limits.dns_redir_host_entries, 256);
-        assert_eq!(limits.tun_dns_ingress_queue_capacity, 128);
+        assert_eq!(limits.tun_udp_association_queue_capacity, 64);
+        assert_eq!(limits.tun_udp_response_queue_capacity, 4_096);
         assert_eq!(limits.tun_dns_response_queue_capacity, 128);
         assert_eq!(limits.tls_buffer_limit, 64 * 1024);
         assert_eq!(limits.xhttp_send_buffer_size, 64 * 1024);

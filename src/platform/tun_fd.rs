@@ -14,8 +14,24 @@ impl TunFd {
     /// host must supply a nonblocking descriptor because `dup` shares file
     /// status flags with the original open-file description; VCore never
     /// changes those shared flags behind the host's back.
-    ///
+    /// Linux additionally validates a real, raw-IP, single-queue TUN with MTU
+    /// 1500 in its owning network namespace before accepting the duplicate.
     pub fn duplicate(borrowed_fd: RawFd) -> Result<Self> {
+        let fd = Self::duplicate_descriptor(borrowed_fd)?;
+        #[cfg(target_os = "linux")]
+        super::linux_tun::validate(fd.as_fd())?;
+        Ok(fd)
+    }
+
+    // Pure packet-I/O fixtures use a Unix socketpair, not a kernel TUN. This
+    // ownership-only seam does not exist in production and is never Linux
+    // real-TUN acceptance evidence.
+    #[cfg(test)]
+    pub(crate) fn duplicate_mock(borrowed_fd: RawFd) -> Result<Self> {
+        Self::duplicate_descriptor(borrowed_fd)
+    }
+
+    fn duplicate_descriptor(borrowed_fd: RawFd) -> Result<Self> {
         // SAFETY: F_GETFL reads flags without taking ownership of the borrowed
         // descriptor and reports EBADF for an invalid FFI argument.
         let status_flags = unsafe { libc::fcntl(borrowed_fd, libc::F_GETFL) };
@@ -79,7 +95,7 @@ mod tests {
     fn duplicate_does_not_take_original_ownership() {
         let (mut original, mut peer) = UnixStream::pair().unwrap();
         original.set_nonblocking(true).unwrap();
-        let duplicate = TunFd::duplicate(original.as_raw_fd()).unwrap();
+        let duplicate = TunFd::duplicate_mock(original.as_raw_fd()).unwrap();
         assert_ne!(duplicate.as_raw_fd(), original.as_raw_fd());
 
         // SAFETY: both descriptors are open for the duration of these calls.
@@ -113,5 +129,23 @@ mod tests {
     fn invalid_descriptor_is_rejected() {
         let result = TunFd::duplicate(-1);
         assert!(result.is_err());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn non_tun_descriptor_is_rejected_without_changing_host_ownership_or_flags() {
+        let (mut original, mut peer) = UnixStream::pair().unwrap();
+        original.set_nonblocking(true).unwrap();
+        // SAFETY: original stays open for both status reads.
+        let before = unsafe { libc::fcntl(original.as_raw_fd(), libc::F_GETFL) };
+        let error = TunFd::duplicate(original.as_raw_fd()).unwrap_err();
+        assert!(error.to_string().contains("Linux TUNGETIFF"));
+        // SAFETY: rejection closes only VCore's temporary duplicate.
+        let after = unsafe { libc::fcntl(original.as_raw_fd(), libc::F_GETFL) };
+        assert_eq!(after, before);
+        original.write_all(b"ok").unwrap();
+        let mut bytes = [0; 2];
+        peer.read_exact(&mut bytes).unwrap();
+        assert_eq!(&bytes, b"ok");
     }
 }

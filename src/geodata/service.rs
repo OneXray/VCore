@@ -151,7 +151,6 @@ impl GeoDataUpdateService {
             url: source_url.to_owned(),
             etag: etag.clone(),
             temporary_path: session.temporary_path().to_path_buf(),
-            size_limit: kind.file_limit(),
             timeout: DEFAULT_DOWNLOAD_TIMEOUT,
             cancellation,
         };

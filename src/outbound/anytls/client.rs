@@ -135,7 +135,7 @@ impl AnyTlsClient {
     ) -> Result<AnyTlsStream, DispatchError> {
         let sequence = self
             .next_sequence
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |current| {
                 current.checked_add(1)
             })
             .map_err(|_| DispatchError::Other("AnyTLS session sequence exhausted".to_owned()))?

@@ -72,7 +72,6 @@ mod enabled {
             .or_else(|| SYNCHRONOUS.with(|slot| slot.borrow().clone()))
     }
 
-    #[cfg(feature = "ffi")]
     pub fn inherit_thread<F: FnOnce() -> T, T>(operation: F) -> impl FnOnce() -> T {
         let probe = current();
         move || match probe {
@@ -202,7 +201,7 @@ mod enabled {
     }
 }
 
-#[cfg(all(feature = "ffi", any(test, feature = "interop-test")))]
+#[cfg(any(test, feature = "interop-test"))]
 pub(crate) use enabled::inherit_thread;
 #[cfg(any(test, feature = "interop-test"))]
 pub(crate) use enabled::{Guard, bind, observe_queue, track};
@@ -230,7 +229,7 @@ pub(crate) fn bind<F: Future>(future: F) -> F {
     future
 }
 
-#[cfg(all(feature = "ffi", not(any(test, feature = "interop-test"))))]
+#[cfg(not(any(test, feature = "interop-test")))]
 pub(crate) fn inherit_thread<F: FnOnce() -> T, T>(operation: F) -> F {
     operation
 }

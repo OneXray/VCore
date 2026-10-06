@@ -1,4 +1,4 @@
-//! Bounded Xray GeoData loading and allocation-free matching.
+//! Selective Xray GeoData loading with compact, shared category matchers.
 //!
 //! The loader deliberately scans protobuf wire framing itself. It indexes only
 //! category ranges during the first pass and decodes records only for codes
@@ -14,21 +14,22 @@ use std::{
     str,
 };
 
-use regex_automata::{
-    Input,
-    dfa::{Automaton, StartKind, dense},
-};
+use regex::bytes::{Regex, RegexBuilder};
 use thiserror::Error;
 
 use crate::{
     VCoreError,
     config::{DnsNameserverPolicy, RuleKind, RuleSpec},
-    routing::{GeoMatcher, normalize_domain_name},
+    routing::GeoMatcher,
 };
 
 mod manager;
+mod selectors;
 pub(crate) mod service;
 pub(crate) mod updater;
+
+pub(crate) use selectors::normalize_selector;
+use selectors::{fold_attribute, selector_attributes, selector_code};
 
 pub use manager::{
     DynamicGeoData, GeoDataLoadReport, GeoDataManager, GeoDataManagerError, GeoDataRegistration,
@@ -37,18 +38,6 @@ pub use manager::{
 
 pub const GEOSITE_FILE_NAME: &str = "geosite.dat";
 pub const GEOIP_FILE_NAME: &str = "geoip.dat";
-pub const MAX_GEOSITE_FILE_BYTES: u64 = 16 * 1024 * 1024;
-pub const MAX_GEOIP_FILE_BYTES: u64 = 32 * 1024 * 1024;
-pub const MAX_CATEGORIES_PER_FILE: usize = 4_096;
-pub const MAX_REFERENCED_CODES: usize = 16;
-pub const MAX_DOMAIN_RECORDS: usize = 65_536;
-pub const MAX_DOMAIN_VALUE_BYTES: usize = 2 * 1024 * 1024;
-pub const MAX_REGEX_RECORDS: usize = 512;
-pub const MAX_REGEX_SOURCE_BYTES: usize = 64 * 1024;
-pub const MAX_REGEX_MEMORY_BYTES: usize = 512 * 1024;
-pub const MAX_REGEX_DETERMINIZE_MEMORY_BYTES: usize = 3 * 1024 * 1024;
-pub const MAX_CIDR_RECORDS: usize = 320_000;
-pub const GENERAL_ALLOCATION_BUDGET_BYTES: usize = 8 * 1024 * 1024;
 
 const MAX_CODE_BYTES: usize = 64;
 
@@ -65,14 +54,6 @@ impl GeoDataKind {
         match self {
             Self::GeoSite => GEOSITE_FILE_NAME,
             Self::GeoIp => GEOIP_FILE_NAME,
-        }
-    }
-
-    #[must_use]
-    pub const fn file_limit(self) -> u64 {
-        match self {
-            Self::GeoSite => MAX_GEOSITE_FILE_BYTES,
-            Self::GeoIp => MAX_GEOIP_FILE_BYTES,
         }
     }
 }
@@ -96,16 +77,6 @@ pub enum GeoDataError {
     },
     #[error("GeoData asset is not a regular file: {0}")]
     NotRegularFile(PathBuf),
-    #[error("{kind} asset is {actual} bytes; limit is {maximum} bytes")]
-    FileTooLarge {
-        kind: GeoDataKind,
-        actual: u64,
-        maximum: u64,
-    },
-    #[error("{kind} contains more than {maximum} top-level categories")]
-    TooManyCategories { kind: GeoDataKind, maximum: usize },
-    #[error("rules reference more than {maximum} unique GeoData codes")]
-    TooManyReferencedCodes { maximum: usize },
     #[error("invalid {kind} category code `{code}`")]
     InvalidCode { kind: GeoDataKind, code: String },
     #[error("duplicate {kind} category code `{code}`")]
@@ -114,8 +85,6 @@ pub enum GeoDataError {
     MissingCode { kind: GeoDataKind, code: String },
     #[error("malformed {kind} protobuf: {detail}")]
     Malformed { kind: GeoDataKind, detail: String },
-    #[error("{kind} category `{code}` enables unsupported reverse_match")]
-    ReverseMatch { kind: GeoDataKind, code: String },
     #[error("invalid GeoSite record in `{code}`: {detail}")]
     InvalidDomain { code: String, detail: String },
     #[error("invalid GeoSite Regex in `{code}`: {detail}")]
@@ -128,10 +97,6 @@ pub enum GeoDataError {
         actual: usize,
         maximum: usize,
     },
-    #[error(
-        "GeoData allocation capacity would reach {requested} bytes; applicable budget is {maximum} bytes"
-    )]
-    AllocationBudgetExceeded { requested: usize, maximum: usize },
     #[error("GeoData allocation failed while reserving {bytes} bytes")]
     AllocationFailed { bytes: usize },
 }
@@ -142,42 +107,24 @@ impl From<GeoDataError> for VCoreError {
     }
 }
 
-/// Explicit capacity ledger shared by every owned buffer built by one load.
+/// Diagnostic capacity accounting, never a memory admission policy.
 ///
-/// `used` counts live requested capacities and compiled DFA memory estimates;
-/// `peak` proves that transient indexes and builders share the same budget as
-/// the final matcher.
-#[derive(Debug)]
-pub struct AllocationBudget {
-    maximum: usize,
+/// Includes VCore-owned matcher/index vectors and arenas, with old/new buffer
+/// overlap during growth. Compiled regex programs and search caches are opaque
+/// third-party allocations and are not counted, nor are allocator overhead or
+/// the process peak; those require independent measurements.
+#[derive(Debug, Default)]
+struct AllocationLedger {
     used: usize,
     peak: usize,
 }
 
-impl AllocationBudget {
-    #[must_use]
-    pub const fn new(maximum: usize) -> Self {
-        Self {
-            maximum,
-            used: 0,
-            peak: 0,
-        }
-    }
-
+impl AllocationLedger {
     fn reserve(&mut self, bytes: usize) -> Result<(), GeoDataError> {
-        let requested =
-            self.used
-                .checked_add(bytes)
-                .ok_or(GeoDataError::AllocationBudgetExceeded {
-                    requested: usize::MAX,
-                    maximum: self.maximum,
-                })?;
-        if requested > self.maximum {
-            return Err(GeoDataError::AllocationBudgetExceeded {
-                requested,
-                maximum: self.maximum,
-            });
-        }
+        let requested = self
+            .used
+            .checked_add(bytes)
+            .ok_or(GeoDataError::AllocationFailed { bytes: usize::MAX })?;
         self.used = requested;
         self.peak = self.peak.max(requested);
         Ok(())
@@ -186,10 +133,6 @@ impl AllocationBudget {
     fn release(&mut self, bytes: usize) {
         debug_assert!(bytes <= self.used);
         self.used = self.used.saturating_sub(bytes);
-    }
-
-    const fn available(&self) -> usize {
-        self.maximum.saturating_sub(self.used)
     }
 }
 
@@ -229,67 +172,65 @@ impl GeoData {
 
     /// Loads only categories referenced by `rules` from the two fixed sibling
     /// assets in `config_dir`.
-    pub fn load(
-        config_dir: &Path,
-        rules: &[RuleSpec],
-        budget_bytes: usize,
-    ) -> Result<Self, GeoDataError> {
-        Self::load_with_dns_policies(config_dir, rules, &[], budget_bytes)
+    pub fn load(config_dir: &Path, rules: &[RuleSpec]) -> Result<Self, GeoDataError> {
+        Self::load_with_dns_policies(config_dir, rules, &[])
     }
 
     /// Loads categories referenced by both business routing rules and DNS
-    /// nameserver policies. Duplicate codes share one prepared category and
-    /// the existing per-instance GeoData allocation ledger.
+    /// nameserver policies. Selectors with the same base code share the value
+    /// arena and expressions; identical intersections share compact indexes.
     pub fn load_with_dns_policies(
         config_dir: &Path,
         rules: &[RuleSpec],
         dns_policies: &[DnsNameserverPolicy],
-        budget_bytes: usize,
     ) -> Result<Self, GeoDataError> {
         let requested = RequestedCodes::collect(rules, dns_policies)?;
         if requested.total() == 0 {
             return Ok(Self::EMPTY);
         }
 
-        let mut budget = AllocationBudget::new(budget_bytes.min(GENERAL_ALLOCATION_BUDGET_BYTES));
-        let mut counters = Counters::default();
+        let mut ledger = AllocationLedger::default();
         let mut sites = Vec::new();
         let mut ips = Vec::new();
-        ensure_vec_capacity(&mut sites, requested.sites.len, &mut budget)?;
-        ensure_vec_capacity(&mut ips, requested.ips.len, &mut budget)?;
+        ensure_vec_capacity(&mut sites, requested.sites.values.len(), &mut ledger)?;
+        ensure_vec_capacity(&mut ips, requested.ips.values.len(), &mut ledger)?;
 
-        if requested.sites.len != 0 {
-            load_site_file(
-                config_dir,
-                &requested.sites,
-                &mut sites,
-                &mut counters,
-                &mut budget,
-            )?;
+        if !requested.ips.values.is_empty() {
+            load_ip_file(config_dir, &requested.ips, &mut ips, &mut ledger)?;
         }
-        if requested.ips.len != 0 {
-            load_ip_file(
-                config_dir,
-                &requested.ips,
-                &mut ips,
-                &mut counters,
-                &mut budget,
-            )?;
+        if !requested.sites.values.is_empty() {
+            load_site_file(config_dir, &requested.sites, &mut sites, &mut ledger)?;
         }
-
-        Ok(Self {
-            sites,
-            ips,
-            allocation_capacity: budget.used,
-            peak_allocation_capacity: budget.peak,
-        })
+        Ok(Self::from_loaded(sites, ips, ledger.used, ledger.peak))
     }
 
+    fn from_loaded(
+        mut sites: Vec<SiteCategory>,
+        mut ips: Vec<IpCategory>,
+        allocation_capacity: usize,
+        peak_allocation_capacity: usize,
+    ) -> Self {
+        // Sort categories, never routing rules. Both standalone loading and
+        // manager reloads share this allocation-free indexing step.
+        sites.sort_unstable_by_key(|category| category.code);
+        ips.sort_unstable_by_key(|category| category.code);
+        Self {
+            sites,
+            ips,
+            allocation_capacity,
+            peak_allocation_capacity,
+        }
+    }
+
+    /// Accounted retained matcher capacity, not allocator or process memory.
     #[must_use]
     pub const fn allocation_capacity(&self) -> usize {
         self.allocation_capacity
     }
 
+    /// Peak of accounted capacities, excluding compiled regexes/search caches and
+    /// configuration requirements. Neither an admission quota nor a bound on
+    /// actual loading or process memory.
     #[must_use]
     pub const fn peak_allocation_capacity(&self) -> usize {
         self.peak_allocation_capacity
@@ -302,12 +243,28 @@ impl GeoData {
 
     #[must_use]
     pub fn geosite_available(&self, code: &str) -> bool {
-        self.sites.iter().any(|category| category.code.eq_str(code))
+        self.site_category(code).is_some()
     }
 
     #[must_use]
     pub fn geoip_available(&self, code: &str) -> bool {
-        self.ips.iter().any(|category| category.code.eq_str(code))
+        self.ip_category(code).is_some()
+    }
+
+    fn site_category(&self, code: &str) -> Option<&SiteCategory> {
+        self.sites
+            .binary_search_by(|category| category.code.cmp_str(selector_code(code)))
+            .ok()
+            .map(|index| &self.sites[index])
+            .filter(|category| category.has_selector(code))
+    }
+
+    fn ip_category(&self, code: &str) -> Option<&IpCategory> {
+        self.ips
+            .binary_search_by(|category| category.code.cmp_str(selector_code(code)))
+            .ok()
+            .map(|index| &self.ips[index])
+            .filter(|category| category.has_selector(code))
     }
 }
 
@@ -321,17 +278,13 @@ impl GeoMatcher for GeoData {
     }
 
     fn matches_geosite(&self, code: &str, domain: &str) -> bool {
-        self.sites
-            .iter()
-            .find(|category| category.code.eq_str(code))
-            .is_some_and(|category| category.matches(domain))
+        self.site_category(code)
+            .is_some_and(|category| !domain.is_empty() && category.matches_selector(code, domain))
     }
 
     fn matches_geoip(&self, code: &str, address: IpAddr) -> bool {
-        self.ips
-            .iter()
-            .find(|category| category.code.eq_str(code))
-            .is_some_and(|category| category.matches(address))
+        self.ip_category(code)
+            .is_some_and(|category| category.matches(address) != code.starts_with('!'))
     }
 }
 
@@ -367,44 +320,56 @@ impl Code {
         Ok(code)
     }
 
-    fn parse_rule(kind: GeoDataKind, raw: &str) -> Result<Self, GeoDataError> {
-        Self::parse(kind, raw.as_bytes())
-    }
-
     fn as_str(&self) -> &str {
         // Code::parse admits ASCII only.
         str::from_utf8(&self.bytes[..usize::from(self.len)]).expect("validated ASCII GeoData code")
     }
 
-    fn eq_str(&self, other: &str) -> bool {
-        self.as_str().eq_ignore_ascii_case(other)
+    fn cmp_str(&self, other: &str) -> std::cmp::Ordering {
+        self.as_str()
+            .bytes()
+            .cmp(other.bytes().map(|byte| byte.to_ascii_lowercase()))
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct CodeSet {
-    values: [Code; MAX_REFERENCED_CODES],
-    len: usize,
+    values: Vec<Code>,
+    selectors: Vec<String>,
 }
 
 impl CodeSet {
     const EMPTY: Self = Self {
-        values: [Code::EMPTY; MAX_REFERENCED_CODES],
-        len: 0,
+        values: Vec::new(),
+        selectors: Vec::new(),
     };
 
-    fn insert(&mut self, code: Code) -> Result<bool, GeoDataError> {
-        if self.values[..self.len].contains(&code) {
-            return Ok(false);
+    fn insert(&mut self, kind: GeoDataKind, raw: &str) -> Result<(), GeoDataError> {
+        let selector = normalize_selector(kind, raw)?;
+        if self.selectors.contains(&selector) {
+            return Ok(());
         }
-        if self.len == MAX_REFERENCED_CODES {
-            return Err(GeoDataError::TooManyReferencedCodes {
-                maximum: MAX_REFERENCED_CODES,
-            });
+        self.selectors
+            .try_reserve(1)
+            .map_err(|_| GeoDataError::AllocationFailed {
+                bytes: mem::size_of::<String>(),
+            })?;
+        let code = Code::parse(kind, selector_code(&selector).as_bytes())?;
+        self.selectors.push(selector);
+        if self.values.contains(&code) {
+            return Ok(());
         }
-        self.values[self.len] = code;
-        self.len += 1;
-        Ok(true)
+        self.values
+            .try_reserve(1)
+            .map_err(|_| GeoDataError::AllocationFailed {
+                bytes: self
+                    .values
+                    .len()
+                    .saturating_add(1)
+                    .saturating_mul(mem::size_of::<Code>()),
+            })?;
+        self.values.push(code);
+        Ok(())
     }
 }
 
@@ -423,53 +388,30 @@ impl RequestedCodes {
             sites: CodeSet::EMPTY,
             ips: CodeSet::EMPTY,
         };
-        let mut total = 0_usize;
         for rule in rules {
-            let inserted = match &rule.kind {
-                RuleKind::GeoSite(code) => requested
-                    .sites
-                    .insert(Code::parse_rule(GeoDataKind::GeoSite, code)?)?,
-                RuleKind::GeoIp(code) => requested
-                    .ips
-                    .insert(Code::parse_rule(GeoDataKind::GeoIp, code)?)?,
-                _ => false,
-            };
-            if inserted {
-                total += 1;
-                if total > MAX_REFERENCED_CODES {
-                    return Err(GeoDataError::TooManyReferencedCodes {
-                        maximum: MAX_REFERENCED_CODES,
-                    });
-                }
+            match &rule.kind {
+                RuleKind::GeoSite(code) => requested.sites.insert(GeoDataKind::GeoSite, code)?,
+                RuleKind::GeoIp(code) => requested.ips.insert(GeoDataKind::GeoIp, code)?,
+                _ => (),
             }
         }
         for policy in dns_policies {
             for code in &policy.geosite_codes {
-                let inserted = requested
-                    .sites
-                    .insert(Code::parse_rule(GeoDataKind::GeoSite, code)?)?;
-                if inserted {
-                    total += 1;
-                    if total > MAX_REFERENCED_CODES {
-                        return Err(GeoDataError::TooManyReferencedCodes {
-                            maximum: MAX_REFERENCED_CODES,
-                        });
-                    }
-                }
+                requested.sites.insert(GeoDataKind::GeoSite, code)?;
             }
         }
         Ok(requested)
     }
 
     const fn total(&self) -> usize {
-        self.sites.len + self.ips.len
+        self.sites.selectors.len() + self.ips.selectors.len()
     }
 }
 
 /// Normalized GeoData categories referenced by one VCore configuration.
 ///
-/// Collection performs only configuration-owned validation: code syntax,
-/// case-insensitive de-duplication, and the shared 16-code ceiling. Asset
+/// Collection validates base code/selector syntax and canonicalizes attribute
+/// intersections and case, without a reference-count quota. Asset
 /// availability and contents are deliberately handled later by
 /// [`GeoDataManager`], where one unavailable resource can become dormant
 /// without disabling the other kind.
@@ -480,8 +422,8 @@ pub struct GeoRequirements {
 }
 
 impl GeoRequirements {
-    /// Collects all GeoSite and GeoIP codes used by business rules and DNS
-    /// nameserver policies.
+    /// Collects all GeoSite and GeoIP selectors used by business rules and DNS
+    /// nameserver policies. Each underlying category is decoded only once.
     pub fn collect(
         rules: &[RuleSpec],
         dns_policies: &[DnsNameserverPolicy],
@@ -495,28 +437,29 @@ impl GeoRequirements {
 
     #[must_use]
     pub const fn is_empty(&self) -> bool {
-        self.sites.len == 0 && self.ips.len == 0
+        self.sites.values.is_empty() && self.ips.values.is_empty()
     }
 
     #[must_use]
     pub const fn requires(&self, kind: GeoDataKind) -> bool {
         match kind {
-            GeoDataKind::GeoSite => self.sites.len != 0,
-            GeoDataKind::GeoIp => self.ips.len != 0,
+            GeoDataKind::GeoSite => !self.sites.values.is_empty(),
+            GeoDataKind::GeoIp => !self.ips.values.is_empty(),
         }
     }
 
     #[must_use]
     pub const fn total_codes(&self) -> usize {
-        self.sites.len + self.ips.len
+        self.sites.selectors.len() + self.ips.selectors.len()
     }
 
+    /// Returns canonical selector keys, which may include inversion/attributes.
     pub fn codes(&self, kind: GeoDataKind) -> impl Iterator<Item = &str> {
         let set = match kind {
             GeoDataKind::GeoSite => &self.sites,
             GeoDataKind::GeoIp => &self.ips,
         };
-        set.values[..set.len].iter().map(Code::as_str)
+        set.selectors.iter().map(String::as_str)
     }
 
     fn code_set(&self, kind: GeoDataKind) -> &CodeSet {
@@ -539,24 +482,14 @@ fn load_sites_for_requirements(
     used: usize,
     peak: usize,
 ) -> Result<KindLoad<SiteCategory>, GeoDataError> {
-    let mut budget = AllocationBudget {
-        maximum: GENERAL_ALLOCATION_BUDGET_BYTES,
-        used,
-        peak,
-    };
+    let mut ledger = AllocationLedger { used, peak };
     let mut values = Vec::new();
-    ensure_vec_capacity(&mut values, requested.len, &mut budget)?;
-    load_site_file(
-        asset_dir,
-        requested,
-        &mut values,
-        &mut Counters::default(),
-        &mut budget,
-    )?;
+    ensure_vec_capacity(&mut values, requested.values.len(), &mut ledger)?;
+    load_site_file(asset_dir, requested, &mut values, &mut ledger)?;
     Ok(KindLoad {
         values,
-        used: budget.used,
-        peak: budget.peak,
+        used: ledger.used,
+        peak: ledger.peak,
     })
 }
 
@@ -566,42 +499,22 @@ fn load_ips_for_requirements(
     used: usize,
     peak: usize,
 ) -> Result<KindLoad<IpCategory>, GeoDataError> {
-    let mut budget = AllocationBudget {
-        maximum: GENERAL_ALLOCATION_BUDGET_BYTES,
-        used,
-        peak,
-    };
+    let mut ledger = AllocationLedger { used, peak };
     let mut values = Vec::new();
-    ensure_vec_capacity(&mut values, requested.len, &mut budget)?;
-    load_ip_file(
-        asset_dir,
-        requested,
-        &mut values,
-        &mut Counters::default(),
-        &mut budget,
-    )?;
+    ensure_vec_capacity(&mut values, requested.values.len(), &mut ledger)?;
+    load_ip_file(asset_dir, requested, &mut values, &mut ledger)?;
     Ok(KindLoad {
         values,
-        used: budget.used,
-        peak: budget.peak,
+        used: ledger.used,
+        peak: ledger.peak,
     })
 }
 
 fn validate_asset_structure(asset_dir: &Path, kind: GeoDataKind) -> Result<(), GeoDataError> {
     let (mut file, len) = open_asset(asset_dir, kind)?;
-    let mut budget = AllocationBudget::new(GENERAL_ALLOCATION_BUDGET_BYTES);
-    let _ = index_selected(&mut file, len, kind, &CodeSet::EMPTY, &mut budget)?;
+    let mut ledger = AllocationLedger::default();
+    let _ = index_selected(&mut file, len, kind, &CodeSet::EMPTY, &mut ledger)?;
     Ok(())
-}
-
-#[derive(Debug, Default)]
-struct Counters {
-    domain_records: usize,
-    domain_value_bytes: usize,
-    regex_records: usize,
-    regex_source_bytes: usize,
-    regex_memory: usize,
-    cidr_records: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -609,6 +522,7 @@ struct IndexEntry {
     code: Code,
     offset: u64,
     len: u64,
+    record_count: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -616,29 +530,28 @@ struct SelectedRange {
     code: Code,
     offset: u64,
     len: u64,
-}
-
-impl SelectedRange {
-    const EMPTY: Self = Self {
-        code: Code::EMPTY,
-        offset: 0,
-        len: 0,
-    };
+    record_count: usize,
 }
 
 fn load_site_file(
     config_dir: &Path,
     requested: &CodeSet,
     output: &mut Vec<SiteCategory>,
-    counters: &mut Counters,
-    budget: &mut AllocationBudget,
+    ledger: &mut AllocationLedger,
 ) -> Result<(), GeoDataError> {
     let kind = GeoDataKind::GeoSite;
     let (mut file, len) = open_asset(config_dir, kind)?;
-    let selected = index_selected(&mut file, len, kind, requested, budget)?;
-    for range in &selected[..requested.len] {
-        output.push(parse_site_category(&mut file, *range, counters, budget)?);
+    let mut selected = index_selected(&mut file, len, kind, requested, ledger)?;
+    selected.sort_unstable_by_key(|range| range.code);
+    for range in &selected {
+        let selectors = requested
+            .selectors
+            .iter()
+            .filter(|selector| range.code.cmp_str(selector_code(selector)).is_eq());
+        let category = parse_site_category(&mut file, *range, ledger, selectors)?;
+        output.push(category);
     }
+    release_vec(&selected, ledger);
     Ok(())
 }
 
@@ -646,15 +559,45 @@ fn load_ip_file(
     config_dir: &Path,
     requested: &CodeSet,
     output: &mut Vec<IpCategory>,
-    counters: &mut Counters,
-    budget: &mut AllocationBudget,
+    ledger: &mut AllocationLedger,
 ) -> Result<(), GeoDataError> {
-    let kind = GeoDataKind::GeoIp;
-    let (mut file, len) = open_asset(config_dir, kind)?;
-    let selected = index_selected(&mut file, len, kind, requested, budget)?;
-    for range in &selected[..requested.len] {
-        output.push(parse_ip_category(&mut file, *range, counters, budget)?);
+    load_selected_file(
+        GeoDataKind::GeoIp,
+        config_dir,
+        requested,
+        output,
+        ledger,
+        parse_ip_category,
+    )?;
+    for category in output.iter_mut() {
+        for selector in requested
+            .selectors
+            .iter()
+            .filter(|selector| category.code.cmp_str(selector_code(selector)).is_eq())
+        {
+            ensure_vec_capacity(&mut category.selectors, 1, ledger)?;
+            ledger.reserve(selector.len())?;
+            category.selectors.push(selector.clone());
+        }
     }
+    Ok(())
+}
+
+fn load_selected_file<T>(
+    kind: GeoDataKind,
+    config_dir: &Path,
+    requested: &CodeSet,
+    output: &mut Vec<T>,
+    ledger: &mut AllocationLedger,
+    parse_category: fn(&mut File, SelectedRange, &mut AllocationLedger) -> Result<T, GeoDataError>,
+) -> Result<(), GeoDataError> {
+    let (mut file, len) = open_asset(config_dir, kind)?;
+    let mut selected = index_selected(&mut file, len, kind, requested, ledger)?;
+    selected.sort_unstable_by_key(|range| range.code);
+    for range in &selected {
+        output.push(parse_category(&mut file, *range, ledger)?);
+    }
+    release_vec(&selected, ledger);
     Ok(())
 }
 
@@ -686,13 +629,6 @@ fn open_asset(config_dir: &Path, kind: GeoDataKind) -> Result<(File, u64), GeoDa
     if !metadata.file_type().is_file() {
         return Err(GeoDataError::NotRegularFile(path));
     }
-    if metadata.len() > kind.file_limit() {
-        return Err(GeoDataError::FileTooLarge {
-            kind,
-            actual: metadata.len(),
-            maximum: kind.file_limit(),
-        });
-    }
     Ok((file, metadata.len()))
 }
 
@@ -701,8 +637,8 @@ fn index_selected(
     file_len: u64,
     kind: GeoDataKind,
     requested: &CodeSet,
-    budget: &mut AllocationBudget,
-) -> Result<[SelectedRange; MAX_REFERENCED_CODES], GeoDataError> {
+    ledger: &mut AllocationLedger,
+) -> Result<Vec<SelectedRange>, GeoDataError> {
     seek(file, 0, kind)?;
     let mut index = Vec::<IndexEntry>::new();
     while position(file, kind)? < file_len {
@@ -716,18 +652,13 @@ fn index_selected(
         let entry_len = read_length(file, file_len, kind)?;
         let offset = position(file, kind)?;
         let end = checked_end(offset, entry_len, file_len, kind)?;
-        let code = scan_category_header(file, end, kind)?;
-        if index.len() == MAX_CATEGORIES_PER_FILE {
-            return Err(GeoDataError::TooManyCategories {
-                kind,
-                maximum: MAX_CATEGORIES_PER_FILE,
-            });
-        }
-        ensure_vec_capacity(&mut index, 1, budget)?;
+        let (code, record_count) = scan_category_header(file, end, kind)?;
+        ensure_vec_capacity(&mut index, 1, ledger)?;
         index.push(IndexEntry {
             code,
             offset,
             len: entry_len,
+            record_count,
         });
         seek(file, end, kind)?;
     }
@@ -739,13 +670,14 @@ fn index_selected(
                 kind,
                 code: pair[0].code.as_str().to_owned(),
             };
-            release_vec(&index, budget);
+            release_vec(&index, ledger);
             return Err(error);
         }
     }
 
-    let mut selected = [SelectedRange::EMPTY; MAX_REFERENCED_CODES];
-    for (slot, code) in selected.iter_mut().zip(&requested.values[..requested.len]) {
+    let mut selected = Vec::new();
+    ensure_vec_capacity(&mut selected, requested.values.len(), ledger)?;
+    for code in &requested.values {
         let entry = index
             .binary_search_by_key(code, |entry| entry.code)
             .ok()
@@ -756,19 +688,21 @@ fn index_selected(
             });
         match entry {
             Ok(entry) => {
-                *slot = SelectedRange {
+                selected.push(SelectedRange {
                     code: entry.code,
                     offset: entry.offset,
                     len: entry.len,
-                };
+                    record_count: entry.record_count,
+                });
             }
             Err(error) => {
-                release_vec(&index, budget);
+                release_vec(&index, ledger);
+                release_vec(&selected, ledger);
                 return Err(error);
             }
         }
     }
-    release_vec(&index, budget);
+    release_vec(&index, ledger);
     Ok(selected)
 }
 
@@ -776,9 +710,9 @@ fn scan_category_header(
     file: &mut File,
     end: u64,
     kind: GeoDataKind,
-) -> Result<Code, GeoDataError> {
+) -> Result<(Code, usize), GeoDataError> {
     let mut code = None;
-    let mut reverse_match = false;
+    let mut record_count = 0_usize;
     while position(file, kind)? < end {
         let (field, wire) = read_key(file, end, kind)?;
         match (field, kind) {
@@ -801,10 +735,19 @@ fn scan_category_header(
             (2, _) => {
                 require_wire(kind, wire, 2, "category record")?;
                 skip_field_payload(file, wire, end, kind)?;
+                record_count =
+                    record_count
+                        .checked_add(1)
+                        .ok_or_else(|| GeoDataError::Malformed {
+                            kind,
+                            detail: "category record count does not fit usize".to_owned(),
+                        })?;
             }
             (3, GeoDataKind::GeoIp) => {
                 require_wire(kind, wire, 0, "reverse_match")?;
-                reverse_match |= read_varint(file, end, kind)? != 0;
+                // Mihomo GeoIP selectors get inversion from `!code`, not the
+                // legacy DAT flag, which its CIDR matcher does not inspect.
+                let _ = read_varint(file, end, kind)?;
             }
             _ => skip_field_payload(file, wire, end, kind)?,
         }
@@ -813,16 +756,10 @@ fn scan_category_header(
         kind,
         detail: "category is missing code field 1".to_owned(),
     })?;
-    if reverse_match {
-        return Err(GeoDataError::ReverseMatch {
-            kind,
-            code: code.as_str().to_owned(),
-        });
-    }
-    Ok(code)
+    Ok((code, record_count))
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum SitePatternKind {
     Substr,
     Domain,
@@ -836,39 +773,110 @@ struct SitePattern {
     len: u32,
 }
 
+impl SitePattern {
+    fn value<'a>(&self, values: &'a [u8]) -> &'a [u8] {
+        let start = self.start as usize;
+        &values[start..start + self.len as usize]
+    }
+}
+
 struct SiteCategory {
     code: Code,
     patterns: Vec<SitePattern>,
     values: Vec<u8>,
-    regexes: Vec<dense::DFA<Vec<u32>>>,
+    regexes: Vec<Regex>,
+    selectors: Vec<String>,
+    filters: Vec<SiteFilter>,
+}
+
+/// A filtered matcher owns only compact indexes. The category's values and
+/// compiled expressions are shared by all filters and positive/negative aliases.
+struct SiteFilter {
+    attributes: String,
+    all_records: bool,
+    patterns: Vec<SitePattern>,
+    regex_indices: Vec<usize>,
 }
 
 impl SiteCategory {
-    fn matches(&self, domain: &str) -> bool {
-        for pattern in &self.patterns {
-            let start = pattern.start as usize;
-            let end = start + pattern.len as usize;
-            let value = str::from_utf8(&self.values[start..end])
-                .expect("prepared GeoSite values are UTF-8");
-            let matched = match pattern.kind {
-                SitePatternKind::Substr => domain.contains(value),
-                SitePatternKind::Domain => {
-                    domain == value
-                        || (domain.len() > value.len()
-                            && domain.ends_with(value)
-                            && domain.as_bytes()[domain.len() - value.len() - 1] == b'.')
-                }
-                SitePatternKind::Full => domain == value,
+    fn has_selector(&self, selector: &str) -> bool {
+        self.selectors
+            .iter()
+            .any(|requested| requested.eq_ignore_ascii_case(selector))
+    }
+
+    fn contains(&self, patterns: &[SitePattern], kind: SitePatternKind, value: &[u8]) -> bool {
+        patterns
+            .binary_search_by(|pattern| {
+                pattern
+                    .kind
+                    .cmp(&kind)
+                    .then_with(|| pattern.value(&self.values).cmp(value))
+            })
+            .is_ok()
+    }
+
+    fn matches_selector(&self, selector: &str, domain: &str) -> bool {
+        let attributes = selector_attributes(selector);
+        let filter = self
+            .filters
+            .iter()
+            .find(|filter| filter.attributes.eq_ignore_ascii_case(attributes));
+        let matched = if attributes.is_empty() {
+            self.matches(domain, &self.patterns, None)
+        } else if let Some(filter) = filter {
+            if filter.all_records {
+                self.matches(domain, &self.patterns, None)
+            } else {
+                self.matches(domain, &filter.patterns, Some(&filter.regex_indices))
+            }
+        } else {
+            return false;
+        };
+        matched != selector.starts_with('!')
+    }
+
+    fn matches(
+        &self,
+        domain: &str,
+        patterns: &[SitePattern],
+        regex_indices: Option<&[usize]>,
+    ) -> bool {
+        // The loader validates/normalizes each value once. Reuse the compact
+        // ranges as a sorted index; a miss must not scan all Domain/Full records
+        // for every UDP packet. Category membership is a union, not rule order.
+        let bytes = domain.as_bytes();
+        if self.contains(patterns, SitePatternKind::Full, bytes) {
+            return true;
+        }
+        let mut suffix = bytes;
+        loop {
+            if self.contains(patterns, SitePatternKind::Domain, suffix) {
+                return true;
+            }
+            let Some(dot) = suffix.iter().position(|byte| *byte == b'.') else {
+                break;
             };
-            if matched {
+            suffix = &suffix[dot + 1..];
+        }
+        for pattern in patterns
+            .iter()
+            .take_while(|pattern| pattern.kind == SitePatternKind::Substr)
+        {
+            let value = pattern.value(&self.values);
+            if bytes.windows(value.len()).any(|window| window == value) {
                 return true;
             }
         }
-        self.regexes.iter().any(|regex| {
-            regex
-                .try_search_fwd(&Input::new(domain.as_bytes()))
-                .is_ok_and(|matched| matched.is_some())
-        })
+        // The regex library owns its compiled representation and search cache;
+        // matching is not guaranteed to be allocation-free on first use.
+        let matches_regex = |regex: &Regex| regex.is_match(domain.as_bytes());
+        match regex_indices {
+            Some(indices) => indices
+                .iter()
+                .any(|&index| matches_regex(&self.regexes[index])),
+            None => self.regexes.iter().any(matches_regex),
+        }
     }
 }
 
@@ -878,11 +886,11 @@ struct ValueRange {
     len: u32,
 }
 
-fn parse_site_category(
+fn parse_site_category<'a>(
     file: &mut File,
     range: SelectedRange,
-    counters: &mut Counters,
-    budget: &mut AllocationBudget,
+    ledger: &mut AllocationLedger,
+    requested: impl Iterator<Item = &'a String>,
 ) -> Result<SiteCategory, GeoDataError> {
     let kind = GeoDataKind::GeoSite;
     let end = checked_end(range.offset, range.len, u64::MAX, kind)?;
@@ -893,6 +901,51 @@ fn parse_site_category(
     let mut regex_ranges = Vec::new();
     let mut scratch = Vec::new();
     let mut seen_code = false;
+    let mut remaining_records = range.record_count;
+    let mut selectors = Vec::new();
+    let mut filters: Vec<SiteFilter> = Vec::new();
+    for selector in requested {
+        ensure_vec_capacity(&mut selectors, 1, ledger)?;
+        ledger.reserve(selector.len())?;
+        selectors.push(selector.clone());
+        let attributes = selector_attributes(selector);
+        if !attributes.is_empty() && !filters.iter().any(|filter| filter.attributes == attributes) {
+            ensure_vec_capacity(&mut filters, 1, ledger)?;
+            ledger.reserve(attributes.len())?;
+            filters.push(SiteFilter {
+                attributes: attributes.to_owned(),
+                all_records: false,
+                patterns: Vec::new(),
+                regex_indices: Vec::new(),
+            });
+        }
+    }
+    let unfiltered = selectors
+        .iter()
+        .any(|selector| selector_attributes(selector).is_empty());
+    if filters.len() == 1 && !unfiltered {
+        // The union equals this one intersection. Its positive and negative
+        // aliases need no second literal or expression index at all.
+        filters[0].all_records = true;
+    }
+    // One reusable membership bitmap per category, not attribute objects
+    // retained for every record. Different selector intersections share values.
+    let mut attribute_keys = Vec::<String>::new();
+    for filter in &filters {
+        for attribute in filter.attributes.split('@') {
+            if !attribute_keys.iter().any(|key| key == attribute) {
+                ensure_vec_capacity(&mut attribute_keys, 1, ledger)?;
+                ledger.reserve(attribute.len())?;
+                attribute_keys.push(attribute.to_owned());
+            }
+        }
+    }
+    let mut present = Vec::new();
+    ensure_vec_capacity(&mut present, attribute_keys.len(), ledger)?;
+    present.resize(attribute_keys.len(), false);
+    let mut filter_matches = Vec::new();
+    ensure_vec_capacity(&mut filter_matches, filters.len(), ledger)?;
+    filter_matches.resize(filters.len(), false);
 
     let result = (|| {
         while position(file, kind)? < end {
@@ -911,21 +964,64 @@ fn parse_site_category(
                 }
                 2 => {
                     require_wire(kind, wire, 2, "Domain")?;
+                    remaining_records = remaining_records.checked_sub(1).ok_or_else(|| {
+                        GeoDataError::Malformed {
+                            kind,
+                            detail: "GeoSite record count changed between scan passes".to_owned(),
+                        }
+                    })?;
                     let len = read_length(file, end, kind)?;
                     let start = position(file, kind)?;
                     let record_end = checked_end(start, len, end, kind)?;
-                    parse_domain_record(
-                        file,
-                        record_end,
-                        range.code,
-                        &mut patterns,
-                        &mut values,
-                        &mut regex_bytes,
-                        &mut regex_ranges,
-                        &mut scratch,
-                        counters,
-                        budget,
-                    )?;
+                    if !filters.is_empty() {
+                        present.fill(false);
+                        scan_domain_attributes(
+                            file,
+                            record_end,
+                            &attribute_keys,
+                            &mut present,
+                            &mut scratch,
+                            ledger,
+                        )?;
+                        for (filter, matched) in filters.iter().zip(&mut filter_matches) {
+                            *matched = filter.attributes.split('@').all(|attribute| {
+                                let at = attribute_keys
+                                    .iter()
+                                    .position(|key| key == attribute)
+                                    .expect("collected selector attribute");
+                                present[at]
+                            });
+                        }
+                        seek(file, start, kind)?;
+                    }
+                    if unfiltered || filter_matches.iter().any(|matched| *matched) {
+                        let pattern_start = patterns.len();
+                        let regex_start = regex_ranges.len();
+                        parse_domain_record(
+                            file,
+                            record_end,
+                            range.code,
+                            &mut patterns,
+                            &mut values,
+                            &mut regex_bytes,
+                            &mut regex_ranges,
+                            &mut scratch,
+                            ledger,
+                        )?;
+                        for (filter, matched) in filters.iter_mut().zip(&filter_matches) {
+                            if !matched || filter.all_records {
+                                continue;
+                            }
+                            if let Some(pattern) = patterns.get(pattern_start) {
+                                ensure_vec_capacity(&mut filter.patterns, 1, ledger)?;
+                                filter.patterns.push(*pattern);
+                            }
+                            if regex_ranges.len() > regex_start {
+                                ensure_vec_capacity(&mut filter.regex_indices, 1, ledger)?;
+                                filter.regex_indices.push(regex_start);
+                            }
+                        }
+                    }
                     seek(file, record_end, kind)?;
                 }
                 _ => skip_field_payload(file, wire, end, kind)?,
@@ -934,22 +1030,59 @@ fn parse_site_category(
         if !seen_code {
             return malformed(kind, "GeoSite is missing code");
         }
-        compile_regex_set(range.code, &regex_bytes, &regex_ranges, counters, budget)
+        if remaining_records != 0 {
+            return malformed(kind, "GeoSite record count changed between scan passes");
+        }
+        compile_regex_set(range.code, &regex_bytes, &regex_ranges, ledger)
     })();
 
-    release_vec(&scratch, budget);
-    release_vec(&regex_ranges, budget);
-    release_vec(&regex_bytes, budget);
+    release_vec(&scratch, ledger);
+    release_vec(&regex_ranges, ledger);
+    release_vec(&regex_bytes, ledger);
+    for attribute in &attribute_keys {
+        ledger.release(attribute.capacity());
+    }
+    release_vec(&attribute_keys, ledger);
+    release_vec(&present, ledger);
+    release_vec(&filter_matches, ledger);
     match result {
-        Ok(regexes) => Ok(SiteCategory {
-            code: range.code,
-            patterns,
-            values,
-            regexes,
-        }),
+        Ok(regexes) => {
+            // In-place sort does not duplicate the arena or retain a second
+            // index. Keep every record, including overlapping types/duplicates.
+            patterns.sort_unstable_by(|left, right| {
+                left.kind
+                    .cmp(&right.kind)
+                    .then_with(|| left.value(&values).cmp(right.value(&values)))
+            });
+            for filter in &mut filters {
+                filter.patterns.sort_unstable_by(|left, right| {
+                    left.kind
+                        .cmp(&right.kind)
+                        .then_with(|| left.value(&values).cmp(right.value(&values)))
+                });
+            }
+            Ok(SiteCategory {
+                code: range.code,
+                patterns,
+                values,
+                regexes,
+                selectors,
+                filters,
+            })
+        }
         Err(error) => {
-            release_vec(&patterns, budget);
-            release_vec(&values, budget);
+            release_vec(&patterns, ledger);
+            release_vec(&values, ledger);
+            for selector in &selectors {
+                ledger.release(selector.capacity());
+            }
+            release_vec(&selectors, ledger);
+            for filter in &filters {
+                ledger.release(filter.attributes.capacity());
+                release_vec(&filter.patterns, ledger);
+                release_vec(&filter.regex_indices, ledger);
+            }
+            release_vec(&filters, ledger);
             Err(error)
         }
     }
@@ -965,16 +1098,8 @@ fn parse_domain_record(
     regex_bytes: &mut Vec<u8>,
     regex_ranges: &mut Vec<ValueRange>,
     scratch: &mut Vec<u8>,
-    counters: &mut Counters,
-    budget: &mut AllocationBudget,
+    ledger: &mut AllocationLedger,
 ) -> Result<(), GeoDataError> {
-    counters.domain_records = checked_limit_increment(
-        "GeoSite Domain records",
-        counters.domain_records,
-        1,
-        MAX_DOMAIN_RECORDS,
-    )?;
-
     let kind = GeoDataKind::GeoSite;
     let mut domain_type = 0_u64;
     let mut seen_type = false;
@@ -1016,13 +1141,7 @@ fn parse_domain_record(
         value_range.ok_or_else(|| invalid_domain_error(code, "Domain.value is missing"))?;
     let value_len = usize::try_from(value_len)
         .map_err(|_| invalid_domain_error(code, "Domain.value length does not fit usize"))?;
-    counters.domain_value_bytes = checked_limit_increment(
-        "GeoSite value bytes",
-        counters.domain_value_bytes,
-        value_len,
-        MAX_DOMAIN_VALUE_BYTES,
-    )?;
-    read_scratch(file, value_offset, value_len, scratch, budget, kind)?;
+    read_scratch(file, value_offset, value_len, scratch, ledger, kind)?;
     let raw = str::from_utf8(scratch)
         .map_err(|_| invalid_domain_error(code, "Domain.value is not UTF-8"))?;
 
@@ -1032,27 +1151,15 @@ fn parse_domain_record(
                 return invalid_domain(code, "Substr value must be non-empty ASCII");
             }
             scratch.make_ascii_lowercase();
-            append_site_value(SitePatternKind::Substr, scratch, patterns, values, budget)?;
+            append_site_value(SitePatternKind::Substr, scratch, patterns, values, ledger)?;
         }
         1 => {
-            counters.regex_records = checked_limit_increment(
-                "GeoSite Regex records",
-                counters.regex_records,
-                1,
-                MAX_REGEX_RECORDS,
-            )?;
-            counters.regex_source_bytes = checked_limit_increment(
-                "GeoSite Regex source bytes",
-                counters.regex_source_bytes,
-                value_len,
-                MAX_REGEX_SOURCE_BYTES,
-            )?;
             validate_regex_source(&code, raw)?;
             let start = u32::try_from(regex_bytes.len())
                 .map_err(|_| invalid_domain_error(code, "Regex source offset overflow"))?;
-            ensure_vec_capacity(regex_bytes, scratch.len(), budget)?;
+            ensure_vec_capacity(regex_bytes, scratch.len(), ledger)?;
             regex_bytes.extend_from_slice(scratch);
-            ensure_vec_capacity(regex_ranges, 1, budget)?;
+            ensure_vec_capacity(regex_ranges, 1, ledger)?;
             regex_ranges.push(ValueRange {
                 start,
                 len: u32::try_from(scratch.len())
@@ -1060,27 +1167,41 @@ fn parse_domain_record(
             });
         }
         2 | 3 => {
-            // Account a bounded normalization output while both the reusable
-            // input scratch and final compact byte arena are live.
-            budget.reserve(253)?;
-            let normalized = normalize_domain_name(raw).map_err(|error| {
-                invalid_domain_error(code, &format!("invalid domain value: {error}"))
+            // These are static literal match values, not DNS lookup targets.
+            // Keep opaque ASCII (including non-hostname labels) without STD3
+            // validation or per-record allocation. Preserve valid IDN support,
+            // but an IDNA failure must not discard a record or its category.
+            let raw = raw.strip_suffix('.').unwrap_or(raw);
+            if raw.is_empty() {
+                return invalid_domain(code, "Domain/Full value must be non-empty");
+            }
+            let normalized = (!raw.is_ascii()).then(|| {
+                idna::domain_to_ascii(raw)
+                    .ok()
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or_else(|| raw.to_lowercase())
             });
-            budget.release(253);
-            let normalized = normalized?;
-            budget.reserve(normalized.capacity())?;
+            let temporary_capacity = normalized.as_ref().map_or(0, String::capacity);
+            let value = if let Some(normalized) = normalized.as_deref() {
+                normalized.as_bytes()
+            } else {
+                scratch.truncate(raw.len());
+                scratch.make_ascii_lowercase();
+                scratch.as_slice()
+            };
+            ledger.reserve(temporary_capacity)?;
             let result = append_site_value(
                 if domain_type == 2 {
                     SitePatternKind::Domain
                 } else {
                     SitePatternKind::Full
                 },
-                normalized.as_bytes(),
+                value,
                 patterns,
                 values,
-                budget,
+                ledger,
             );
-            budget.release(normalized.capacity());
+            ledger.release(temporary_capacity);
             result?;
         }
         other => {
@@ -1109,7 +1230,7 @@ fn validate_regex_source(code: &Code, pattern: &str) -> Result<(), GeoDataError>
 
 /// Finds Rust-only inline flags without interpreting escaped text or character
 /// classes. Go and Rust share `i`, `m`, `s`, and `U`; the remaining syntax is
-/// still validated by `regex-automata` during compilation.
+/// still validated by the regex library during compilation.
 fn has_unsupported_inline_regex_flag(pattern: &[u8]) -> bool {
     let mut escaped = false;
     let mut in_class = false;
@@ -1145,6 +1266,67 @@ fn has_unsupported_inline_regex_flag(pattern: &[u8]) -> bool {
         index += 1;
     }
     false
+}
+
+fn scan_domain_attributes(
+    file: &mut File,
+    end: u64,
+    requested: &[String],
+    present: &mut [bool],
+    scratch: &mut Vec<u8>,
+    ledger: &mut AllocationLedger,
+) -> Result<(), GeoDataError> {
+    let kind = GeoDataKind::GeoSite;
+    while position(file, kind)? < end {
+        let (field, wire) = read_key(file, end, kind)?;
+        if field != 3 {
+            skip_field_payload(file, wire, end, kind)?;
+            continue;
+        }
+        require_wire(kind, wire, 2, "Domain.attribute")?;
+        let len = read_length(file, end, kind)?;
+        let start = position(file, kind)?;
+        let attribute_end = checked_end(start, len, end, kind)?;
+        let mut key_range = None;
+        while position(file, kind)? < attribute_end {
+            let (field, wire) = read_key(file, attribute_end, kind)?;
+            match field {
+                1 => {
+                    require_wire(kind, wire, 2, "Attribute.key")?;
+                    let len = read_length(file, attribute_end, kind)?;
+                    let start = position(file, kind)?;
+                    validate_utf8_bytes(file, len, attribute_end, kind)?;
+                    // Protobuf singular string fields use the last occurrence.
+                    key_range = Some((start, len));
+                }
+                2 | 3 => {
+                    require_wire(kind, wire, 0, "Attribute value")?;
+                    let _ = read_varint(file, attribute_end, kind)?;
+                }
+                _ => skip_field_payload(file, wire, attribute_end, kind)?,
+            }
+        }
+        if let Some((offset, len)) = key_range {
+            let len = usize::try_from(len)
+                .map_err(|_| malformed_error(kind, "attribute key length does not fit usize"))?;
+            read_scratch(file, offset, len, scratch, ledger, kind)?;
+            let key = str::from_utf8(scratch).expect("validated attribute UTF-8");
+            if key.is_ascii() {
+                for (wanted, present) in requested.iter().zip(present.iter_mut()) {
+                    *present |= wanted.eq_ignore_ascii_case(key);
+                }
+            } else {
+                let key = fold_attribute(key);
+                ledger.reserve(key.capacity())?;
+                for (wanted, present) in requested.iter().zip(present.iter_mut()) {
+                    *present |= *wanted == key;
+                }
+                ledger.release(key.capacity());
+            }
+        }
+        seek(file, attribute_end, kind)?;
+    }
+    Ok(())
 }
 
 fn validate_attribute(file: &mut File, end: u64, kind: GeoDataKind) -> Result<(), GeoDataError> {
@@ -1231,16 +1413,16 @@ fn append_site_value(
     value: &[u8],
     patterns: &mut Vec<SitePattern>,
     values: &mut Vec<u8>,
-    budget: &mut AllocationBudget,
+    ledger: &mut AllocationLedger,
 ) -> Result<(), GeoDataError> {
     let start = u32::try_from(values.len()).map_err(|_| GeoDataError::ResourceLimit {
         resource: "GeoSite compact value offset",
         actual: values.len(),
         maximum: u32::MAX as usize,
     })?;
-    ensure_vec_capacity(values, value.len(), budget)?;
+    ensure_vec_capacity(values, value.len(), ledger)?;
     values.extend_from_slice(value);
-    ensure_vec_capacity(patterns, 1, budget)?;
+    ensure_vec_capacity(patterns, 1, ledger)?;
     patterns.push(SitePattern {
         kind,
         start,
@@ -1257,110 +1439,46 @@ fn compile_regex_set(
     code: Code,
     bytes: &[u8],
     ranges: &[ValueRange],
-    counters: &mut Counters,
-    budget: &mut AllocationBudget,
-) -> Result<Vec<dense::DFA<Vec<u32>>>, GeoDataError> {
-    if ranges.is_empty() {
-        return Ok(Vec::new());
-    }
+    ledger: &mut AllocationLedger,
+) -> Result<Vec<Regex>, GeoDataError> {
     let mut regexes = Vec::new();
-    ensure_vec_capacity(&mut regexes, ranges.len(), budget)?;
+    ensure_vec_capacity(&mut regexes, ranges.len(), ledger)?;
 
+    // Use the library's normal byte-regex interface and default compiler/cache
+    // protections. VCore adds no expression count, source or memory quota, and
+    // does not request eager complete-DFA construction. Programs/search caches
+    // are opaque to the ledger; only this owned vector is accounted.
     for range in ranges {
-        let remaining = MAX_REGEX_MEMORY_BYTES.saturating_sub(counters.regex_memory);
-        if remaining == 0 {
-            let actual = counters.regex_memory.saturating_add(1);
-            release_regexes(&mut regexes, budget);
-            return Err(GeoDataError::ResourceLimit {
-                resource: "compiled GeoSite Regex memory",
-                actual,
-                maximum: MAX_REGEX_MEMORY_BYTES,
-            });
-        }
-        let build_memory = budget.available().min(MAX_REGEX_DETERMINIZE_MEMORY_BYTES);
-        let dfa_build_limit = remaining.min(build_memory / 2);
-        if dfa_build_limit == 0 {
-            let requested = budget.used.saturating_add(1);
-            release_regexes(&mut regexes, budget);
-            return Err(GeoDataError::AllocationBudgetExceeded {
-                requested,
-                maximum: budget.maximum,
-            });
-        }
-        let auxiliary_build_limit = build_memory - dfa_build_limit;
-        // Charge the whole compiler allowance before construction. Building
-        // each expression independently avoids a multi-pattern state-product
-        // explosion while runtime matching remains allocation-free.
-        budget.reserve(build_memory)?;
-        let mut builder = dense::Builder::new();
-        builder.configure(
-            dense::Config::new()
-                .dfa_size_limit(Some(dfa_build_limit))
-                .determinize_size_limit(Some(auxiliary_build_limit))
-                .accelerate(false)
-                .start_kind(StartKind::Unanchored),
-        );
-        // Routing domains are normalized to ASCII before matching. Compiling
-        // in byte mode preserves behavior on that alphabet and avoids states
-        // for Unicode characters that cannot occur in the haystack.
-        builder.syntax(
-            regex_automata::util::syntax::Config::new()
-                .unicode(false)
-                .utf8(false),
-        );
         let start = range.start as usize;
         let end = start + range.len as usize;
         let pattern = str::from_utf8(&bytes[start..end]).expect("validated Regex UTF-8");
-        let regex = builder
-            .build(pattern)
+        // Routing names are ASCII; keep byte-mode matching semantics while
+        // retaining the library defaults for compilation and lazy caches.
+        let result = RegexBuilder::new(pattern)
+            .unicode(false)
+            .build()
             .map_err(|error| GeoDataError::InvalidRegex {
                 code: code.as_str().to_owned(),
-                detail: error.to_string(),
+                // Syntax diagnostics contain the original expression. Do not
+                // expose asset values through prepare/update errors or logs.
+                detail: match error {
+                    regex::Error::Syntax(_) => "invalid regex syntax",
+                    regex::Error::CompiledTooBig(_) => {
+                        "compiled regex exceeds the library default size limit"
+                    }
+                    _ => "regex compilation failed",
+                }
+                .to_owned(),
             });
-        let regex = match regex {
-            Ok(regex) => regex,
+        match result {
+            Ok(regex) => regexes.push(regex),
             Err(error) => {
-                budget.release(build_memory);
-                release_regexes(&mut regexes, budget);
+                release_vec(&regexes, ledger);
                 return Err(error);
             }
-        };
-        let memory = regex.memory_usage();
-        let regex_memory = checked_limit_increment(
-            "compiled GeoSite Regex memory",
-            counters.regex_memory,
-            memory,
-            MAX_REGEX_MEMORY_BYTES,
-        );
-        let regex_memory = match regex_memory {
-            Ok(regex_memory) if memory <= build_memory => regex_memory,
-            Ok(_) => {
-                let requested = budget.used.saturating_add(memory - build_memory);
-                budget.release(build_memory);
-                release_regexes(&mut regexes, budget);
-                return Err(GeoDataError::AllocationBudgetExceeded {
-                    requested,
-                    maximum: budget.maximum,
-                });
-            }
-            Err(error) => {
-                budget.release(build_memory);
-                release_regexes(&mut regexes, budget);
-                return Err(error);
-            }
-        };
-        counters.regex_memory = regex_memory;
-        budget.release(build_memory - memory);
-        regexes.push(regex);
+        }
     }
     Ok(regexes)
-}
-
-fn release_regexes(regexes: &mut Vec<dense::DFA<Vec<u32>>>, budget: &mut AllocationBudget) {
-    for regex in regexes.iter() {
-        budget.release(regex.memory_usage());
-    }
-    release_vec(regexes, budget);
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1401,9 +1519,16 @@ struct IpCategory {
     code: Code,
     v4: Vec<Cidr4>,
     v6: Vec<Cidr6>,
+    selectors: Vec<String>,
 }
 
 impl IpCategory {
+    fn has_selector(&self, selector: &str) -> bool {
+        self.selectors
+            .iter()
+            .any(|requested| requested.eq_ignore_ascii_case(selector))
+    }
+
     fn matches(&self, address: IpAddr) -> bool {
         match address {
             IpAddr::V4(address) => {
@@ -1423,8 +1548,7 @@ impl IpCategory {
 fn parse_ip_category(
     file: &mut File,
     range: SelectedRange,
-    counters: &mut Counters,
-    budget: &mut AllocationBudget,
+    ledger: &mut AllocationLedger,
 ) -> Result<IpCategory, GeoDataError> {
     let kind = GeoDataKind::GeoIp;
     let end = checked_end(range.offset, range.len, u64::MAX, kind)?;
@@ -1432,7 +1556,7 @@ fn parse_ip_category(
     let mut v4 = Vec::new();
     let mut v6 = Vec::new();
     let mut seen_code = false;
-    let mut reverse_match = false;
+    let mut remaining_records = range.record_count;
     let result = (|| {
         while position(file, kind)? < end {
             let (field, wire) = read_key(file, end, kind)?;
@@ -1450,21 +1574,18 @@ fn parse_ip_category(
                 }
                 2 => {
                     require_wire(kind, wire, 2, "CIDR")?;
-                    counters.cidr_records = checked_limit_increment(
-                        "GeoIP raw CIDR records",
-                        counters.cidr_records,
-                        1,
-                        MAX_CIDR_RECORDS,
-                    )?;
+                    remaining_records = remaining_records.checked_sub(1).ok_or_else(|| {
+                        malformed_error(kind, "GeoIP record count changed between scan passes")
+                    })?;
                     let len = read_length(file, end, kind)?;
                     let start = position(file, kind)?;
                     let record_end = checked_end(start, len, end, kind)?;
-                    parse_cidr_record(file, record_end, range.code, &mut v4, &mut v6, budget)?;
+                    parse_cidr_record(file, record_end, range.code, &mut v4, &mut v6, ledger)?;
                     seek(file, record_end, kind)?;
                 }
                 3 => {
                     require_wire(kind, wire, 0, "GeoIP.reverse_match")?;
-                    reverse_match |= read_varint(file, end, kind)? != 0;
+                    let _ = read_varint(file, end, kind)?;
                 }
                 _ => skip_field_payload(file, wire, end, kind)?,
             }
@@ -1472,11 +1593,8 @@ fn parse_ip_category(
         if !seen_code {
             return malformed(kind, "GeoIP is missing code");
         }
-        if reverse_match {
-            return Err(GeoDataError::ReverseMatch {
-                kind,
-                code: range.code.as_str().to_owned(),
-            });
+        if remaining_records != 0 {
+            return malformed(kind, "GeoIP record count changed between scan passes");
         }
         compact_v4(&mut v4);
         compact_v6(&mut v6);
@@ -1487,10 +1605,11 @@ fn parse_ip_category(
             code: range.code,
             v4,
             v6,
+            selectors: Vec::new(),
         }),
         Err(error) => {
-            release_vec(&v4, budget);
-            release_vec(&v6, budget);
+            release_vec(&v4, ledger);
+            release_vec(&v6, ledger);
             Err(error)
         }
     }
@@ -1502,7 +1621,7 @@ fn parse_cidr_record(
     code: Code,
     v4: &mut Vec<Cidr4>,
     v6: &mut Vec<Cidr6>,
-    budget: &mut AllocationBudget,
+    ledger: &mut AllocationLedger,
 ) -> Result<(), GeoDataError> {
     let kind = GeoDataKind::GeoIp;
     let mut ip = [0_u8; 16];
@@ -1541,7 +1660,7 @@ fn parse_cidr_record(
                 u32::from_be_bytes(ip[..4].try_into().expect("four-byte slice")),
                 prefix as u8,
             );
-            ensure_vec_capacity(v4, 1, budget)?;
+            ensure_vec_capacity(v4, 1, ledger)?;
             v4.push(Cidr4 {
                 network: numeric.to_be_bytes(),
                 prefix: prefix as u8,
@@ -1549,7 +1668,7 @@ fn parse_cidr_record(
         }
         Some(16) if prefix <= 128 => {
             let numeric = mask_v6(u128::from_be_bytes(ip), prefix as u8);
-            ensure_vec_capacity(v6, 1, budget)?;
+            ensure_vec_capacity(v6, 1, ledger)?;
             v6.push(Cidr6 {
                 network: numeric.to_be_bytes(),
                 prefix: prefix as u8,
@@ -1666,10 +1785,10 @@ fn read_scratch(
     offset: u64,
     len: usize,
     scratch: &mut Vec<u8>,
-    budget: &mut AllocationBudget,
+    ledger: &mut AllocationLedger,
     kind: GeoDataKind,
 ) -> Result<(), GeoDataError> {
-    ensure_vec_capacity(scratch, len.saturating_sub(scratch.len()), budget)?;
+    ensure_vec_capacity(scratch, len.saturating_sub(scratch.len()), ledger)?;
     scratch.resize(len, 0);
     seek(file, offset, kind)?;
     let end = offset
@@ -1678,27 +1797,10 @@ fn read_scratch(
     read_exact(file, scratch, end, kind)
 }
 
-fn checked_limit_increment(
-    resource: &'static str,
-    current: usize,
-    additional: usize,
-    maximum: usize,
-) -> Result<usize, GeoDataError> {
-    let actual = current.saturating_add(additional);
-    if actual > maximum {
-        return Err(GeoDataError::ResourceLimit {
-            resource,
-            actual,
-            maximum,
-        });
-    }
-    Ok(actual)
-}
-
 fn ensure_vec_capacity<T>(
     values: &mut Vec<T>,
     additional: usize,
-    budget: &mut AllocationBudget,
+    ledger: &mut AllocationLedger,
 ) -> Result<(), GeoDataError> {
     let required = values
         .len()
@@ -1709,33 +1811,38 @@ fn ensure_vec_capacity<T>(
     }
     let desired = required.checked_next_power_of_two().unwrap_or(required);
     let old_capacity = values.capacity();
-    let requested_elements = desired - old_capacity;
-    let requested_bytes = requested_elements
+    // An allocator can move the buffer. Charge the entire new capacity while
+    // the old allocation is still live, not only the retained-size delta.
+    let requested_bytes = desired
         .checked_mul(mem::size_of::<T>())
         .ok_or(GeoDataError::AllocationFailed { bytes: usize::MAX })?;
-    budget.reserve(requested_bytes)?;
+    ledger.reserve(requested_bytes)?;
     let reserve_additional = desired - values.len();
     if values.try_reserve_exact(reserve_additional).is_err() {
-        budget.release(requested_bytes);
+        ledger.release(requested_bytes);
         return Err(GeoDataError::AllocationFailed {
             bytes: requested_bytes,
         });
     }
-    let actual_elements = values.capacity() - old_capacity;
-    match actual_elements.cmp(&requested_elements) {
+    let actual_elements = values.capacity();
+    match actual_elements.cmp(&desired) {
         std::cmp::Ordering::Greater => {
-            budget.reserve((actual_elements - requested_elements) * mem::size_of::<T>())?;
+            let extra = (actual_elements - desired)
+                .checked_mul(mem::size_of::<T>())
+                .ok_or(GeoDataError::AllocationFailed { bytes: usize::MAX })?;
+            ledger.reserve(extra)?;
         }
         std::cmp::Ordering::Less => {
-            budget.release((requested_elements - actual_elements) * mem::size_of::<T>());
+            ledger.release((desired - actual_elements) * mem::size_of::<T>());
         }
         std::cmp::Ordering::Equal => {}
     }
+    ledger.release(old_capacity * mem::size_of::<T>());
     Ok(())
 }
 
-fn release_vec<T>(values: &Vec<T>, budget: &mut AllocationBudget) {
-    budget.release(values.capacity().saturating_mul(mem::size_of::<T>()));
+fn release_vec<T>(values: &Vec<T>, ledger: &mut AllocationLedger) {
+    ledger.release(values.capacity().saturating_mul(mem::size_of::<T>()));
 }
 
 fn read_key(file: &mut File, end: u64, kind: GeoDataKind) -> Result<(u32, u8), GeoDataError> {

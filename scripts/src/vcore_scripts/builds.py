@@ -6,6 +6,7 @@ import locale
 import mmap
 import os
 import platform
+import re
 import shutil
 import subprocess
 import tempfile
@@ -22,8 +23,104 @@ DEFAULT_FEATURES = (
 )
 
 
+def tvos_deployment_target() -> str:
+    value = _env("VCORE_TVOS_DEPLOYMENT_TARGET", "17.0")
+    if not re.fullmatch(r"\d+\.\d+(?:\.\d+)?", value) or tuple(
+        map(int, value.split("."))
+    ) < (17, 0):
+        raise ValueError("tvOS deployment target must be 17.0 or newer")
+    return value
+
+
+def _check_apple_load_commands(
+    output: str, target_os: str, variant: str | None, architecture: str, minimum: str
+) -> int:
+    """Check every archive member, including native crypto and Rust std objects."""
+    expected = {
+        ("macos", None): "1",
+        ("ios", None): "2",
+        ("tvos", None): "3",
+        ("ios", "simulator"): "7",
+        ("tvos", "simulator"): "8",
+    }[target_os, variant]
+    legacy = {"macos": "MACOSX", "ios": "IPHONEOS", "tvos": "TVOS"}[target_os]
+    objects = re.split(r"(?m)^\S.*:\n", output)[1:]
+    if not objects:
+        raise ValueError("Apple artifact contains no Mach-O objects")
+    ceiling = tuple((list(map(int, minimum.split("."))) + [0, 0])[:3])
+    # These architectures did not exist at the older product deployment floor.
+    # Keep iOS 13 for devices and macOS 10.15 for the Intel desktop slice.
+    architecture_floor = {
+        ("ios", "simulator", "arm64"): (14, 0, 0),
+        ("macos", None, "arm64"): (11, 0, 0),
+    }.get((target_os, variant, architecture), (0, 0, 0))
+    ceiling = max(ceiling, architecture_floor)
+    for obj in objects:
+        versions = []
+        for command in re.split(r"Load command \d+\n", obj):
+            fields = dict(
+                line.strip().split(maxsplit=1)
+                for line in command.splitlines()
+                if len(line.strip().split(maxsplit=1)) == 2
+            )
+            kind = fields.get("cmd", "")
+            if kind == "LC_BUILD_VERSION":
+                if fields.get("platform") != expected:
+                    raise ValueError("wrong Apple Mach-O platform")
+                versions.append(fields.get("minos", ""))
+            elif kind.startswith("LC_VERSION_MIN_"):
+                if kind != "LC_VERSION_MIN_" + legacy or variant == "simulator":
+                    raise ValueError("wrong legacy Apple Mach-O platform")
+                versions.append(fields.get("version", ""))
+        if len(versions) != 1 or not re.fullmatch(r"\d+(?:\.\d+){0,2}", versions[0]):
+            raise ValueError("missing or ambiguous Apple deployment version")
+        version = tuple((list(map(int, versions[0].split("."))) + [0, 0])[:3])
+        if version > ceiling:
+            raise ValueError(
+                f"Apple {target_os}/{variant}/{architecture} object requires "
+                f"{versions[0]}, newer than deployment target {ceiling}"
+            )
+    return len(objects)
+
+
+def check_apple_binary(
+    path: Path,
+    target_os: str,
+    variant: str | None,
+    architectures: set[str],
+    minimum: str,
+) -> dict[str, int]:
+    actual = set(
+        subprocess.check_output(
+            ["xcrun", "lipo", "-archs", str(path)], text=True, timeout=60
+        ).split()
+    )
+    if actual != architectures:
+        raise ValueError("wrong Apple binary architecture")
+    result = {}
+    for architecture in sorted(architectures):
+        output = subprocess.check_output(
+            ["xcrun", "otool", "-l", "-arch", architecture, str(path)],
+            text=True,
+            timeout=60,
+        )
+        result[architecture] = _check_apple_load_commands(
+            output, target_os, variant, architecture, minimum
+        )
+    return result
+
+
 def _env(name: str, default: str | os.PathLike[str]) -> str:
     return os.environ.get(name) or os.fspath(default)
+
+
+def _cargo_target_dir(env: dict[str, str] | None = None) -> Path:
+    """Resolve the output used by Cargo commands executed in this checkout."""
+    value = (os.environ if env is None else env).get("CARGO_TARGET_DIR")
+    if not value:
+        return CORE_DIR / "target"
+    directory = Path(value)
+    return directory if directory.is_absolute() else CORE_DIR / directory
 
 
 def _run(
@@ -39,6 +136,13 @@ def _profile() -> tuple[str, list[str]]:
     if profile == "debug":
         return profile, []
     raise RuntimeError(f"unsupported VCORE_BUILD_PROFILE: {profile}")
+
+
+def _production_features(features: str) -> str:
+    names = {name.rsplit("/", 1)[-1] for name in re.split(r"[,\s]+", features)}
+    if names & {"interop-test", "benchmark-geodata-http"}:
+        raise RuntimeError("platform builds cannot enable test-only features")
+    return features
 
 
 def _installed_rust_targets() -> set[str]:
@@ -64,6 +168,7 @@ def _cargo_build(
     features: str,
     env: dict[str, str],
 ) -> None:
+    _production_features(features)
     _run(
         [
             "cargo",
@@ -159,19 +264,48 @@ def _android_toolchain(ndk_home: Path) -> Path:
     raise RuntimeError(f"Android NDK toolchain not found under {ndk_home}")
 
 
+def _android_ndk_home() -> Path:
+    """Resolve an explicit NDK path/version or the newest installed stable major."""
+    if override := os.environ.get("ANDROID_NDK_HOME"):
+        return Path(override).resolve()
+    android_home = (
+        Path(sdk_home)
+        if (sdk_home := os.environ.get("ANDROID_HOME"))
+        else Path.home() / "Library" / "Android" / "sdk"
+    )
+    installed = android_home / "ndk"
+    selector = _env("VCORE_ANDROID_NDK_VERSION", "30")
+    if not selector.isdigit():
+        return (installed / selector).resolve()
+    candidates = []
+    for path in installed.glob(selector + ".*"):
+        properties = path / "source.properties"
+        if (
+            not path.is_dir()
+            or not re.fullmatch(r"\d+\.\d+\.\d+", path.name)
+            or not properties.is_file()
+        ):
+            continue
+        revision = re.search(
+            r"(?m)^\s*Pkg\.Revision\s*=\s*(\S+)\s*$",
+            properties.read_text(encoding="utf-8"),
+        )
+        # SDK preview directories can have numeric names. Their revision still
+        # carries a beta/rc suffix, so use package metadata to reject previews.
+        if revision and revision.group(1) == path.name:
+            candidates.append((tuple(map(int, path.name.split("."))), path))
+    if not candidates:
+        raise RuntimeError(f"no installed stable Android NDK for major {selector}")
+    return max(candidates, key=lambda candidate: candidate[0])[1].resolve()
+
+
 def build_android() -> None:
     if os.name == "nt":
         raise RuntimeError("Android artifacts must be built on macOS or Linux")
-    android_home = Path(
-        _env("ANDROID_HOME", Path.home() / "Library" / "Android" / "sdk")
-    )
-    ndk_version = _env("VCORE_ANDROID_NDK_VERSION", "28.2.13676358")
-    ndk_home = Path(
-        _env("ANDROID_NDK_HOME", android_home / "ndk" / ndk_version)
-    ).resolve()
+    ndk_home = _android_ndk_home()
     android_api = _env("VCORE_ANDROID_API", "24")
     profile_name, profile_flags = _profile()
-    features = _env("VCORE_FEATURES", DEFAULT_FEATURES)
+    features = _production_features(_env("VCORE_FEATURES", DEFAULT_FEATURES))
     targets = _env(
         "VCORE_ANDROID_TARGETS", "aarch64-linux-android x86_64-linux-android"
     ).split()
@@ -214,6 +348,14 @@ def build_android() -> None:
         if not cpp_runtime.is_file():
             raise RuntimeError(f"Android C++ runtime not found: {cpp_runtime}")
         target_env = target.replace("-", "_")
+        bindgen_key = f"BINDGEN_EXTRA_CLANG_ARGS_{target}"
+        bindgen_extra = base_env.get(
+            bindgen_key,
+            base_env.get(
+                f"BINDGEN_EXTRA_CLANG_ARGS_{target_env}",
+                base_env.get("BINDGEN_EXTRA_CLANG_ARGS", ""),
+            ),
+        )
         env = base_env | {
             f"CC_{target_env}": str(linker),
             f"CXX_{target_env}": str(cpp),
@@ -225,9 +367,14 @@ def build_android() -> None:
             ),
             "VCORE_CMAKE_ANDROID_ABI": abi,
             "VCORE_CMAKE_ANDROID_API": android_api,
+            # NDK 30 rejects bindgen's default unversioned Rust target. Use
+            # the same API-qualified compiler triple as CC/CXX and CMake.
+            bindgen_key: (
+                f"--target={clang.removesuffix('-clang')} {bindgen_extra}"
+            ).strip(),
         }
         _cargo_build(target, profile_flags, features, env)
-        artifact = CORE_DIR / "target" / target / profile_name / "libvcore.so"
+        artifact = _cargo_target_dir(env) / target / profile_name / "libvcore.so"
         _require_identity(artifact, "Android")
         destination = output / abi / "libvcore.so"
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -243,51 +390,52 @@ def build_apple() -> None:
     if platform.system() != "Darwin":
         raise RuntimeError("Apple artifacts must be built on macOS")
     dist = Path(_env("VCORE_APPLE_DIST_DIR", CORE_DIR / "dist" / "apple")).resolve()
-    work = CORE_DIR / "target" / "vcore-apple"
+    work = _cargo_target_dir() / "vcore-apple"
     profile_name, profile_flags = _profile()
-    features = _env("VCORE_FEATURES", DEFAULT_FEATURES)
+    features = _production_features(_env("VCORE_FEATURES", DEFAULT_FEATURES))
     targets = [
         "aarch64-apple-ios",
         "aarch64-apple-ios-sim",
-        "x86_64-apple-ios",
         "aarch64-apple-darwin",
         "x86_64-apple-darwin",
+        "aarch64-apple-tvos",
+        "aarch64-apple-tvos-sim",
     ]
     _require_targets(targets)
 
     env = os.environ.copy()
     env["IPHONEOS_DEPLOYMENT_TARGET"] = _env("VCORE_IOS_DEPLOYMENT_TARGET", "13.0")
     env["MACOSX_DEPLOYMENT_TARGET"] = _env("VCORE_MACOS_DEPLOYMENT_TARGET", "10.15")
+    env["TVOS_DEPLOYMENT_TARGET"] = tvos_deployment_target()
     if profile_name == "release":
         env["CARGO_PROFILE_RELEASE_PANIC"] = "unwind"
 
     shutil.rmtree(work, ignore_errors=True)
     shutil.rmtree(dist / "LibVCore.xcframework", ignore_errors=True)
-    for directory in ("ios-device", "ios-simulator", "macos"):
+    for directory in (
+        "ios-device",
+        "ios-simulator",
+        "macos",
+        "tvos-device",
+        "tvos-simulator",
+    ):
         (work / directory).mkdir(parents=True)
     dist.mkdir(parents=True, exist_ok=True)
 
     for target in targets:
         _cargo_build(target, profile_flags, features, env)
     artifacts = {
-        target: CORE_DIR / "target" / target / profile_name / "libvcore.a"
+        target: _cargo_target_dir(env) / target / profile_name / "libvcore.a"
         for target in targets
     }
     for artifact in artifacts.values():
         _require_identity(artifact, "Apple")
 
     shutil.copy2(artifacts["aarch64-apple-ios"], work / "ios-device/libvcore.a")
-    _run(
-        [
-            "xcrun",
-            "lipo",
-            "-create",
-            artifacts["aarch64-apple-ios-sim"],
-            artifacts["x86_64-apple-ios"],
-            "-output",
-            work / "ios-simulator/libvcore.a",
-        ],
-        env=env,
+    shutil.copy2(artifacts["aarch64-apple-ios-sim"], work / "ios-simulator/libvcore.a")
+    shutil.copy2(artifacts["aarch64-apple-tvos"], work / "tvos-device/libvcore.a")
+    shutil.copy2(
+        artifacts["aarch64-apple-tvos-sim"], work / "tvos-simulator/libvcore.a"
     )
     _run(
         [
@@ -302,6 +450,28 @@ def build_apple() -> None:
         env=env,
     )
     output = dist / "LibVCore.xcframework"
+    for directory, target_os, variant, architectures, minimum in (
+        ("ios-device", "ios", None, {"arm64"}, env["IPHONEOS_DEPLOYMENT_TARGET"]),
+        (
+            "ios-simulator",
+            "ios",
+            "simulator",
+            {"arm64"},
+            env["IPHONEOS_DEPLOYMENT_TARGET"],
+        ),
+        ("macos", "macos", None, {"arm64", "x86_64"}, env["MACOSX_DEPLOYMENT_TARGET"]),
+        ("tvos-device", "tvos", None, {"arm64"}, env["TVOS_DEPLOYMENT_TARGET"]),
+        (
+            "tvos-simulator",
+            "tvos",
+            "simulator",
+            {"arm64"},
+            env["TVOS_DEPLOYMENT_TARGET"],
+        ),
+    ):
+        check_apple_binary(
+            work / directory / "libvcore.a", target_os, variant, architectures, minimum
+        )
     _run(
         [
             "xcodebuild",
@@ -316,6 +486,14 @@ def build_apple() -> None:
             CORE_DIR / "include",
             "-library",
             work / "macos/libvcore.a",
+            "-headers",
+            CORE_DIR / "include",
+            "-library",
+            work / "tvos-device/libvcore.a",
+            "-headers",
+            CORE_DIR / "include",
+            "-library",
+            work / "tvos-simulator/libvcore.a",
             "-headers",
             CORE_DIR / "include",
             "-output",
@@ -419,6 +597,7 @@ def _windows_msvc_environment(architecture: str) -> dict[str, str]:
 def build_windows() -> None:
     if os.name != "nt":
         raise RuntimeError("Windows artifacts must be built on Windows")
+    _production_features(_env("VCORE_FEATURES", DEFAULT_FEATURES))
     architecture = _windows_architecture()
     output = CORE_DIR / "dist" / "windows" / architecture
     shutil.rmtree(output, ignore_errors=True)
@@ -443,7 +622,7 @@ def build_windows() -> None:
     ]
     _run([*base, "--lib", "--bins"], env=env)
 
-    release = CORE_DIR / "target" / target / "release"
+    release = _cargo_target_dir(env) / target / "release"
     artifacts = [
         "vcore.dll",
         "vcore-windows-vpn-host.exe",

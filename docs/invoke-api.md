@@ -1,6 +1,6 @@
 # VCore Invoke API
 
-业务接口版本为 5，配置结构修订版为 27。配置只通过内联的 `configYaml` 或 `configYamls` 传入；每份已加载的 VCore 运行时最多拥有一个公共实例。代理组实时选择沿用 Controller，不增加 Invoke method 或版本协商。静态 ECH 只使用节点内联配置，不新增 bootstrap DNS 入参。
+业务接口版本为 5，配置结构修订版为 31。配置只通过内联的 `configYaml` 或 `configYamls` 传入；每份已加载的 VCore 运行时最多拥有一个公共实例。代理组实时选择沿用 Controller，不增加 Invoke method 或版本协商。静态 ECH 只使用节点内联配置，不新增 bootstrap DNS 入参。
 
 ## C ABI
 
@@ -218,7 +218,7 @@ stopped -> preparing -> prepared -> starting -> running
 
 ### `start`
 
-Apple 和 Android 的 TUN 启动参数：
+Apple、Android 和 Linux 的 TUN 启动参数：
 
 ```json
 {
@@ -229,11 +229,16 @@ Apple 和 Android 的 TUN 启动参数：
 }
 ```
 
-Android 使用 `rawIp`。非 TUN 配置必须省略 `tunFd` 和 `tunFraming`。
+Android 和 Linux 使用 `rawIp`。非 TUN 配置必须省略 `tunFd` 和 `tunFraming`。
 
 - `tunFd` 由宿主借用，宿主必须预先设置 nonblocking。
 - VCore 校验后建立带 `CLOEXEC` 的副本，只关闭副本。
-- Apple 只接受 `utun`，Android 只接受 `rawIp`。
+- Apple 只接受 `utun`，Android 和 Linux 只接受 `rawIp`。
+- Linux 要求真实单队列 TUN、关闭 PI/VNET header、实际 MTU 1500；普通 socket/pipe
+  不能作为生产 TUN fd。校验失败保持 prepared，可修正宿主输入后重试。
+- Linux 宿主创建并保持 TUN 参数和路由隔离，保证 VCore 物理出站不重新进入 TUN；
+  VCore 不创建接口或修改系统路由。跨网络命名空间的参数校验需要宿主提供相应权限，
+  完整 fd 契约见 [TUN 平台层](tun-platform.md)。
 - 从 prepared 配置创建本次 session 的代理组选择状态。
 - 所有监听器和关键数据面成功后才进入 running。
 - GeoData 更新只在启动后按需后台运行，不属于启动关键路径。
@@ -307,6 +312,10 @@ ProtectFd(fd) -> bool
 
 - 含 TUN 的实例必须在 `prepare` 前注册；非 TUN 和 `measureDelay` 不需要。
 - 每个出站 TCP/UDP socket 在 connect 前同步调用 protect。
+- socket 初始化和 protect 可以在受跟踪的 Tokio 阻塞线程执行；不保证回调来自某个
+  固定业务线程。取消不能中断已经开始的同步回调，Stop 返回前必须等待其完成。
+- TCP/UDP 共用每初始化作用域 64 个未完成提交的内部许可；提交前异步等待并继承
+  调用方取消/期限，不因繁忙拒绝业务连接。许可直到阻塞任务实际结束才释放。
 - 返回 false、抛出异常或 controller 失效都会使当前连接失败关闭。
 - 回调必须快速、同步、非阻塞，且不能重入 Invoke 或注册接口。
 - TUN 租约存活期间不能替换或注销 controller；`stop`/`destroyInstance` 是释放屏障。

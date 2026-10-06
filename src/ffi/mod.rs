@@ -1,4 +1,4 @@
-//! Runtime-local JSON Invoke boundary for Apple and Android hosts.
+//! Runtime-local JSON Invoke boundary for platform hosts.
 //!
 //! `VCoreInvoke` is the only public business entry point. A runtime-local
 //! per-request size limit bounds parsing memory. One public lifecycle
@@ -38,12 +38,30 @@ use crate::{
     runtime::PreparedCore,
 };
 
-#[cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]
+#[cfg(any(
+    target_os = "android",
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "macos",
+    target_os = "linux"
+))]
 use crate::platform::{TunFd, TunIo};
 
-#[cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]
+#[cfg(any(
+    target_os = "android",
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "macos",
+    target_os = "linux"
+))]
 type InvokeTun = (TunFd, TunFraming);
-#[cfg(not(any(target_os = "android", target_os = "ios", target_os = "macos")))]
+#[cfg(not(any(
+    target_os = "android",
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "macos",
+    target_os = "linux"
+)))]
 type InvokeTun = ();
 
 #[cfg(target_os = "android")]
@@ -123,7 +141,7 @@ struct CoreInner {
     engine: Option<Engine>,
     last_error: String,
     tun_lease: Option<TunLease>,
-    ios_tun_allocator_relief: Option<IosTunAllocatorRelief>,
+    apple_tun_allocator_relief: Option<AppleTunAllocatorRelief>,
 }
 
 struct PreparedState {
@@ -152,20 +170,20 @@ impl Drop for TunLease {
 }
 
 #[derive(Clone)]
-struct IosTunAllocatorRelief {
-    state: Arc<IosTunAllocatorReliefState>,
+struct AppleTunAllocatorRelief {
+    state: Arc<AppleTunAllocatorReliefState>,
 }
 
-struct IosTunAllocatorReliefState {
+struct AppleTunAllocatorReliefState {
     relieved: AtomicBool,
 }
 
-impl IosTunAllocatorRelief {
+impl AppleTunAllocatorRelief {
     fn new(has_tun: bool) -> Option<Self> {
-        #[cfg(target_os = "ios")]
+        #[cfg(any(target_os = "ios", target_os = "tvos"))]
         if has_tun {
             return Some(Self {
-                state: Arc::new(IosTunAllocatorReliefState {
+                state: Arc::new(AppleTunAllocatorReliefState {
                     relieved: AtomicBool::new(false),
                 }),
             });
@@ -176,15 +194,15 @@ impl IosTunAllocatorRelief {
 
     fn relieve(&self) {
         if !self.state.relieved.swap(true, Ordering::AcqRel) {
-            relieve_ios_tun_allocator();
+            relieve_apple_tun_allocator();
         }
     }
 }
 
-impl Drop for IosTunAllocatorReliefState {
+impl Drop for AppleTunAllocatorReliefState {
     fn drop(&mut self) {
         if !self.relieved.swap(true, Ordering::AcqRel) {
-            relieve_ios_tun_allocator();
+            relieve_apple_tun_allocator();
         }
     }
 }
@@ -203,10 +221,10 @@ impl Drop for InstanceRemovalGuard<'_> {
     }
 }
 
-struct RuntimeThreadGuard;
+pub(crate) struct RuntimeThreadGuard;
 
 impl RuntimeThreadGuard {
-    fn enter() -> Self {
+    pub(crate) fn enter() -> Self {
         IS_RUNTIME_THREAD.with(|marker| {
             // Admission state must also be set when debug assertions are disabled.
             let was_runtime_thread = marker.replace(true);
@@ -220,6 +238,44 @@ impl Drop for RuntimeThreadGuard {
     fn drop(&mut self) {
         IS_RUNTIME_THREAD.with(|marker| marker.set(false));
     }
+}
+
+// Logging is restored before Invoke admission is released on worker exit.
+struct RuntimeWorkerScope {
+    #[cfg(any(target_os = "ios", target_os = "tvos", target_os = "macos"))]
+    _logging: tracing::dispatcher::DefaultGuard,
+    _admission: RuntimeThreadGuard,
+}
+
+impl RuntimeWorkerScope {
+    fn enter() -> Self {
+        let admission = RuntimeThreadGuard::enter();
+        Self {
+            #[cfg(any(target_os = "ios", target_os = "tvos", target_os = "macos"))]
+            _logging: crate::platform::apple_logging::enter(),
+            _admission: admission,
+        }
+    }
+}
+
+thread_local! {
+    static RUNTIME_WORKER_SCOPE: std::cell::RefCell<Option<RuntimeWorkerScope>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+pub(crate) fn engine_runtime_builder() -> tokio::runtime::Builder {
+    let mut builder = tokio::runtime::Builder::new_multi_thread();
+    builder
+        .on_thread_start(|| {
+            RUNTIME_WORKER_SCOPE.with(|scope| {
+                *scope.borrow_mut() = Some(RuntimeWorkerScope::enter());
+            });
+        })
+        .on_thread_stop(|| {
+            let scope = RUNTIME_WORKER_SCOPE.with(|scope| scope.borrow_mut().take());
+            drop(scope);
+        });
+    builder
 }
 
 impl Engine {
@@ -445,7 +501,7 @@ impl RuntimeRegistry {
         }
         let id = self
             .next_id
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |current| {
                 current.checked_add(1)
             })
             .map_err(|_| InvokeFailure::internal("instance ID space is exhausted"))?;
@@ -616,7 +672,7 @@ pub(super) fn invoke_bytes(request: &[u8]) -> Vec<u8> {
 /// It intentionally returns bytes so JNI never routes arbitrary JSON through
 /// Modified UTF-8 strings.
 pub(super) fn invoke_bytes_admitted(request: &[u8]) -> Vec<u8> {
-    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    #[cfg(any(target_os = "ios", target_os = "tvos", target_os = "macos"))]
     let _logging = crate::platform::apple_logging::enter();
     invoke_guarded(|| dispatch_bytes(request))
 }
@@ -863,7 +919,7 @@ impl CoreController {
             tun_lease,
             protector,
         } = acquisition;
-        let allocator_relief = IosTunAllocatorRelief::new(has_tun);
+        let allocator_relief = AppleTunAllocatorRelief::new(has_tun);
         {
             let mut inner = lock(&self.inner);
             inner.last_error.clear();
@@ -872,7 +928,7 @@ impl CoreController {
                 .transition(LifecycleState::Preparing)
                 .map_err(InvokeFailure::from)?;
             inner.tun_lease = tun_lease;
-            inner.ios_tun_allocator_relief = allocator_relief;
+            inner.apple_tun_allocator_relief = allocator_relief;
         }
 
         let prepared = (|| {
@@ -911,7 +967,7 @@ impl CoreController {
                     .map_err(InvokeFailure::from)
                 {
                     Ok(()) => {
-                        observe_ios_tun_memory(has_tun, "prepare-complete");
+                        observe_apple_tun_memory(has_tun, "prepare-complete");
                         Ok(())
                     }
                     Err(error) => reset_failed_operation(&mut inner, "prepare-transition-failed")
@@ -927,11 +983,6 @@ impl CoreController {
         payload: StartPayload,
         presence: StartFieldPresence,
     ) -> Result<(), InvokeFailure> {
-        if cfg!(target_os = "linux") {
-            return Err(InvokeFailure::new(
-                "VCore runtime startup is unsupported on Linux",
-            ));
-        }
         let _command = self.try_command()?;
         let (prepared, tun, has_tun, allocator_relief) = {
             let mut inner = lock(&self.inner);
@@ -960,7 +1011,7 @@ impl CoreController {
                 .lifecycle
                 .transition(LifecycleState::Starting)
                 .map_err(InvokeFailure::from)?;
-            let allocator_relief = inner.ios_tun_allocator_relief.clone();
+            let allocator_relief = inner.apple_tun_allocator_relief.clone();
             (prepared, tun, has_tun, allocator_relief)
         };
 
@@ -980,7 +1031,6 @@ impl CoreController {
         };
         let spawned = thread::Builder::new()
             .name(format!("vcore-runtime-{instance_id}"))
-            .stack_size(1024 * 1024)
             .spawn(crate::resources::observation::inherit_thread(move || {
                 let _runtime_thread = RuntimeThreadGuard::enter();
                 run_engine(context, prepared.core, tun, dialer, stop_rx, startup_tx)
@@ -1013,7 +1063,7 @@ impl CoreController {
                         .and(Err(error));
                 }
                 inner.engine = Some(engine);
-                observe_ios_tun_memory(has_tun, "start-complete");
+                observe_apple_tun_memory(has_tun, "start-complete");
                 Ok(())
             }
             Ok(Err(error)) => {
@@ -1053,7 +1103,7 @@ impl CoreController {
                 LifecycleState::Stopped => {
                     let had_tun = inner.tun_lease.is_some();
                     inner.last_error.clear();
-                    observe_ios_tun_memory(had_tun, "stop-complete");
+                    observe_apple_tun_memory(had_tun, "stop-complete");
                     clear_instance_leases(&mut inner);
                     return Ok(());
                 }
@@ -1065,7 +1115,7 @@ impl CoreController {
                         .lifecycle
                         .transition(LifecycleState::Stopped)
                         .map_err(InvokeFailure::from);
-                    observe_ios_tun_memory(had_tun, "stop-complete");
+                    observe_apple_tun_memory(had_tun, "stop-complete");
                     clear_instance_leases(&mut inner);
                     return transitioned;
                 }
@@ -1162,7 +1212,7 @@ impl CoreController {
         let mut inner = lock(&self.inner);
         inner.lifecycle = Lifecycle::default();
         inner.engine = None;
-        observe_ios_tun_memory(had_tun, "panic-recovery");
+        observe_apple_tun_memory(had_tun, "panic-recovery");
         clear_instance_leases(&mut inner);
         Ok(())
     }
@@ -1171,20 +1221,20 @@ impl CoreController {
 fn clear_instance_leases(inner: &mut CoreInner) {
     // Prepared-only paths own the final allocator-relief handle here. Running
     // paths share it with the engine, whose completion performs relief first.
-    inner.ios_tun_allocator_relief = None;
+    inner.apple_tun_allocator_relief = None;
     inner.tun_lease = None;
 }
 
-fn observe_ios_tun_memory(has_tun: bool, stage: &'static str) {
-    #[cfg(target_os = "ios")]
+fn observe_apple_tun_memory(has_tun: bool, stage: &'static str) {
+    #[cfg(any(target_os = "ios", target_os = "tvos"))]
     if has_tun {
         crate::platform::process_memory::observe(stage);
     }
     let _ = (has_tun, stage);
 }
 
-fn relieve_ios_tun_allocator() {
-    #[cfg(target_os = "ios")]
+fn relieve_apple_tun_allocator() {
+    #[cfg(any(target_os = "ios", target_os = "tvos"))]
     crate::platform::process_memory::relieve_allocator_pressure();
 }
 
@@ -1229,18 +1279,30 @@ fn geodata_resource_data(state: GeoResourceState) -> Value {
     })
 }
 
-#[cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]
+#[cfg(any(
+    target_os = "android",
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "macos",
+    target_os = "linux"
+))]
 fn duplicate_start_tun(tun: Option<(i32, TunFraming)>) -> Result<Option<InvokeTun>, InvokeFailure> {
     tun.map(|(fd, framing)| TunFd::duplicate(fd).map(|fd| (fd, framing)))
         .transpose()
         .map_err(InvokeFailure::from)
 }
 
-#[cfg(not(any(target_os = "android", target_os = "ios", target_os = "macos")))]
+#[cfg(not(any(
+    target_os = "android",
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "macos",
+    target_os = "linux"
+)))]
 fn duplicate_start_tun(tun: Option<(i32, TunFraming)>) -> Result<Option<InvokeTun>, InvokeFailure> {
     if tun.is_some() {
         return Err(InvokeFailure::invalid_request(
-            "TUN fd is unsupported on this target; only iOS, macOS, and Android are supported",
+            "TUN fd is unsupported on this target",
         ));
     }
     Ok(None)
@@ -1291,7 +1353,17 @@ fn validate_platform_tun_framing(framing: TunFraming) -> Result<(), InvokeFailur
     Ok(())
 }
 
-#[cfg(any(target_os = "ios", target_os = "macos"))]
+#[cfg(target_os = "linux")]
+fn validate_platform_tun_framing(framing: TunFraming) -> Result<(), InvokeFailure> {
+    if framing != TunFraming::RawIp {
+        return Err(InvokeFailure::invalid_request(
+            "Linux TUN requires rawIp framing",
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(any(target_os = "ios", target_os = "tvos", target_os = "macos"))]
 fn validate_platform_tun_framing(framing: TunFraming) -> Result<(), InvokeFailure> {
     if framing != TunFraming::Utun {
         return Err(InvokeFailure::invalid_request(
@@ -1301,18 +1373,24 @@ fn validate_platform_tun_framing(framing: TunFraming) -> Result<(), InvokeFailur
     Ok(())
 }
 
-#[cfg(not(any(target_os = "android", target_os = "ios", target_os = "macos")))]
+#[cfg(not(any(
+    target_os = "android",
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "macos",
+    target_os = "linux"
+)))]
 fn validate_platform_tun_framing(framing: TunFraming) -> Result<(), InvokeFailure> {
     let _ = framing;
     Err(InvokeFailure::invalid_request(
-        "TUN fd is unsupported on this target; only iOS, macOS, and Android are supported",
+        "TUN fd is unsupported on this target",
     ))
 }
 
 struct EngineContext {
     instance_id: u64,
     has_tun: bool,
-    allocator_relief: Option<IosTunAllocatorRelief>,
+    allocator_relief: Option<AppleTunAllocatorRelief>,
 }
 
 fn run_engine(
@@ -1328,11 +1406,11 @@ fn run_engine(
         has_tun,
         allocator_relief,
     } = context;
-    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    #[cfg(any(target_os = "ios", target_os = "tvos", target_os = "macos"))]
     let _logging = crate::platform::apple_logging::enter();
     tracing::info!(instance_id, has_tun, "VCore runtime engine starting");
     let result = run_engine_inner(instance_id, has_tun, prepared, tun, dialer, stop, startup);
-    observe_ios_tun_memory(has_tun, "stop-complete");
+    observe_apple_tun_memory(has_tun, "stop-complete");
     if let Some(relief) = allocator_relief {
         relief.relieve();
     }
@@ -1358,11 +1436,7 @@ fn run_engine_inner(
     stop: oneshot::Receiver<()>,
     startup: SyncSender<Result<(), InvokeFailure>>,
 ) -> io::Result<()> {
-    let runtime = match tokio::runtime::Builder::new_current_thread()
-        .enable_io()
-        .enable_time()
-        .build()
-    {
+    let runtime = match engine_runtime_builder().enable_io().enable_time().build() {
         Ok(runtime) => runtime,
         Err(error) => {
             let message = error.to_string();
@@ -1371,7 +1445,13 @@ fn run_engine_inner(
         }
     };
     runtime.block_on(async move {
-        #[cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]
+        #[cfg(any(
+            target_os = "android",
+            target_os = "ios",
+            target_os = "tvos",
+            target_os = "macos",
+            target_os = "linux"
+        ))]
         let started = match tun {
             Some((duplicate, framing)) => {
                 tracing::info!(instance_id, ?framing, "VCore attaching TUN descriptor");
@@ -1380,7 +1460,13 @@ fn run_engine_inner(
             }
             None => prepared.start_local(dialer).await,
         };
-        #[cfg(not(any(target_os = "android", target_os = "ios", target_os = "macos")))]
+        #[cfg(not(any(
+            target_os = "android",
+            target_os = "ios",
+            target_os = "tvos",
+            target_os = "macos",
+            target_os = "linux"
+        )))]
         let started = {
             debug_assert!(tun.is_none());
             prepared.start_local(dialer).await
@@ -1405,9 +1491,9 @@ fn run_engine_inner(
 }
 
 async fn wait_for_engine_shutdown(stop: oneshot::Receiver<()>, has_tun: bool) -> io::Result<()> {
-    #[cfg(target_os = "ios")]
+    #[cfg(any(target_os = "ios", target_os = "tvos"))]
     let mut stop = stop;
-    #[cfg(target_os = "ios")]
+    #[cfg(any(target_os = "ios", target_os = "tvos"))]
     if has_tun {
         let interval = crate::platform::process_memory::TELEMETRY_INTERVAL;
         let first_tick = tokio::time::Instant::now() + interval;
@@ -1416,7 +1502,7 @@ async fn wait_for_engine_shutdown(stop: oneshot::Receiver<()>, has_tun: bool) ->
         loop {
             tokio::select! {
                 _ = &mut stop => return Ok(()),
-                _ = telemetry.tick() => observe_ios_tun_memory(true, "running"),
+                _ = telemetry.tick() => observe_apple_tun_memory(true, "running"),
             }
         }
     }
@@ -1471,12 +1557,18 @@ fn reset_failed_operation(
         }
         LifecycleState::Stopped => {}
     }
-    observe_ios_tun_memory(had_tun, telemetry_stage);
+    observe_apple_tun_memory(had_tun, telemetry_stage);
     clear_instance_leases(inner);
     Ok(())
 }
 
-#[cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]
+#[cfg(any(
+    target_os = "android",
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "macos",
+    target_os = "linux"
+))]
 fn vcore_to_io(error: VCoreError) -> io::Error {
     match error {
         VCoreError::Io(error) => error,
@@ -1549,7 +1641,13 @@ mod tests {
         sync::{Arc, Barrier, Mutex},
     };
 
-    #[cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]
+    #[cfg(any(
+        target_os = "android",
+        target_os = "ios",
+        target_os = "tvos",
+        target_os = "macos",
+        target_os = "linux"
+    ))]
     use std::os::{fd::AsRawFd, unix::net::UnixDatagram};
 
     use super::*;
@@ -1929,6 +2027,89 @@ rules:
     }
 
     #[test]
+    fn engine_workers_preserve_invoke_admission_and_shutdown() {
+        use crate::resources::observation::{self, ResourceKind, ResourceProbe};
+
+        let (sent, received) = std::sync::mpsc::channel();
+        let thread = thread::spawn(move || {
+            let result = catch_unwind(AssertUnwindSafe(|| {
+                let defaults = tokio::runtime::Builder::new_multi_thread().build().unwrap();
+                let default_workers = defaults.metrics().num_workers();
+                drop(defaults);
+
+                let _engine_admission = RuntimeThreadGuard::enter();
+                let runtime = engine_runtime_builder()
+                    .enable_io()
+                    .enable_time()
+                    .build()
+                    .unwrap();
+                assert_eq!(
+                    runtime.handle().runtime_flavor(),
+                    tokio::runtime::RuntimeFlavor::MultiThread,
+                );
+                assert_eq!(runtime.metrics().num_workers(), default_workers);
+                let rejected = || {
+                    assert!(is_runtime_thread());
+                    let response: Value = serde_json::from_slice(&invoke_bytes(
+                        br#"{"apiVersion":5,"method":"version","payload":{}}"#,
+                    ))
+                    .unwrap();
+                    assert_failure(&response);
+                    assert!(
+                        response["error"]
+                            .as_str()
+                            .unwrap()
+                            .contains("runtime thread")
+                    );
+                };
+                let probe = ResourceProbe::default();
+                // Keep the handle outside block_on so Runtime::drop, rather
+                // than awaiting the deliberately pending task, proves shutdown.
+                #[allow(clippy::async_yields_async)]
+                let pending = probe.scope_sync(|| {
+                    runtime.block_on(async {
+                        rejected();
+                        let asynchronous = tokio::spawn(async move { rejected() });
+                        let blocking = tokio::task::spawn_blocking(rejected);
+                        tokio::time::timeout(Duration::from_secs(1), async {
+                            asynchronous.await.unwrap();
+                            blocking.await.unwrap();
+                        })
+                        .await
+                        .unwrap();
+                        let (started, ready) = oneshot::channel();
+                        let pending = observation::spawn(async move {
+                            let _session = observation::track(ResourceKind::Session);
+                            let _ = started.send(());
+                            std::future::pending::<()>().await;
+                        });
+                        tokio::time::timeout(Duration::from_secs(1), ready)
+                            .await
+                            .unwrap()
+                            .unwrap();
+                        pending
+                    })
+                });
+                assert_eq!(probe.snapshot().current(ResourceKind::Task), 1);
+                assert_eq!(probe.snapshot().current(ResourceKind::Session), 1);
+                drop(runtime);
+                assert!(pending.is_finished());
+                drop(pending);
+                assert!(probe.snapshot().is_idle());
+                assert!(is_runtime_thread(), "worker exit cleared the engine marker");
+            }));
+            let _ = sent.send(result);
+        });
+        let result = received
+            .recv_timeout(Duration::from_secs(3))
+            .expect("runtime admission/shutdown regression exceeded three seconds");
+        thread.join().unwrap();
+        if let Err(panic) = result {
+            std::panic::resume_unwind(panic);
+        }
+    }
+
+    #[test]
     fn null_invalid_utf8_and_oversized_input_return_json_failures() {
         let _guard = TEST_LOCK.lock().unwrap();
         reset_registry();
@@ -1983,7 +2164,11 @@ rules:
         let presence = start_field_presence(&null_value).unwrap();
         assert!(validate_start_tun(false, null, presence).is_err());
 
-        let tun_framing = if cfg!(any(target_os = "ios", target_os = "macos")) {
+        let tun_framing = if cfg!(any(
+            target_os = "ios",
+            target_os = "tvos",
+            target_os = "macos"
+        )) {
             "utun"
         } else {
             "rawIp"
@@ -1991,24 +2176,46 @@ rules:
         let tun_value = json!({"tunFd": 7, "tunFraming": tun_framing});
         let tun: StartPayload = decode_payload(tun_value.clone()).unwrap();
         let presence = start_field_presence(&tun_value).unwrap();
-        #[cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]
+        #[cfg(any(
+            target_os = "android",
+            target_os = "ios",
+            target_os = "tvos",
+            target_os = "macos",
+            target_os = "linux"
+        ))]
         assert_eq!(
             validate_start_tun(true, tun, presence).unwrap(),
             Some((
                 7,
-                if cfg!(any(target_os = "ios", target_os = "macos")) {
+                if cfg!(any(
+                    target_os = "ios",
+                    target_os = "tvos",
+                    target_os = "macos"
+                )) {
                     TunFraming::Utun
                 } else {
                     TunFraming::RawIp
                 }
             ))
         );
-        #[cfg(not(any(target_os = "android", target_os = "ios", target_os = "macos")))]
+        #[cfg(not(any(
+            target_os = "android",
+            target_os = "ios",
+            target_os = "tvos",
+            target_os = "macos",
+            target_os = "linux"
+        )))]
         assert!(validate_start_tun(true, tun, presence).is_err());
 
-        #[cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]
+        #[cfg(any(
+            target_os = "android",
+            target_os = "ios",
+            target_os = "tvos",
+            target_os = "macos",
+            target_os = "linux"
+        ))]
         {
-            let wrong_framing = if cfg!(target_os = "android") {
+            let wrong_framing = if cfg!(any(target_os = "android", target_os = "linux")) {
                 "utun"
             } else {
                 "rawIp"
@@ -2233,7 +2440,7 @@ rules:
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn linux_runtime_start_fails_closed() {
+    fn linux_tun_start_rejects_non_tun_fd_and_preserves_prepared_state() {
         let _guard = TEST_LOCK.lock().unwrap();
         reset_registry();
         let _directory = initialize_test_data_directory();
@@ -2241,29 +2448,56 @@ rules:
         let prepared = request(
             "prepare",
             Some(&instance_id),
-            json!({"configYaml": http_config(free_ports(1)[0])}),
+            json!({"configYaml": tun_config()}),
         );
         assert_eq!(prepared["success"], true, "{prepared}");
 
-        let started = request("start", Some(&instance_id), json!({}));
-        assert_failure(&started);
-        assert!(
-            started["error"]
-                .as_str()
-                .unwrap()
-                .contains("unsupported on Linux")
-        );
-        assert_eq!(state(&instance_id)["data"]["state"], "prepared");
+        let (original, peer) = UnixDatagram::pair().unwrap();
+        original.set_nonblocking(true).unwrap();
+        // SAFETY: original stays open throughout the failed starts and Stop.
+        let before = unsafe { libc::fcntl(original.as_raw_fd(), libc::F_GETFL) };
+        for framing in ["utun", "rawIp", "rawIp"] {
+            let started = request(
+                "start",
+                Some(&instance_id),
+                json!({"tunFd": original.as_raw_fd(), "tunFraming": framing}),
+            );
+            assert_failure(&started);
+            let error = started["error"].as_str().unwrap();
+            assert!(
+                error.contains(if framing == "utun" {
+                    "Linux TUN requires rawIp"
+                } else {
+                    "Linux TUNGETIFF"
+                }),
+                "{started}"
+            );
+            assert_eq!(state(&instance_id)["data"]["state"], "prepared");
+        }
 
         assert_eq!(
             request("stop", Some(&instance_id), json!({}))["success"],
             true
         );
         destroy_instance(&instance_id);
+        // SAFETY: VCore never owns or changes the borrowed host descriptor.
+        assert_eq!(
+            unsafe { libc::fcntl(original.as_raw_fd(), libc::F_GETFL) },
+            before
+        );
+        original.send(b"ok").unwrap();
+        let mut bytes = [0; 2];
+        assert_eq!(peer.recv(&mut bytes).unwrap(), 2);
+        assert_eq!(&bytes, b"ok");
         assert_registry_is_idle();
     }
 
-    #[cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]
+    #[cfg(any(
+        target_os = "android",
+        target_os = "ios",
+        target_os = "tvos",
+        target_os = "macos"
+    ))]
     #[test]
     fn prepare_start_stop_is_instance_scoped_and_borrows_tun_fd() {
         let _guard = TEST_LOCK.lock().unwrap();
@@ -2295,7 +2529,11 @@ rules:
 
         let (original, peer) = UnixDatagram::pair().unwrap();
         original.set_nonblocking(true).unwrap();
-        let tun_framing = if cfg!(any(target_os = "ios", target_os = "macos")) {
+        let tun_framing = if cfg!(any(
+            target_os = "ios",
+            target_os = "tvos",
+            target_os = "macos"
+        )) {
             "utun"
         } else {
             "rawIp"

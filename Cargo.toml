@@ -23,11 +23,6 @@ name = "vcore-windows-session-host"
 path = "src/bin/windows_session_host.rs"
 required-features = ["ffi"]
 
-[[example]]
-name = "protocol-stream-probe"
-path = "tests/protocols/stream_probe.rs"
-required-features = ["interop-test", "stream-transport"]
-
 [features]
 default = [
     "inbound-http",
@@ -59,7 +54,9 @@ quic-transport = ["dep:quinn"]
 # Enables local interoperability-only trust-root injection. Release build
 # scripts must not enable this feature.
 interop-test = ["outbound-anytls", "outbound-vless"]
-ffi = ["tun", "dep:windows", "dep:windows-collections", "dep:windows-core"]
+# Allows plaintext GeoData fixtures for isolated benchmarks, never production.
+benchmark-geodata-http = []
+ffi = ["tun", "tokio/rt-multi-thread", "dep:windows", "dep:windows-collections", "dep:windows-core"]
 tun = [
     "dep:rust-tun",
     "dep:vcore-netstack",
@@ -105,7 +102,8 @@ quinn = { version = "=0.11.12", default-features = false, features = ["runtime-t
 quinn-proto = { version = "=0.11.18", default-features = false, features = ["rustls-ring"], optional = true }
 rand = "0.10"
 ring = { version = "0.17.14", optional = true }
-regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "dfa-search", "syntax", "unicode"] }
+regex = "1.13"
+regex-syntax = { version = "0.8", default-features = false, features = ["std", "unicode-case"] }
 rustls = { version = "=0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -129,7 +127,7 @@ webpki-roots = "1"
 yamux = { version = "=0.14.1", optional = true }
 zeroize = { version = "=1.9.0", optional = true }
 
-[target.'cfg(any(target_os = "ios", target_os = "macos"))'.dependencies]
+[target.'cfg(any(target_os = "ios", target_os = "tvos", target_os = "macos"))'.dependencies]
 oslog = { version = "0.2", default-features = false }
 
 [target.'cfg(unix)'.dependencies]
@@ -180,7 +178,7 @@ tempfile = "3"
 [profile.release]
 codegen-units = 1
 lto = "thin"
-opt-level = "z"
+opt-level = 3
 panic = "unwind"
 strip = "symbols"
 

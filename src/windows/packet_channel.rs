@@ -42,7 +42,7 @@ const MAX_CONTROL_BYTES: usize = 16 * 1024;
 const MAX_RENDEZVOUS_BYTES: usize = 4 * 1024;
 const MAX_ERROR_BYTES: usize = 4 * 1024;
 const MAX_PACKET_BYTES: usize = 1_500;
-pub(crate) const MAX_PACKET_BATCH_PACKETS: usize = 8;
+pub(crate) const MAX_PACKET_BATCH_PACKETS: usize = crate::platform::TUN_PACKET_BATCH_SIZE;
 pub(crate) const DATA_PIPE_READ_BUFFER_BYTES: usize = 64 * 1024;
 const MAX_PACKET_BATCH_BYTES: usize = MAX_PACKET_BATCH_PACKETS * (MAX_PACKET_BYTES + 2);
 const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
@@ -387,6 +387,9 @@ async fn run_provider_session(
                 .read_packet_batch(&mut packets, MAX_PACKET_BATCH_PACKETS)
                 .await
                 .map_err(io::Error::other)?;
+            if packets.is_empty() {
+                continue;
+            }
             write_packet_batch_async(&mut data_write, &packets, &mut frame_buffer).await?;
         }
     });

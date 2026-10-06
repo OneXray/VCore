@@ -20,7 +20,8 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 use vcore_netstack::{
     NetStack, NetStackConfig, NetStackError, NetStackStats, Packet, PacketSink, PacketStream,
-    TcpListener, TcpStream, UdpDatagram, UdpSocket,
+    TcpListener, TcpStream, UdpDatagram, UdpPacketView, encode_udp_packet_into,
+    parse_udp_packet_view,
 };
 
 use crate::{
@@ -31,7 +32,7 @@ use crate::{
         classify_query,
         runtime::{DnsQueryPermit, RuntimeDns},
     },
-    platform::TunIo,
+    platform::{TUN_PACKET_BATCH_SIZE, TunIo},
     quic_sniffer::{
         QuicConnectionKey, QuicSniffOutcome, QuicSniffer, quic_connection_key,
         quic_has_unsupported_version,
@@ -49,7 +50,6 @@ use crate::dns::{ClassifiedDnsQuery, synthesize_servfail_response};
 
 const TUN_MTU: usize = 1_500;
 const TCP_RELAY_BUFFER: usize = 4 * 1024;
-const UDP_ASSOCIATION_QUEUE_MAX: usize = 16;
 const QUIC_SNIFF_FLOW_MAX: usize = 4;
 const QUIC_SNIFF_PENDING_DATAGRAM_MAX: usize = 8;
 const QUIC_SNIFF_PENDING_BYTES_MAX: usize = 32 * 1024;
@@ -70,24 +70,11 @@ fn effective_tun_mtu(limits: ResourceLimits) -> usize {
     TUN_MTU.min(limits.tun_max_datagram_size)
 }
 
-fn tun_udp_ingress_queue_capacity(limits: ResourceLimits, dns_enabled: bool) -> usize {
-    if dns_enabled {
-        limits.tun_dns_ingress_queue_capacity
-    } else {
-        limits.event_queue_capacity
-    }
-}
-
-fn tun_netstack_config(
-    limits: ResourceLimits,
-    dns_enabled: bool,
-    fake_icmp_echo: bool,
-) -> NetStackConfig {
+fn tun_netstack_config(limits: ResourceLimits, fake_icmp_echo: bool) -> NetStackConfig {
     NetStackConfig {
         mtu: effective_tun_mtu(limits),
         packet_queue: limits.packet_queue_capacity,
         tcp_accept_queue: limits.event_queue_capacity,
-        udp_queue: tun_udp_ingress_queue_capacity(limits, dns_enabled),
         tcp_buffer_per_direction: limits.tcp_buffer_per_direction,
         fake_icmp_echo,
         ..NetStackConfig::default()
@@ -161,25 +148,34 @@ impl TunRuntime {
     }
 
     pub(crate) async fn run(self, cancellation: CancellationToken) -> io::Result<()> {
-        let config = tun_netstack_config(self.limits, self.dns.is_some(), self.fake_icmp_echo);
+        let config = tun_netstack_config(self.limits, self.fake_icmp_echo);
         let resource_stats = RuntimeResourceStats::new("tun_runtime");
         tracing::info!(
             mtu = config.mtu,
             packet_queue = self.limits.packet_queue_capacity,
             event_queue = self.limits.event_queue_capacity,
-            udp_ingress_queue = config.udp_queue,
+            tun_udp_association_queue_capacity = self.limits.tun_udp_association_queue_capacity,
+            tun_udp_response_queue_capacity = self.limits.tun_udp_response_queue_capacity,
             dns_hijack = self.dns.is_some(),
             ipv6 = self.ipv6,
             fake_icmp_echo = self.fake_icmp_echo,
             domain_sniffing = self.sniffer.is_some(),
             "TUN runtime starting"
         );
-        let parts = NetStack::start(config)
-            .map_err(netstack_to_io)?
-            .into_parts();
+        let parts = NetStack::start_tcp(config).map_err(netstack_to_io)?;
         let control = parts.control.clone();
         let netstack_stats = parts.stats.clone();
         let mut tasks = JoinSet::new();
+        let (udp, responses, dns_responses) = UdpIngress::new(
+            UdpIngressContext {
+                dispatcher: self.dispatcher.clone(),
+                dns: self.dns,
+                sniffer: self.sniffer.clone(),
+                limits: self.limits,
+                resource_stats: resource_stats.clone(),
+            },
+            cancellation.clone(),
+        );
 
         tasks.spawn(observation::task(netstack_stats_loop(
             netstack_stats.clone(),
@@ -194,14 +190,16 @@ impl TunRuntime {
             self.tun.clone(),
             parts.packet_sink,
             self.ipv6,
-            self.limits.packet_queue_capacity,
-            resource_stats.clone(),
+            udp,
             self.traffic_stats.clone(),
             cancellation.clone(),
         )));
         tasks.spawn(observation::task(tun_write_loop(
             self.tun,
             parts.packet_stream,
+            responses,
+            dns_responses,
+            effective_tun_mtu(self.limits),
             self.traffic_stats,
             cancellation.clone(),
         )));
@@ -210,15 +208,6 @@ impl TunRuntime {
             parts.tcp_listener,
             self.dispatcher.clone(),
             sniffer.clone(),
-            resource_stats.clone(),
-            cancellation.clone(),
-        )));
-        tasks.spawn(observation::task(udp_loop(
-            parts.udp_socket,
-            self.dispatcher,
-            self.dns,
-            sniffer,
-            self.limits,
             resource_stats.clone(),
             cancellation.clone(),
         )));
@@ -311,46 +300,127 @@ async fn tun_read_loop(
     tun: Arc<TunIo>,
     packet_sink: PacketSink,
     ipv6: bool,
-    packet_queue_limit: usize,
-    resource_stats: RuntimeResourceStats,
+    mut udp: UdpIngress,
     traffic_stats: Arc<TunTrafficStats>,
     cancellation: CancellationToken,
 ) -> io::Result<()> {
-    let mut packet = Vec::with_capacity(TUN_MTU);
+    let result = tun_read_inner(
+        tun,
+        packet_sink,
+        ipv6,
+        &mut udp,
+        traffic_stats,
+        cancellation,
+    )
+    .await;
+    // The reader owns all associations and DNS queries. EOF, error and
+    // cancellation all join them without cancelling the caller's token.
+    udp.stop().await;
+    result
+}
+
+async fn tun_read_inner(
+    tun: Arc<TunIo>,
+    packet_sink: PacketSink,
+    ipv6: bool,
+    udp: &mut UdpIngress,
+    traffic_stats: Arc<TunTrafficStats>,
+    cancellation: CancellationToken,
+) -> io::Result<()> {
+    let mtu = effective_tun_mtu(udp.context.limits);
+    let mut packets: [Vec<u8>; TUN_PACKET_BATCH_SIZE] =
+        std::array::from_fn(|_| Vec::with_capacity(TUN_MTU));
+    let mut outcomes = Vec::with_capacity(TUN_PACKET_BATCH_SIZE);
+    let mut cleanup = interval_at(
+        TokioInstant::now() + UDP_CLEANUP_INTERVAL,
+        UDP_CLEANUP_INTERVAL,
+    );
+    cleanup.set_missed_tick_behavior(MissedTickBehavior::Skip);
     let mut first_read_logged = false;
     let mut first_ingress_logged = false;
     loop {
-        tokio::select! {
+        let result = tokio::select! {
             biased;
-            () = cancellation.cancelled() => return Ok(()),
-            result = tun.read_packet(&mut packet) => {
-                match result {
-                    Ok(_) => {}
-                    Err(VCoreError::InvalidPacket(reason)) => {
-                        tracing::debug!(%reason, "dropping invalid packet read from TUN");
-                        continue;
-                    }
-                    Err(error) => return Err(vcore_to_io(error)),
-                }
+            () = cancellation.cancelled() => None,
+            _ = cleanup.tick() => {
+                udp.cleanup();
+                continue;
             }
+            joined = udp.tasks.join_next(), if !udp.tasks.is_empty() => {
+                udp.complete_association(joined);
+                continue;
+            }
+            joined = udp.dns_tasks.join_next(), if !udp.dns_tasks.is_empty() => {
+                if let Some(Err(error)) = joined {
+                    tracing::warn!(
+                        cancelled = error.is_cancelled(),
+                        panicked = error.is_panic(),
+                        "TUN DNS query task failed"
+                    );
+                }
+                continue;
+            }
+            result = tun.read_packets(&mut packets, &mut outcomes) => Some(result),
+        };
+        // Progress is outside the cancellable future: account for every valid
+        // consumed packet, even an EOF/cancelled batch's completed prefix.
+        let up_bytes = packets
+            .iter()
+            .zip(&outcomes)
+            .fold(0usize, |bytes, (packet, outcome)| {
+                if outcome.is_ok() {
+                    bytes.saturating_add(packet.len())
+                } else {
+                    bytes
+                }
+            });
+        if up_bytes != 0 {
+            traffic_stats.record_up(up_bytes);
         }
-        traffic_stats.record_up(packet.len());
-        if !first_read_logged {
-            tracing::info!(
-                packet_bytes = packet.len(),
-                ip_version = packet_ip_version(&packet),
-                "TUN received first packet"
-            );
-            first_read_logged = true;
-        }
-        if !tun_ingress_allowed(ipv6, &packet) {
-            continue;
-        }
-        let raw = Packet::new(Bytes::copy_from_slice(&packet));
-        tokio::select! {
-            biased;
-            () = cancellation.cancelled() => return Ok(()),
-            result = packet_sink.send(raw) => match result {
+        let Some(result) = result else {
+            return Ok(());
+        };
+        let processed = outcomes.len();
+        for (packet, outcome) in packets.iter().zip(outcomes.drain(..)) {
+            match outcome {
+                Ok(_) => {}
+                Err(VCoreError::InvalidPacket(reason)) => {
+                    tracing::debug!(%reason, "dropping invalid packet read from TUN");
+                    continue;
+                }
+                Err(error) => return Err(vcore_to_io(error)),
+            }
+            if cancellation.is_cancelled() {
+                return Ok(());
+            }
+            if !first_read_logged {
+                tracing::info!(
+                    packet_bytes = packet.len(),
+                    ip_version = packet_ip_version(packet),
+                    "TUN received first packet"
+                );
+                first_read_logged = true;
+            }
+            if !tun_ingress_allowed(ipv6, packet) {
+                continue;
+            }
+            // UDP bypasses PacketSink, so retain the same effective MTU check
+            // before creating an association or admitting a DNS query.
+            if packet.len() > mtu {
+                tracing::debug!(
+                    packet_bytes = packet.len(),
+                    mtu,
+                    "dropping TUN packet exceeding effective MTU"
+                );
+                continue;
+            }
+            if let Some(datagram) = parse_udp_packet_view(packet) {
+                udp.offer(datagram);
+                continue;
+            }
+            // A full TCP/ICMP handoff drops this complete IP packet. Awaiting
+            // capacity here would also stall unrelated UDP and DNS ingress.
+            match packet_sink.try_send(Packet::new(Bytes::copy_from_slice(packet))) {
                 Ok(()) => {
                     if !first_ingress_logged {
                         tracing::info!("netstack accepted first TUN packet");
@@ -358,48 +428,189 @@ async fn tun_read_loop(
                     }
                 }
                 Err(NetStackError::Stopped) => return Ok(()),
-                Err(error @ (NetStackError::EmptyPacket
+                Err(
+                    error @ (NetStackError::EmptyPacket
                     | NetStackError::InvalidIpVersion
                     | NetStackError::MtuExceeded { .. }
-                    | NetStackError::Backpressure)) => {
+                    | NetStackError::Backpressure),
+                ) => {
                     if matches!(error, NetStackError::Backpressure) {
-                        resource_stats.queue_drop(ResourceQueue::Packet, packet_queue_limit);
+                        udp.context.resource_stats.queue_drop(
+                            ResourceQueue::Packet,
+                            udp.context.limits.packet_queue_capacity,
+                        );
                     }
-                    tracing::debug!(error_code = ?error, "dropping packet rejected by netstack ingress");
+                    tracing::debug!(
+                        error_code = ?error, "dropping packet rejected by netstack ingress"
+                    );
                 }
                 Err(error) => return Err(netstack_to_io(error)),
-            },
+            }
+        }
+        result.map_err(vcore_to_io)?;
+        // try_send / borrowed UDP classification have no channel await. Charge
+        // actual packets, including locally dropped ones, after each <=8 batch.
+        for _ in 0..processed {
+            tokio::task::consume_budget().await;
         }
     }
 }
 
+enum TunOutput {
+    Raw(Packet),
+    Udp(QueuedUdpResponse),
+}
+
+/// One bounded scheduling owner, not another packet queue. The cursor persists
+/// across batches and closed lanes never prevent the remaining lanes draining.
+struct TunOutputMux {
+    raw: PacketStream,
+    ordinary: mpsc::Receiver<QueuedUdpResponse>,
+    dns: mpsc::Receiver<QueuedUdpResponse>,
+    open: [bool; 3],
+    next_lane: usize,
+}
+
+impl TunOutputMux {
+    fn new(
+        raw: PacketStream,
+        ordinary: mpsc::Receiver<QueuedUdpResponse>,
+        dns: mpsc::Receiver<QueuedUdpResponse>,
+    ) -> Self {
+        Self {
+            raw,
+            ordinary,
+            dns,
+            open: [true; 3],
+            next_lane: 0,
+        }
+    }
+
+    fn try_next(&mut self) -> Option<TunOutput> {
+        for offset in 0..3 {
+            let lane = (self.next_lane + offset) % 3;
+            if !self.open[lane] {
+                continue;
+            }
+            let result = match lane {
+                0 => self.raw.try_recv().map(TunOutput::Raw),
+                1 => self.ordinary.try_recv().map(TunOutput::Udp),
+                _ => self.dns.try_recv().map(TunOutput::Udp),
+            };
+            match result {
+                Ok(output) => {
+                    self.next_lane = (lane + 1) % 3;
+                    return Some(output);
+                }
+                Err(mpsc::error::TryRecvError::Disconnected) => self.open[lane] = false,
+                Err(mpsc::error::TryRecvError::Empty) => {}
+            }
+        }
+        None
+    }
+
+    async fn recv(&mut self) -> Option<TunOutput> {
+        loop {
+            if let Some(output) = self.try_next() {
+                return Some(output);
+            }
+            if !self.open.iter().any(|open| *open) {
+                return None;
+            }
+            let (lane, output) = tokio::select! {
+                packet = self.raw.recv(), if self.open[0] => (0, packet.map(TunOutput::Raw)),
+                response = self.ordinary.recv(), if self.open[1] => (1, response.map(TunOutput::Udp)),
+                response = self.dns.recv(), if self.open[2] => (2, response.map(TunOutput::Udp)),
+            };
+            if let Some(output) = output {
+                self.next_lane = (lane + 1) % 3;
+                return Some(output);
+            }
+            self.open[lane] = false;
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 async fn tun_write_loop(
     tun: Arc<TunIo>,
-    mut packet_stream: PacketStream,
+    packet_stream: PacketStream,
+    responses: mpsc::Receiver<QueuedUdpResponse>,
+    dns_responses: mpsc::Receiver<QueuedUdpResponse>,
+    mtu: usize,
     traffic_stats: Arc<TunTrafficStats>,
     cancellation: CancellationToken,
 ) -> io::Result<()> {
+    let mut mux = TunOutputMux::new(packet_stream, responses, dns_responses);
     let mut first_write_logged = false;
+    let mut frames: [Vec<u8>; TUN_PACKET_BATCH_SIZE] =
+        std::array::from_fn(|_| Vec::with_capacity(mtu));
+    let mut raw: [Option<Packet>; TUN_PACKET_BATCH_SIZE] = std::array::from_fn(|_| None);
+    let mut permits: [Option<DnsQueryPermit>; TUN_PACKET_BATCH_SIZE] =
+        std::array::from_fn(|_| None);
+    let mut outcomes = Vec::with_capacity(TUN_PACKET_BATCH_SIZE);
     loop {
-        let packet = tokio::select! {
+        let first = tokio::select! {
             biased;
             () = cancellation.cancelled() => return Ok(()),
-            packet = packet_stream.recv() => packet,
+            output = mux.recv() => output,
         };
-        let Some(packet) = packet else {
+        let Some(first) = first else {
             return Ok(());
         };
-        tokio::select! {
-            biased;
-            () = cancellation.cancelled() => return Ok(()),
-            result = tun.write_packet(packet.data()) => {
-                match result {
+        let mut first = Some(first);
+        let mut count = 0;
+        let mut processed = 0;
+        // Invalid UDP output also consumes work budget. A malformed producer
+        // cannot keep us in an unlimited ready-drain loop.
+        for _ in 0..TUN_PACKET_BATCH_SIZE {
+            if cancellation.is_cancelled() {
+                return Ok(());
+            }
+            let Some(output) = first.take().or_else(|| mux.try_next()) else {
+                break;
+            };
+            processed += 1;
+            match output {
+                TunOutput::Raw(packet) => raw[count] = Some(packet),
+                TunOutput::Udp(QueuedUdpResponse {
+                    datagram,
+                    dns_permit,
+                }) => {
+                    if let Err(error) = encode_udp_packet_into(&datagram, mtu, &mut frames[count]) {
+                        tracing::debug!(
+                            error_code = ?error, "dropping UDP response that cannot be emitted to TUN"
+                        );
+                        continue;
+                    }
+                    permits[count] = dns_permit;
+                }
+            }
+            count += 1;
+        }
+        if count != 0 {
+            let slices: [&[u8]; TUN_PACKET_BATCH_SIZE] = std::array::from_fn(|index| {
+                raw[index]
+                    .as_ref()
+                    .map_or(frames[index].as_slice(), Packet::data)
+            });
+            let result = tokio::select! {
+                biased;
+                () = cancellation.cancelled() => None,
+                result = tun.write_packets(&slices[..count], &mut outcomes) => Some(result),
+            };
+            // Platform completion is the ownership boundary for each DNS
+            // permit. Unaccepted suffixes stay owned until error/cancel/drop.
+            let mut down_bytes = 0usize;
+            for (index, outcome) in outcomes.drain(..).enumerate() {
+                permits[index].take();
+                match outcome {
                     Ok(_) => {
-                        traffic_stats.record_down(packet.data().len());
+                        down_bytes = down_bytes.saturating_add(slices[index].len());
                         if !first_write_logged {
                             tracing::info!(
-                                packet_bytes = packet.data().len(),
-                                ip_version = packet_ip_version(packet.data()),
+                                packet_bytes = slices[index].len(),
+                                ip_version = packet_ip_version(slices[index]),
                                 "TUN emitted first packet"
                             );
                             first_write_logged = true;
@@ -408,9 +619,26 @@ async fn tun_write_loop(
                     Err(VCoreError::InvalidPacket(reason)) => {
                         tracing::debug!(%reason, "dropping invalid packet emitted by netstack");
                     }
-                    Err(error) => return Err(vcore_to_io(error)),
+                    Err(error) => {
+                        traffic_stats.record_down(down_bytes);
+                        return Err(vcore_to_io(error));
+                    }
                 }
             }
+            if down_bytes != 0 {
+                traffic_stats.record_down(down_bytes);
+            }
+            let Some(result) = result else {
+                return Ok(());
+            };
+            result.map_err(vcore_to_io)?;
+        }
+        for index in 0..count {
+            raw[index] = None;
+            permits[index] = None;
+        }
+        for _ in 0..processed {
+            tokio::task::consume_budget().await;
         }
     }
 }
@@ -736,203 +964,214 @@ enum AssociationInputResult {
 
 fn try_queue_association_input(
     association: &UdpAssociation,
-    datagram: UdpDatagram,
+    datagram: UdpPacketView<'_>,
     now: u64,
     association_queue: usize,
     resource_stats: &RuntimeResourceStats,
 ) -> AssociationInputResult {
-    match association.sender.try_send(datagram) {
-        Ok(()) => {
+    match association.sender.try_reserve() {
+        Ok(permit) => {
+            permit.send(UdpDatagram::new(
+                datagram.source,
+                datagram.destination,
+                Bytes::copy_from_slice(datagram.payload),
+            ));
             association.touch(now);
             AssociationInputResult::Queued
         }
-        Err(mpsc::error::TrySendError::Full(_)) => {
-            resource_stats.queue_drop(ResourceQueue::Udp, association_queue);
+        Err(mpsc::error::TrySendError::Full(())) => {
+            resource_stats.queue_drop(ResourceQueue::UdpAssociation, association_queue);
             AssociationInputResult::Full
         }
-        Err(mpsc::error::TrySendError::Closed(_)) => AssociationInputResult::Closed,
+        Err(mpsc::error::TrySendError::Closed(())) => AssociationInputResult::Closed,
     }
 }
 
-async fn udp_loop(
-    mut socket: UdpSocket,
+struct UdpIngressContext {
     dispatcher: Arc<dyn Dispatcher>,
     dns: Option<Arc<RuntimeDns>>,
     sniffer: Option<Arc<SnifferConfig>>,
     limits: ResourceLimits,
     resource_stats: RuntimeResourceStats,
-    cancellation: CancellationToken,
-) -> io::Result<()> {
-    let tun_mtu = effective_tun_mtu(limits);
-    let association_queue = limits
-        .event_queue_capacity
-        .clamp(1, UDP_ASSOCIATION_QUEUE_MAX);
-    let (responses_tx, mut responses_rx) = mpsc::channel(limits.event_queue_capacity);
-    let (dns_responses_tx, mut dns_responses_rx) =
-        mpsc::channel(limits.tun_dns_response_queue_capacity);
-    let mut associations: HashMap<SocketAddr, UdpAssociation> = HashMap::new();
-    let mut tasks: JoinSet<(SocketAddr, u64, io::Result<()>)> = JoinSet::new();
-    let mut dns_tasks: JoinSet<()> = JoinSet::new();
-    let association_clock = AssociationClock::realtime();
-    let mut cleanup = interval_at(
-        TokioInstant::now() + UDP_CLEANUP_INTERVAL,
-        UDP_CLEANUP_INTERVAL,
-    );
+}
 
-    loop {
-        tokio::select! {
-            () = cancellation.cancelled() => break,
-            _ = cleanup.tick() => {
-                let removed =
-                    take_expired_or_closed_associations(&mut associations, association_clock.now());
-                cancel_removed_associations(removed);
+type UdpAssociationCompletion = (SocketAddr, u64, io::Result<()>);
+
+/// Owned by the TUN reader; there is no all-source UDP handoff.
+struct UdpIngress {
+    context: UdpIngressContext,
+    associations: HashMap<SocketAddr, UdpAssociation>,
+    tasks: JoinSet<UdpAssociationCompletion>,
+    dns_tasks: JoinSet<()>,
+    responses: mpsc::Sender<QueuedUdpResponse>,
+    dns_responses: mpsc::Sender<QueuedUdpResponse>,
+    cancellation: CancellationToken,
+    association_clock: AssociationClock,
+}
+
+impl UdpIngress {
+    fn new(
+        context: UdpIngressContext,
+        cancellation: CancellationToken,
+    ) -> (
+        Self,
+        mpsc::Receiver<QueuedUdpResponse>,
+        mpsc::Receiver<QueuedUdpResponse>,
+    ) {
+        let (responses, response_rx) =
+            mpsc::channel(context.limits.tun_udp_response_queue_capacity);
+        let (dns_responses, dns_rx) = mpsc::channel(context.limits.tun_dns_response_queue_capacity);
+        (
+            Self {
+                context,
+                associations: HashMap::new(),
+                tasks: JoinSet::new(),
+                dns_tasks: JoinSet::new(),
+                responses,
+                dns_responses,
+                cancellation: cancellation.child_token(),
+                association_clock: AssociationClock::realtime(),
+            },
+            response_rx,
+            dns_rx,
+        )
+    }
+
+    fn offer(&mut self, datagram: UdpPacketView<'_>) {
+        if self.cancellation.is_cancelled() {
+            return;
+        }
+        if datagram.destination.port() == 53
+            && let Some(dns) = &self.context.dns
+        {
+            if let Err(error) = classify_query(datagram.payload) {
+                tracing::debug!(%error, "dropping invalid TUN DNS datagram");
+                return;
             }
-            joined = tasks.join_next(), if !tasks.is_empty() => {
-                match joined {
-                    Some(Ok((source, association_id, result))) => {
-                        remove_completed_association(&mut associations, source, association_id);
-                        match result {
-                            Ok(()) => tracing::debug!(association_id, "TUN UDP association closed"),
-                            Err(error) => tracing::warn!(
-                                association_id,
-                                error_kind = ?error.kind(),
-                                "TUN UDP association failed"
-                            ),
-                        }
-                    }
-                    Some(Err(error)) => {
-                        tracing::warn!(
-                            cancelled = error.is_cancelled(),
-                            panicked = error.is_panic(),
-                            "TUN UDP association task failed"
-                        );
-                    }
-                    None => {}
-                }
-            }
-            joined = dns_tasks.join_next(), if !dns_tasks.is_empty() => {
-                match joined {
-                    Some(Ok(())) | None => {}
-                    Some(Err(error)) => {
-                        tracing::warn!(
-                            cancelled = error.is_cancelled(),
-                            panicked = error.is_panic(),
-                            "TUN DNS query task failed"
-                        );
-                    }
-                }
-            }
-            response = responses_rx.recv() => {
-                let Some(response) = response else { break; };
-                if !emit_udp_response(&socket, response).await {
-                    break;
-                }
-            }
-            response = dns_responses_rx.recv() => {
-                let Some(response) = response else { break; };
-                if !emit_udp_response(&socket, response).await {
-                    break;
-                }
-            }
-            datagram = socket.recv() => {
-                let Some(datagram) = datagram else { break; };
-                if datagram.destination.port() == 53
-                    && let Some(dns) = &dns
+            let permit = dns.begin_query();
+            let request = UdpDatagram::new(
+                datagram.source,
+                datagram.destination,
+                Bytes::copy_from_slice(datagram.payload),
+            );
+            self.dns_tasks.spawn(observation::task(run_tun_dns_query(
+                dns.clone(),
+                permit,
+                request,
+                self.dns_responses.clone(),
+                effective_tun_mtu(self.context.limits),
+                self.context.resource_stats.clone(),
+                self.cancellation.clone(),
+            )));
+            return;
+        }
+        let source = datagram.source;
+        if let Entry::Vacant(entry) = self.associations.entry(source) {
+            let association_id = next_diagnostic_session_id();
+            tracing::debug!(association_id, "TUN UDP association created");
+            let (sender, receiver) =
+                mpsc::channel(self.context.limits.tun_udp_association_queue_capacity);
+            let child_cancellation = self.cancellation.child_token();
+            let last_activity = Arc::new(AtomicU64::new(self.association_clock.now()));
+            entry.insert(UdpAssociation {
+                generation: association_id,
+                sender,
+                cancellation: child_cancellation.clone(),
+                last_activity: last_activity.clone(),
+            });
+            let activity = self
+                .context
+                .resource_stats
+                .begin(ResourceActivity::UdpAssociation);
+            self.tasks.spawn(observation::task(run_udp_association(
+                receiver,
+                activity,
+                UdpAssociationTaskContext {
+                    association_id,
+                    source,
+                    responses: self.responses.clone(),
+                    dispatcher: self.context.dispatcher.clone(),
+                    resource_stats: self.context.resource_stats.clone(),
+                    association_clock: self.association_clock.clone(),
+                    last_activity,
+                    tun_mtu: effective_tun_mtu(self.context.limits),
+                    sniffer: self.context.sniffer.clone(),
+                    cancellation: child_cancellation,
+                },
+            )));
+        }
+        let Some(association) = self.associations.get(&source) else {
+            return;
+        };
+        let generation = association.generation;
+        match try_queue_association_input(
+            association,
+            datagram,
+            self.association_clock.now(),
+            self.context.limits.tun_udp_association_queue_capacity,
+            &self.context.resource_stats,
+        ) {
+            AssociationInputResult::Queued | AssociationInputResult::Full => {}
+            AssociationInputResult::Closed => {
+                if let Some(association) =
+                    remove_completed_association(&mut self.associations, source, generation)
                 {
-                    match classify_query(&datagram.payload) {
-                        Ok(_) => {}
-                        Err(error) => {
-                            tracing::debug!(%error, "dropping invalid TUN DNS datagram");
-                            continue;
-                        }
-                    }
-                    let permit = dns.begin_query();
-                    dns_tasks.spawn(observation::task(run_tun_dns_query(
-                        dns.clone(),
-                        permit,
-                        datagram,
-                        dns_responses_tx.clone(),
-                        tun_mtu,
-                        resource_stats.clone(),
-                        cancellation.clone(),
-                    )));
-                    continue;
+                    association.cancellation.cancel();
                 }
-                let source = datagram.source;
-                if let Entry::Vacant(entry) = associations.entry(source) {
-                    let association_id = next_diagnostic_session_id();
-                    tracing::debug!(association_id, "TUN UDP association created");
-                    let (sender, receiver) = mpsc::channel(association_queue);
-                    let child_cancellation = cancellation.child_token();
-                    let last_activity = Arc::new(AtomicU64::new(association_clock.now()));
-                    entry.insert(UdpAssociation {
-                        generation: association_id,
-                        sender,
-                        cancellation: child_cancellation.clone(),
-                        last_activity: last_activity.clone(),
-                    });
-                    let activity =
-                        resource_stats.begin(ResourceActivity::UdpAssociation);
-                    tasks.spawn(observation::task(run_udp_association(
-                        receiver,
-                        activity,
-                        UdpAssociationTaskContext {
-                            association_id,
-                            source,
-                            responses: responses_tx.clone(),
-                            dispatcher: dispatcher.clone(),
-                            resource_stats: resource_stats.clone(),
-                            association_clock: association_clock.clone(),
-                            last_activity,
-                            tun_mtu,
-                            sniffer: sniffer.clone(),
-                            cancellation: child_cancellation,
-                        },
-                    )));
-                }
-                let Some(association) = associations.get(&source) else {
-                    continue;
-                };
-                match try_queue_association_input(
-                    association,
-                    datagram,
-                    association_clock.now(),
-                    association_queue,
-                    &resource_stats,
-                ) {
-                    AssociationInputResult::Queued => {}
-                    AssociationInputResult::Full => {
-                        // One slow source must not apply backpressure to the
-                        // global TUN UDP loop. UDP loss is local to this one
-                        // datagram; other associations and ready responses
-                        // remain able to advance.
-                    }
-                    AssociationInputResult::Closed => {
-                        let generation = association.generation;
-                        let removed =
-                            remove_completed_association(&mut associations, source, generation)
-                                .into_iter()
-                                .map(|association| (source, association))
-                                .collect();
-                        cancel_removed_associations(removed);
-                        tracing::debug!("dropping TUN UDP datagram for a closing association");
-                    }
-                }
+                // Do not retry this packet against a replacement generation.
+                tracing::debug!("dropping TUN UDP datagram for a closing association");
             }
         }
     }
 
-    drop(responses_tx);
-    drop(dns_responses_tx);
-    dns_tasks.abort_all();
-    while dns_tasks.join_next().await.is_some() {}
-    let removed = associations.drain().collect::<Vec<_>>();
-    for (_, association) in &removed {
-        association.cancellation.cancel();
+    fn cleanup(&mut self) {
+        cancel_removed_associations(take_expired_or_closed_associations(
+            &mut self.associations,
+            self.association_clock.now(),
+        ));
     }
-    drop(removed);
-    while tasks.join_next().await.is_some() {}
-    Ok(())
+
+    fn complete_association(
+        &mut self,
+        joined: Option<Result<UdpAssociationCompletion, tokio::task::JoinError>>,
+    ) {
+        match joined {
+            Some(Ok((source, association_id, result))) => {
+                remove_completed_association(&mut self.associations, source, association_id);
+                match result {
+                    Ok(()) => tracing::debug!(association_id, "TUN UDP association closed"),
+                    Err(error) => tracing::warn!(
+                        association_id, error_kind = ?error.kind(), "TUN UDP association failed"
+                    ),
+                }
+            }
+            Some(Err(error)) => tracing::warn!(
+                cancelled = error.is_cancelled(),
+                panicked = error.is_panic(),
+                "TUN UDP association task failed"
+            ),
+            None => {}
+        }
+    }
+
+    async fn stop(&mut self) {
+        self.cancellation.cancel();
+        self.dns_tasks.abort_all();
+        while self.dns_tasks.join_next().await.is_some() {}
+        for (_, association) in self.associations.drain() {
+            association.cancellation.cancel();
+        }
+        while self.tasks.join_next().await.is_some() {}
+    }
+}
+
+impl Drop for UdpIngress {
+    fn drop(&mut self) {
+        self.cancellation.cancel();
+        // Only a cancellation fallback: normal stop explicitly joins children.
+        self.tasks.abort_all();
+        self.dns_tasks.abort_all();
+    }
 }
 
 struct QueuedUdpResponse {
@@ -961,29 +1200,6 @@ impl Deref for QueuedUdpResponse {
 
     fn deref(&self) -> &Self::Target {
         &self.datagram
-    }
-}
-
-async fn emit_udp_response(socket: &UdpSocket, response: QueuedUdpResponse) -> bool {
-    let QueuedUdpResponse {
-        datagram,
-        dns_permit,
-    } = response;
-    let result = socket.send(datagram).await;
-    drop(dns_permit);
-    match result {
-        Ok(()) => true,
-        Err(vcore_netstack::UdpError::Stopped) => false,
-        Err(
-            error @ (vcore_netstack::UdpError::MtuExceeded { .. }
-            | vcore_netstack::UdpError::AddressFamilyMismatch),
-        ) => {
-            tracing::debug!(
-                error_code = ?error,
-                "dropping UDP response that cannot be emitted to TUN"
-            );
-            true
-        }
     }
 }
 
@@ -1052,7 +1268,7 @@ fn try_queue_tun_udp_response(
             ResponseQueueResult::Queued
         }
         Err(mpsc::error::TrySendError::Full(_)) => {
-            resource_stats.queue_drop(ResourceQueue::Udp, responses.max_capacity());
+            resource_stats.queue_drop(ResourceQueue::UdpResponse, responses.max_capacity());
             ResponseQueueResult::Dropped
         }
         Err(mpsc::error::TrySendError::Closed(_)) => ResponseQueueResult::Closed,
@@ -1116,6 +1332,8 @@ impl QuicSniffEngine for QuicSniffer {
 struct PreparedTunUdpDatagram {
     datagram: UdpDatagram,
     sniffed_domain: Option<Arc<str>>,
+    /// Carried once, on the first released datagram of an authenticated Initial flight.
+    flow_id: Option<QuicConnectionKey>,
 }
 
 impl PreparedTunUdpDatagram {
@@ -1123,6 +1341,7 @@ impl PreparedTunUdpDatagram {
         Self {
             datagram,
             sniffed_domain: None,
+            flow_id: None,
         }
     }
 
@@ -1130,7 +1349,13 @@ impl PreparedTunUdpDatagram {
         Self {
             datagram,
             sniffed_domain: Some(domain),
+            flow_id: None,
         }
+    }
+
+    fn with_flow_id(mut self, flow_id: Option<QuicConnectionKey>) -> Self {
+        self.flow_id = flow_id;
+        self
     }
 }
 
@@ -1225,7 +1450,13 @@ where
     fn ingest_datagram(&mut self, datagram: UdpDatagram, now: TokioInstant) -> QuicIngressResult {
         let destination = datagram.destination;
         let connection_key = quic_connection_key(&datagram.payload);
-        let state = self.flows.remove(&destination);
+        let state = self.flows.remove(&destination).filter(|state| match state {
+            QuicFlowState::Matched { completed, .. } | QuicFlowState::NoDomain(completed) => {
+                now.saturating_duration_since(completed.last_used)
+                    < Duration::from_secs(UDP_IDLE_TIMEOUT_SECONDS)
+            }
+            QuicFlowState::Pending(_) => true,
+        });
         if connection_key.is_none() && quic_has_unsupported_version(&datagram.payload) {
             return self.fail_open_unsupported_version(datagram, state, now);
         }
@@ -1283,6 +1514,16 @@ where
                 if starts_new_quic_connection(&pending.connection_key, &connection_key) {
                     let outcome = pending.sniffer.ingest(&datagram.payload);
                     if pending.sniffer.authenticated_initial_in_last_ingest() {
+                        // A non-Initial prefix can have entered the pending
+                        // state before any Initial keys existed. Adopt only
+                        // its first authenticated identity; a later header
+                        // DCID accepted by existing keys is the same flow.
+                        if pending.connection_key.is_none() {
+                            pending.connection_key = connection_key;
+                            if let Some(first) = pending.datagrams.front_mut() {
+                                first.flow_id = pending.connection_key.clone();
+                            }
+                        }
                         return self.apply_pending_outcome(
                             destination,
                             pending,
@@ -1382,11 +1623,20 @@ where
         outcome: QuicSniffOutcome,
     ) -> QuicIngressResult {
         let destination = datagram.destination;
+        // A parseable header alone must not suppress a later authenticated
+        // Initial with the same DCID, or claim a connection identity.
+        let connection_key = sniffer
+            .authenticated_initial_in_last_ingest()
+            .then_some(connection_key)
+            .flatten();
+        let flow_id = connection_key.clone();
         match outcome {
             QuicSniffOutcome::NeedMoreData if self.can_buffer(datagram.payload.len()) => {
                 let buffered_bytes = datagram.payload.len();
                 let mut datagrams = VecDeque::new();
-                datagrams.push_back(PreparedTunUdpDatagram::without_domain(datagram));
+                datagrams.push_back(
+                    PreparedTunUdpDatagram::without_domain(datagram).with_flow_id(flow_id),
+                );
                 self.pending_datagrams += 1;
                 self.pending_bytes += buffered_bytes;
                 self.flows.insert(
@@ -1413,7 +1663,9 @@ where
                         },
                     },
                 );
-                QuicIngressResult::Forward(PreparedTunUdpDatagram::with_domain(datagram, domain))
+                QuicIngressResult::Forward(
+                    PreparedTunUdpDatagram::with_domain(datagram, domain).with_flow_id(flow_id),
+                )
             }
             QuicSniffOutcome::NeedMoreData
             | QuicSniffOutcome::EchExtensionPresent
@@ -1426,7 +1678,9 @@ where
                         last_used: now,
                     }),
                 );
-                QuicIngressResult::Forward(PreparedTunUdpDatagram::without_domain(datagram))
+                QuicIngressResult::Forward(
+                    PreparedTunUdpDatagram::without_domain(datagram).with_flow_id(flow_id),
+                )
             }
         }
     }
@@ -1607,15 +1861,27 @@ async fn send_tun_udp_datagram(
     let PreparedTunUdpDatagram {
         datagram,
         sniffed_domain,
+        flow_id,
     } = prepared;
+    let datagram = Datagram {
+        remote: Destination::Ip(datagram.destination),
+        payload: datagram.payload,
+        sniffed_domain,
+    };
+    let send_datagram = async {
+        match flow_id {
+            Some(flow_id) => {
+                transport
+                    .send_with_flow_id(datagram, &flow_id.routing_identity())
+                    .await
+            }
+            None => transport.send(datagram).await,
+        }
+    };
     let send = tokio::select! {
         biased;
         () = context.cancellation.cancelled() => return Ok(false),
-        result = timeout(OUTBOUND_SEND_TIMEOUT, transport.send(Datagram {
-            remote: Destination::Ip(datagram.destination),
-            payload: datagram.payload,
-            sniffed_domain,
-        })) => result,
+        result = timeout(OUTBOUND_SEND_TIMEOUT, send_datagram) => result,
     };
     match send {
         Ok(Ok(())) => Ok(true),
@@ -1642,19 +1908,6 @@ fn append_ready_datagrams(
     }
     ready.append(&mut datagrams);
     Ok(())
-}
-
-fn queue_quic_ingress_result(
-    ready: &mut VecDeque<PreparedTunUdpDatagram>,
-    result: QuicIngressResult,
-) -> io::Result<()> {
-    match result {
-        QuicIngressResult::Buffered => Ok(()),
-        QuicIngressResult::Forward(prepared) => {
-            append_ready_datagrams(ready, VecDeque::from([prepared]))
-        }
-        QuicIngressResult::Replay(replay) => append_ready_datagrams(ready, replay),
-    }
 }
 
 async fn run_udp_association_inner_with_quic_factory<S, F>(
@@ -1692,7 +1945,10 @@ where
     };
 
     let mut quic_sniff = UdpQuicSniffState::new(new_sniffer);
-    let mut ready = VecDeque::with_capacity(QUIC_SNIFF_READY_DATAGRAM_MAX);
+    // Ordinary UDP needs only one pending send, not an allocated replay queue.
+    // The deque grows only for actual QUIC replay and keeps its existing bound.
+    let mut ready = VecDeque::new();
+    let mut pending_send = None;
     let mut first_response_logged = false;
     loop {
         let sniff_deadline = quic_sniff.next_deadline();
@@ -1704,9 +1960,9 @@ where
             }
             // Drain a ready response before accepting another datagram from
             // this same source. Fairness between the ordinary and DNS TUN
-            // response queues is handled independently by `udp_loop`.
+            // response queues is handled independently by the sole TUN writer.
             datagram = transport.receive() => AssociationEvent::Outbound(datagram),
-            () = std::future::ready(()), if !ready.is_empty() => AssociationEvent::ReadySend,
+            () = std::future::ready(()), if pending_send.is_some() || !ready.is_empty() => AssociationEvent::ReadySend,
             datagram = inbound.recv() => AssociationEvent::Inbound(datagram),
         };
         match event {
@@ -1715,8 +1971,9 @@ where
                 append_ready_datagrams(&mut ready, quic_sniff.expire(TokioInstant::now()))?;
             }
             AssociationEvent::ReadySend => {
-                let prepared = ready
-                    .pop_front()
+                let prepared = pending_send
+                    .take()
+                    .or_else(|| ready.pop_front())
                     .expect("ready-send event requires a queued datagram");
                 if !send_tun_udp_datagram(transport.as_mut(), prepared, context).await? {
                     break;
@@ -1732,7 +1989,16 @@ where
                 } else {
                     QuicIngressResult::Forward(PreparedTunUdpDatagram::without_domain(datagram))
                 };
-                queue_quic_ingress_result(&mut ready, result)?;
+                match result {
+                    QuicIngressResult::Buffered => {}
+                    QuicIngressResult::Forward(prepared) => {
+                        debug_assert!(pending_send.is_none());
+                        pending_send = Some(prepared);
+                    }
+                    QuicIngressResult::Replay(replay) => {
+                        append_ready_datagrams(&mut ready, replay)?
+                    }
+                }
             }
             AssociationEvent::Outbound(Err(error)) => {
                 return Err(dispatch_to_io(error));
@@ -1813,2531 +2079,4 @@ fn dispatch_to_io(error: DispatchError) -> io::Error {
 }
 
 #[cfg(all(test, unix))]
-mod tests {
-    use std::{
-        net::{Ipv4Addr, SocketAddr},
-        os::fd::AsRawFd,
-        os::unix::net::UnixDatagram,
-        sync::{
-            Mutex,
-            atomic::{AtomicUsize, Ordering},
-        },
-    };
-
-    use async_trait::async_trait;
-    use tokio::{
-        io::AsyncReadExt as _,
-        sync::{Notify, mpsc},
-    };
-
-    use super::*;
-    use crate::{
-        config::{
-            DnsConfig, DnsNameserver, DnsRoute, DnsTransport, PortRange, RuleAction, RuleKind,
-            RuleSpec, SnifferConfig,
-        },
-        dispatch::{BoxStream, DatagramTransport},
-        dns::{QueryType, build_query, synthesize_empty_response},
-        platform::TunFd,
-        routing::{EmptyGeoMatcher, ProxyDispatchers, RuleSet},
-    };
-
-    fn test_sniffer(
-        http_ports: &[PortRange],
-        tls_ports: &[PortRange],
-        quic_ports: &[PortRange],
-    ) -> Arc<SnifferConfig> {
-        Arc::new(SnifferConfig {
-            enable: true,
-            http_ports: http_ports.into(),
-            tls_ports: tls_ports.into(),
-            quic_ports: quic_ports.into(),
-        })
-    }
-
-    #[test]
-    fn tun_netstack_resource_event_contract_is_stable() {
-        assert_eq!(TUN_NETSTACK_STATS_INTERVAL, Duration::from_secs(30));
-        assert_eq!(
-            TUN_NETSTACK_STATS_PERIODIC_EVENT,
-            "tun_netstack_stats_periodic"
-        );
-        assert_eq!(TUN_NETSTACK_STATS_FINAL_EVENT, "tun_netstack_stats_final");
-    }
-
-    #[test]
-    fn ipv6_ingress_policy_drops_only_ipv6_when_disabled() {
-        assert!(!tun_ingress_allowed(false, &[0x60]));
-        assert!(tun_ingress_allowed(false, &[0x45]));
-        assert!(tun_ingress_allowed(false, &[]));
-        assert!(tun_ingress_allowed(true, &[0x60]));
-    }
-
-    #[test]
-    fn configured_sniffer_selects_custom_http_and_tls_ports() {
-        let config = test_sniffer(
-            &[PortRange {
-                start: 8_080,
-                end: 8_088,
-            }],
-            &[PortRange {
-                start: 8_443,
-                end: 8_443,
-            }],
-            &[],
-        );
-        assert_eq!(
-            configured_sniff_protocol(&config, 8_084),
-            Some(SniffProtocol::Http)
-        );
-        assert_eq!(
-            configured_sniff_protocol(&config, 8_443),
-            Some(SniffProtocol::Tls)
-        );
-        assert_eq!(configured_sniff_protocol(&config, 80), None);
-        assert_eq!(configured_sniff_protocol(&config, 443), None);
-    }
-
-    struct ScriptedQuicSniffer {
-        outcomes: VecDeque<QuicSniffOutcome>,
-        authentications: VecDeque<bool>,
-        authenticated_initial_in_last_ingest: bool,
-    }
-
-    impl QuicSniffEngine for ScriptedQuicSniffer {
-        fn ingest(&mut self, _packet: &[u8]) -> QuicSniffOutcome {
-            self.authenticated_initial_in_last_ingest =
-                self.authentications.pop_front().unwrap_or(true);
-            self.outcomes
-                .pop_front()
-                .expect("scripted QUIC sniffer outcome exhausted")
-        }
-
-        fn authenticated_initial_in_last_ingest(&self) -> bool {
-            self.authenticated_initial_in_last_ingest
-        }
-    }
-
-    fn scripted_quic_state(
-        scripts: Vec<Vec<QuicSniffOutcome>>,
-    ) -> UdpQuicSniffState<ScriptedQuicSniffer, impl FnMut() -> ScriptedQuicSniffer> {
-        let mut scripts = scripts
-            .into_iter()
-            .map(VecDeque::from)
-            .collect::<VecDeque<_>>();
-        UdpQuicSniffState::new(move || ScriptedQuicSniffer {
-            outcomes: scripts
-                .pop_front()
-                .expect("scripted QUIC flow factory exhausted"),
-            authentications: VecDeque::new(),
-            authenticated_initial_in_last_ingest: false,
-        })
-    }
-
-    fn scripted_quic_state_with_authentication(
-        scripts: Vec<Vec<(QuicSniffOutcome, bool)>>,
-    ) -> UdpQuicSniffState<ScriptedQuicSniffer, impl FnMut() -> ScriptedQuicSniffer> {
-        let mut sniffers = scripts
-            .into_iter()
-            .map(|script| {
-                let (outcomes, authentications) = script.into_iter().unzip();
-                ScriptedQuicSniffer {
-                    outcomes,
-                    authentications,
-                    authenticated_initial_in_last_ingest: false,
-                }
-            })
-            .collect::<VecDeque<_>>();
-        UdpQuicSniffState::new(move || {
-            sniffers
-                .pop_front()
-                .expect("scripted QUIC flow factory exhausted")
-        })
-    }
-
-    fn test_udp_datagram(
-        source: SocketAddr,
-        destination: SocketAddr,
-        payload: &'static [u8],
-    ) -> UdpDatagram {
-        UdpDatagram::new(source, destination, Bytes::from_static(payload))
-    }
-
-    fn quic_connection_marker(destination_connection_id: &[u8]) -> Bytes {
-        assert!((1..=20).contains(&destination_connection_id.len()));
-        let mut datagram = vec![
-            0xc0, // QUIC v1 long header, Initial packet.
-            0x00,
-            0x00,
-            0x00,
-            0x01,
-            u8::try_from(destination_connection_id.len()).unwrap(),
-        ];
-        datagram.extend_from_slice(destination_connection_id);
-        datagram.extend_from_slice(&[
-            0x00, // Empty source connection ID.
-            0x00, // Empty token.
-            0x11, // One packet-number byte plus a 16-byte AEAD tag.
-        ]);
-        datagram.extend_from_slice(&[0; 17]);
-        let datagram = Bytes::from(datagram);
-        assert!(quic_connection_key(&datagram).is_some());
-        datagram
-    }
-
-    fn quic_non_initial_marker(packet_type: u8, destination_connection_id: &[u8]) -> Bytes {
-        assert!((1..=3).contains(&packet_type));
-        assert!((1..=20).contains(&destination_connection_id.len()));
-        let mut datagram = vec![
-            0xc0 | (packet_type << 4),
-            0x00,
-            0x00,
-            0x00,
-            0x01,
-            u8::try_from(destination_connection_id.len()).unwrap(),
-        ];
-        datagram.extend_from_slice(destination_connection_id);
-        datagram.extend_from_slice(&[
-            0x00, // Empty source connection ID.
-            0x11, // Protected payload length.
-        ]);
-        datagram.extend_from_slice(&[0; 17]);
-        let datagram = Bytes::from(datagram);
-        assert!(quic_connection_key(&datagram).is_none());
-        assert!(!quic_has_unsupported_version(&datagram));
-        datagram
-    }
-
-    fn unsupported_quic_version_marker(destination_connection_id: &[u8]) -> Bytes {
-        assert!((1..=20).contains(&destination_connection_id.len()));
-        let mut datagram = vec![
-            0xc0,
-            0xfa,
-            0xce,
-            0xb0,
-            0x0c,
-            u8::try_from(destination_connection_id.len()).unwrap(),
-        ];
-        datagram.extend_from_slice(destination_connection_id);
-        let datagram = Bytes::from(datagram);
-        assert!(quic_connection_key(&datagram).is_none());
-        assert!(quic_has_unsupported_version(&datagram));
-        datagram
-    }
-
-    #[test]
-    fn quic_fragmentation_sends_nothing_early_then_replays_every_datagram_in_order() {
-        let source: SocketAddr = "192.0.2.10:12000".parse().unwrap();
-        let destination: SocketAddr = "198.51.100.20:443".parse().unwrap();
-        let now = TokioInstant::now();
-        let mut state = scripted_quic_state(vec![vec![
-            QuicSniffOutcome::NeedMoreData,
-            QuicSniffOutcome::Matched("api.example.com".to_owned()),
-        ]]);
-
-        assert!(matches!(
-            state.ingest_datagram(test_udp_datagram(source, destination, b"initial-one"), now,),
-            QuicIngressResult::Buffered
-        ));
-        assert_eq!(state.pending_datagrams, 1);
-        assert_eq!(state.pending_bytes, b"initial-one".len());
-
-        let QuicIngressResult::Replay(replay) = state.ingest_datagram(
-            test_udp_datagram(source, destination, b"initial-two"),
-            now + Duration::from_millis(1),
-        ) else {
-            panic!("the completed ClientHello must release the buffered Initial flight");
-        };
-        assert_eq!(state.pending_datagrams, 0);
-        assert_eq!(state.pending_bytes, 0);
-        assert_eq!(
-            replay
-                .iter()
-                .map(|prepared| prepared.datagram.payload.as_ref())
-                .collect::<Vec<_>>(),
-            vec![b"initial-one".as_slice(), b"initial-two".as_slice()]
-        );
-        assert!(replay.iter().all(|prepared| {
-            prepared.sniffed_domain.as_deref() == Some("api.example.com")
-                && prepared.datagram.destination == destination
-        }));
-
-        let QuicIngressResult::Forward(next) = state.ingest_datagram(
-            test_udp_datagram(source, destination, b"short-header"),
-            now + Duration::from_millis(2),
-        ) else {
-            panic!("a resolved QUIC flow must forward later datagrams immediately");
-        };
-        assert_eq!(next.sniffed_domain.as_deref(), Some("api.example.com"));
-    }
-
-    #[test]
-    fn quic_completed_flow_lru_makes_room_for_a_fifth_sniffer() {
-        let source: SocketAddr = "192.0.2.10:12000".parse().unwrap();
-        let destinations = (0..=QUIC_SNIFF_FLOW_MAX)
-            .map(|index| {
-                SocketAddr::new(
-                    "198.51.100.20".parse().unwrap(),
-                    443 + u16::try_from(index).unwrap(),
-                )
-            })
-            .collect::<Vec<_>>();
-        let now = TokioInstant::now();
-        let mut state = scripted_quic_state(
-            (0..=QUIC_SNIFF_FLOW_MAX)
-                .map(|index| {
-                    vec![QuicSniffOutcome::Matched(format!(
-                        "node-{index}.example.com"
-                    ))]
-                })
-                .collect(),
-        );
-
-        for (index, destination) in destinations[..QUIC_SNIFF_FLOW_MAX].iter().enumerate() {
-            let result = state.ingest_datagram(
-                UdpDatagram::new(
-                    source,
-                    *destination,
-                    quic_connection_marker(&[u8::try_from(index + 1).unwrap()]),
-                ),
-                now + Duration::from_millis(u64::try_from(index).unwrap()),
-            );
-            assert!(matches!(result, QuicIngressResult::Forward(_)));
-        }
-        assert_eq!(state.flows.len(), QUIC_SNIFF_FLOW_MAX);
-
-        let touched = state.ingest_datagram(
-            test_udp_datagram(source, destinations[0], b"short-header"),
-            now + Duration::from_millis(10),
-        );
-        assert!(matches!(touched, QuicIngressResult::Forward(_)));
-
-        let QuicIngressResult::Forward(fifth) = state.ingest_datagram(
-            UdpDatagram::new(
-                source,
-                destinations[QUIC_SNIFF_FLOW_MAX],
-                quic_connection_marker(b"fifth"),
-            ),
-            now + Duration::from_millis(11),
-        ) else {
-            panic!("a completed flow must be evicted so the fifth flow can be sniffed");
-        };
-        assert_eq!(fifth.sniffed_domain.as_deref(), Some("node-4.example.com"));
-        assert_eq!(state.flows.len(), QUIC_SNIFF_FLOW_MAX);
-        assert!(state.flows.contains_key(&destinations[0]));
-        assert!(!state.flows.contains_key(&destinations[1]));
-        assert!(state.flows.contains_key(&destinations[2]));
-        assert!(state.flows.contains_key(&destinations[3]));
-        assert!(state.flows.contains_key(&destinations[4]));
-    }
-
-    #[test]
-    fn quic_new_dcid_replaces_a_matched_domain_for_the_same_destination() {
-        let source: SocketAddr = "192.0.2.10:12000".parse().unwrap();
-        let destination: SocketAddr = "198.51.100.20:443".parse().unwrap();
-        let now = TokioInstant::now();
-        let mut state = scripted_quic_state(vec![
-            vec![QuicSniffOutcome::Matched("old.example.com".to_owned())],
-            vec![QuicSniffOutcome::Matched("new.example.com".to_owned())],
-        ]);
-
-        let QuicIngressResult::Forward(old) = state.ingest_datagram(
-            UdpDatagram::new(source, destination, quic_connection_marker(b"old")),
-            now,
-        ) else {
-            panic!("the first QUIC connection must be sniffed");
-        };
-        assert_eq!(old.sniffed_domain.as_deref(), Some("old.example.com"));
-
-        let QuicIngressResult::Forward(new) = state.ingest_datagram(
-            UdpDatagram::new(source, destination, quic_connection_marker(b"new")),
-            now + Duration::from_millis(1),
-        ) else {
-            panic!("a new DCID must create a fresh QUIC sniffer");
-        };
-        assert_eq!(new.sniffed_domain.as_deref(), Some("new.example.com"));
-
-        let QuicIngressResult::Forward(short_header) = state.ingest_datagram(
-            test_udp_datagram(source, destination, b"short-header"),
-            now + Duration::from_millis(2),
-        ) else {
-            panic!("the replacement domain must be retained for short-header traffic");
-        };
-        assert_eq!(
-            short_header.sniffed_domain.as_deref(),
-            Some("new.example.com")
-        );
-    }
-
-    #[test]
-    fn quic_unauthenticated_new_dcid_keeps_the_completed_domain_without_waiting() {
-        let source: SocketAddr = "192.0.2.10:12000".parse().unwrap();
-        let destination: SocketAddr = "198.51.100.20:443".parse().unwrap();
-        let now = TokioInstant::now();
-        let mut state = scripted_quic_state_with_authentication(vec![
-            vec![(
-                QuicSniffOutcome::Matched("stable.example.com".to_owned()),
-                true,
-            )],
-            vec![(QuicSniffOutcome::NeedMoreData, false)],
-        ]);
-
-        let QuicIngressResult::Forward(first) = state.ingest_datagram(
-            UdpDatagram::new(source, destination, quic_connection_marker(b"old")),
-            now,
-        ) else {
-            panic!("the first QUIC connection must be sniffed");
-        };
-        assert_eq!(first.sniffed_domain.as_deref(), Some("stable.example.com"));
-
-        let QuicIngressResult::Forward(candidate) = state.ingest_datagram(
-            UdpDatagram::new(source, destination, quic_connection_marker(b"new")),
-            now + Duration::from_millis(1),
-        ) else {
-            panic!("an unauthenticated candidate must not enter the pending state");
-        };
-        assert_eq!(
-            candidate.sniffed_domain.as_deref(),
-            Some("stable.example.com")
-        );
-        assert_eq!(state.pending_datagrams, 0);
-        assert_eq!(state.pending_bytes, 0);
-
-        let QuicIngressResult::Forward(short_header) = state.ingest_datagram(
-            test_udp_datagram(source, destination, b"short-header"),
-            now + Duration::from_millis(2),
-        ) else {
-            panic!("the authenticated completed hint must be retained");
-        };
-        assert_eq!(
-            short_header.sniffed_domain.as_deref(),
-            Some("stable.example.com")
-        );
-    }
-
-    #[test]
-    fn quic_pending_flow_accepts_a_new_header_dcid_authenticated_by_its_old_keys() {
-        let source: SocketAddr = "192.0.2.10:12000".parse().unwrap();
-        let destination: SocketAddr = "198.51.100.20:443".parse().unwrap();
-        let now = TokioInstant::now();
-        let mut state = scripted_quic_state_with_authentication(vec![vec![
-            (QuicSniffOutcome::NeedMoreData, true),
-            (
-                QuicSniffOutcome::Matched("same-connection.example.com".to_owned()),
-                true,
-            ),
-        ]]);
-
-        assert!(matches!(
-            state.ingest_datagram(
-                UdpDatagram::new(source, destination, quic_connection_marker(b"dcid-a")),
-                now,
-            ),
-            QuicIngressResult::Buffered
-        ));
-        let QuicIngressResult::Replay(replay) = state.ingest_datagram(
-            UdpDatagram::new(source, destination, quic_connection_marker(b"dcid-b")),
-            now + Duration::from_millis(1),
-        ) else {
-            panic!("old Initial keys must be tried before treating a new DCID as a new flow");
-        };
-        assert_eq!(replay.len(), 2);
-        assert!(replay.iter().all(|prepared| {
-            prepared.sniffed_domain.as_deref() == Some("same-connection.example.com")
-        }));
-        assert_eq!(state.pending_datagrams, 0);
-        assert_eq!(state.pending_bytes, 0);
-    }
-
-    #[test]
-    fn quic_pending_flow_keeps_old_state_when_neither_key_authenticates_a_candidate() {
-        let source: SocketAddr = "192.0.2.10:12000".parse().unwrap();
-        let destination: SocketAddr = "198.51.100.20:443".parse().unwrap();
-        let now = TokioInstant::now();
-        let mut state = scripted_quic_state_with_authentication(vec![
-            vec![
-                (QuicSniffOutcome::NeedMoreData, true),
-                (QuicSniffOutcome::NotMatched, false),
-                (
-                    QuicSniffOutcome::Matched("old-flow.example.com".to_owned()),
-                    true,
-                ),
-            ],
-            vec![(QuicSniffOutcome::NeedMoreData, false)],
-        ]);
-
-        assert!(matches!(
-            state.ingest_datagram(
-                UdpDatagram::new(source, destination, quic_connection_marker(b"dcid-a")),
-                now,
-            ),
-            QuicIngressResult::Buffered
-        ));
-        let QuicIngressResult::Forward(unverified) = state.ingest_datagram(
-            UdpDatagram::new(source, destination, quic_connection_marker(b"dcid-b")),
-            now + Duration::from_millis(1),
-        ) else {
-            panic!("an unverified candidate must fail open independently");
-        };
-        assert!(unverified.sniffed_domain.is_none());
-        assert_eq!(state.pending_datagrams, 1);
-
-        let QuicIngressResult::Replay(old_flow) = state.ingest_datagram(
-            UdpDatagram::new(source, destination, quic_connection_marker(b"dcid-a")),
-            now + Duration::from_millis(2),
-        ) else {
-            panic!("the old pending parser and buffered flight must be retained");
-        };
-        assert_eq!(old_flow.len(), 2);
-        assert!(
-            old_flow
-                .iter()
-                .all(|prepared| prepared.sniffed_domain.as_deref() == Some("old-flow.example.com"))
-        );
-        assert_eq!(state.pending_datagrams, 0);
-        assert_eq!(state.pending_bytes, 0);
-    }
-
-    #[test]
-    fn quic_zero_rtt_and_handshake_dcid_changes_do_not_reset_a_completed_hint() {
-        let source: SocketAddr = "192.0.2.10:12000".parse().unwrap();
-        let destination: SocketAddr = "198.51.100.20:443".parse().unwrap();
-        let now = TokioInstant::now();
-        let mut state = scripted_quic_state(vec![vec![QuicSniffOutcome::Matched(
-            "stable.example.com".to_owned(),
-        )]]);
-
-        let QuicIngressResult::Forward(initial) = state.ingest_datagram(
-            UdpDatagram::new(source, destination, quic_connection_marker(b"initial")),
-            now,
-        ) else {
-            panic!("the Initial must establish a completed hint");
-        };
-        assert_eq!(
-            initial.sniffed_domain.as_deref(),
-            Some("stable.example.com")
-        );
-
-        for (index, datagram) in [
-            quic_non_initial_marker(1, b"zero-rtt"),
-            quic_non_initial_marker(2, b"handshake"),
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            let QuicIngressResult::Forward(forwarded) = state.ingest_datagram(
-                UdpDatagram::new(source, destination, datagram),
-                now + Duration::from_millis(u64::try_from(index + 1).unwrap()),
-            ) else {
-                panic!("a non-Initial long header must not trigger a new sniffer");
-            };
-            assert_eq!(
-                forwarded.sniffed_domain.as_deref(),
-                Some("stable.example.com")
-            );
-        }
-    }
-
-    #[test]
-    fn unsupported_quic_version_clears_completed_hint_and_releases_pending_flight() {
-        let source: SocketAddr = "192.0.2.10:12000".parse().unwrap();
-        let completed_destination: SocketAddr = "198.51.100.20:443".parse().unwrap();
-        let pending_destination: SocketAddr = "198.51.100.21:443".parse().unwrap();
-        let now = TokioInstant::now();
-        let mut state = scripted_quic_state(vec![
-            vec![QuicSniffOutcome::Matched(
-                "must-not-leak.example.com".to_owned(),
-            )],
-            vec![QuicSniffOutcome::NeedMoreData],
-        ]);
-
-        assert!(matches!(
-            state.ingest_datagram(
-                UdpDatagram::new(
-                    source,
-                    completed_destination,
-                    quic_connection_marker(b"completed"),
-                ),
-                now,
-            ),
-            QuicIngressResult::Forward(_)
-        ));
-        let QuicIngressResult::Forward(unsupported) = state.ingest_datagram(
-            UdpDatagram::new(
-                source,
-                completed_destination,
-                unsupported_quic_version_marker(b"unknown"),
-            ),
-            now + Duration::from_millis(1),
-        ) else {
-            panic!("an unsupported version must fail open without waiting");
-        };
-        assert!(unsupported.sniffed_domain.is_none());
-        let QuicIngressResult::Forward(short_header) = state.ingest_datagram(
-            test_udp_datagram(source, completed_destination, b"short-header"),
-            now + Duration::from_millis(2),
-        ) else {
-            panic!("the stale completed hint must remain cleared");
-        };
-        assert!(short_header.sniffed_domain.is_none());
-
-        assert!(matches!(
-            state.ingest_datagram(
-                UdpDatagram::new(
-                    source,
-                    pending_destination,
-                    quic_connection_marker(b"pending"),
-                ),
-                now,
-            ),
-            QuicIngressResult::Buffered
-        ));
-        let QuicIngressResult::Replay(replay) = state.ingest_datagram(
-            UdpDatagram::new(
-                source,
-                pending_destination,
-                unsupported_quic_version_marker(b"unknown"),
-            ),
-            now + Duration::from_millis(1),
-        ) else {
-            panic!("an unsupported version must release a pending flight");
-        };
-        assert_eq!(replay.len(), 2);
-        assert!(
-            replay
-                .iter()
-                .all(|prepared| prepared.sniffed_domain.is_none())
-        );
-        assert_eq!(state.pending_datagrams, 0);
-        assert_eq!(state.pending_bytes, 0);
-    }
-
-    #[test]
-    fn quic_new_dcid_retries_sniffing_after_a_no_domain_result() {
-        let source: SocketAddr = "192.0.2.10:12000".parse().unwrap();
-        let destination: SocketAddr = "198.51.100.20:443".parse().unwrap();
-        let now = TokioInstant::now();
-        let mut state = scripted_quic_state(vec![
-            vec![QuicSniffOutcome::NotMatched],
-            vec![QuicSniffOutcome::Matched(
-                "recovered.example.com".to_owned(),
-            )],
-        ]);
-
-        let QuicIngressResult::Forward(first) = state.ingest_datagram(
-            UdpDatagram::new(source, destination, quic_connection_marker(b"old")),
-            now,
-        ) else {
-            panic!("the first QUIC connection must fail open");
-        };
-        assert!(first.sniffed_domain.is_none());
-
-        let QuicIngressResult::Forward(recovered) = state.ingest_datagram(
-            UdpDatagram::new(source, destination, quic_connection_marker(b"new")),
-            now + Duration::from_millis(1),
-        ) else {
-            panic!("a new DCID must retry sniffing after a terminal result");
-        };
-        assert_eq!(
-            recovered.sniffed_domain.as_deref(),
-            Some("recovered.example.com")
-        );
-    }
-
-    #[test]
-    fn quic_new_dcid_releases_an_old_pending_flight_before_the_new_connection() {
-        let source: SocketAddr = "192.0.2.10:12000".parse().unwrap();
-        let destination: SocketAddr = "198.51.100.20:443".parse().unwrap();
-        let now = TokioInstant::now();
-        let old_payload = quic_connection_marker(b"old");
-        let new_payload = quic_connection_marker(b"new");
-        let mut state = scripted_quic_state_with_authentication(vec![
-            vec![
-                (QuicSniffOutcome::NeedMoreData, true),
-                (QuicSniffOutcome::NotMatched, false),
-            ],
-            vec![(
-                QuicSniffOutcome::Matched("new.example.com".to_owned()),
-                true,
-            )],
-        ]);
-
-        assert!(matches!(
-            state.ingest_datagram(
-                UdpDatagram::new(source, destination, old_payload.clone()),
-                now,
-            ),
-            QuicIngressResult::Buffered
-        ));
-        let QuicIngressResult::Replay(replay) = state.ingest_datagram(
-            UdpDatagram::new(source, destination, new_payload.clone()),
-            now + Duration::from_millis(1),
-        ) else {
-            panic!("a new DCID must release the stale flight before forwarding itself");
-        };
-        assert_eq!(replay.len(), 2);
-        assert_eq!(replay[0].datagram.payload, old_payload);
-        assert!(replay[0].sniffed_domain.is_none());
-        assert_eq!(replay[1].datagram.payload, new_payload);
-        assert_eq!(replay[1].sniffed_domain.as_deref(), Some("new.example.com"));
-        assert_eq!(state.pending_datagrams, 0);
-        assert_eq!(state.pending_bytes, 0);
-    }
-
-    #[tokio::test]
-    async fn quic_association_holds_the_first_fragment_then_sends_the_original_flight() {
-        let source: SocketAddr = "192.0.2.10:12000".parse().unwrap();
-        let destination: SocketAddr = "198.51.100.20:443".parse().unwrap();
-        let datagrams = Arc::new(Mutex::new(Vec::new()));
-        let sent = Arc::new(Notify::new());
-        let dispatcher = Arc::new(RecordingUdpDispatcher {
-            datagrams: datagrams.clone(),
-            sent: sent.clone(),
-        });
-        let (inbound_tx, mut inbound_rx) = mpsc::channel(4);
-        let (responses, _responses_rx) = mpsc::channel(4);
-        let cancellation = CancellationToken::new();
-        let child = cancellation.clone();
-        let mut scripts = VecDeque::from([VecDeque::from([
-            QuicSniffOutcome::NeedMoreData,
-            QuicSniffOutcome::Matched("api.example.com".to_owned()),
-        ])]);
-        let task = tokio::spawn(async move {
-            run_udp_association_inner_with_quic_factory(
-                &mut inbound_rx,
-                &UdpAssociationTaskContext {
-                    association_id: 1,
-                    source,
-                    responses,
-                    dispatcher,
-                    resource_stats: RuntimeResourceStats::new("tun_runtime_quic_test"),
-                    association_clock: AssociationClock::realtime(),
-                    last_activity: Arc::new(AtomicU64::new(0)),
-                    tun_mtu: TUN_MTU,
-                    sniffer: Some(test_sniffer(
-                        &[],
-                        &[],
-                        &[PortRange {
-                            start: 443,
-                            end: 443,
-                        }],
-                    )),
-                    cancellation: child,
-                },
-                move || ScriptedQuicSniffer {
-                    outcomes: scripts
-                        .pop_front()
-                        .expect("scripted QUIC flow factory exhausted"),
-                    authentications: VecDeque::new(),
-                    authenticated_initial_in_last_ingest: false,
-                },
-            )
-            .await
-        });
-
-        inbound_tx
-            .send(test_udp_datagram(source, destination, b"initial-one"))
-            .await
-            .unwrap();
-        assert!(
-            timeout(Duration::from_millis(30), sent.notified())
-                .await
-                .is_err(),
-            "the first incomplete Initial was sent before sniffing completed"
-        );
-        assert!(datagrams.lock().unwrap().is_empty());
-
-        inbound_tx
-            .send(test_udp_datagram(source, destination, b"initial-two"))
-            .await
-            .unwrap();
-        timeout(Duration::from_secs(1), async {
-            while datagrams.lock().unwrap().len() != 2 {
-                sent.notified().await;
-            }
-        })
-        .await
-        .expect("the completed QUIC Initial flight was not replayed");
-        {
-            let recorded = datagrams.lock().unwrap();
-            assert_eq!(
-                recorded
-                    .iter()
-                    .map(|datagram| datagram.payload.as_ref())
-                    .collect::<Vec<_>>(),
-                vec![b"initial-one".as_slice(), b"initial-two".as_slice()]
-            );
-            assert!(recorded.iter().all(|datagram| {
-                datagram.remote == Destination::Ip(destination)
-                    && datagram.sniffed_domain.as_deref() == Some("api.example.com")
-            }));
-        }
-
-        cancellation.cancel();
-        timeout(Duration::from_secs(1), task)
-            .await
-            .expect("QUIC association did not stop")
-            .unwrap()
-            .unwrap();
-    }
-
-    #[tokio::test]
-    async fn quic_ready_response_is_processed_before_the_next_replay_send_blocks() {
-        let source: SocketAddr = "192.0.2.10:12000".parse().unwrap();
-        let destination: SocketAddr = "198.51.100.20:443".parse().unwrap();
-        let send_count = Arc::new(AtomicUsize::new(0));
-        let blocked_send_started = Arc::new(Notify::new());
-        let dispatcher = Arc::new(ReplayFairDispatcher {
-            response: Datagram {
-                remote: Destination::Ip(destination),
-                payload: Bytes::from_static(b"ready-response"),
-                sniffed_domain: None,
-            },
-            send_count: send_count.clone(),
-            blocked_send_started: blocked_send_started.clone(),
-        });
-        let (inbound_tx, mut inbound_rx) = mpsc::channel(4);
-        let (responses, mut responses_rx) = mpsc::channel(4);
-        let cancellation = CancellationToken::new();
-        let child = cancellation.clone();
-        let mut scripts = VecDeque::from([VecDeque::from([
-            QuicSniffOutcome::NeedMoreData,
-            QuicSniffOutcome::Matched("api.example.com".to_owned()),
-        ])]);
-        let task = tokio::spawn(async move {
-            run_udp_association_inner_with_quic_factory(
-                &mut inbound_rx,
-                &UdpAssociationTaskContext {
-                    association_id: 1,
-                    source,
-                    responses,
-                    dispatcher,
-                    resource_stats: RuntimeResourceStats::new("tun_runtime_quic_fairness_test"),
-                    association_clock: AssociationClock::realtime(),
-                    last_activity: Arc::new(AtomicU64::new(0)),
-                    tun_mtu: TUN_MTU,
-                    sniffer: Some(test_sniffer(
-                        &[],
-                        &[],
-                        &[PortRange {
-                            start: 443,
-                            end: 443,
-                        }],
-                    )),
-                    cancellation: child,
-                },
-                move || ScriptedQuicSniffer {
-                    outcomes: scripts
-                        .pop_front()
-                        .expect("scripted QUIC flow factory exhausted"),
-                    authentications: VecDeque::new(),
-                    authenticated_initial_in_last_ingest: false,
-                },
-            )
-            .await
-        });
-
-        let marker = quic_connection_marker(b"flow");
-        inbound_tx
-            .send(UdpDatagram::new(source, destination, marker.clone()))
-            .await
-            .unwrap();
-        inbound_tx
-            .send(UdpDatagram::new(source, destination, marker))
-            .await
-            .unwrap();
-
-        let response = timeout(Duration::from_secs(1), responses_rx.recv())
-            .await
-            .expect("a blocked second replay send starved the ready response")
-            .expect("response channel closed");
-        assert_eq!(&response.payload[..], b"ready-response");
-        timeout(Duration::from_secs(1), blocked_send_started.notified())
-            .await
-            .expect("the second replay send did not enter its blocked state");
-        assert_eq!(send_count.load(Ordering::Relaxed), 2);
-
-        cancellation.cancel();
-        timeout(Duration::from_secs(1), task)
-            .await
-            .expect("QUIC association did not stop")
-            .unwrap()
-            .unwrap();
-    }
-
-    #[test]
-    fn quic_failure_and_timeout_fail_open_with_exact_buffered_payloads() {
-        let source: SocketAddr = "192.0.2.10:12000".parse().unwrap();
-        let failed_destination: SocketAddr = "198.51.100.20:443".parse().unwrap();
-        let timed_out_destination: SocketAddr = "198.51.100.21:443".parse().unwrap();
-        let now = TokioInstant::now();
-        let mut state = scripted_quic_state(vec![
-            vec![QuicSniffOutcome::NeedMoreData, QuicSniffOutcome::NotMatched],
-            vec![QuicSniffOutcome::NeedMoreData],
-        ]);
-
-        assert!(matches!(
-            state.ingest_datagram(
-                test_udp_datagram(source, failed_destination, b"failed-one"),
-                now,
-            ),
-            QuicIngressResult::Buffered
-        ));
-        let QuicIngressResult::Replay(failed) = state.ingest_datagram(
-            test_udp_datagram(source, failed_destination, b"failed-two"),
-            now + Duration::from_millis(1),
-        ) else {
-            panic!("a parse failure must release the original datagrams");
-        };
-        assert_eq!(
-            failed
-                .iter()
-                .map(|prepared| prepared.datagram.payload.as_ref())
-                .collect::<Vec<_>>(),
-            vec![b"failed-one".as_slice(), b"failed-two".as_slice()]
-        );
-        assert!(
-            failed
-                .iter()
-                .all(|prepared| prepared.sniffed_domain.is_none())
-        );
-
-        assert!(matches!(
-            state.ingest_datagram(
-                test_udp_datagram(source, timed_out_destination, b"timed-out"),
-                now,
-            ),
-            QuicIngressResult::Buffered
-        ));
-        assert!(
-            state
-                .expire(now + QUIC_SNIFF_TIMEOUT - Duration::from_millis(1))
-                .is_empty()
-        );
-        let timed_out = state.expire(now + QUIC_SNIFF_TIMEOUT);
-        assert_eq!(timed_out.len(), 1);
-        assert_eq!(&timed_out[0].datagram.payload[..], b"timed-out");
-        assert!(timed_out[0].sniffed_domain.is_none());
-        assert_eq!(state.pending_datagrams, 0);
-        assert_eq!(state.pending_bytes, 0);
-    }
-
-    #[test]
-    fn quic_ech_and_parser_limit_release_buffered_datagrams_without_a_domain() {
-        let source: SocketAddr = "192.0.2.10:12000".parse().unwrap();
-        let now = TokioInstant::now();
-        for (index, terminal) in [
-            QuicSniffOutcome::EchExtensionPresent,
-            QuicSniffOutcome::LimitReached,
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            let destination = SocketAddr::new(
-                "198.51.100.20".parse().unwrap(),
-                443 + u16::try_from(index).unwrap(),
-            );
-            let mut state =
-                scripted_quic_state(vec![vec![QuicSniffOutcome::NeedMoreData, terminal]]);
-            assert!(matches!(
-                state.ingest_datagram(test_udp_datagram(source, destination, b"initial-one"), now,),
-                QuicIngressResult::Buffered
-            ));
-            let QuicIngressResult::Replay(replay) =
-                state.ingest_datagram(test_udp_datagram(source, destination, b"initial-two"), now)
-            else {
-                panic!("a terminal QUIC outcome must release buffered datagrams");
-            };
-            assert_eq!(replay.len(), 2);
-            assert!(
-                replay
-                    .iter()
-                    .all(|prepared| prepared.sniffed_domain.is_none())
-            );
-        }
-    }
-
-    #[test]
-    fn quic_pending_datagram_and_flow_tables_are_hard_bounded() {
-        let source: SocketAddr = "192.0.2.10:12000".parse().unwrap();
-        let destination: SocketAddr = "198.51.100.20:443".parse().unwrap();
-        let now = TokioInstant::now();
-        let mut state = scripted_quic_state(vec![vec![
-            QuicSniffOutcome::NeedMoreData;
-            QUIC_SNIFF_PENDING_DATAGRAM_MAX + 1
-        ]]);
-        for index in 0..QUIC_SNIFF_PENDING_DATAGRAM_MAX {
-            assert!(matches!(
-                state.ingest_datagram(
-                    UdpDatagram::new(source, destination, vec![u8::try_from(index).unwrap()]),
-                    now,
-                ),
-                QuicIngressResult::Buffered
-            ));
-        }
-        let QuicIngressResult::Replay(replay) = state.ingest_datagram(
-            UdpDatagram::new(source, destination, Bytes::from_static(b"overflow")),
-            now,
-        ) else {
-            panic!("the ninth pending datagram must fail open");
-        };
-        assert_eq!(replay.len(), QUIC_SNIFF_PENDING_DATAGRAM_MAX + 1);
-        assert_eq!(state.pending_datagrams, 0);
-        assert_eq!(state.pending_bytes, 0);
-
-        let scripts = (0..QUIC_SNIFF_FLOW_MAX)
-            .map(|_| vec![QuicSniffOutcome::NeedMoreData])
-            .collect();
-        let mut state = scripted_quic_state(scripts);
-        for index in 0..QUIC_SNIFF_FLOW_MAX {
-            let destination = SocketAddr::new(
-                "198.51.100.20".parse().unwrap(),
-                443 + u16::try_from(index).unwrap(),
-            );
-            assert!(matches!(
-                state.ingest_datagram(test_udp_datagram(source, destination, b"pending"), now,),
-                QuicIngressResult::Buffered
-            ));
-        }
-        let overflow_destination: SocketAddr = "198.51.100.30:8443".parse().unwrap();
-        let QuicIngressResult::Forward(overflow) = state.ingest_datagram(
-            test_udp_datagram(source, overflow_destination, b"fifth-flow"),
-            now,
-        ) else {
-            panic!("a fifth QUIC flow must fail open without creating a parser");
-        };
-        assert!(overflow.sniffed_domain.is_none());
-        assert_eq!(state.flows.len(), QUIC_SNIFF_FLOW_MAX);
-    }
-
-    #[test]
-    fn quic_pending_byte_budget_accepts_32_kib_and_replays_the_overflow_datagram() {
-        let source: SocketAddr = "192.0.2.10:12000".parse().unwrap();
-        let destination: SocketAddr = "198.51.100.20:443".parse().unwrap();
-        let now = TokioInstant::now();
-        let mut state = scripted_quic_state(vec![vec![
-            QuicSniffOutcome::NeedMoreData,
-            QuicSniffOutcome::NeedMoreData,
-        ]]);
-
-        assert!(matches!(
-            state.ingest_datagram(
-                UdpDatagram::new(
-                    source,
-                    destination,
-                    vec![0xaa; QUIC_SNIFF_PENDING_BYTES_MAX],
-                ),
-                now,
-            ),
-            QuicIngressResult::Buffered
-        ));
-        assert_eq!(state.pending_datagrams, 1);
-        assert_eq!(state.pending_bytes, QUIC_SNIFF_PENDING_BYTES_MAX);
-
-        let QuicIngressResult::Replay(replay) = state.ingest_datagram(
-            UdpDatagram::new(source, destination, Bytes::from_static(b"x")),
-            now,
-        ) else {
-            panic!("a datagram above the aggregate byte budget must fail open");
-        };
-        assert_eq!(replay.len(), 2);
-        assert_eq!(
-            replay[0].datagram.payload.len(),
-            QUIC_SNIFF_PENDING_BYTES_MAX
-        );
-        assert_eq!(&replay[1].datagram.payload[..], b"x");
-        assert_eq!(state.pending_datagrams, 0);
-        assert_eq!(state.pending_bytes, 0);
-    }
-
-    #[test]
-    fn quic_flow_state_is_isolated_by_destination_and_unconfigured_ports_are_skipped() {
-        let source: SocketAddr = "192.0.2.10:12000".parse().unwrap();
-        let destination_a: SocketAddr = "198.51.100.20:443".parse().unwrap();
-        let destination_b: SocketAddr = "198.51.100.21:443".parse().unwrap();
-        let now = TokioInstant::now();
-        let mut state = scripted_quic_state(vec![
-            vec![
-                QuicSniffOutcome::NeedMoreData,
-                QuicSniffOutcome::Matched("a.example.com".to_owned()),
-            ],
-            vec![QuicSniffOutcome::Matched("b.example.com".to_owned())],
-        ]);
-
-        assert!(matches!(
-            state.ingest_datagram(test_udp_datagram(source, destination_a, b"a-one"), now,),
-            QuicIngressResult::Buffered
-        ));
-        let QuicIngressResult::Forward(b) =
-            state.ingest_datagram(test_udp_datagram(source, destination_b, b"b-one"), now)
-        else {
-            panic!("one destination must not wait for another destination");
-        };
-        assert_eq!(b.sniffed_domain.as_deref(), Some("b.example.com"));
-        let QuicIngressResult::Replay(a) =
-            state.ingest_datagram(test_udp_datagram(source, destination_a, b"a-two"), now)
-        else {
-            panic!("the first destination must retain its independent parser");
-        };
-        assert!(
-            a.iter()
-                .all(|prepared| prepared.sniffed_domain.as_deref() == Some("a.example.com"))
-        );
-
-        let config = test_sniffer(
-            &[],
-            &[],
-            &[PortRange {
-                start: 443,
-                end: 443,
-            }],
-        );
-        assert!(configured_quic_sniffing(Some(&config), 443));
-        assert!(!configured_quic_sniffing(Some(&config), 8_443));
-        assert!(!configured_quic_sniffing(None, 443));
-    }
-
-    #[test]
-    fn tun_dns_ingress_capacity_is_an_independent_queue_boundary() {
-        let tun = ResourceLimits::default();
-        assert_eq!(tun_udp_ingress_queue_capacity(tun, false), 128);
-        assert_eq!(tun_udp_ingress_queue_capacity(tun, true), 128);
-        let altered = ResourceLimits {
-            tun_dns_ingress_queue_capacity: 96,
-            ..tun
-        };
-        assert_eq!(tun_udp_ingress_queue_capacity(altered, true), 96);
-        assert_eq!(
-            tun_udp_ingress_queue_capacity(ResourceLimits::default(), true),
-            ResourceLimits::default().tun_dns_ingress_queue_capacity
-        );
-    }
-
-    #[test]
-    fn tun_netstack_keeps_queue_and_per_flow_bounds_without_a_flow_count_ceiling() {
-        let limits = ResourceLimits::default();
-        let config = tun_netstack_config(limits, true, false);
-
-        assert_eq!(config.tcp_accept_queue, limits.event_queue_capacity);
-        assert_eq!(
-            config.tcp_buffer_per_direction,
-            limits.tcp_buffer_per_direction
-        );
-        assert_eq!(config.mtu, 1_500);
-        assert_eq!(limits.max_datagram_size, 65_535);
-    }
-
-    fn test_association(
-        generation: u64,
-        last_activity: u64,
-    ) -> (
-        UdpAssociation,
-        mpsc::Receiver<UdpDatagram>,
-        CancellationToken,
-    ) {
-        let (sender, receiver) = mpsc::channel(1);
-        let cancellation = CancellationToken::new();
-        (
-            UdpAssociation {
-                generation,
-                sender,
-                cancellation: cancellation.clone(),
-                last_activity: Arc::new(AtomicU64::new(last_activity)),
-            },
-            receiver,
-            cancellation,
-        )
-    }
-
-    #[test]
-    fn stale_association_completion_cannot_remove_a_replacement_generation() {
-        let source: SocketAddr = "192.0.2.10:12000".parse().unwrap();
-        let (replacement, _receiver, _) = test_association(2, 0);
-        let mut associations = HashMap::from([(source, replacement)]);
-
-        assert!(remove_completed_association(&mut associations, source, 1).is_none());
-        assert_eq!(associations.get(&source).unwrap().generation, 2);
-        assert!(remove_completed_association(&mut associations, source, 2).is_some());
-        assert!(associations.is_empty());
-    }
-
-    #[test]
-    fn association_activity_clock_refreshes_only_successfully_queued_work() {
-        let tick = Arc::new(AtomicU64::new(100));
-        let clock = AssociationClock::injected(tick.clone());
-        let (association, mut receiver, _) = test_association(1, 5);
-        let stats = RuntimeResourceStats::new("tun_runtime_test");
-        let source: SocketAddr = "192.0.2.10:12000".parse().unwrap();
-        let destination: SocketAddr = "198.51.100.20:443".parse().unwrap();
-
-        assert!(matches!(
-            try_queue_association_input(
-                &association,
-                UdpDatagram::new(source, destination, b"queued".as_slice()),
-                clock.now(),
-                1,
-                &stats,
-            ),
-            AssociationInputResult::Queued
-        ));
-        assert_eq!(association.last_activity.load(Ordering::Acquire), 100);
-
-        tick.store(110, Ordering::Release);
-        assert!(matches!(
-            try_queue_association_input(
-                &association,
-                UdpDatagram::new(source, destination, b"full".as_slice()),
-                clock.now(),
-                1,
-                &stats,
-            ),
-            AssociationInputResult::Full
-        ));
-        assert_eq!(association.last_activity.load(Ordering::Acquire), 100);
-        assert_eq!(stats.snapshot().udp_queue_drops, 1);
-
-        receiver.try_recv().unwrap();
-        drop(receiver);
-        tick.store(120, Ordering::Release);
-        assert!(matches!(
-            try_queue_association_input(
-                &association,
-                UdpDatagram::new(source, destination, b"closed".as_slice()),
-                clock.now(),
-                1,
-                &stats,
-            ),
-            AssociationInputResult::Closed
-        ));
-        assert_eq!(association.last_activity.load(Ordering::Acquire), 100);
-    }
-
-    #[test]
-    fn periodic_cleanup_removes_expired_and_closed_but_preserves_active_entries() {
-        let now = 100;
-        let expired_source: SocketAddr = "192.0.2.10:12000".parse().unwrap();
-        let closed_source: SocketAddr = "192.0.2.11:12001".parse().unwrap();
-        let active_source: SocketAddr = "192.0.2.12:12002".parse().unwrap();
-        let (expired, _expired_receiver, expired_cancellation) = test_association(1, 70);
-        let (closed, closed_receiver, closed_cancellation) = test_association(2, 99);
-        let (active, _active_receiver, _) = test_association(3, 80);
-        drop(closed_receiver);
-        let mut associations = HashMap::from([
-            (expired_source, expired),
-            (closed_source, closed),
-            (active_source, active),
-        ]);
-
-        let removed = take_expired_or_closed_associations(&mut associations, now);
-        assert_eq!(removed.len(), 2);
-        assert!(associations.contains_key(&active_source));
-        assert!(!expired_cancellation.is_cancelled());
-        assert!(!closed_cancellation.is_cancelled());
-        cancel_removed_associations(removed);
-        assert!(expired_cancellation.is_cancelled());
-        assert!(closed_cancellation.is_cancelled());
-    }
-
-    #[derive(Default)]
-    struct MockDispatcher {
-        tcp_sessions: Mutex<Vec<StreamSession>>,
-        udp_sessions: Mutex<Vec<DatagramSession>>,
-        tcp_called: Notify,
-    }
-
-    #[async_trait]
-    impl Dispatcher for MockDispatcher {
-        async fn connect_tcp(&self, session: StreamSession) -> Result<BoxStream, DispatchError> {
-            self.tcp_sessions.lock().unwrap().push(session);
-            self.tcp_called.notify_one();
-            let (client, mut server) = tokio::io::duplex(1_024);
-            tokio::spawn(async move {
-                let mut buffer = [0_u8; 256];
-                while let Ok(size) = server.read(&mut buffer).await {
-                    if size == 0 || server.write_all(&buffer[..size]).await.is_err() {
-                        break;
-                    }
-                }
-            });
-            Ok(Box::new(client))
-        }
-
-        async fn open_datagram(
-            &self,
-            session: DatagramSession,
-        ) -> Result<Box<dyn DatagramTransport>, DispatchError> {
-            self.udp_sessions.lock().unwrap().push(session);
-            Ok(Box::new(EchoDatagrams::new()))
-        }
-    }
-
-    struct EchoDatagrams {
-        sender: mpsc::Sender<Datagram>,
-        receiver: mpsc::Receiver<Datagram>,
-    }
-
-    struct BlockingDispatcher {
-        send_started: Arc<Notify>,
-        send_count: Arc<AtomicUsize>,
-        open_count: Arc<AtomicUsize>,
-    }
-
-    struct RecordingUdpDispatcher {
-        datagrams: Arc<Mutex<Vec<Datagram>>>,
-        sent: Arc<Notify>,
-    }
-
-    struct RecordingUdpTransport {
-        datagrams: Arc<Mutex<Vec<Datagram>>>,
-        sent: Arc<Notify>,
-    }
-
-    struct ReplayFairDispatcher {
-        response: Datagram,
-        send_count: Arc<AtomicUsize>,
-        blocked_send_started: Arc<Notify>,
-    }
-
-    struct ReplayFairDatagrams {
-        response: Option<Datagram>,
-        send_count: Arc<AtomicUsize>,
-        blocked_send_started: Arc<Notify>,
-    }
-
-    #[async_trait]
-    impl Dispatcher for RecordingUdpDispatcher {
-        async fn connect_tcp(&self, _session: StreamSession) -> Result<BoxStream, DispatchError> {
-            Err(DispatchError::Other("unused TCP path".to_owned()))
-        }
-
-        async fn open_datagram(
-            &self,
-            _session: DatagramSession,
-        ) -> Result<Box<dyn DatagramTransport>, DispatchError> {
-            Ok(Box::new(RecordingUdpTransport {
-                datagrams: self.datagrams.clone(),
-                sent: self.sent.clone(),
-            }))
-        }
-    }
-
-    #[async_trait]
-    impl DatagramTransport for RecordingUdpTransport {
-        async fn send(&mut self, datagram: Datagram) -> Result<(), DispatchError> {
-            self.datagrams.lock().unwrap().push(datagram);
-            self.sent.notify_one();
-            Ok(())
-        }
-
-        async fn receive(&mut self) -> Result<Datagram, DispatchError> {
-            std::future::pending().await
-        }
-    }
-
-    #[async_trait]
-    impl Dispatcher for ReplayFairDispatcher {
-        async fn connect_tcp(&self, _session: StreamSession) -> Result<BoxStream, DispatchError> {
-            Err(DispatchError::Other("unused TCP path".to_owned()))
-        }
-
-        async fn open_datagram(
-            &self,
-            _session: DatagramSession,
-        ) -> Result<Box<dyn DatagramTransport>, DispatchError> {
-            Ok(Box::new(ReplayFairDatagrams {
-                response: Some(self.response.clone()),
-                send_count: self.send_count.clone(),
-                blocked_send_started: self.blocked_send_started.clone(),
-            }))
-        }
-    }
-
-    #[async_trait]
-    impl DatagramTransport for ReplayFairDatagrams {
-        async fn send(&mut self, _datagram: Datagram) -> Result<(), DispatchError> {
-            let send_index = self.send_count.fetch_add(1, Ordering::Relaxed);
-            if send_index == 0 {
-                return Ok(());
-            }
-            self.blocked_send_started.notify_one();
-            std::future::pending().await
-        }
-
-        async fn receive(&mut self) -> Result<Datagram, DispatchError> {
-            if self.send_count.load(Ordering::Relaxed) != 0
-                && let Some(response) = self.response.take()
-            {
-                return Ok(response);
-            }
-            std::future::pending().await
-        }
-    }
-
-    #[async_trait]
-    impl Dispatcher for BlockingDispatcher {
-        async fn connect_tcp(&self, _session: StreamSession) -> Result<BoxStream, DispatchError> {
-            Err(DispatchError::Other("unused TCP path".to_owned()))
-        }
-
-        async fn open_datagram(
-            &self,
-            _session: DatagramSession,
-        ) -> Result<Box<dyn DatagramTransport>, DispatchError> {
-            self.open_count.fetch_add(1, Ordering::Relaxed);
-            Ok(Box::new(BlockingDatagrams {
-                send_started: self.send_started.clone(),
-                send_count: Some(self.send_count.clone()),
-            }))
-        }
-    }
-
-    struct BlockingDatagrams {
-        send_started: Arc<Notify>,
-        send_count: Option<Arc<AtomicUsize>>,
-    }
-
-    #[derive(Default)]
-    struct DnsReplyDispatcher {
-        udp_sessions: Mutex<Vec<DatagramSession>>,
-    }
-
-    #[async_trait]
-    impl Dispatcher for DnsReplyDispatcher {
-        async fn connect_tcp(&self, _session: StreamSession) -> Result<BoxStream, DispatchError> {
-            Err(DispatchError::Other("unused TCP path".to_owned()))
-        }
-
-        async fn open_datagram(
-            &self,
-            session: DatagramSession,
-        ) -> Result<Box<dyn DatagramTransport>, DispatchError> {
-            self.udp_sessions.lock().unwrap().push(session);
-            Ok(Box::new(DnsReplyDatagrams::new()))
-        }
-    }
-
-    struct DnsReplyDatagrams {
-        sender: mpsc::Sender<Datagram>,
-        receiver: mpsc::Receiver<Datagram>,
-    }
-
-    impl DnsReplyDatagrams {
-        fn new() -> Self {
-            let (sender, receiver) = mpsc::channel(1);
-            Self { sender, receiver }
-        }
-    }
-
-    #[async_trait]
-    impl DatagramTransport for DnsReplyDatagrams {
-        async fn send(&mut self, mut datagram: Datagram) -> Result<(), DispatchError> {
-            let query = classify_query(&datagram.payload)
-                .map_err(|error| DispatchError::Other(error.to_string()))?;
-            datagram.payload = synthesize_empty_response(&query, 0)
-                .map_err(|error| DispatchError::Other(error.to_string()))?
-                .into();
-            self.sender
-                .send(datagram)
-                .await
-                .map_err(|_| DispatchError::Other("DNS reply transport stopped".to_owned()))
-        }
-
-        async fn receive(&mut self) -> Result<Datagram, DispatchError> {
-            self.receiver
-                .recv()
-                .await
-                .ok_or_else(|| DispatchError::Other("DNS reply transport stopped".to_owned()))
-        }
-    }
-
-    struct ResponseFirstDispatcher {
-        response: Datagram,
-    }
-
-    struct SourceSelectiveDispatcher {
-        blocked_source: SocketAddr,
-        send_started: Arc<Notify>,
-    }
-
-    #[async_trait]
-    impl Dispatcher for ResponseFirstDispatcher {
-        async fn connect_tcp(&self, _session: StreamSession) -> Result<BoxStream, DispatchError> {
-            Err(DispatchError::Other("unused TCP path".to_owned()))
-        }
-
-        async fn open_datagram(
-            &self,
-            _session: DatagramSession,
-        ) -> Result<Box<dyn DatagramTransport>, DispatchError> {
-            Ok(Box::new(ResponseFirstDatagrams {
-                response: Some(self.response.clone()),
-            }))
-        }
-    }
-
-    #[async_trait]
-    impl Dispatcher for SourceSelectiveDispatcher {
-        async fn connect_tcp(&self, _session: StreamSession) -> Result<BoxStream, DispatchError> {
-            Err(DispatchError::Other("unused TCP path".to_owned()))
-        }
-
-        async fn open_datagram(
-            &self,
-            session: DatagramSession,
-        ) -> Result<Box<dyn DatagramTransport>, DispatchError> {
-            if session.source == self.blocked_source {
-                Ok(Box::new(BlockingDatagrams {
-                    send_started: self.send_started.clone(),
-                    send_count: None,
-                }))
-            } else {
-                Ok(Box::new(EchoDatagrams::new()))
-            }
-        }
-    }
-
-    struct ResponseFirstDatagrams {
-        response: Option<Datagram>,
-    }
-
-    #[async_trait]
-    impl DatagramTransport for ResponseFirstDatagrams {
-        async fn send(&mut self, _datagram: Datagram) -> Result<(), DispatchError> {
-            std::future::pending().await
-        }
-
-        async fn receive(&mut self) -> Result<Datagram, DispatchError> {
-            if let Some(response) = self.response.take() {
-                return Ok(response);
-            }
-            std::future::pending().await
-        }
-    }
-
-    #[async_trait]
-    impl DatagramTransport for BlockingDatagrams {
-        async fn send(&mut self, _datagram: Datagram) -> Result<(), DispatchError> {
-            if let Some(send_count) = &self.send_count {
-                send_count.fetch_add(1, Ordering::Relaxed);
-            }
-            self.send_started.notify_one();
-            std::future::pending().await
-        }
-
-        async fn receive(&mut self) -> Result<Datagram, DispatchError> {
-            std::future::pending().await
-        }
-    }
-
-    impl EchoDatagrams {
-        fn new() -> Self {
-            let (sender, receiver) = mpsc::channel(1);
-            Self { sender, receiver }
-        }
-    }
-
-    #[async_trait]
-    impl DatagramTransport for EchoDatagrams {
-        async fn send(&mut self, mut datagram: Datagram) -> Result<(), DispatchError> {
-            if datagram.payload.as_ref() == b"oversize-response" {
-                datagram.payload = Bytes::from(vec![0_u8; TUN_MTU]);
-            }
-            self.sender
-                .send(datagram)
-                .await
-                .map_err(|_| DispatchError::Other("echo transport stopped".to_owned()))
-        }
-
-        async fn receive(&mut self) -> Result<Datagram, DispatchError> {
-            self.receiver
-                .recv()
-                .await
-                .ok_or_else(|| DispatchError::Other("echo transport stopped".to_owned()))
-        }
-    }
-
-    fn test_runtime_dns(dispatcher: Arc<dyn Dispatcher>) -> Arc<RuntimeDns> {
-        let config = DnsConfig {
-            enable: true,
-            ipv6: true,
-            nameservers: vec![DnsNameserver {
-                transport: DnsTransport::Udp,
-                address: Ipv4Addr::new(198, 51, 100, 53).into(),
-                port: 53,
-                route: DnsRoute::Direct,
-            }],
-            nameserver_policies: Vec::new(),
-        };
-        let proxies = ProxyDispatchers::new(vec![dispatcher.clone()]).unwrap();
-        let rules = RuleSet::compile(vec![RuleSpec {
-            kind: RuleKind::Match,
-            action: RuleAction::Direct,
-            no_resolve: false,
-        }])
-        .unwrap();
-        let limits = ResourceLimits::default();
-        Arc::new(RuntimeDns::new_routed_proxies_with_cache_limits(
-            &config,
-            proxies,
-            dispatcher,
-            rules,
-            Arc::new(EmptyGeoMatcher),
-            limits.dns_address_cache_entries,
-            limits.dns_redir_host_entries,
-        ))
-    }
-
-    #[tokio::test]
-    async fn synthetic_fd_with_dns_disabled_dispatches_tcp_and_reuses_udp_association() {
-        let (host, peer) = UnixDatagram::pair().unwrap();
-        host.set_nonblocking(true).unwrap();
-        peer.set_nonblocking(true).unwrap();
-        let fd = TunFd::duplicate(host.as_raw_fd()).unwrap();
-        let tun = TunIo::new(fd, crate::TunFraming::RawIp).unwrap();
-        let peer = tokio::net::UnixDatagram::from_std(peer).unwrap();
-        let dispatcher = Arc::new(MockDispatcher::default());
-        let limits = ResourceLimits {
-            packet_queue_capacity: 8,
-            event_queue_capacity: 4,
-            tun_max_datagram_size: 1_400,
-            ..ResourceLimits::default()
-        };
-        let runtime = TunRuntime::new(
-            tun,
-            limits,
-            dispatcher.clone(),
-            None,
-            true,
-            false,
-            Some(test_sniffer(
-                &[PortRange {
-                    start: 8_080,
-                    end: 8_080,
-                }],
-                &[],
-                &[],
-            )),
-        )
-        .unwrap();
-        let cancellation = CancellationToken::new();
-        let task = tokio::spawn(runtime.run(cancellation.clone()));
-
-        let udp_source: SocketAddr = "192.0.2.10:12000".parse().unwrap();
-        let udp_destination: SocketAddr = "198.51.100.20:53".parse().unwrap();
-
-        let mut oversized_ingress = vec![0_u8; TUN_MTU + 1];
-        oversized_ingress[0] = 0x45;
-        peer.send(&oversized_ingress).await.unwrap();
-
-        peer.send(&build_udp(
-            udp_source,
-            udp_destination,
-            b"oversize-response",
-        ))
-        .await
-        .unwrap();
-        let mut dropped = [0_u8; TUN_MTU];
-        assert!(
-            timeout(Duration::from_millis(100), peer.recv(&mut dropped))
-                .await
-                .is_err(),
-            "oversized UDP response unexpectedly reached TUN",
-        );
-
-        for destination in ["198.51.100.20:53", "203.0.113.30:443"] {
-            let destination: SocketAddr = destination.parse().unwrap();
-            peer.send(&build_udp(udp_source, destination, b"query"))
-                .await
-                .unwrap();
-            let mut response = [0_u8; TUN_MTU];
-            let size = timeout(Duration::from_secs(2), peer.recv(&mut response))
-                .await
-                .expect("UDP response timed out")
-                .unwrap();
-            assert_udp_response(&response[..size], destination, udp_source, b"query");
-        }
-        assert_eq!(dispatcher.udp_sessions.lock().unwrap().len(), 1);
-        assert_eq!(
-            dispatcher.udp_sessions.lock().unwrap()[0],
-            DatagramSession::for_tun(udp_source, 1_400)
-        );
-
-        let tcp_source: SocketAddr = "192.0.2.11:13000".parse().unwrap();
-        let tcp_destination: SocketAddr = "198.51.100.21:8080".parse().unwrap();
-        peer.send(&build_tcp_syn(tcp_source, tcp_destination))
-            .await
-            .unwrap();
-        let mut syn_ack = [0_u8; TUN_MTU];
-        let size = timeout(Duration::from_secs(2), peer.recv(&mut syn_ack))
-            .await
-            .expect("TCP SYN-ACK timed out")
-            .unwrap();
-        assert!(size >= 40);
-        assert_eq!(syn_ack[20 + 13] & 0x12, 0x12);
-        let server_sequence = u32::from_be_bytes(syn_ack[24..28].try_into().unwrap());
-        let request = b"GET / HTTP/1.1\r\nHost: Sniff.Example.COM\r\n\r\n";
-        peer.send(&build_tcp_segment(
-            tcp_source,
-            tcp_destination,
-            2,
-            server_sequence.wrapping_add(1),
-            0x18,
-            request,
-        ))
-        .await
-        .unwrap();
-        timeout(Duration::from_secs(2), async {
-            loop {
-                if !dispatcher.tcp_sessions.lock().unwrap().is_empty() {
-                    break;
-                }
-                dispatcher.tcp_called.notified().await;
-            }
-        })
-        .await
-        .expect("TCP dispatcher was not called");
-        assert_eq!(
-            dispatcher.tcp_sessions.lock().unwrap()[0],
-            StreamSession {
-                inbound: InboundKind::Tun,
-                source: tcp_source,
-                destination: Destination::Ip(tcp_destination),
-                sniffed_domain: Some("sniff.example.com".to_owned()),
-            }
-        );
-        let echoed = timeout(Duration::from_secs(2), async {
-            let mut echoed = Vec::with_capacity(request.len());
-            while echoed.len() < request.len() {
-                let size = peer.recv(&mut syn_ack).await.unwrap();
-                if size < 40 || syn_ack[9] != 6 {
-                    continue;
-                }
-                let ip_header_length = usize::from(syn_ack[0] & 0x0f) * 4;
-                let tcp_header_length = usize::from(syn_ack[ip_header_length + 12] >> 4) * 4;
-                let payload_offset = ip_header_length + tcp_header_length;
-                if payload_offset < size {
-                    echoed.extend_from_slice(&syn_ack[payload_offset..size]);
-                }
-            }
-            echoed
-        })
-        .await
-        .expect("sniffed TCP prefix was not replayed through the outbound");
-        assert_eq!(echoed, request);
-
-        cancellation.cancel();
-        timeout(Duration::from_secs(2), task)
-            .await
-            .expect("TUN runtime stop timed out")
-            .unwrap()
-            .unwrap();
-    }
-
-    #[tokio::test]
-    async fn unconfigured_tls_port_dispatches_without_reading_a_prefix() {
-        let (host, peer) = UnixDatagram::pair().unwrap();
-        host.set_nonblocking(true).unwrap();
-        peer.set_nonblocking(true).unwrap();
-        let fd = TunFd::duplicate(host.as_raw_fd()).unwrap();
-        let tun = TunIo::new(fd, crate::TunFraming::RawIp).unwrap();
-        let peer = tokio::net::UnixDatagram::from_std(peer).unwrap();
-        let dispatcher = Arc::new(MockDispatcher::default());
-        let limits = ResourceLimits {
-            packet_queue_capacity: 4,
-            event_queue_capacity: 2,
-            tun_max_datagram_size: TUN_MTU,
-            ..ResourceLimits::default()
-        };
-        let runtime = TunRuntime::new(
-            tun,
-            limits,
-            dispatcher.clone(),
-            None,
-            true,
-            false,
-            Some(test_sniffer(
-                &[],
-                &[PortRange {
-                    start: 8_443,
-                    end: 8_443,
-                }],
-                &[],
-            )),
-        )
-        .unwrap();
-        let cancellation = CancellationToken::new();
-        let task = tokio::spawn(runtime.run(cancellation.clone()));
-
-        let source: SocketAddr = "192.0.2.12:14000".parse().unwrap();
-        let destination: SocketAddr = "198.51.100.22:443".parse().unwrap();
-        peer.send(&build_tcp_syn(source, destination))
-            .await
-            .unwrap();
-        let mut syn_ack = [0_u8; TUN_MTU];
-        let size = timeout(Duration::from_secs(2), peer.recv(&mut syn_ack))
-            .await
-            .expect("TCP SYN-ACK timed out")
-            .unwrap();
-        assert!(size >= 40);
-        assert_eq!(syn_ack[20 + 13] & 0x12, 0x12);
-        let server_sequence = u32::from_be_bytes(syn_ack[24..28].try_into().unwrap());
-
-        // Complete the handshake without sending any TLS bytes. A mistakenly
-        // enabled sniffer would wait for its 200 ms read deadline here.
-        peer.send(&build_tcp_segment(
-            source,
-            destination,
-            2,
-            server_sequence.wrapping_add(1),
-            0x10,
-            &[],
-        ))
-        .await
-        .unwrap();
-        timeout(Duration::from_millis(100), async {
-            loop {
-                if !dispatcher.tcp_sessions.lock().unwrap().is_empty() {
-                    break;
-                }
-                dispatcher.tcp_called.notified().await;
-            }
-        })
-        .await
-        .expect("unconfigured TLS port delayed dispatch for a prefix read");
-        assert_eq!(
-            dispatcher.tcp_sessions.lock().unwrap()[0],
-            StreamSession {
-                inbound: InboundKind::Tun,
-                source,
-                destination: Destination::Ip(destination),
-                sniffed_domain: None,
-            }
-        );
-
-        cancellation.cancel();
-        timeout(Duration::from_secs(2), task)
-            .await
-            .expect("TUN runtime stop timed out")
-            .unwrap()
-            .unwrap();
-    }
-
-    #[tokio::test]
-    async fn enabled_dns_fast_path_replies_without_opening_a_tun_udp_association() {
-        let (host, peer) = UnixDatagram::pair().unwrap();
-        host.set_nonblocking(true).unwrap();
-        peer.set_nonblocking(true).unwrap();
-        let fd = TunFd::duplicate(host.as_raw_fd()).unwrap();
-        let tun = TunIo::new(fd, crate::TunFraming::RawIp).unwrap();
-        let peer = tokio::net::UnixDatagram::from_std(peer).unwrap();
-        let dispatcher = Arc::new(MockDispatcher::default());
-        let dns_dispatcher = Arc::new(DnsReplyDispatcher::default());
-        let dns = test_runtime_dns(dns_dispatcher.clone());
-        let limits = ResourceLimits {
-            packet_queue_capacity: 16,
-            event_queue_capacity: 8,
-            tun_max_datagram_size: TUN_MTU,
-            ..ResourceLimits::default()
-        };
-        let runtime = TunRuntime::new(
-            tun,
-            limits,
-            dispatcher.clone(),
-            Some(dns),
-            true,
-            false,
-            Some(test_sniffer(&[], &[], &[PortRange { start: 53, end: 53 }])),
-        )
-        .unwrap();
-        let cancellation = CancellationToken::new();
-        let task = tokio::spawn(runtime.run(cancellation.clone()));
-
-        let source: SocketAddr = "192.0.2.10:12000".parse().unwrap();
-        let requested_server: SocketAddr = "198.51.100.20:53".parse().unwrap();
-        peer.send(&build_udp(source, requested_server, b"invalid"))
-            .await
-            .unwrap();
-        let mut response = [0_u8; TUN_MTU];
-        assert!(
-            timeout(Duration::from_millis(100), peer.recv(&mut response))
-                .await
-                .is_err(),
-            "malformed DNS query unexpectedly produced a response",
-        );
-        assert!(dispatcher.udp_sessions.lock().unwrap().is_empty());
-        assert!(dns_dispatcher.udp_sessions.lock().unwrap().is_empty());
-
-        let query = build_query(0x1234, "example.com", QueryType::A).unwrap();
-        peer.send(&build_udp(source, requested_server, &query))
-            .await
-            .unwrap();
-        let size = timeout(Duration::from_secs(2), peer.recv(&mut response))
-            .await
-            .expect("TUN DNS response timed out")
-            .unwrap();
-        assert!(size > 30);
-        assert_eq!(response[9], 17);
-        assert_eq!(
-            u16::from_be_bytes(response[20..22].try_into().unwrap()),
-            requested_server.port()
-        );
-        assert_eq!(
-            u16::from_be_bytes(response[22..24].try_into().unwrap()),
-            source.port()
-        );
-        assert_ne!(response[30] & 0x80, 0);
-        assert_eq!(&response[28..30], &0x1234_u16.to_be_bytes());
-        assert!(dispatcher.udp_sessions.lock().unwrap().is_empty());
-        assert_eq!(dns_dispatcher.udp_sessions.lock().unwrap().len(), 1);
-        assert_eq!(
-            dns_dispatcher.udp_sessions.lock().unwrap()[0].inbound,
-            InboundKind::InternalDns
-        );
-
-        let ordinary_destination: SocketAddr = "203.0.113.30:443".parse().unwrap();
-        peer.send(&build_udp(source, ordinary_destination, b"ordinary"))
-            .await
-            .unwrap();
-        let size = timeout(Duration::from_secs(2), peer.recv(&mut response))
-            .await
-            .expect("ordinary UDP response timed out")
-            .unwrap();
-        assert_udp_response(&response[..size], ordinary_destination, source, b"ordinary");
-        assert_eq!(dispatcher.udp_sessions.lock().unwrap().len(), 1);
-
-        cancellation.cancel();
-        timeout(Duration::from_secs(2), task)
-            .await
-            .expect("TUN runtime stop timed out")
-            .unwrap()
-            .unwrap();
-    }
-
-    #[tokio::test]
-    async fn queued_dns_response_is_bounded_and_a_full_queue_drops_the_new_response() {
-        let dns = test_runtime_dns(Arc::new(DnsReplyDispatcher::default()));
-        let source: SocketAddr = "192.0.2.10:12000".parse().unwrap();
-        let requested_server: SocketAddr = "198.51.100.20:53".parse().unwrap();
-        let request = UdpDatagram::new(
-            source,
-            requested_server,
-            build_query(0x2100, "queued.example", QueryType::A).unwrap(),
-        );
-        let (responses, mut queued) = mpsc::channel(1);
-        let resource_stats = RuntimeResourceStats::new("tun_runtime_test");
-
-        let permit = dns.begin_query();
-        run_tun_dns_query(
-            dns.clone(),
-            permit,
-            request,
-            responses.clone(),
-            TUN_MTU,
-            resource_stats.clone(),
-            CancellationToken::new(),
-        )
-        .await;
-        let response = queued.recv().await.unwrap();
-        assert_eq!(response.source, requested_server);
-        assert_eq!(response.destination, source);
-        drop(response);
-
-        responses
-            .send(QueuedUdpResponse::ordinary(UdpDatagram::new(
-                requested_server,
-                source,
-                b"occupied".as_slice(),
-            )))
-            .await
-            .unwrap();
-        let request = UdpDatagram::new(
-            source,
-            requested_server,
-            build_query(0x2101, "full.example", QueryType::A).unwrap(),
-        );
-        let permit = dns.begin_query();
-        run_tun_dns_query(
-            dns.clone(),
-            permit,
-            request,
-            responses,
-            TUN_MTU,
-            resource_stats.clone(),
-            CancellationToken::new(),
-        )
-        .await;
-        assert_eq!(resource_stats.snapshot().dns_queue_drops, 1);
-        assert_eq!(&queued.recv().await.unwrap().payload[..], b"occupied");
-    }
-
-    #[tokio::test]
-    async fn ordinary_and_dns_responses_have_independent_queue_capacity() {
-        let dns = test_runtime_dns(Arc::new(DnsReplyDispatcher::default()));
-        let source: SocketAddr = "192.0.2.10:12000".parse().unwrap();
-        let server: SocketAddr = "198.51.100.20:53".parse().unwrap();
-        let stats = RuntimeResourceStats::new("tun_runtime_test");
-        let (ordinary_tx, mut ordinary_rx) = mpsc::channel(1);
-        let (dns_tx, mut dns_rx) = mpsc::channel(1);
-
-        ordinary_tx
-            .send(QueuedUdpResponse::ordinary(UdpDatagram::new(
-                server,
-                source,
-                b"ordinary-occupied".as_slice(),
-            )))
-            .await
-            .unwrap();
-        let permit = dns.begin_query();
-        try_queue_tun_dns_response(
-            &dns_tx,
-            UdpDatagram::new(server, source, b"dns-independent".as_slice()),
-            Some(permit),
-            &stats,
-        );
-
-        let dns_response = dns_rx.recv().await.unwrap();
-        assert_eq!(&dns_response.payload[..], b"dns-independent");
-        drop(dns_response);
-        assert_eq!(
-            &ordinary_rx.recv().await.unwrap().payload[..],
-            b"ordinary-occupied"
-        );
-    }
-
-    #[tokio::test]
-    async fn full_ordinary_response_queue_drops_without_refreshing_activity() {
-        let source: SocketAddr = "192.0.2.10:12000".parse().unwrap();
-        let server: SocketAddr = "198.51.100.20:443".parse().unwrap();
-        let stats = RuntimeResourceStats::new("tun_runtime_test");
-        let last_activity = AtomicU64::new(5);
-        let (responses, mut queued) = mpsc::channel(1);
-
-        assert!(matches!(
-            try_queue_tun_udp_response(
-                &responses,
-                UdpDatagram::new(server, source, b"queued".as_slice()),
-                &last_activity,
-                100,
-                &stats,
-            ),
-            ResponseQueueResult::Queued
-        ));
-        assert_eq!(last_activity.load(Ordering::Acquire), 100);
-        assert!(matches!(
-            try_queue_tun_udp_response(
-                &responses,
-                UdpDatagram::new(server, source, b"dropped".as_slice()),
-                &last_activity,
-                110,
-                &stats,
-            ),
-            ResponseQueueResult::Dropped
-        ));
-        assert_eq!(last_activity.load(Ordering::Acquire), 100);
-        assert_eq!(stats.snapshot().udp_queue_drops, 1);
-        assert_eq!(&queued.recv().await.unwrap().payload[..], b"queued");
-    }
-
-    #[tokio::test]
-    async fn dns_fast_path_allows_sixteen_concurrent_sources_and_keeps_udp_responsive() {
-        const QUERY_COUNT: usize = 16;
-
-        let (host, peer) = UnixDatagram::pair().unwrap();
-        host.set_nonblocking(true).unwrap();
-        peer.set_nonblocking(true).unwrap();
-        let fd = TunFd::duplicate(host.as_raw_fd()).unwrap();
-        let tun = TunIo::new(fd, crate::TunFraming::RawIp).unwrap();
-        let peer = tokio::net::UnixDatagram::from_std(peer).unwrap();
-        let dispatcher = Arc::new(MockDispatcher::default());
-        let send_started = Arc::new(Notify::new());
-        let send_count = Arc::new(AtomicUsize::new(0));
-        let open_count = Arc::new(AtomicUsize::new(0));
-        let dns_dispatcher = Arc::new(BlockingDispatcher {
-            send_started,
-            send_count: send_count.clone(),
-            open_count: open_count.clone(),
-        });
-        let dns = test_runtime_dns(dns_dispatcher);
-        let limits = ResourceLimits {
-            packet_queue_capacity: 64,
-            event_queue_capacity: 32,
-            tun_max_datagram_size: TUN_MTU,
-            ..ResourceLimits::default()
-        };
-        let runtime = TunRuntime::new(
-            tun,
-            limits,
-            dispatcher.clone(),
-            Some(dns),
-            true,
-            false,
-            None,
-        )
-        .unwrap();
-        let cancellation = CancellationToken::new();
-        let task = tokio::spawn(runtime.run(cancellation.clone()));
-        let requested_server: SocketAddr = "198.51.100.20:53".parse().unwrap();
-
-        let malformed_source: SocketAddr = "192.0.2.10:11999".parse().unwrap();
-        peer.send(&build_udp(malformed_source, requested_server, b"invalid"))
-            .await
-            .unwrap();
-
-        for index in 0..QUERY_COUNT {
-            let source = SocketAddr::new(
-                Ipv4Addr::new(192, 0, 2, 10).into(),
-                12_000 + u16::try_from(index).unwrap(),
-            );
-            let domain = format!("stall-{index}.example");
-            let query = build_query(
-                0x1000 + u16::try_from(index).unwrap(),
-                &domain,
-                QueryType::A,
-            )
-            .unwrap();
-            peer.send(&build_udp(source, requested_server, &query))
-                .await
-                .unwrap();
-        }
-        timeout(Duration::from_secs(2), async {
-            while send_count.load(Ordering::Relaxed) < QUERY_COUNT {
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .expect("the DNS queries did not reach their stalled upstreams");
-        assert!(dispatcher.udp_sessions.lock().unwrap().is_empty());
-        assert_eq!(open_count.load(Ordering::Relaxed), QUERY_COUNT);
-
-        let ordinary_source: SocketAddr = "192.0.2.99:13000".parse().unwrap();
-        let ordinary_destination: SocketAddr = "203.0.113.30:443".parse().unwrap();
-        peer.send(&build_udp(
-            ordinary_source,
-            ordinary_destination,
-            b"still-responsive",
-        ))
-        .await
-        .unwrap();
-        let mut response = [0_u8; TUN_MTU];
-        let size = timeout(Duration::from_secs(2), peer.recv(&mut response))
-            .await
-            .expect("stalled DNS queries blocked ordinary UDP")
-            .unwrap();
-        assert_udp_response(
-            &response[..size],
-            ordinary_destination,
-            ordinary_source,
-            b"still-responsive",
-        );
-
-        assert_eq!(dispatcher.udp_sessions.lock().unwrap().len(), 1);
-        assert_eq!(open_count.load(Ordering::Relaxed), QUERY_COUNT);
-        assert_eq!(send_count.load(Ordering::Relaxed), QUERY_COUNT);
-
-        cancellation.cancel();
-        timeout(Duration::from_secs(2), task)
-            .await
-            .expect("stalled DNS tasks prevented the TUN stop barrier")
-            .unwrap()
-            .unwrap();
-    }
-
-    #[test]
-    fn oversized_tun_dns_response_is_dropped() {
-        let source: SocketAddr = "192.0.2.10:12000".parse().unwrap();
-        let requested_server: SocketAddr = "198.51.100.20:53".parse().unwrap();
-        let query = build_query(0x3456, "example.com", QueryType::A).unwrap();
-        let request = UdpDatagram::new(source, requested_server, query.clone());
-        let tun_mtu = 1_400;
-        let ceiling =
-            usize::from(DatagramSession::for_tun(source, tun_mtu).max_response_payload_size());
-        assert!(complete_tun_dns_response(&request, vec![0_u8; ceiling], tun_mtu).is_some());
-        assert!(complete_tun_dns_response(&request, vec![0_u8; ceiling + 1], tun_mtu).is_none());
-    }
-
-    #[test]
-    fn ipv6_tun_dns_responses_preserve_the_requested_server_and_client_endpoints() {
-        let source: SocketAddr = "[2001:db8::10]:12000".parse().unwrap();
-        let requested_server: SocketAddr = "[2001:db8::53]:53".parse().unwrap();
-        let query = build_query(0x4567, "example.com", QueryType::Aaaa).unwrap();
-        let classified = classify_query(&query).unwrap();
-        let request = UdpDatagram::new(source, requested_server, query);
-        let response = complete_tun_dns_response(
-            &request,
-            synthesize_empty_response(&classified, 0).unwrap(),
-            TUN_MTU,
-        )
-        .unwrap();
-        assert_eq!(response.source, requested_server);
-        assert_eq!(response.destination, source);
-        let parsed = crate::dns::parse_response(&response.payload).unwrap();
-        assert_eq!(parsed.id, classified.id);
-
-        let servfail = tun_dns_servfail_response(&request, &classified);
-        assert_eq!(servfail.source, requested_server);
-        assert_eq!(servfail.destination, source);
-        assert_eq!(
-            u16::from_be_bytes([servfail.payload[2], servfail.payload[3]]) & 0x000f,
-            2
-        );
-    }
-
-    #[tokio::test]
-    async fn cancellation_interrupts_a_blocked_udp_send_and_completes_the_stop_barrier() {
-        let (host, peer) = UnixDatagram::pair().unwrap();
-        host.set_nonblocking(true).unwrap();
-        peer.set_nonblocking(true).unwrap();
-        let fd = TunFd::duplicate(host.as_raw_fd()).unwrap();
-        let tun = TunIo::new(fd, crate::TunFraming::RawIp).unwrap();
-        let peer = tokio::net::UnixDatagram::from_std(peer).unwrap();
-        let send_started = Arc::new(Notify::new());
-        let dispatcher = Arc::new(BlockingDispatcher {
-            send_started: send_started.clone(),
-            send_count: Arc::new(AtomicUsize::new(0)),
-            open_count: Arc::new(AtomicUsize::new(0)),
-        });
-        let runtime = TunRuntime::new(
-            tun,
-            ResourceLimits::default(),
-            dispatcher,
-            None,
-            true,
-            false,
-            None,
-        )
-        .unwrap();
-        let cancellation = CancellationToken::new();
-        let task = tokio::spawn(runtime.run(cancellation.clone()));
-
-        peer.send(&build_udp(
-            "192.0.2.10:12000".parse().unwrap(),
-            "198.51.100.20:53".parse().unwrap(),
-            b"block",
-        ))
-        .await
-        .unwrap();
-        timeout(Duration::from_secs(2), send_started.notified())
-            .await
-            .expect("UDP transport send was not polled");
-
-        cancellation.cancel();
-        timeout(Duration::from_secs(2), task)
-            .await
-            .expect("blocked UDP send prevented the TUN stop barrier")
-            .unwrap()
-            .unwrap();
-    }
-
-    #[tokio::test]
-    async fn fresh_udp_source_beyond_the_old_sixty_four_limit_is_accepted() {
-        const OLD_UDP_LIMIT: usize = 64;
-
-        let (host, peer) = UnixDatagram::pair().unwrap();
-        host.set_nonblocking(true).unwrap();
-        peer.set_nonblocking(true).unwrap();
-        let fd = TunFd::duplicate(host.as_raw_fd()).unwrap();
-        let tun = TunIo::new(fd, crate::TunFraming::RawIp).unwrap();
-        let peer = tokio::net::UnixDatagram::from_std(peer).unwrap();
-        let send_started = Arc::new(Notify::new());
-        let send_count = Arc::new(AtomicUsize::new(0));
-        let open_count = Arc::new(AtomicUsize::new(0));
-        let dispatcher = Arc::new(BlockingDispatcher {
-            send_started,
-            send_count: send_count.clone(),
-            open_count: open_count.clone(),
-        });
-        let limits = ResourceLimits {
-            packet_queue_capacity: 128,
-            event_queue_capacity: 128,
-            tun_max_datagram_size: TUN_MTU,
-            ..ResourceLimits::default()
-        };
-        let runtime = TunRuntime::new(tun, limits, dispatcher, None, true, false, None).unwrap();
-        let cancellation = CancellationToken::new();
-        let task = tokio::spawn(runtime.run(cancellation.clone()));
-        let destination: SocketAddr = "198.51.100.20:443".parse().unwrap();
-
-        for index in 0..OLD_UDP_LIMIT {
-            let source = SocketAddr::new(
-                Ipv4Addr::new(192, 0, 2, 10).into(),
-                12_000 + u16::try_from(index).unwrap(),
-            );
-            peer.send(&build_udp(source, destination, b"held"))
-                .await
-                .unwrap();
-            timeout(Duration::from_secs(2), async {
-                while open_count.load(Ordering::Acquire) <= index {
-                    tokio::task::yield_now().await;
-                }
-            })
-            .await
-            .expect("a UDP association was not opened");
-        }
-        assert_eq!(send_count.load(Ordering::Acquire), OLD_UDP_LIMIT);
-        assert_eq!(open_count.load(Ordering::Acquire), OLD_UDP_LIMIT);
-
-        let sixty_fifth_source: SocketAddr = "192.0.2.99:13000".parse().unwrap();
-        peer.send(&build_udp(sixty_fifth_source, destination, b"accepted"))
-            .await
-            .unwrap();
-        timeout(Duration::from_secs(2), async {
-            while open_count.load(Ordering::Acquire) == OLD_UDP_LIMIT {
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .expect("the sixty-fifth fresh UDP source was not accepted");
-        assert_eq!(open_count.load(Ordering::Acquire), OLD_UDP_LIMIT + 1);
-
-        cancellation.cancel();
-        timeout(Duration::from_secs(2), task)
-            .await
-            .expect("TUN runtime stop timed out")
-            .unwrap()
-            .unwrap();
-    }
-
-    #[tokio::test]
-    async fn queued_udp_response_is_drained_before_a_same_source_ingress_burst() {
-        let source: SocketAddr = "192.0.2.10:12000".parse().unwrap();
-        let server: SocketAddr = "198.51.100.20:53".parse().unwrap();
-        let dispatcher = Arc::new(ResponseFirstDispatcher {
-            response: Datagram {
-                remote: Destination::Ip(server),
-                payload: Bytes::from_static(b"response"),
-                sniffed_domain: None,
-            },
-        });
-        let (inbound_tx, mut inbound_rx) = mpsc::channel(1);
-        inbound_tx
-            .send(UdpDatagram::new(source, server, b"next-query".as_slice()))
-            .await
-            .unwrap();
-        let (responses_tx, mut responses_rx) = mpsc::channel(1);
-        let cancellation = CancellationToken::new();
-        let child = cancellation.clone();
-        let task = tokio::spawn(async move {
-            run_udp_association_inner(
-                &mut inbound_rx,
-                &UdpAssociationTaskContext {
-                    association_id: 1,
-                    source,
-                    responses: responses_tx,
-                    dispatcher,
-                    resource_stats: RuntimeResourceStats::new("tun_runtime_test"),
-                    association_clock: AssociationClock::realtime(),
-                    last_activity: Arc::new(AtomicU64::new(0)),
-                    tun_mtu: TUN_MTU,
-                    sniffer: None,
-                    cancellation: child,
-                },
-            )
-            .await
-        });
-
-        let response = timeout(Duration::from_secs(1), responses_rx.recv())
-            .await
-            .expect("ready response was starved behind the same-source query")
-            .expect("response channel closed");
-        assert_eq!(response.source, server);
-        assert_eq!(response.destination, source);
-        assert_eq!(&response.payload[..], b"response");
-
-        cancellation.cancel();
-        timeout(Duration::from_secs(1), task)
-            .await
-            .expect("association did not stop")
-            .unwrap()
-            .unwrap();
-        drop(inbound_tx);
-    }
-
-    #[tokio::test]
-    async fn full_udp_association_queue_does_not_block_other_sources() {
-        let (host, peer) = UnixDatagram::pair().unwrap();
-        host.set_nonblocking(true).unwrap();
-        peer.set_nonblocking(true).unwrap();
-        let fd = TunFd::duplicate(host.as_raw_fd()).unwrap();
-        let tun = TunIo::new(fd, crate::TunFraming::RawIp).unwrap();
-        let peer = tokio::net::UnixDatagram::from_std(peer).unwrap();
-        let blocked_source: SocketAddr = "192.0.2.10:12000".parse().unwrap();
-        let responsive_source: SocketAddr = "192.0.2.11:12001".parse().unwrap();
-        let destination: SocketAddr = "198.51.100.20:53".parse().unwrap();
-        let send_started = Arc::new(Notify::new());
-        let dispatcher = Arc::new(SourceSelectiveDispatcher {
-            blocked_source,
-            send_started: send_started.clone(),
-        });
-        let limits = ResourceLimits {
-            packet_queue_capacity: 64,
-            event_queue_capacity: 64,
-            tun_max_datagram_size: TUN_MTU,
-            ..ResourceLimits::default()
-        };
-        let runtime = TunRuntime::new(tun, limits, dispatcher, None, true, false, None).unwrap();
-        let cancellation = CancellationToken::new();
-        let task = tokio::spawn(runtime.run(cancellation.clone()));
-
-        peer.send(&build_udp(blocked_source, destination, b"block"))
-            .await
-            .unwrap();
-        timeout(Duration::from_secs(2), send_started.notified())
-            .await
-            .expect("blocked association did not enter outbound send");
-
-        for _ in 0..=UDP_ASSOCIATION_QUEUE_MAX {
-            peer.send(&build_udp(blocked_source, destination, b"queued"))
-                .await
-                .unwrap();
-            tokio::task::yield_now().await;
-        }
-        peer.send(&build_udp(
-            responsive_source,
-            destination,
-            b"still-responsive",
-        ))
-        .await
-        .unwrap();
-
-        let mut response = [0_u8; TUN_MTU];
-        let size = timeout(Duration::from_secs(2), peer.recv(&mut response))
-            .await
-            .expect("a full source queue blocked another UDP association")
-            .unwrap();
-        assert_udp_response(
-            &response[..size],
-            destination,
-            responsive_source,
-            b"still-responsive",
-        );
-
-        cancellation.cancel();
-        timeout(Duration::from_secs(2), task)
-            .await
-            .expect("TUN runtime stop timed out")
-            .unwrap()
-            .unwrap();
-    }
-
-    fn build_udp(source: SocketAddr, destination: SocketAddr, payload: &[u8]) -> Vec<u8> {
-        let (SocketAddr::V4(source), SocketAddr::V4(destination)) = (source, destination) else {
-            panic!("test helper requires IPv4");
-        };
-        let mut udp = vec![0_u8; 8 + payload.len()];
-        udp[..2].copy_from_slice(&source.port().to_be_bytes());
-        udp[2..4].copy_from_slice(&destination.port().to_be_bytes());
-        let udp_len = u16::try_from(udp.len()).unwrap();
-        udp[4..6].copy_from_slice(&udp_len.to_be_bytes());
-        udp[8..].copy_from_slice(payload);
-        let checksum = transport_checksum(*source.ip(), *destination.ip(), 17, &udp);
-        udp[6..8].copy_from_slice(&checksum.to_be_bytes());
-        build_ipv4(*source.ip(), *destination.ip(), 17, &udp)
-    }
-
-    fn build_tcp_syn(source: SocketAddr, destination: SocketAddr) -> Vec<u8> {
-        build_tcp_segment(source, destination, 1, 0, 0x02, &[])
-    }
-
-    fn build_tcp_segment(
-        source: SocketAddr,
-        destination: SocketAddr,
-        sequence: u32,
-        acknowledgement: u32,
-        flags: u8,
-        payload: &[u8],
-    ) -> Vec<u8> {
-        let (SocketAddr::V4(source), SocketAddr::V4(destination)) = (source, destination) else {
-            panic!("test helper requires IPv4");
-        };
-        let mut tcp = vec![0_u8; 20 + payload.len()];
-        tcp[..2].copy_from_slice(&source.port().to_be_bytes());
-        tcp[2..4].copy_from_slice(&destination.port().to_be_bytes());
-        tcp[4..8].copy_from_slice(&sequence.to_be_bytes());
-        tcp[8..12].copy_from_slice(&acknowledgement.to_be_bytes());
-        tcp[12] = 5 << 4;
-        tcp[13] = flags;
-        tcp[14..16].copy_from_slice(&u16::MAX.to_be_bytes());
-        tcp[20..].copy_from_slice(payload);
-        let checksum = transport_checksum(*source.ip(), *destination.ip(), 6, &tcp);
-        tcp[16..18].copy_from_slice(&checksum.to_be_bytes());
-        build_ipv4(*source.ip(), *destination.ip(), 6, &tcp)
-    }
-
-    fn build_ipv4(
-        source: Ipv4Addr,
-        destination: Ipv4Addr,
-        protocol: u8,
-        transport: &[u8],
-    ) -> Vec<u8> {
-        let mut packet = vec![0_u8; 20 + transport.len()];
-        let packet_len = u16::try_from(packet.len()).unwrap();
-        packet[0] = 0x45;
-        packet[2..4].copy_from_slice(&packet_len.to_be_bytes());
-        packet[6..8].copy_from_slice(&0x4000_u16.to_be_bytes());
-        packet[8] = 64;
-        packet[9] = protocol;
-        packet[12..16].copy_from_slice(&source.octets());
-        packet[16..20].copy_from_slice(&destination.octets());
-        let checksum = checksum(&packet[..20]);
-        packet[10..12].copy_from_slice(&checksum.to_be_bytes());
-        packet[20..].copy_from_slice(transport);
-        packet
-    }
-
-    fn assert_udp_response(
-        packet: &[u8],
-        source: SocketAddr,
-        destination: SocketAddr,
-        payload: &[u8],
-    ) {
-        assert_eq!(packet[9], 17);
-        assert_eq!(
-            u16::from_be_bytes(packet[20..22].try_into().unwrap()),
-            source.port()
-        );
-        assert_eq!(
-            u16::from_be_bytes(packet[22..24].try_into().unwrap()),
-            destination.port()
-        );
-        assert_eq!(&packet[28..], payload);
-    }
-
-    fn transport_checksum(
-        source: Ipv4Addr,
-        destination: Ipv4Addr,
-        protocol: u8,
-        transport: &[u8],
-    ) -> u16 {
-        let mut sum = 0_u32;
-        add_bytes(&mut sum, &source.octets());
-        add_bytes(&mut sum, &destination.octets());
-        sum += u32::from(protocol);
-        sum += u32::try_from(transport.len()).unwrap();
-        add_bytes(&mut sum, transport);
-        fold(sum)
-    }
-
-    fn checksum(bytes: &[u8]) -> u16 {
-        let mut sum = 0_u32;
-        add_bytes(&mut sum, bytes);
-        fold(sum)
-    }
-
-    fn add_bytes(sum: &mut u32, bytes: &[u8]) {
-        let (chunks, remainder) = bytes.as_chunks::<2>();
-        for chunk in chunks {
-            *sum += u32::from(u16::from_be_bytes(*chunk));
-        }
-        if let Some(byte) = remainder.first() {
-            *sum += u32::from(*byte) << 8;
-        }
-    }
-
-    fn fold(mut sum: u32) -> u16 {
-        while sum >> 16 != 0 {
-            sum = (sum & 0xffff) + (sum >> 16);
-        }
-        let checksum = !u16::try_from(sum).unwrap();
-        if checksum == 0 { u16::MAX } else { checksum }
-    }
-}
+mod tests;

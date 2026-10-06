@@ -94,7 +94,7 @@ impl TunTrafficStats {
 }
 
 fn saturating_add(counter: &AtomicU64, value: u64) {
-    let _ = counter.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+    let _ = counter.try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
         Some(current.saturating_add(value).min(MAX_PUBLIC_TRAFFIC_BYTES))
     });
 }
@@ -148,5 +148,32 @@ mod tests {
             .store(MAX_PUBLIC_TRAFFIC_BYTES - 1, Ordering::Relaxed);
         stats.record_up(8);
         assert_eq!(stats.snapshot().up_total, MAX_PUBLIC_TRAFFIC_BYTES);
+    }
+
+    #[test]
+    fn batch_byte_totals_preserve_rotation_and_saturation() {
+        let individual = TunTrafficStats::default();
+        let batched = TunTrafficStats::default();
+        for stats in [&individual, &batched] {
+            stats
+                .down_pending
+                .store(MAX_PUBLIC_TRAFFIC_BYTES - 1, Ordering::Relaxed);
+            stats
+                .down_total
+                .store(MAX_PUBLIC_TRAFFIC_BYTES - 1, Ordering::Relaxed);
+        }
+        let sizes = [20, 40, 1_500, 0, 28, 1_200, 36, 1_400];
+        for bytes in sizes {
+            individual.record_up(bytes);
+            individual.record_down(bytes);
+        }
+        batched.record_up(sizes.iter().sum());
+        batched.record_down(sizes.iter().sum());
+        assert_eq!(individual.snapshot(), batched.snapshot());
+        individual.rotate_rate_bucket();
+        batched.rotate_rate_bucket();
+        assert_eq!(individual.snapshot(), batched.snapshot());
+        assert_eq!(batched.snapshot().down, MAX_PUBLIC_TRAFFIC_BYTES);
+        assert_eq!(batched.snapshot().down_total, MAX_PUBLIC_TRAFFIC_BYTES);
     }
 }

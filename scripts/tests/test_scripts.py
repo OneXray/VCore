@@ -1,36 +1,21 @@
 from __future__ import annotations
 
-import copy
+import contextlib
 import hashlib
+import io
 import json
-import subprocess
-import sys
+import os
+import shlex
 import tempfile
 import tomllib
 import unittest
 import xml.etree.ElementTree as ET
-from contextlib import ExitStack
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
-from vcore_scripts import builds, cli, mihomo
+from vcore_scripts import builds, cli
 from vcore_scripts.builds import EXPECTED_IDENTITY, _android_target, _require_identity
-from vcore_scripts.checks import (
-    BORING_GIT_SOURCE,
-    BORING_REVISION,
-    CRATES_IO_SOURCES,
-    _shadowsocks_aws_lc_errors,
-    _tls_dependency_errors,
-)
-from vcore_scripts.mihomo_container import (
-    NETWORK,
-    ContainerPeer,
-    ContainerPeers,
-    host_ipv6,
-)
-from vcore_scripts.mihomo_isolation import exclusive_run
-from vcore_scripts.tun2socks import derive_xray_config
 
 
 def _windows_pe(machine: int) -> bytes:
@@ -51,180 +36,73 @@ class ScriptTest(unittest.TestCase):
             features, set(manifest["features"]["default"]) | {"ffi", "tun"}
         )
         self.assertNotIn("interop-test", features)
+        self.assertNotIn("benchmark-geodata-http", features)
 
-    def test_download_cli_dispatches_host_and_container_target(self):
-        with patch("vcore_scripts.cli.download_mihomo") as fetch:
-            self.assertEqual(cli.main(["download", "mihomo"]), 0)
-            self.assertEqual(
-                cli.main(["download", "mihomo", "--target", "linux-arm64"]), 0
-            )
-        self.assertEqual(fetch.call_args_list, [call(None), call("linux-arm64")])
-
-    def test_legacy_demo_requires_explicit_config_and_source(self):
-        with patch("vcore_scripts.cli.run_demo") as run:
-            self.assertEqual(
-                cli.main(
-                    [
-                        "demo",
-                        "windows-tun2socks",
-                        "fixture.json",
-                        "--xray-source",
-                        "fixture-xray",
-                    ]
-                ),
-                0,
-            )
-        run.assert_called_once_with(
-            Path("fixture.json"), xray_source=Path("fixture-xray")
-        )
-
-    def test_container_bridge_ipv6_does_not_select_lan_or_utun(self):
-        interfaces = """en0: flags=1
-    inet 192.168.1.2 netmask 0xffffff00
-    inet6 fd01::123 prefixlen 64
-utun5: flags=1
-    inet 198.18.0.1 netmask 0xffffff00
-    inet6 fd02::1 prefixlen 64
-bridge100: flags=1
-    inet 192.168.128.1 netmask 0xffffff00
-    inet6 fe80::1%bridge100 prefixlen 64
-    inet6 fd03::11 prefixlen 64 autoconf tentative
-    inet6 fd03::12 prefixlen 64 duplicated
-    inet6 fd03::13 prefixlen 64 deprecated
-    inet6 fd03::22 prefixlen 64
-"""
+    def test_platform_cargo_build_rejects_test_features_before_spawn(self):
+        for features in (
+            "ffi,benchmark-geodata-http",
+            "ffi interop-test",
+            "ffi vcore/benchmark-geodata-http",
+        ):
+            with self.subTest(features=features), patch.object(builds, "_run") as run:
+                with self.assertRaisesRegex(RuntimeError, "test-only"):
+                    builds._cargo_build("fixture-target", ["--release"], features, {})
+                run.assert_not_called()
         self.assertEqual(
-            host_ipv6(interfaces, "192.168.128.1", "fd03::/64"), "fd03::22"
+            builds._production_features(builds.DEFAULT_FEATURES),
+            builds.DEFAULT_FEATURES,
         )
-        self.assertIsNone(host_ipv6(interfaces, "192.168.128.1", "fd01::/64"))
-        self.assertIsNone(host_ipv6(interfaces, "192.168.129.1", "fd03::/64"))
 
-    def test_container_config_only_exposes_owned_vm_listeners(self):
-        peers = object.__new__(ContainerPeers)
-        peers.host = "192.168.128.1"
-        peers.addresses = ["192.168.128.2", "127.0.0.1", "127.0.0.1", "192.168.128.3"]
-        peers.peers = {0: object(), 3: object()}
-        native = {"allow-lan": False, "bind-address": "127.0.0.1"}
-        peers.configure(1, native)
-        self.assertFalse(native["allow-lan"])
-        self.assertEqual(native["bind-address"], "127.0.0.1")
-        vm = {
-            "external-controller": "127.0.0.1:9900",
-            "listeners": [
-                {
-                    "listen": "127.0.0.1",
-                    "certificate": "/fixture/fixture.crt",
-                }
-            ],
-        }
-        peers.configure(0, vm)
-        self.assertEqual(vm["external-controller"], "0.0.0.0:9900")
-        self.assertEqual(vm["listeners"][0]["certificate"], "/data/fixture/fixture.crt")
-        self.assertEqual(vm["hosts"]["vcore-fixture.test"], peers.host)
-        self.assertEqual(vm["hosts"]["vcore-peer.test"], peers.addresses[3])
-
-    def test_container_cleanup_is_scoped_and_handles_failed_launch(self):
-        peer = ContainerPeer("vcore-mihomo-test-0")
-        with patch("vcore_scripts.mihomo_container.command", return_value="[]") as run:
-            peer.stop()
-            self.assertEqual(run.call_count, 1)
-        owned = {
-            "id": peer.name,
-            "configuration": {"labels": {"purpose": NETWORK}},
-            "status": {"state": "running"},
-        }
-        with patch(
-            "vcore_scripts.mihomo_container.command",
-            side_effect=[json.dumps([owned]), "", ""],
-        ) as run:
-            peer.stop()
-            self.assertEqual(
-                run.call_args_list[1].args, ("stop", "--time", "5", peer.name)
-            )
-            self.assertEqual(
-                run.call_args_list[2].args, ("delete", "--force", peer.name)
-            )
-        owned["configuration"]["labels"] = {}
-        with patch(
-            "vcore_scripts.mihomo_container.command", return_value=json.dumps([owned])
-        ) as run:
-            with self.assertRaisesRegex(RuntimeError, "ownership"):
-                peer.stop()
-            self.assertEqual(run.call_count, 1)
-
-    def test_mihomo_reservations_cover_tcp_and_udp_and_release_together(self):
-        with ExitStack() as stack:
-            port, reservation = mihomo.reserve_port(stack)
-            for family, host in [
-                (mihomo.socket.AF_INET, "127.0.0.1"),
-                (mihomo.socket.AF_INET6, "::1"),
-            ]:
-                for kind in [mihomo.socket.SOCK_STREAM, mihomo.socket.SOCK_DGRAM]:
-                    with (
-                        mihomo.socket.socket(family, kind) as candidate,
-                        self.assertRaises(OSError),
-                    ):
-                        candidate.bind((host, port))
-            reservation.release_ipv4()
-            for kind in [mihomo.socket.SOCK_STREAM, mihomo.socket.SOCK_DGRAM]:
-                with mihomo.socket.socket(type=kind) as candidate:
-                    candidate.bind(("127.0.0.1", port))
-                with (
-                    mihomo.socket.socket(mihomo.socket.AF_INET6, kind) as guard,
-                    self.assertRaises(OSError),
-                ):
-                    guard.bind(("::1", port))
-            reservation.close()
-            for family, host in [
-                (mihomo.socket.AF_INET, "127.0.0.1"),
-                (mihomo.socket.AF_INET6, "::1"),
-            ]:
-                for kind in [mihomo.socket.SOCK_STREAM, mihomo.socket.SOCK_DGRAM]:
-                    with mihomo.socket.socket(family, kind) as candidate:
-                        candidate.bind((host, port))
-
-    def test_mihomo_lock_rejects_other_process_and_releases_after_failure(self):
-        child = """
-import sys
-from pathlib import Path
-from vcore_scripts.mihomo_isolation import exclusive_run
-try:
-    with exclusive_run(Path(sys.argv[1])):
-        pass
-except RuntimeError as error:
-    print(error)
-    sys.exit(23)
-"""
+    def test_cargo_target_directory_uses_cargo_environment_and_checkout_cwd(self):
         with tempfile.TemporaryDirectory() as directory:
-            lock = Path(directory) / "fixture.lock"
-            command = [sys.executable, "-c", child, str(lock)]
-            with (
-                self.assertRaisesRegex(ValueError, "fixture failure"),
-                exclusive_run(lock),
+            root = Path(directory)
+            for environment, expected in (
+                ({}, root / "target"),
+                ({"CARGO_TARGET_DIR": ""}, root / "target"),
+                ({"CARGO_TARGET_DIR": str(root / "cache")}, root / "cache"),
+                ({"CARGO_TARGET_DIR": "cache"}, root / "cache"),
             ):
-                blocked = subprocess.run(
-                    command, capture_output=True, text=True, timeout=5
-                )
-                self.assertEqual(blocked.returncode, 23, blocked.stderr)
-                self.assertIn("another local mihomo harness", blocked.stdout)
-                raise ValueError("fixture failure")
-            released = subprocess.run(
-                command, capture_output=True, text=True, timeout=5
-            )
-            self.assertEqual(released.returncode, 0, released.stderr)
+                with (
+                    self.subTest(environment=environment),
+                    patch.object(builds, "CORE_DIR", root),
+                    patch.dict(builds.os.environ, environment, clear=True),
+                ):
+                    self.assertEqual(builds._cargo_target_dir(), expected)
+                    self.assertEqual(builds._cargo_target_dir(environment), expected)
 
-    def test_mihomo_peer_cleanup_waits_and_escalates_only_after_timeout(self):
-        peer = MagicMock()
-        peer.poll.return_value = None
-        mihomo._stop_peer(peer)
-        peer.terminate.assert_called_once_with()
-        peer.wait.assert_called_once_with(timeout=5)
-        peer.kill.assert_not_called()
-        peer.reset_mock()
-        peer.wait.side_effect = [mihomo.subprocess.TimeoutExpired("mihomo", 5), 0]
-        mihomo._stop_peer(peer)
-        peer.kill.assert_called_once_with()
-        self.assertEqual(peer.wait.call_count, 2)
+    def test_cli_only_dispatches_platform_builds(self):
+        for platform_name in ("apple", "android", "windows"):
+            with (
+                self.subTest(platform=platform_name),
+                patch(f"vcore_scripts.cli.build_{platform_name}") as build,
+            ):
+                self.assertEqual(cli.main(["build", platform_name]), 0)
+                build.assert_called_once_with()
+            with (
+                self.subTest(platform=platform_name, delivery=True),
+                patch("vcore_scripts.platform_delivery.build_delivery") as delivery,
+            ):
+                self.assertEqual(cli.main(["build", platform_name, "--delivery"]), 0)
+                delivery.assert_called_once_with(platform_name)
+
+    def test_cli_rejects_removed_validation_and_demo_commands_before_building(self):
+        for arguments in (
+            ["check", "core"],
+            ["check", "protocol-interop"],
+            ["check", "platform-artifacts"],
+            ["check", "platform-abi"],
+            ["demo", "windows-tun2socks"],
+            ["build", "linux"],
+        ):
+            with (
+                self.subTest(arguments=arguments),
+                contextlib.redirect_stderr(io.StringIO()),
+                patch("subprocess.Popen") as spawn,
+            ):
+                with self.assertRaises(SystemExit) as error:
+                    cli.main(arguments)
+                self.assertEqual(error.exception.code, 2)
+                spawn.assert_not_called()
 
     def test_cli_dispatches_windows_build_without_architecture(self):
         with patch("vcore_scripts.cli.build_windows") as build:
@@ -285,55 +163,113 @@ except RuntimeError as error:
             _android_target("mips-linux-android", "24")
 
     def test_android_build_packages_the_matching_ndk_cpp_runtime(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            toolchain = root / "ndk/toolchain"
-            (toolchain / "bin").mkdir(parents=True)
-            (toolchain / "bin/llvm-ar").touch()
-            targets = ("aarch64-linux-android", "x86_64-linux-android")
-            for target in targets:
-                abi, clang, _ = _android_target(target, "24")
-                (toolchain / "bin" / clang).touch()
-                (toolchain / "bin" / (clang + "++")).touch()
-                runtime = toolchain / "sysroot/usr/lib" / target / "libc++_shared.so"
-                runtime.parent.mkdir(parents=True)
-                runtime.write_bytes(abi.encode())
-                artifact = root / "target" / target / "release/libvcore.so"
-                artifact.parent.mkdir(parents=True)
-                artifact.write_bytes(EXPECTED_IDENTITY)
+        for configured, api, bindgen_overrides, expected_extra in (
+            (False, "24", {}, []),
+            (True, "28", {"BINDGEN_EXTRA_CLANG_ARGS": "-DGLOBAL=1"}, ["-DGLOBAL=1"]),
+            (
+                False,
+                "28",
+                {
+                    "BINDGEN_EXTRA_CLANG_ARGS": "-DGLOBAL=1",
+                    "BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android": "-DARM64=1",
+                },
+                ["-DARM64=1"],
+            ),
+            (
+                True,
+                "24",
+                {
+                    "BINDGEN_EXTRA_CLANG_ARGS": "-DGLOBAL=1",
+                    "BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android": "-DLOWER=1",
+                    "BINDGEN_EXTRA_CLANG_ARGS_aarch64-linux-android": (
+                        '-I"fixture include"'
+                    ),
+                },
+                ["-Ifixture include"],
+            ),
+            (
+                False,
+                "24",
+                {
+                    "BINDGEN_EXTRA_CLANG_ARGS": "-DGLOBAL=1",
+                    "BINDGEN_EXTRA_CLANG_ARGS_aarch64-linux-android": "",
+                },
+                [],
+            ),
+        ):
             with (
-                patch.dict(
-                    builds.os.environ,
-                    {"ANDROID_NDK_HOME": str(root / "ndk")},
-                    clear=True,
-                ),
-                patch.object(builds, "CORE_DIR", root),
-                patch.object(builds, "_android_toolchain", return_value=toolchain),
-                patch.object(builds, "_require_targets"),
-                patch.object(builds, "_cargo_build") as cargo,
+                self.subTest(configured=configured, api=api, bindgen=bindgen_overrides),
+                tempfile.TemporaryDirectory() as directory,
             ):
-                builds.build_android()
-            self.assertEqual(cargo.call_count, 2)
-            for invocation, target in zip(cargo.call_args_list, targets, strict=True):
-                abi, clang, _ = _android_target(target, "24")
-                env = invocation.args[3]
-                self.assertEqual(env["VCORE_CMAKE_ANDROID_ABI"], abi)
-                self.assertEqual(env["VCORE_CMAKE_ANDROID_API"], "24")
-                self.assertEqual(
-                    env[f"CMAKE_TOOLCHAIN_FILE_{target.replace('-', '_')}"],
-                    str(root / "scripts/cmake/android.toolchain.cmake"),
-                )
-                self.assertEqual(
-                    env[f"CXX_{target.replace('-', '_')}"],
-                    str(toolchain / "bin" / (clang + "++")),
-                )
-                output = root / "dist/android" / abi
-                self.assertEqual(
-                    (output / "libvcore.so").read_bytes(), EXPECTED_IDENTITY
-                )
-                self.assertEqual(
-                    (output / "libc++_shared.so").read_bytes(), abi.encode()
-                )
+                root = Path(directory)
+                target_dir = root / ("cache" if configured else "target")
+                toolchain = root / "ndk/toolchain"
+                (toolchain / "bin").mkdir(parents=True)
+                (toolchain / "bin/llvm-ar").touch()
+                targets = ("aarch64-linux-android", "x86_64-linux-android")
+                for target in targets:
+                    abi, clang, _ = _android_target(target, api)
+                    (toolchain / "bin" / clang).touch()
+                    (toolchain / "bin" / (clang + "++")).touch()
+                    runtime = (
+                        toolchain / "sysroot/usr/lib" / target / "libc++_shared.so"
+                    )
+                    runtime.parent.mkdir(parents=True)
+                    runtime.write_bytes(abi.encode())
+                    artifact = target_dir / target / "release/libvcore.so"
+                    artifact.parent.mkdir(parents=True)
+                    artifact.write_bytes(EXPECTED_IDENTITY)
+                with (
+                    patch.dict(
+                        builds.os.environ,
+                        {
+                            "ANDROID_NDK_HOME": str(root / "ndk"),
+                            "VCORE_ANDROID_API": api,
+                        }
+                        | bindgen_overrides
+                        | ({"CARGO_TARGET_DIR": str(target_dir)} if configured else {}),
+                        clear=True,
+                    ),
+                    patch.object(builds, "CORE_DIR", root),
+                    patch.object(builds, "_android_toolchain", return_value=toolchain),
+                    patch.object(builds, "_require_targets"),
+                    patch.object(builds, "_cargo_build") as cargo,
+                ):
+                    builds.build_android()
+                self.assertEqual(cargo.call_count, 2)
+                for invocation, target in zip(
+                    cargo.call_args_list, targets, strict=True
+                ):
+                    abi, clang, _ = _android_target(target, api)
+                    env = invocation.args[3]
+                    self.assertEqual(env["VCORE_CMAKE_ANDROID_ABI"], abi)
+                    self.assertEqual(env["VCORE_CMAKE_ANDROID_API"], api)
+                    extra = (
+                        expected_extra
+                        if target == "aarch64-linux-android"
+                        else shlex.split(
+                            bindgen_overrides.get("BINDGEN_EXTRA_CLANG_ARGS", "")
+                        )
+                    )
+                    self.assertEqual(
+                        shlex.split(env[f"BINDGEN_EXTRA_CLANG_ARGS_{target}"]),
+                        [f"--target={clang.removesuffix('-clang')}", *extra],
+                    )
+                    self.assertEqual(
+                        env[f"CMAKE_TOOLCHAIN_FILE_{target.replace('-', '_')}"],
+                        str(root / "scripts/cmake/android.toolchain.cmake"),
+                    )
+                    self.assertEqual(
+                        env[f"CXX_{target.replace('-', '_')}"],
+                        str(toolchain / "bin" / (clang + "++")),
+                    )
+                    output = root / "dist/android" / abi
+                    self.assertEqual(
+                        (output / "libvcore.so").read_bytes(), EXPECTED_IDENTITY
+                    )
+                    self.assertEqual(
+                        (output / "libc++_shared.so").read_bytes(), abi.encode()
+                    )
 
     def test_artifact_identity_check_reads_binary_directly(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -345,357 +281,98 @@ except RuntimeError as error:
                 _require_identity(artifact, "test")
 
     def test_windows_release_build_uses_production_features_and_checks_identity(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            release = root / "target/aarch64-pc-windows-msvc/release"
-            release.mkdir(parents=True)
-            artifacts = (
-                "vcore.dll",
-                "vcore-windows-vpn-host.exe",
-                "vcore-windows-session-host.exe",
-            )
-            for name in artifacts:
-                (release / name).write_bytes(_windows_pe(0xAA64))
-
+        for configured in (False, True):
             with (
-                patch.object(builds, "CORE_DIR", root),
-                patch.object(builds, "os", SimpleNamespace(name="nt")),
-                patch.object(builds, "_windows_architecture", return_value="arm64"),
-                patch.object(builds, "_windows_msvc_environment", return_value={}),
-                patch.object(builds, "_run") as run,
+                self.subTest(configured=configured),
+                tempfile.TemporaryDirectory() as directory,
             ):
-                builds.build_windows()
-                self.assertEqual(
-                    run.call_args_list[1].args[0],
-                    [
-                        "cargo",
-                        "build",
-                        "--locked",
-                        "--release",
-                        "--target",
-                        "aarch64-pc-windows-msvc",
-                        "--no-default-features",
-                        "--features",
-                        builds.DEFAULT_FEATURES,
-                        "--lib",
-                        "--bins",
-                    ],
+                root = Path(directory)
+                target_dir = root / ("cache" if configured else "target")
+                release = target_dir / "aarch64-pc-windows-msvc/release"
+                release.mkdir(parents=True)
+                artifacts = (
+                    "vcore.dll",
+                    "vcore-windows-vpn-host.exe",
+                    "vcore-windows-session-host.exe",
                 )
-                manifest = json.loads(
-                    (
-                        root / "dist/windows/arm64/vcore-windows-artifacts.json"
-                    ).read_text()
-                )
-                expected_digest = hashlib.sha256(_windows_pe(0xAA64)).hexdigest()
-                self.assertEqual(
-                    manifest,
-                    {
-                        "architecture": "arm64",
-                        "artifacts": {
-                            "vcore-windows-session-host.exe": expected_digest,
-                            "vcore-windows-vpn-host.exe": expected_digest,
-                            "vcore.dll": expected_digest,
-                        },
-                        "buildIdentity": EXPECTED_IDENTITY.decode("ascii"),
-                        "formatVersion": 1,
-                        "windowsPackageIntegrationRevision": 3,
-                    },
-                )
+                for name in artifacts:
+                    (release / name).write_bytes(_windows_pe(0xAA64))
 
-                provider = release / "vcore-windows-vpn-host.exe"
-                provider.write_bytes(_windows_pe(0x8664))
-                with self.assertRaisesRegex(RuntimeError, "wrong architecture"):
+                with (
+                    patch.object(builds, "CORE_DIR", root),
+                    patch.object(
+                        builds,
+                        "os",
+                        SimpleNamespace(name="nt", environ={}, fspath=os.fspath),
+                    ),
+                    patch.object(builds, "_windows_architecture", return_value="arm64"),
+                    patch.object(
+                        builds,
+                        "_windows_msvc_environment",
+                        return_value={"CARGO_TARGET_DIR": str(target_dir)}
+                        if configured
+                        else {},
+                    ),
+                    patch.object(builds, "_run") as run,
+                ):
                     builds.build_windows()
-                self.assertFalse(
-                    (root / "dist/windows/arm64/vcore-windows-artifacts.json").exists()
-                )
-
-                provider.write_bytes(_windows_pe(0xAA64))
-                dll = bytearray(_windows_pe(0xAA64))
-                dll[0x100 : 0x100 + len(EXPECTED_IDENTITY)] = bytes(
-                    len(EXPECTED_IDENTITY)
-                )
-                (release / "vcore.dll").write_bytes(dll)
-                with self.assertRaisesRegex(RuntimeError, "incompatible Rust identity"):
-                    builds.build_windows()
-
-    def test_tls_metadata_accepts_the_locked_graph(self):
-        registry = next(iter(CRATES_IO_SOURCES))
-        metadata = {
-            "packages": [
-                {
-                    "id": "rustls-id",
-                    "name": "rustls",
-                    "version": "0.23.45",
-                    "source": registry,
-                },
-                {
-                    "id": "tokio-rustls-id",
-                    "name": "tokio-rustls",
-                    "version": "0.26.5",
-                    "source": registry,
-                },
-                {
-                    "id": "ring-id",
-                    "name": "ring",
-                    "version": "0.17.14",
-                    "source": registry,
-                },
-                *[
-                    dict(id=name, name=name, version="5.2.0", source=BORING_GIT_SOURCE)
-                    for name in ("boring", "boring-sys", "tokio-boring")
-                ],
-                dict(id="hpke", name="hpke", version="0.14.1", source=registry),
-            ],
-            "resolve": {
-                "nodes": [
-                    {
-                        "id": "rustls-id",
-                        "features": ["ring", "std", "tls12"],
-                        "deps": [],
-                    },
-                    {
-                        "id": "boring",
-                        "features": [
-                            "reality",
-                            "client-fingerprint",
-                            "shadow-tls-v3",
-                            "jls",
+                    self.assertEqual(
+                        run.call_args_list[1].args[0],
+                        [
+                            "cargo",
+                            "build",
+                            "--locked",
+                            "--release",
+                            "--target",
+                            "aarch64-pc-windows-msvc",
+                            "--no-default-features",
+                            "--features",
+                            builds.DEFAULT_FEATURES,
+                            "--lib",
+                            "--bins",
                         ],
-                        "deps": [{"pkg": "boring-sys"}],
-                    },
-                    {
-                        "id": "boring-sys",
-                        "features": ["reality", "shadow-tls-v3", "jls"],
-                    },
-                    {
-                        "id": "tokio-boring",
-                        "features": [],
-                        "deps": [{"pkg": "boring"}, {"pkg": "boring-sys"}],
-                    },
-                    {
-                        "id": "hpke",
-                        "features": ["alloc", "aes", "chacha", "x25519", "hkdfsha2"],
-                    },
-                ]
-            },
-        }
-        self.assertEqual(_tls_dependency_errors(metadata), [])
-
-        for invalid_source in (None, BORING_GIT_SOURCE):
-            invalid = copy.deepcopy(metadata)
-            invalid["packages"][-1]["source"] = invalid_source
-            self.assertTrue(_tls_dependency_errors(invalid))
-        for feature in ("alloc", "aes", "chacha", "x25519"):
-            invalid = copy.deepcopy(metadata)
-            invalid["resolve"]["nodes"][-1]["features"].remove(feature)
-            self.assertTrue(_tls_dependency_errors(invalid))
-
-        for index, old_version in [(0, "0.23.43"), (1, "0.26.4"), (3, "5.1.0")]:
-            with self.subTest(outdated_version=old_version):
-                outdated = copy.deepcopy(metadata)
-                outdated["packages"][index]["version"] = old_version
-                self.assertTrue(_tls_dependency_errors(outdated))
-
-        for source in [
-            None,
-            registry,
-            BORING_GIT_SOURCE.rsplit("#", 1)[0] + "#" + "f" * 40,
-            BORING_GIT_SOURCE.replace("?branch=release", "?branch=main"),
-            BORING_GIT_SOURCE.replace("?branch=release", f"?rev={BORING_REVISION}"),
-            BORING_GIT_SOURCE.replace("OneXray/boring", "example/boring"),
-        ]:
-            for index in (3, 4, 5):
-                with self.subTest(boring_source=source, package=index):
-                    invalid = copy.deepcopy(metadata)
-                    invalid["packages"][index]["source"] = source
-                    self.assertTrue(_tls_dependency_errors(invalid))
-
-        for required in ["reality", "client-fingerprint", "shadow-tls-v3", "jls"]:
-            with self.subTest(boring_feature=required):
-                invalid = copy.deepcopy(metadata)
-                invalid["resolve"]["nodes"][1]["features"].remove(required)
-                self.assertTrue(_tls_dependency_errors(invalid))
-
-        for missing in ["edge", "node", "package"]:
-            with self.subTest(boring_missing=missing):
-                invalid = copy.deepcopy(metadata)
-                if missing == "edge":
-                    invalid["resolve"]["nodes"][1]["deps"] = []
-                elif missing == "node":
-                    invalid["resolve"]["nodes"].pop()
-                else:
-                    invalid["packages"].pop()
-                self.assertTrue(_tls_dependency_errors(invalid))
-
-        for forbidden in ["reality", "aws_lc_rs", "fips"]:
-            invalid = copy.deepcopy(metadata)
-            invalid["resolve"]["nodes"][0]["features"].append(forbidden)
-            self.assertTrue(_tls_dependency_errors(invalid))
-
-        for forbidden in ("fips", "restls"):
-            for index in (1, 2, 3):
-                with self.subTest(native_feature=forbidden, node=index):
-                    invalid = copy.deepcopy(metadata)
-                    invalid["resolve"]["nodes"][index]["features"].append(forbidden)
-                    self.assertTrue(_tls_dependency_errors(invalid))
-
-        for source in CRATES_IO_SOURCES:
-            with self.subTest(rustls_registry=source):
-                official = copy.deepcopy(metadata)
-                official["packages"][0]["source"] = source
-                self.assertEqual(_tls_dependency_errors(official), [])
-
-        for source in (
-            None,
-            "git+https://example.invalid/rustls?branch=custom#" + "a" * 40,
-            "git+https://github.com/rustls/rustls#" + "a" * 40,
-            "registry+https://example.invalid/index",
-        ):
-            with self.subTest(rustls_source=source):
-                invalid = copy.deepcopy(metadata)
-                invalid["packages"][0]["source"] = source
-                self.assertTrue(
-                    any(
-                        "rustls must come from crates.io" in error
-                        for error in _tls_dependency_errors(invalid)
                     )
-                )
-
-        duplicate = copy.deepcopy(metadata)
-        duplicate["packages"].append(
-            dict(
-                id="second-rustls",
-                name="rustls",
-                version="0.23.45",
-                source="git+https://github.com/rustls/rustls#" + "a" * 40,
-            )
-        )
-        self.assertTrue(_tls_dependency_errors(duplicate))
-
-        metadata["packages"].append(
-            {
-                "id": "aws-id",
-                "name": "aws-lc-rs",
-                "version": "1.0.0",
-                "source": registry,
-            }
-        )
-        self.assertTrue(
-            any(
-                "AWS-LC package is forbidden" in error
-                for error in _tls_dependency_errors(metadata)
-            )
-        )
-
-        metadata["packages"][0]["source"] = None
-        self.assertTrue(
-            any(
-                "rustls must come from crates.io" in error
-                for error in _tls_dependency_errors(metadata)
-            )
-        )
-
-    def test_aws_lc_exception_is_restricted_to_official_shadowsocks_chain(self):
-        registry = next(iter(CRATES_IO_SOURCES))
-        names = ["shadowsocks", "shadowsocks-crypto", "aws-lc-rs", "aws-lc-sys"]
-        metadata = {
-            "packages": [
-                {"id": name, "name": name, "version": version, "source": source}
-                for name, version, source in zip(
-                    names,
-                    ["1.25.0", "0.8.0", "1.18.1", "0.45.0"],
-                    [registry] * 4,
-                    strict=True,
-                )
-            ],
-            "resolve": {
-                "nodes": [
-                    {
-                        "id": name,
-                        "features": features,
-                        "deps": [{"pkg": names[i + 1]}] if i < 3 else [],
-                    }
-                    for i, (name, features) in enumerate(
-                        zip(
-                            names,
-                            [["aead-cipher-2022"], ["v2", "aws-lc"], [], []],
-                            strict=True,
-                        )
+                    manifest = json.loads(
+                        (
+                            root / "dist/windows/arm64/vcore-windows-artifacts.json"
+                        ).read_text()
                     )
-                ]
-            },
-        }
-        self.assertEqual(_shadowsocks_aws_lc_errors(metadata), [])
-        for source in CRATES_IO_SOURCES:
-            with self.subTest(shadowsocks_registry=source):
-                official = copy.deepcopy(metadata)
-                official["packages"][0]["source"] = source
-                self.assertEqual(_shadowsocks_aws_lc_errors(official), [])
-        for source in (
-            "git+https://github.com/shadowsocks/shadowsocks-rust.git?rev="
-            "ab388c7466d21f979430e33cc9ef10e22fb05955#"
-            "ab388c7466d21f979430e33cc9ef10e22fb05955",
-            "registry+https://example.invalid/index",
-        ):
-            with self.subTest(shadowsocks_source=source):
-                invalid = copy.deepcopy(metadata)
-                invalid["packages"][0]["source"] = source
-                self.assertTrue(_shadowsocks_aws_lc_errors(invalid))
-        for index, feature in [(0, "aead-cipher-2022-extra"), (1, "v2-extra")]:
-            invalid = copy.deepcopy(metadata)
-            invalid["resolve"]["nodes"][index]["features"].append(feature)
-            self.assertTrue(_shadowsocks_aws_lc_errors(invalid))
-        for target in names[1:]:
-            with self.subTest(extra_consumer=target):
-                invalid = copy.deepcopy(metadata)
-                invalid["resolve"]["nodes"].append(
-                    {"id": "another-consumer", "deps": [{"pkg": target}]}
-                )
-                self.assertTrue(_shadowsocks_aws_lc_errors(invalid))
-        for index in range(4):
-            with self.subTest(unofficial_source=names[index]):
-                invalid = copy.deepcopy(metadata)
-                invalid["packages"][index]["source"] = None
-                self.assertTrue(_shadowsocks_aws_lc_errors(invalid))
-            with self.subTest(missing_node=names[index]):
-                invalid = copy.deepcopy(metadata)
-                del invalid["resolve"]["nodes"][index]
-                self.assertTrue(_shadowsocks_aws_lc_errors(invalid))
-        invalid = copy.deepcopy(metadata)
-        invalid["packages"].append({"id": "fips", "name": "aws-lc-fips-sys"})
-        self.assertTrue(_shadowsocks_aws_lc_errors(invalid))
+                    expected_digest = hashlib.sha256(_windows_pe(0xAA64)).hexdigest()
+                    self.assertEqual(
+                        manifest,
+                        {
+                            "architecture": "arm64",
+                            "artifacts": {
+                                "vcore-windows-session-host.exe": expected_digest,
+                                "vcore-windows-vpn-host.exe": expected_digest,
+                                "vcore.dll": expected_digest,
+                            },
+                            "buildIdentity": EXPECTED_IDENTITY.decode("ascii"),
+                            "formatVersion": 1,
+                            "windowsPackageIntegrationRevision": 3,
+                        },
+                    )
 
-    def test_tun2socks_config_moves_direct_sockopt(self):
-        source = {
-            "inbounds": [
-                {
-                    "tag": "proxy",
-                    "protocol": "socks",
-                    "listen": "0.0.0.0",
-                    "port": 1080,
-                    "settings": {"udp": False},
-                }
-            ],
-            "outbounds": [
-                {"tag": "proxy", "protocol": "vless", "settings": {}},
-                {
-                    "tag": "direct",
-                    "protocol": "freedom",
-                    "settings": {},
-                    "sockopt": {"interface": "Ethernet"},
-                },
-            ],
-        }
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "source.json"
-            path.write_text(json.dumps(source), encoding="utf-8")
-            config, inbound_tag, direct_tag = derive_xray_config(path, Path(directory))
-        self.assertEqual((inbound_tag, direct_tag), ("proxy", "direct"))
-        direct = next(item for item in config["outbounds"] if item["tag"] == "direct")
-        self.assertNotIn("sockopt", direct)
-        self.assertEqual(direct["streamSettings"]["sockopt"], {"interface": "Ethernet"})
-        self.assertTrue(config["inbounds"][0]["settings"]["udp"])
+                    provider = release / "vcore-windows-vpn-host.exe"
+                    provider.write_bytes(_windows_pe(0x8664))
+                    with self.assertRaisesRegex(RuntimeError, "wrong architecture"):
+                        builds.build_windows()
+                    self.assertFalse(
+                        (
+                            root / "dist/windows/arm64/vcore-windows-artifacts.json"
+                        ).exists()
+                    )
+
+                    provider.write_bytes(_windows_pe(0xAA64))
+                    dll = bytearray(_windows_pe(0xAA64))
+                    dll[0x100 : 0x100 + len(EXPECTED_IDENTITY)] = bytes(
+                        len(EXPECTED_IDENTITY)
+                    )
+                    (release / "vcore.dll").write_bytes(dll)
+                    with self.assertRaisesRegex(
+                        RuntimeError, "incompatible Rust identity"
+                    ):
+                        builds.build_windows()
 
 
 if __name__ == "__main__":

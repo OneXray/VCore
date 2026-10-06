@@ -1,7 +1,12 @@
 # TLS 依赖与发布
 
 版本、完整 Git revision 和 registry 校验值以 Cargo.toml/Cargo.lock 为准，
-PR/发布前由 `check tls-dependencies` 审核，不在文档复制一份易失效的包清单。
+PR/发布前依据下述来源约束审查 manifest、lockfile 和 resolved graph，
+不在文档复制一份易失效的包清单；编译成功不等于来源或许可证审查通过。
+[Tests workflow](../.github/workflows/test.yml) 的
+`Audit the locked TLS dependency graph` 步骤直接检查
+`cargo metadata --locked --all-features`，维护批准的版本/revision、同源依赖、
+TLS provider、ECH 算法和 SS2022/AWS-LC 消费链；没有独立的检查 CLI。
 
 ## 来源与后端
 
@@ -28,9 +33,11 @@ SS 日志抑制与未修补风险见[出站](outbounds.md#shadowsocks-2022)。
    feature 约束，更新 Cargo.lock 后执行 locked 构建与相关测试，不混用本地和 Git 来源。
 2. 发起或更新 VCore PR 前，先将所需 fork 改动发布至 OneXray/boring 的 `release`，
    再将三个 crate 一起切回 `git = "https://github.com/OneXray/boring", branch = "release"`。
-   更新 Cargo.lock；若 revision 前移，同步依赖审计中的批准 revision。
-3. 在不依赖本地 fork 的 checkout 通过 `check tls-dependencies` 和相关验证后再提交 PR。
-   该命令是 PR/发布门禁，本地 path 开发态不要求通过，也不为开发态放宽来源检查。
+   更新 Cargo.lock；若 revision 前移，对新的完整 revision 重新完成来源与能力审查。
+3. 在不依赖本地 fork 的 checkout 核对三个 crate 的 Git release 来源、完整锁定
+   revision、registry 校验值与 provider/feature graph，再执行相关构建和定向回归。
+   同步上述 workflow 的批准身份并通过其 metadata 门禁；workflow 配置存在不等于
+   CI 已运行或通过。本地 path 开发态不替代发布来源，也不放宽发布约束。
 
 ## 身份与原生接口
 
@@ -70,11 +77,12 @@ boring MIT/Apache-2.0、BoringSSL 随源通知及 Android C++ runtime，不能�
 
 1. 选择官方最新稳定依赖；fork 同步上游并先完成普通 TLS 回归。
 2. 本地按上述流程验证 fork 变更；PR 前发布至 release，同次修改 manifest、lockfile
-   和依赖审计的批准 revision。
+   并重新审查锁定 revision。
 3. 重跑确定性向量、ClientHello/share/证书/签名、恢复/取消/期限及受影响容器数据面；
    分别验证 AnyTLS 标准 TLS 和 REALITY/JLS，不能互相抵扣。
 4. 在没有相邻 fork 目录的干净 checkout 执行 locked fetch、离线测试、相关平台构建和
-   原生消费者。全目标 --no-run 只是编译，网络 peer 仍遵守[隔离规则](testing-isolation.md)。
+   原生消费者；平台脚本及 delivery 完整性检查不执行该消费者。
+   全目标 --no-run 只是编译，网络 peer 由独立 benchmark 按[隔离规则](testing-isolation.md)执行。
 5. 按[验收边界](acceptance.md)完成对应设备/安装门禁并保存当次证据。
 
 回退使用新提交恢复仍可获取的已验证 lockfile，不恢复已退役 fork。

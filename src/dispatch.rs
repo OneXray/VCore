@@ -82,6 +82,20 @@ pub trait DatagramTransport: Send {
 
     async fn send(&mut self, datagram: Datagram) -> Result<(), DispatchError>;
 
+    /// Sends the first packet of an authenticated logical connection.
+    ///
+    /// The routing layer may replace this peer's fixed action when this exact
+    /// opaque identity changes. Replays with the same identity preserve it.
+    /// IDs are at most 25 bytes and are never forwarded to an outbound or logged.
+    /// Ordinary outbounds ignore the metadata; this does not reopen transport IO.
+    async fn send_with_flow_id(
+        &mut self,
+        datagram: Datagram,
+        _flow_id: &[u8],
+    ) -> Result<(), DispatchError> {
+        self.send(datagram).await
+    }
+
     /// Receives one complete datagram.
     ///
     /// Implementations must be cancellation-safe: inbound relays and the
@@ -245,6 +259,14 @@ impl DatagramTransport for ObservedDatagramTransport {
         self.inner.send(datagram).await
     }
 
+    async fn send_with_flow_id(
+        &mut self,
+        datagram: Datagram,
+        flow_id: &[u8],
+    ) -> Result<(), DispatchError> {
+        self.inner.send_with_flow_id(datagram, flow_id).await
+    }
+
     async fn receive(&mut self) -> Result<Datagram, DispatchError> {
         self.inner.receive().await
     }
@@ -342,6 +364,49 @@ mod tests {
             InboundKind::Tun,
             format!("127.0.0.1:{port}").parse().unwrap(),
         )
+    }
+
+    #[tokio::test]
+    async fn session_observer_preserves_authenticated_flow_identity() {
+        struct InitialTransport(Arc<AtomicUsize>);
+        #[async_trait]
+        impl DatagramTransport for InitialTransport {
+            async fn send(&mut self, _datagram: Datagram) -> Result<(), DispatchError> {
+                panic!("observer must preserve first-flow metadata");
+            }
+            async fn send_with_flow_id(
+                &mut self,
+                _datagram: Datagram,
+                flow_id: &[u8],
+            ) -> Result<(), DispatchError> {
+                assert_eq!(flow_id, b"authenticated");
+                self.0.fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            }
+            async fn receive(&mut self) -> Result<Datagram, DispatchError> {
+                std::future::pending().await
+            }
+        }
+        let sends = Arc::new(AtomicUsize::new(0));
+        let stats = RuntimeResourceStats::new("flow_metadata_test");
+        let mut observed = ObservedDatagramTransport {
+            inner: Box::new(InitialTransport(sends.clone())),
+            _activity: stats.begin(ResourceActivity::UdpAssociation),
+        };
+        observed
+            .send_with_flow_id(
+                Datagram {
+                    remote: Destination::Ip("192.0.2.1:443".parse().unwrap()),
+                    payload: bytes::Bytes::from_static(b"initial"),
+                    sniffed_domain: None,
+                },
+                b"authenticated",
+            )
+            .await
+            .unwrap();
+        assert_eq!(sends.load(Ordering::Relaxed), 1);
+        drop(observed);
+        assert_eq!(stats.snapshot().udp_current, 0);
     }
 
     #[tokio::test]

@@ -1,75 +1,59 @@
-use std::collections::VecDeque;
-
 use smoltcp::{
     phy::{Device, DeviceCapabilities, Medium, RxToken, TxToken},
     time::Instant,
 };
+use tokio::sync::mpsc;
 
 use crate::Packet;
 
-/// A raw-IP smoltcp device with fixed-depth ingress and egress queues.
+/// A raw-IP device with one pending ingress and reserved bounded output slots.
 pub(crate) struct RawIpDevice {
-    rx: VecDeque<Packet>,
-    tx: VecDeque<Packet>,
-    queue_limit: usize,
+    rx: Option<Packet>,
+    output: mpsc::Sender<Packet>,
+    emitted: u64,
     capabilities: DeviceCapabilities,
 }
 
 impl RawIpDevice {
-    pub(crate) fn new(mtu: usize, queue_limit: usize) -> Self {
+    pub(crate) fn new(mtu: usize, output: mpsc::Sender<Packet>) -> Self {
         let mut capabilities = DeviceCapabilities::default();
         capabilities.max_transmission_unit = mtu;
         capabilities.medium = Medium::Ip;
         Self {
-            rx: VecDeque::with_capacity(queue_limit),
-            tx: VecDeque::with_capacity(queue_limit),
-            queue_limit,
+            rx: None,
+            output,
+            emitted: 0,
             capabilities,
         }
     }
 
     pub(crate) fn push_rx(&mut self, packet: Packet) -> Result<(), Packet> {
-        if self.rx.len() == self.queue_limit {
+        if self.rx.is_some() {
             Err(packet)
         } else {
-            self.rx.push_back(packet);
+            self.rx = Some(packet);
             Ok(())
         }
     }
 
     pub(crate) fn rx_is_empty(&self) -> bool {
-        self.rx.is_empty()
+        self.rx.is_none()
     }
 
-    pub(crate) fn tx_checkpoint(&self) -> usize {
-        self.tx.len()
+    pub(crate) fn pending_rx(&self) -> Option<&Packet> {
+        self.rx.as_ref()
     }
 
-    pub(crate) fn pop_tx_after(&mut self, checkpoint: usize) -> Option<Packet> {
-        debug_assert!(self.tx.len() <= checkpoint + 1);
-        if self.tx.len() > checkpoint {
-            self.tx.pop_back()
-        } else {
-            None
-        }
+    pub(crate) fn discard_rx(&mut self) {
+        self.rx = None;
     }
 
-    pub(crate) fn pop_tx(&mut self) -> Option<Packet> {
-        self.tx.pop_front()
-    }
-
-    pub(crate) fn push_tx_front(&mut self, packet: Packet) {
-        debug_assert!(self.tx.len() < self.queue_limit);
-        self.tx.push_front(packet);
+    pub(crate) fn emitted(&self) -> u64 {
+        self.emitted
     }
 
     pub(crate) fn tx_is_full(&self) -> bool {
-        self.tx.len() == self.queue_limit
-    }
-
-    #[cfg(test)]
-    pub(crate) fn queue_lengths(&self) -> (usize, usize) {
-        (self.rx.len(), self.tx.len())
+        self.output.capacity() == 0
     }
 }
 
@@ -78,23 +62,23 @@ impl Device for RawIpDevice {
     type TxToken<'a> = RawTxToken<'a>;
 
     fn receive(&mut self, _timestamp: Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
-        if self.tx.len() == self.queue_limit {
-            return None;
-        }
-        let packet = self.rx.pop_front()?;
+        // Reserve before consuming ingress: smoltcp can need an immediate
+        // response, and concurrent generic UDP senders share this capacity.
+        let permit = self.output.try_reserve().ok()?;
+        let packet = self.rx.take()?;
         Some((
             RawRxToken(packet),
             RawTxToken {
-                queue: &mut self.tx,
-                queue_limit: self.queue_limit,
+                permit,
+                emitted: &mut self.emitted,
             },
         ))
     }
 
     fn transmit(&mut self, _timestamp: Instant) -> Option<Self::TxToken<'_>> {
-        (self.tx.len() < self.queue_limit).then_some(RawTxToken {
-            queue: &mut self.tx,
-            queue_limit: self.queue_limit,
+        Some(RawTxToken {
+            permit: self.output.try_reserve().ok()?,
+            emitted: &mut self.emitted,
         })
     }
 
@@ -115,8 +99,8 @@ impl RxToken for RawRxToken {
 }
 
 pub(crate) struct RawTxToken<'a> {
-    queue: &'a mut VecDeque<Packet>,
-    queue_limit: usize,
+    permit: mpsc::Permit<'a, Packet>,
+    emitted: &'a mut u64,
 }
 
 impl TxToken for RawTxToken<'_> {
@@ -124,10 +108,10 @@ impl TxToken for RawTxToken<'_> {
     where
         F: FnOnce(&mut [u8]) -> R,
     {
-        debug_assert!(self.queue.len() < self.queue_limit);
         let mut bytes = vec![0_u8; len];
         let result = f(&mut bytes);
-        self.queue.push_back(Packet::new(bytes));
+        self.permit.send(Packet::new(bytes));
+        *self.emitted = self.emitted.wrapping_add(1);
         result
     }
 }
@@ -138,11 +122,69 @@ mod tests {
 
     #[test]
     fn full_tx_queue_does_not_consume_rx() {
-        let mut device = RawIpDevice::new(1_500, 1);
+        let (output, mut receiver) = mpsc::channel(1);
+        let mut device = RawIpDevice::new(1_500, output.clone());
         device.push_rx(Packet::new(vec![0x45; 40])).unwrap();
-        device.tx.push_back(Packet::new(vec![0x45; 40]));
+        output.try_send(Packet::new(vec![0x45; 40])).unwrap();
 
         assert!(device.receive(Instant::now()).is_none());
-        assert_eq!(device.queue_lengths(), (1, 1));
+        assert!(!device.rx_is_empty());
+        assert!(device.tx_is_full());
+        receiver.try_recv().unwrap();
+        let (rx, tx) = device.receive(Instant::now()).unwrap();
+        rx.consume(|bytes| assert_eq!(bytes, &[0x45; 40]));
+        drop(tx);
+        assert!(device.rx_is_empty());
+        assert!(!device.tx_is_full());
+    }
+
+    #[test]
+    fn unused_tx_permit_returns_capacity_without_a_packet() {
+        let (output, mut receiver) = mpsc::channel(1);
+        let mut device = RawIpDevice::new(1_500, output.clone());
+        let token = device.transmit(Instant::now()).unwrap();
+        assert_eq!(output.capacity(), 0);
+        drop(token);
+        assert_eq!(output.capacity(), 1);
+        assert_eq!(device.emitted(), 0);
+        assert!(receiver.try_recv().is_err());
+    }
+
+    #[test]
+    fn consumed_tx_permit_sends_directly_to_the_only_output_queue() {
+        let (output, mut receiver) = mpsc::channel(1);
+        let mut device = RawIpDevice::new(1_500, output);
+        device
+            .transmit(Instant::now())
+            .unwrap()
+            .consume(4, |bytes| bytes.copy_from_slice(&[0x45, 1, 2, 3]));
+        assert_eq!(device.emitted(), 1);
+        assert!(device.tx_is_full());
+        assert_eq!(receiver.try_recv().unwrap().data(), &[0x45, 1, 2, 3]);
+        assert!(!device.tx_is_full());
+        assert!(receiver.try_recv().is_err());
+    }
+
+    #[test]
+    fn one_pending_ingress_is_not_overwritten() {
+        let (output, _receiver) = mpsc::channel(1);
+        let mut device = RawIpDevice::new(1_500, output);
+        device.push_rx(Packet::new(vec![0x45, 1])).unwrap();
+        let rejected = device.push_rx(Packet::new(vec![0x45, 2])).unwrap_err();
+        assert_eq!(rejected.data(), &[0x45, 2]);
+        let (rx, tx) = device.receive(Instant::now()).unwrap();
+        rx.consume(|bytes| assert_eq!(bytes, &[0x45, 1]));
+        drop(tx);
+    }
+
+    #[test]
+    fn closed_output_never_consumes_pending_ingress() {
+        let (output, receiver) = mpsc::channel(1);
+        let mut device = RawIpDevice::new(1_500, output);
+        device.push_rx(Packet::new(vec![0x45; 40])).unwrap();
+        drop(receiver);
+        assert!(device.receive(Instant::now()).is_none());
+        assert!(device.transmit(Instant::now()).is_none());
+        assert!(!device.rx_is_empty());
     }
 }

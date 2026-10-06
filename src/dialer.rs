@@ -19,20 +19,20 @@ use std::{
 };
 
 use async_trait::async_trait;
-#[cfg(all(windows, feature = "ffi"))]
 use socket2::{Domain, Protocol, Socket, Type};
 use tokio::{
     net::{TcpSocket, UdpSocket},
-    sync::Notify,
+    sync::{Notify, Semaphore},
     time::timeout,
 };
+use tokio_util::{sync::CancellationToken, task::TaskTracker};
 #[cfg(all(windows, feature = "ffi"))]
 use windows::Win32::Networking::WinSock::{
     IP_UNICAST_IF, IPPROTO_IP, IPPROTO_IPV6, IPV6_UNICAST_IF, SOCKET, SOCKET_ERROR,
     WSAGetLastError, setsockopt,
 };
 
-use crate::limits::{DNS_WORKER_STACK_BYTES, MAX_DNS_WORKERS};
+use crate::limits::{DNS_WORKER_STACK_BYTES, MAX_DNS_WORKERS, MAX_SOCKET_INITIALIZATIONS};
 use crate::resources::observation::{ObservedIo, ResourceKind, track};
 
 pub type PhysicalStream = ObservedIo<tokio::net::TcpStream>;
@@ -246,6 +246,110 @@ pub trait SocketProtector: Send + Sync {
     fn protect(&self, socket: i32) -> io::Result<()>;
 }
 
+/// Owns synchronous socket setup independently of the async I/O workers.
+/// A started syscall cannot be aborted; shutdown must wait for its result to
+/// be delivered or destroyed before releasing any platform callback lease.
+#[derive(Debug)]
+struct SocketInitialization {
+    closed: Mutex<bool>,
+    cancellation: CancellationToken,
+    tasks: TaskTracker,
+    submissions: Arc<Semaphore>,
+}
+
+impl Default for SocketInitialization {
+    fn default() -> Self {
+        Self {
+            closed: Mutex::new(false),
+            cancellation: CancellationToken::new(),
+            tasks: TaskTracker::new(),
+            submissions: Arc::new(Semaphore::new(MAX_SOCKET_INITIALIZATIONS)),
+        }
+    }
+}
+
+impl SocketInitialization {
+    async fn run<T, F>(&self, operation: F) -> io::Result<T>
+    where
+        T: Send + 'static,
+        F: FnOnce(&dyn Fn() -> io::Result<()>) -> io::Result<T> + Send + 'static,
+    {
+        // Await before registration/submission. Dropping the caller future
+        // cancels this wait; scope shutdown also wakes every waiting caller.
+        let permit = tokio::select! {
+            biased;
+            () = self.cancellation.cancelled() => return Err(socket_initialization_cancelled()),
+            permit = Arc::clone(&self.submissions).acquire_owned() => {
+                permit.map_err(|_| socket_initialization_cancelled())?
+            }
+        };
+        let (response, receiver) = tokio::sync::oneshot::channel();
+        let token = {
+            let closed = self
+                .closed
+                .lock()
+                .map_err(|_| io::Error::other("socket initialization lock is poisoned"))?;
+            if *closed {
+                return Err(socket_initialization_cancelled());
+            }
+            // close() alone does not prohibit TaskTracker from admitting tasks.
+            // Register while holding the same short lock as begin_shutdown().
+            self.tasks.token()
+        };
+        let cancellation = self.cancellation.clone();
+        let guard = track(ResourceKind::Task);
+        let task =
+            tokio::task::spawn_blocking(crate::resources::observation::inherit_thread(move || {
+                // Return capacity only after the tracking guard/token. A
+                // cancelled receiver must not release a started job's permit.
+                let _permit = permit;
+                let _token = token;
+                let _guard = guard;
+                let check = || {
+                    if cancellation.is_cancelled() || response.is_closed() {
+                        Err(socket_initialization_cancelled())
+                    } else {
+                        Ok(())
+                    }
+                };
+                let result = check().and_then(|()| operation(&check));
+                // Do not return a socket as the blocking task's output: Tokio
+                // could retain it after our tracking token has been released.
+                // A cancelled receiver destroys the result inside this scope.
+                drop(response.send(result));
+            }));
+        let _abort = tokio_util::task::AbortOnDropHandle::new(task);
+        tokio::select! {
+            biased;
+            () = self.cancellation.cancelled() => Err(socket_initialization_cancelled()),
+            result = receiver => result.map_err(|_| io::Error::other("socket initialization task failed"))?,
+        }
+    }
+
+    fn begin_shutdown(&self) {
+        let mut closed = self
+            .closed
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        *closed = true;
+        self.cancellation.cancel();
+        self.submissions.close();
+        self.tasks.close();
+    }
+
+    async fn shutdown(&self) {
+        self.begin_shutdown();
+        self.tasks.wait().await;
+    }
+}
+
+fn socket_initialization_cancelled() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::Interrupted,
+        "socket initialization cancelled",
+    )
+}
+
 #[derive(Debug, Clone, Copy)]
 struct SourceBinding {
     ipv4: Option<Ipv4Addr>,
@@ -261,6 +365,7 @@ struct InterfaceBinding {
 
 #[derive(Clone)]
 pub struct Dialer {
+    initialization: Arc<SocketInitialization>,
     protector: Option<Arc<dyn SocketProtector>>,
     source_binding: Option<SourceBinding>,
     #[cfg(all(windows, feature = "ffi"))]
@@ -287,6 +392,7 @@ impl std::fmt::Debug for Dialer {
 impl Default for Dialer {
     fn default() -> Self {
         Self {
+            initialization: Arc::new(SocketInitialization::default()),
             protector: None,
             source_binding: None,
             #[cfg(all(windows, feature = "ffi"))]
@@ -298,6 +404,21 @@ impl Default for Dialer {
 }
 
 impl Dialer {
+    /// Start a new owner for a Running Session or private measurement. Policy
+    /// is retained, but stopping one graph must not close another session.
+    pub(crate) fn with_fresh_initialization(mut self) -> Self {
+        self.initialization = Arc::new(SocketInitialization::default());
+        self
+    }
+
+    pub(crate) fn begin_shutdown(&self) {
+        self.initialization.begin_shutdown();
+    }
+
+    pub(crate) async fn shutdown(&self) {
+        self.initialization.shutdown().await;
+    }
+
     #[must_use]
     pub(crate) const fn with_ipv6(mut self, ipv6: bool) -> Self {
         self.ipv6 = ipv6;
@@ -384,32 +505,28 @@ impl Dialer {
         let bind_address = self
             .source_address_for(destination)?
             .unwrap_or_else(|| wildcard_address(ipv6));
-        #[cfg(all(windows, feature = "ffi"))]
-        let socket = {
-            let socket = Socket::new(
-                if ipv6 { Domain::IPV6 } else { Domain::IPV4 },
-                Type::DGRAM,
-                Some(Protocol::UDP),
-            )?;
-            self.apply_interface_binding(socket.as_raw_socket(), destination)?;
-            socket.bind(&bind_address.into())?;
-            socket.set_nonblocking(true)?;
-            UdpSocket::from_std(socket.into())?
-        };
-        #[cfg(not(all(windows, feature = "ffi")))]
-        let socket = UdpSocket::bind(bind_address).await?;
-        #[cfg(unix)]
-        if let Some(protector) = &self.protector {
-            protector.protect(socket.as_raw_fd())?;
-        }
-        #[cfg(not(unix))]
-        if self.protector.is_some() {
-            return Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "socket protection is only supported on Unix platforms",
-            ));
-        }
-        Ok(ObservedIo::new(socket, ResourceKind::Socket))
+        let dialer = self.clone();
+        let (socket, guard) = self
+            .initialization
+            .run(move |check| {
+                let socket = Socket::new(
+                    if ipv6 { Domain::IPV6 } else { Domain::IPV4 },
+                    Type::DGRAM,
+                    Some(Protocol::UDP),
+                )?;
+                let guard = track(ResourceKind::Socket);
+                check()?;
+                #[cfg(all(windows, feature = "ffi"))]
+                dialer.apply_interface_binding(socket.as_raw_socket(), destination)?;
+                socket.bind(&bind_address.into())?;
+                socket.set_nonblocking(true)?;
+                check()?;
+                dialer.protect_socket(&socket)?;
+                check()?;
+                Ok((std::net::UdpSocket::from(socket), guard))
+            })
+            .await?;
+        Ok(ObservedIo::with_guard(UdpSocket::from_std(socket)?, guard))
     }
 
     fn source_address_for(&self, destination: SocketAddr) -> io::Result<Option<SocketAddr>> {
@@ -500,33 +617,53 @@ impl Dialer {
     async fn connect_one(&self, address: SocketAddr) -> io::Result<PhysicalStream> {
         self.require_permitted(address)?;
         let ipv6 = address.is_ipv6();
-        let socket = if ipv6 {
-            TcpSocket::new_v6()?
-        } else {
-            TcpSocket::new_v4()?
-        };
-        let guard = track(ResourceKind::Socket);
-        #[cfg(unix)]
-        if let Some(protector) = &self.protector {
-            protector.protect(socket.as_raw_fd())?;
-        }
-        #[cfg(not(unix))]
-        if self.protector.is_some() {
-            return Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "socket protection is only supported on Unix platforms",
-            ));
-        }
-        #[cfg(all(windows, feature = "ffi"))]
-        self.apply_interface_binding(socket.as_raw_socket(), address)?;
-        if let Some(source_address) = self.source_address_for(address)? {
-            socket.bind(source_address)?;
-        }
+        let source_address = self.source_address_for(address)?;
+        let dialer = self.clone();
+        let (socket, guard) = self
+            .initialization
+            .run(move |check| {
+                let socket = if ipv6 {
+                    TcpSocket::new_v6()?
+                } else {
+                    TcpSocket::new_v4()?
+                };
+                let guard = track(ResourceKind::Socket);
+                check()?;
+                dialer.protect_socket(&socket)?;
+                check()?;
+                #[cfg(all(windows, feature = "ffi"))]
+                dialer.apply_interface_binding(socket.as_raw_socket(), address)?;
+                if let Some(source_address) = source_address {
+                    socket.bind(source_address)?;
+                }
+                check()?;
+                Ok((socket, guard))
+            })
+            .await?;
         let stream = timeout(self.connect_timeout, socket.connect(address))
             .await
             .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "connect timed out"))??;
         stream.set_nodelay(true)?;
         Ok(ObservedIo::with_guard(stream, guard))
+    }
+
+    #[cfg(unix)]
+    fn protect_socket(&self, socket: &impl AsRawFd) -> io::Result<()> {
+        self.protector
+            .as_ref()
+            .map_or(Ok(()), |protector| protector.protect(socket.as_raw_fd()))
+    }
+
+    #[cfg(not(unix))]
+    fn protect_socket<T>(&self, _socket: &T) -> io::Result<()> {
+        if self.protector.is_some() {
+            Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "socket protection is only supported on Unix platforms",
+            ))
+        } else {
+            Ok(())
+        }
     }
 
     fn require_permitted(&self, address: SocketAddr) -> io::Result<()> {
@@ -865,5 +1002,347 @@ mod tests {
             addresses.last().unwrap().port(),
             MAX_RESOLVED_ADDRESSES as u16
         );
+    }
+
+    #[cfg(all(unix, feature = "ffi"))]
+    #[test]
+    fn socket_initialization_churn_reclaims_completed_work() {
+        use crate::resources::observation::ResourceProbe;
+
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .max_blocking_threads(4)
+            .enable_all()
+            .build()
+            .unwrap();
+        let probe = ResourceProbe::default();
+        runtime.block_on(probe.scope(async {
+            let protector = Arc::new(CountingProtector(AtomicUsize::new(0)));
+            let dialer = Dialer::default().with_protector(protector.clone());
+            let destination = SocketAddr::from(([192, 0, 2, 1], 443));
+            // Client-only socket setup: no listener, send, or network peer.
+            for _ in 0..32 {
+                let mut attempts = tokio::task::JoinSet::new();
+                for _ in 0..256 {
+                    let dialer = dialer.clone();
+                    let probe = probe.clone();
+                    attempts.spawn(async move {
+                        probe
+                            .scope(async move {
+                                drop(dialer.bind_udp_for(destination).await.unwrap());
+                            })
+                            .await;
+                    });
+                }
+                while let Some(result) = attempts.join_next().await {
+                    result.unwrap();
+                }
+            }
+            dialer.shutdown().await;
+            assert_eq!(protector.0.load(Ordering::Relaxed), 8192);
+            assert!(probe.snapshot().peak(ResourceKind::Task) <= 64);
+            assert!(probe.snapshot().is_idle(), "{:?}", probe.snapshot());
+            println!("socket initialization churn: {:?}", probe.snapshot());
+        }));
+    }
+
+    #[cfg(all(unix, feature = "ffi"))]
+    #[test]
+    fn socket_initialization_cancellation_joins_started_and_queued_work() {
+        use crate::resources::observation::ResourceProbe;
+        use std::sync::Condvar;
+
+        #[derive(Default)]
+        struct GatedProtector {
+            released: Mutex<bool>,
+            wake: Condvar,
+            entered: AtomicUsize,
+        }
+        impl GatedProtector {
+            fn release(&self) {
+                *self.released.lock().unwrap() = true;
+                self.wake.notify_all();
+            }
+        }
+        impl SocketProtector for GatedProtector {
+            fn protect(&self, _socket: i32) -> io::Result<()> {
+                self.entered.fetch_add(1, Ordering::Release);
+                let released = self.released.lock().unwrap();
+                // A timeout keeps even a failing regression from trapping the
+                // runtime's synchronous destructor indefinitely.
+                let (_released, _) = self
+                    .wake
+                    .wait_timeout_while(released, Duration::from_secs(5), |released| !*released)
+                    .unwrap();
+                Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "test protector rejected before network connect",
+                ))
+            }
+        }
+        struct ReleaseOnDrop(Arc<GatedProtector>);
+        impl Drop for ReleaseOnDrop {
+            fn drop(&mut self) {
+                self.0.release();
+            }
+        }
+
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .max_blocking_threads(4)
+            .enable_all()
+            .build()
+            .unwrap();
+        let probe = ResourceProbe::default();
+        runtime.block_on(probe.scope(async {
+            let protector = Arc::new(GatedProtector::default());
+            let _release = ReleaseOnDrop(protector.clone());
+            let dialer = Dialer::default().with_protector(protector.clone());
+            let destination = SocketAddr::from(([192, 0, 2, 1], 443));
+            let callers_started = Arc::new(AtomicUsize::new(0));
+            let mut attempts = tokio::task::JoinSet::new();
+            for index in 0..4096 {
+                let dialer = dialer.clone();
+                let probe = probe.clone();
+                let callers_started = callers_started.clone();
+                attempts.spawn(async move {
+                    probe
+                        .scope(async move {
+                            callers_started.fetch_add(1, Ordering::Release);
+                            if index % 2 == 0 {
+                                dialer.connect_address(destination).await.map(drop)
+                            } else {
+                                dialer.bind_udp_for(destination).await.map(drop)
+                            }
+                        })
+                        .await
+                });
+            }
+            timeout(Duration::from_secs(3), async {
+                while callers_started.load(Ordering::Acquire) != 4096
+                    || probe.snapshot().current(ResourceKind::Task) < 64
+                    || protector.entered.load(Ordering::Acquire) < 4
+                {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            assert!(probe.snapshot().current(ResourceKind::Task) <= 64);
+            assert!(probe.snapshot().peak(ResourceKind::Task) <= 64);
+            println!("socket initialization backlog: {:?}", probe.snapshot());
+
+            attempts.abort_all();
+            while let Some(result) = attempts.join_next().await {
+                assert!(result.unwrap_err().is_cancelled());
+            }
+            println!(
+                "socket initialization backlog after caller cancellation: {:?}",
+                probe.snapshot()
+            );
+            let mut stopped = Box::pin(dialer.shutdown());
+            assert!(
+                timeout(Duration::from_millis(20), &mut stopped)
+                    .await
+                    .is_err(),
+                "Stop must not detach a started protect callback"
+            );
+            let release_started = std::time::Instant::now();
+            protector.release();
+            timeout(Duration::from_secs(3), &mut stopped).await.unwrap();
+            println!(
+                "socket initialization release-to-join: {:?}",
+                release_started.elapsed()
+            );
+            drop(stopped);
+            assert!(probe.snapshot().is_idle(), "{:?}", probe.snapshot());
+            assert_eq!(protector.entered.load(Ordering::Acquire), 4);
+            assert_eq!(
+                dialer.bind_udp_for(destination).await.unwrap_err().kind(),
+                io::ErrorKind::Interrupted
+            );
+
+            let fresh = dialer
+                .with_fresh_initialization()
+                .with_protector(Arc::new(CountingProtector(AtomicUsize::new(0))));
+            drop(fresh.bind_udp_for(destination).await.unwrap());
+            fresh.shutdown().await;
+            assert!(probe.snapshot().is_idle(), "{:?}", probe.snapshot());
+            println!("socket initialization reclaimed: {:?}", probe.snapshot());
+        }));
+    }
+
+    #[cfg(all(unix, feature = "ffi"))]
+    #[test]
+    fn socket_initialization_shared_pool_contention_reclaims_cancelled_work() {
+        use crate::resources::observation::ResourceProbe;
+        use std::sync::Condvar;
+
+        #[derive(Default)]
+        struct BlockingGate {
+            released: Mutex<bool>,
+            wake: Condvar,
+            entered: AtomicUsize,
+        }
+        impl BlockingGate {
+            fn wait(&self) -> bool {
+                self.entered.fetch_add(1, Ordering::Release);
+                let released = self.released.lock().unwrap();
+                // Test-only unrelated work, not a slow protect callback. The
+                // timeout and RAII release also cover assertion failures.
+                let (released, _) = self
+                    .wake
+                    .wait_timeout_while(released, Duration::from_secs(10), |released| !*released)
+                    .unwrap();
+                *released
+            }
+
+            fn release(&self) {
+                *self.released.lock().unwrap() = true;
+                self.wake.notify_all();
+            }
+        }
+        struct ReleaseOnDrop(Arc<BlockingGate>);
+        impl Drop for ReleaseOnDrop {
+            fn drop(&mut self) {
+                self.0.release();
+            }
+        }
+        struct FastRejectingProtector(AtomicUsize);
+        impl SocketProtector for FastRejectingProtector {
+            fn protect(&self, _socket: i32) -> io::Result<()> {
+                self.0.fetch_add(1, Ordering::Relaxed);
+                Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "test protector rejected before network connect",
+                ))
+            }
+        }
+
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .max_blocking_threads(4)
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            for submitted in [512, 4096] {
+                let probe = ResourceProbe::default();
+                let gate = Arc::new(BlockingGate::default());
+                let _release = ReleaseOnDrop(gate.clone());
+                let mut blockers = Vec::new();
+                for _ in 0..4 {
+                    let gate = gate.clone();
+                    // Deliberately do not inherit the initialization probe:
+                    // these jobs belong to the test, not to this Dialer.
+                    blockers.push(tokio::task::spawn_blocking(move || gate.wait()));
+                }
+                timeout(Duration::from_secs(3), async {
+                    while gate.entered.load(Ordering::Acquire) != 4 {
+                        tokio::task::yield_now().await;
+                    }
+                })
+                .await
+                .unwrap();
+
+                let protector = Arc::new(FastRejectingProtector(AtomicUsize::new(0)));
+                let protector_lease = Arc::downgrade(&protector);
+                let dialer = Dialer::default().with_protector(protector.clone());
+                let destination = SocketAddr::from(([192, 0, 2, 1], 443));
+                let callers_started = Arc::new(AtomicUsize::new(0));
+                let mut attempts = tokio::task::JoinSet::new();
+                for index in 0..submitted {
+                    let dialer = dialer.clone();
+                    let probe = probe.clone();
+                    let callers_started = callers_started.clone();
+                    attempts.spawn(async move {
+                        probe
+                            .scope(async move {
+                                callers_started.fetch_add(1, Ordering::Release);
+                                if index % 2 == 0 {
+                                    dialer.connect_address(destination).await.map(drop)
+                                } else {
+                                    dialer.bind_udp_for(destination).await.map(drop)
+                                }
+                            })
+                            .await
+                    });
+                }
+                timeout(Duration::from_secs(3), async {
+                    while callers_started.load(Ordering::Acquire) != submitted
+                        || probe.snapshot().current(ResourceKind::Task) < 64
+                    {
+                        tokio::task::yield_now().await;
+                    }
+                })
+                .await
+                .unwrap();
+                let before_cancel = probe.snapshot();
+                assert!(before_cancel.current(ResourceKind::Task) <= 64);
+                assert!(before_cancel.peak(ResourceKind::Task) <= 64);
+                assert_eq!(before_cancel.current(ResourceKind::Socket), 0);
+                assert_eq!(protector.0.load(Ordering::Relaxed), 0);
+                println!(
+                    "socket initialization shared-pool submitted={submitted} before cancel: {before_cancel:?}"
+                );
+
+                // Scope Stop must wake permit waiters without waiting for
+                // unrelated blocking jobs or requiring caller aborts.
+                dialer.begin_shutdown();
+                timeout(Duration::from_secs(3), async {
+                    while let Some(result) = attempts.join_next().await {
+                        assert_eq!(result.unwrap().unwrap_err().kind(), io::ErrorKind::Interrupted);
+                    }
+                })
+                .await
+                .unwrap();
+                let after_cancel = probe.snapshot();
+                assert!(after_cancel.current(ResourceKind::Task) <= 64);
+                assert!(after_cancel.peak(ResourceKind::Task) <= 64);
+                assert_eq!(after_cancel.current(ResourceKind::Socket), 0);
+                assert_eq!(protector.0.load(Ordering::Relaxed), 0);
+                println!(
+                    "socket initialization shared-pool submitted={submitted} after Stop cancellation: {after_cancel:?}"
+                );
+
+                let release_started = std::time::Instant::now();
+                gate.release();
+                timeout(Duration::from_secs(3), dialer.shutdown())
+                    .await
+                    .unwrap();
+                let release_to_join = release_started.elapsed();
+                for blocker in blockers {
+                    assert!(timeout(Duration::from_secs(3), blocker).await.unwrap().unwrap());
+                }
+                assert!(probe.snapshot().is_idle(), "{:?}", probe.snapshot());
+                assert_eq!(protector.0.load(Ordering::Relaxed), 0);
+                assert_eq!(
+                    dialer.bind_udp_for(destination).await.unwrap_err().kind(),
+                    io::ErrorKind::Interrupted
+                );
+
+                // A new lifecycle owner works after the shared pool recovers;
+                // the rejecting protector still prevents any TCP connect.
+                let fresh = dialer.clone().with_fresh_initialization();
+                assert_eq!(
+                    probe
+                        .scope(fresh.bind_udp_for(destination))
+                        .await
+                        .unwrap_err()
+                        .kind(),
+                    io::ErrorKind::PermissionDenied
+                );
+                fresh.shutdown().await;
+                assert_eq!(protector.0.load(Ordering::Relaxed), 1);
+                assert!(probe.snapshot().is_idle(), "{:?}", probe.snapshot());
+                drop(fresh);
+                drop(dialer);
+                drop(protector);
+                assert!(protector_lease.upgrade().is_none());
+                println!(
+                    "socket initialization shared-pool submitted={submitted} release-to-join={release_to_join:?} reclaimed: {:?}",
+                    probe.snapshot()
+                );
+            }
+        });
     }
 }

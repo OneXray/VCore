@@ -251,7 +251,7 @@ impl Session {
         let stream_id =
             match self
                 .next_stream_id
-                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+                .try_update(Ordering::AcqRel, Ordering::Acquire, |current| {
                     current.checked_add(1)
                 }) {
                 Ok(previous) => previous + 1,

@@ -24,7 +24,7 @@
 
 ## 开发与验证
 
-- [构建与检查](../scripts/README.md)、[测试入口](../tests/README.md)。
+- [平台编译](../scripts/README.md)、[离线回归与独立容器入口](../tests/README.md)。
 - [测试隔离](testing-isolation.md)：所有网络服务端必须容器化。
 - [验收边界](acceptance.md)：本地、CI、设备和发布证据分别记录。
 - [领域上下文](../CONTEXT.md)、[架构决策](adr/)。

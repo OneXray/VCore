@@ -191,7 +191,7 @@ fn is_vcore_target(target: &str) -> bool {
 }
 
 fn os_log_level(level: &Level) -> OsLogLevel {
-    #[cfg(target_os = "ios")]
+    #[cfg(any(target_os = "ios", target_os = "tvos"))]
     {
         // Xcode does not reliably forward Default/Info messages from a Packet
         // Tunnel Extension unless it is attached as the debug executable.
