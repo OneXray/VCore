@@ -57,7 +57,9 @@ container-benchmark stress --source vcore=PATH
   反选与字面 `@!cn`；缺失/未声明 selector 不变全匹配，有效空交集与无域名保持独立。
   GeoIP IPv4/IPv6 与 `!code`、DAT reverse_match 忽略；业务规则与 DNS policy 共享基础
   分类和记录，属性重叠不重复 value/Regex。属性筛选在 value 解析/Regex 编译前执行，
-  未选中正则不编译。真正失败的重载/更新保留旧整体快照/资产。
+  未选中正则不编译。真正失败的重载/候选校验保留旧整体快照/资产；成功更新立即
+  发布到原 matcher，既有读者保持完整旧快照，退出后释放；过期更新租约不能写入资产
+  或替换新注册实例的快照。更新候选只构建一次，管理重载与提交串行。
   分类异序/大小写定位与重载保持独立；TUN UDP 五元组独立固定 action，提示/GeoData
   更新只影响新流并释放旧快照；认证 QUIC 连接标识变更、同标识重传、逐目标空闲回收
   与响应刷新保持独立。域名 DNS 答案和非 TUN 路径继续更新，已有组 transport 不迁移。
