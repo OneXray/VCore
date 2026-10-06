@@ -88,6 +88,9 @@ dns:
 
 Policy 只决定当前 DNS exchange，不改写后续业务动作。分类、属性归一和语义边界见
 [GeoData 规则](geodata.md#规则)；所有平台均不按 GeoData 条数截断记录。
+每次同步 policy 选择捕获一份不可变 GeoData 快照，所有 selector 与 policy 项共用，
+不在一次求值中混用旧代、空快照和新代。捕获空快照时沿用资产缺失的主组回落语义。
+快照在选择函数返回时释放，不复制规则，也不跨后续上游 I/O 的 `await` 持有。
 Regex selector 记录与业务规则共用 `regex::bytes::Regex`；其搜索缓存由正则库管理，
 可能分配 scratch 或发生缓存竞争，不承诺 DNS policy 正则搜索零分配。
 

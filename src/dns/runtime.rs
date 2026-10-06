@@ -883,11 +883,16 @@ impl RuntimeDns {
     }
 
     fn nameservers_for(&self, query: &ClassifiedDnsQuery) -> &[DnsNameserver] {
+        if self.nameserver_policies.is_empty() {
+            return &self.nameservers;
+        }
+        let snapshot = self.geo_matcher.routing_snapshot();
+        let geo_matcher = snapshot.as_deref().unwrap_or(self.geo_matcher.as_ref());
         for (policy_index, policy) in self.nameserver_policies.iter().enumerate() {
             if policy
                 .geosite_codes
                 .iter()
-                .any(|code| self.geo_matcher.matches_geosite(code, &query.question.name))
+                .any(|code| geo_matcher.matches_geosite(code, &query.question.name))
             {
                 tracing::debug!(
                     policy_index,
@@ -1929,6 +1934,7 @@ mod tests {
         dialer::Dialer,
         dispatch::{BoxStream, DatagramTransport},
         dns::{DnsQuestion, DnsRecord},
+        geodata::{DynamicGeoData, GEOSITE_FILE_NAME, GeoData},
         outbound::DirectOutbound,
         routing::{EmptyGeoMatcher, RuleSet},
     };
@@ -1949,6 +1955,38 @@ mod tests {
 
         fn matches_geoip(&self, _code: &str, _address: IpAddr) -> bool {
             false
+        }
+    }
+
+    // Publish a replacement after the first real GeoSite lookup, including
+    // when that lookup uses the immutable view captured by the resolver.
+    struct SwapAfterFirstGeoSiteMatch {
+        inner: Arc<dyn GeoMatcher>,
+        dynamic: Arc<DynamicGeoData>,
+        replacement: Arc<StdMutex<Option<Arc<GeoData>>>>,
+    }
+
+    impl GeoMatcher for SwapAfterFirstGeoSiteMatch {
+        fn routing_snapshot(&self) -> Option<Arc<dyn GeoMatcher>> {
+            self.inner.routing_snapshot().map(|snapshot| {
+                Arc::new(Self {
+                    inner: snapshot,
+                    dynamic: self.dynamic.clone(),
+                    replacement: self.replacement.clone(),
+                }) as Arc<dyn GeoMatcher>
+            })
+        }
+
+        fn matches_geosite(&self, code: &str, domain: &str) -> bool {
+            let matches = self.inner.matches_geosite(code, domain);
+            if let Some(replacement) = self.replacement.lock().unwrap().take() {
+                self.dynamic.activate(replacement);
+            }
+            matches
+        }
+
+        fn matches_geoip(&self, code: &str, address: IpAddr) -> bool {
+            self.inner.matches_geoip(code, address)
         }
     }
 
@@ -2995,6 +3033,112 @@ mod tests {
         resolver.exchange(&query).await.unwrap();
         assert_eq!(direct.udp_calls.load(Ordering::Acquire), 1);
         assert_eq!(proxy.udp_calls.load(Ordering::Acquire), 0);
+    }
+
+    #[tokio::test]
+    async fn dns_policy_selection_is_consistent_across_snapshot_swaps() {
+        for starts_empty in [false, true] {
+            for separate_policies in [false, true] {
+                for query_type in [1, 65] {
+                    let main = nameserver(1, DnsTransport::Udp);
+                    let policy = nameserver(2, DnsTransport::Udp);
+                    let mut dns_config = config(false, vec![main]);
+                    dns_config.nameserver_policies = if separate_policies {
+                        vec![
+                            dns_policy(&["cn@ads"], vec![nameserver(3, DnsTransport::Udp)]),
+                            dns_policy(&["cn"], vec![policy]),
+                        ]
+                    } else {
+                        vec![dns_policy(&["cn@ads", "cn"], vec![policy])]
+                    };
+                    let root = tempfile::tempdir().unwrap();
+                    // One CN Domain record: example.cn, with no attributes.
+                    std::fs::write(
+                        root.path().join(GEOSITE_FILE_NAME),
+                        b"\x0a\x14\x0a\x02cn\x12\x0e\x08\x02\x12\x0aexample.cn",
+                    )
+                    .unwrap();
+                    let loaded = Arc::new(
+                        GeoData::load_with_dns_policies(
+                            root.path(),
+                            &[],
+                            &dns_config.nameserver_policies,
+                        )
+                        .unwrap(),
+                    );
+                    let empty = Arc::new(GeoData::EMPTY);
+                    let (initial, replacement) = if starts_empty {
+                        (empty, loaded)
+                    } else {
+                        (loaded, empty)
+                    };
+                    let retired = Arc::downgrade(&initial);
+                    let dynamic = Arc::new(DynamicGeoData::new(initial));
+                    let matcher = Arc::new(SwapAfterFirstGeoSiteMatch {
+                        inner: dynamic.clone(),
+                        dynamic,
+                        replacement: Arc::new(StdMutex::new(Some(replacement))),
+                    });
+                    let release = Arc::new(Notify::new());
+                    let dispatcher = Arc::new(MockDispatcher::with_replies(
+                        vec![
+                            MockReply::Gated {
+                                response: ResponseSpec::rcode(RCODE_NOERROR),
+                                release: release.clone(),
+                            },
+                            MockReply::Response(ResponseSpec::rcode(RCODE_NOERROR)),
+                        ],
+                        vec![],
+                    ));
+                    let resolver =
+                        RuntimeDns::new_with_geo_matcher(&dns_config, dispatcher.clone(), matcher);
+                    let query = opaque_query(60, "www.example.cn", query_type);
+                    let mut exchange = std::pin::pin!(resolver.exchange(&query));
+                    tokio::select! {
+                        result = &mut exchange => panic!("upstream must wait for release: {result:?}"),
+                        () = async {
+                            while dispatcher.udp_destinations.lock().unwrap().is_empty() {
+                                tokio::task::yield_now().await;
+                            }
+                        } => {}
+                    }
+                    let released_before_upstream_reply = retired.upgrade().is_none();
+                    release.notify_one();
+                    let response = exchange.await.unwrap();
+                    assert_eq!(u16::from_be_bytes([response[0], response[1]]), 60);
+                    assert_eq!(response[3] & 0x0f, RCODE_NOERROR);
+                    assert!(released_before_upstream_reply);
+
+                    let expected = if starts_empty { main } else { policy };
+                    assert_eq!(
+                        *dispatcher.udp_destinations.lock().unwrap(),
+                        vec![Destination::Ip(SocketAddr::new(
+                            expected.address,
+                            expected.port
+                        ))],
+                        "starts_empty={starts_empty}, separate_policies={separate_policies}, query_type={query_type}",
+                    );
+
+                    // A fresh query sees the published replacement, not the
+                    // snapshot retired by the preceding policy evaluation.
+                    resolver
+                        .exchange(&opaque_query(61, "next.example.cn", query_type))
+                        .await
+                        .unwrap();
+                    let next_expected = if starts_empty { policy } else { main };
+                    assert_eq!(
+                        *dispatcher.udp_destinations.lock().unwrap(),
+                        vec![
+                            Destination::Ip(SocketAddr::new(expected.address, expected.port)),
+                            Destination::Ip(SocketAddr::new(
+                                next_expected.address,
+                                next_expected.port
+                            )),
+                        ],
+                    );
+                }
+            }
+        }
     }
 
     #[tokio::test]

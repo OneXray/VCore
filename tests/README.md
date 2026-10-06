@@ -56,7 +56,10 @@ container-benchmark stress --source vcore=PATH
   （bool false/int 0）、多属性 AND、顺序/重复/空项归一、Unicode simple-fold、整 selector
   反选与字面 `@!cn`；缺失/未声明 selector 不变全匹配，有效空交集与无域名保持独立。
   GeoIP IPv4/IPv6 与 `!code`、DAT reverse_match 忽略；业务规则与 DNS policy 共享基础
-  分类和记录，属性重叠不重复 value/Regex。属性筛选在 value 解析/Regex 编译前执行，
+  分类和记录，属性重叠不重复 value/Regex。
+  `dns_policy_selection_is_consistent_across_snapshot_swaps` 覆盖 DNS policy 跨 selector/项
+  复用一份不可变快照，旧代与空快照切换不改变本次选择；空快照仍按缺失回落，返回前释放，
+  不跨上游 I/O 的 `await` 持有。属性筛选在 value 解析/Regex 编译前执行，
   未选中正则不编译。下载、文件结构和 staging 检查期间保留旧 matcher；构建新代前
   卸载旧代，等待既有读者完成及存储析构，新流仅跳过不可用 Geo 规则，普通规则与
   DNS 回落不变。卸载后的加载失败使坏种类不可用、健康另一类独立发布，旧磁盘资产
