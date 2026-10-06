@@ -15,7 +15,7 @@ VCore 是可嵌入 VPN 客户端和本地代理的 Rust 代理内核。它通过
 - **选择和串联代理：**支持嵌套 `select` 组、实时切换组选择，以及引用节点或组的 `dialer-proxy` 代理链。选择变化只影响新建的物理传输连接，不迁移既有连接。
 - **处理 DNS：**支持指定出口的 UDP/TCP 上游、基于 GeoSite 的上游策略、顺序故障转移、缓存与重复查询合并；TUN 模式下拦截 TCP/UDP 53 端口。
 - **识别流量用于路由：**通过 HTTP、TLS、QUIC 域名嗅探与 TUN DNS 提示辅助路由，不改写实际目标地址。ICMPv4/ICMPv6 Echo 在本地应答。
-- **管理路由数据：**按需从 `geosite.dat` / `geoip.dat` 加载被引用的类别，并通过配置的路由更新文件。iOS/tvOS 的所选 GeoIP 原始 CIDR 与 GeoSite 原始 Domain 共用 1,280,000 条总保留额度，优先 GeoIP，余量交给 GeoSite，超出部分不进入匹配器；其他平台不设数量上限，GeoData 内存不设预算。详见 [GeoData 边界](../docs/geodata.md#内存与安全边界)。
+- **管理路由数据：**按需从 `geosite.dat` / `geoip.dat` 加载被引用的类别，并通过配置的路由更新文件。GeoSite 支持 Domain、Full、Plain 和 Regex、属性交集及反选；GeoIP 支持反选。所有平台完整保留所选记录，不设条数硬上限或截断，也不设 GeoData 总内存预算。详见 [GeoData 边界](../docs/geodata.md#内存与安全边界)。
 - **提供客户端控制：**回环 Controller 支持代理组选择及 TUN 流量速率/累计量查询；Invoke API 提供隔离的节点/代理链延迟测量。
 
 ## 代理协议
@@ -105,7 +105,7 @@ benchmark 工程同时负责协议互通（`interop`）与内存压力（`stress
 
 测试使用 **1 / 1.5 / 2 Gbps** 混合 TCP/UDP 流量、**每秒 1,000 次 DNS 查询**和增强的 `geosite:cn` / `geoip:cn` 规则，报告实际吞吐量、CPU、观察到的 Linux 峰值 RSS、UDP 丢包与成功的 DNS 查询数。它使用 DIRECT 出口评估 TUN/DNS/路由路径，不衡量加密代理吞吐量；Linux RSS 不等同于 Apple Network Extension 内存占用。
 
-2026-10-06 的压力测试加载了 1,280,000 条总 GeoData，在 2 Gbps / 60 秒 / 1,000 QPS DNS 下观测到 Linux RSS 峰值 42,557,440 字节；仍有 UDP 丢包和 DNS 超时。分类与完整指标见 benchmark README。iOS/tvOS 上限是指定工程值，不是实测极限，也不保证任意输入下进程低于 50,000,000 字节。未保留条目不再参与 GeoIP/GeoSite 分流或 GeoSite DNS policy 命中。Linux 观测不替代 Apple 真机验收。
+独立 `stress` 命令默认加载完整增强 GeoData，包含属性/反选见证，并叠加 2 Gbps / 60 秒 / 1,000 QPS DNS。实际输入类型、测量和失败见 benchmark README。可选条数参数只调整实验输入，不改变生产行为；任何单次观测都不是任意输入低于 50,000,000 字节的保证，也不替代 Apple 真机验收。
 
 ## 文档
 

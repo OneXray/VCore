@@ -5,6 +5,8 @@
 #
 # 宿主先通过 Invoke API v5 调用 initialize({dataDir})，再通过 configYaml 内联
 # 传入配置。GeoData 固定由 VCore 管理在 dataDir/geodata 中。
+# 所有平台均不设 GeoData 条数上限，不按数量截断，也不设总内存预算；
+# 仅加载当前业务规则和 DNS policy 引用的分类/属性交集，详见 docs/geodata.md。
 
 # IPv6 数据面总开关，省略时默认为 true。false 时拒绝 IPv6 字面量业务目标、过滤
 # 本地解析和代理根节点的 IPv6 地址、禁止 IPv6 物理 socket，并在 TUN 入口丢弃
@@ -412,7 +414,10 @@ proxy-groups:
 # 默认出口含义，只有存在同名 route target 时才有效。DNS route 选中代理组后，
 # 仅新建物理 transport 解析当前成员；cache 与既有 TCP pool 不随切换清空。
 # nameserver-policy 按顺序匹配
-# `geosite:<code>[,<code>...]`，命中后只在当前组内顺序故障转移。
+# `geosite:<selector>[,<selector>...]`，逗号项为 OR，命中后只在当前组内故障转移。
+# selector 可为 cn、cn@ads@cn、!cn@ads；多个属性为 key 存在性 AND（忽略 bool/int 值），
+# 前置 ! 取反整个匹配结果，@!cn 是字面 key。相同归一 selector 不能跨项重复，
+# 但相同基础分类的不同交集/正反选可共存；资产不可用不因反选变成全匹配。
 dns:
   enable: true
   ipv6: true
@@ -427,6 +432,10 @@ dns:
 # 动作必须精确使用实际节点名或代理组名。`PROXY` 没有特殊别名。rules 不能为空，
 # 必须恰好以一个指向实际节点或代理组的 MATCH 结束；不存在隐式 MATCH 或 DIRECT
 # 回退。选中组时使用当前成员，组本身不做 health check、测速或自动 failover。
+# GEOSITE 支持 [!]<code>[@<attr>...]，GEOIP 支持 [!]<code> 和可选 no-resolve。
+# 例如 GEOSITE,google@ads,REJECT / GEOSITE,!cn@ads,main-select / GEOIP,!CN,DIRECT。
+# geolocation-!cn 为字面分类名；GeoIP DAT reverse_match 接受但忽略，取反由 ! 控制。
+# GEOSITE 没有域名不匹配；分类缺失不匹配，而有效空属性交集的反选匹配非空域名。
 rules:
   - GEOSITE,category-ads-all,REJECT
   - GEOSITE,cn,DIRECT

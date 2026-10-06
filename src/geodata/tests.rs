@@ -45,19 +45,20 @@ fn domain(domain_type: u64, value: &str) -> Vec<u8> {
     output
 }
 
+fn attributed_domain(domain_type: u64, value: &str, attributes: &[(&str, u32, u64)]) -> Vec<u8> {
+    let mut record = domain(domain_type, value);
+    for (key, field, value) in attributes {
+        let mut attribute = field_bytes(1, key.as_bytes());
+        attribute.extend(field_varint(*field, *value));
+        record.extend(field_bytes(3, &attribute));
+    }
+    record
+}
+
 fn site(code: &str, domains: &[Vec<u8>]) -> Vec<u8> {
     let mut output = field_bytes(1, code.as_bytes());
     for domain in domains {
         output.extend(field_bytes(2, domain));
-    }
-    output
-}
-
-fn repeated_site(code: &str, record: &[u8], count: usize) -> Vec<u8> {
-    let mut output = field_bytes(1, code.as_bytes());
-    let framed_record = field_bytes(2, record);
-    for _ in 0..count {
-        output.extend_from_slice(&framed_record);
     }
     output
 }
@@ -122,15 +123,6 @@ fn write_asset(dir: &Path, name: &str, contents: &[u8]) {
     fs::write(dir.join(name), contents).unwrap();
 }
 
-fn load_with_record_limit(
-    dir: &Path,
-    rules: &[RuleSpec],
-    dns_policies: &[DnsNameserverPolicy],
-    limit: usize,
-) -> Result<GeoData, GeoDataError> {
-    GeoData::load_with_record_limit(dir, rules, dns_policies, Some(limit))
-}
-
 #[test]
 fn empty_rules_do_not_open_assets() {
     let dir = tempdir().unwrap();
@@ -138,6 +130,297 @@ fn empty_rules_do_not_open_assets() {
     assert!(data.is_empty());
     assert_eq!(data.allocation_capacity(), 0);
     assert_eq!(data.peak_allocation_capacity(), 0);
+}
+
+#[test]
+fn selector_normalization_deduplicates_and_folds_unicode_attributes() {
+    assert_eq!(
+        normalize_selector(GeoDataKind::GeoSite, "!CN@ ads @@CN@Ads").unwrap(),
+        "!cn@ads@cn"
+    );
+    for (left, right) in [("Σ", "ς"), ("σ", "ς"), ("ſ", "S"), ("K", "K"), ("µ", "Μ")] {
+        assert_eq!(
+            normalize_selector(GeoDataKind::GeoSite, &format!("cn@{left}")).unwrap(),
+            normalize_selector(GeoDataKind::GeoSite, &format!("cn@{right}")).unwrap(),
+            "{left} / {right}",
+        );
+    }
+    assert_eq!(
+        normalize_selector(GeoDataKind::GeoSite, "cn@İ").unwrap(),
+        normalize_selector(GeoDataKind::GeoSite, "cn@i").unwrap(),
+    );
+    assert_ne!(fold_attribute("İ"), fold_attribute("i"));
+    assert_eq!(
+        normalize_selector(GeoDataKind::GeoIp, "!CN").unwrap(),
+        "!cn"
+    );
+    assert_eq!(
+        normalize_selector(GeoDataKind::GeoSite, "GOOGLE@!CN").unwrap(),
+        "google@!cn"
+    );
+    for (kind, selector) in [
+        (GeoDataKind::GeoIp, "cn@ads"),
+        (GeoDataKind::GeoSite, "!"),
+        (GeoDataKind::GeoSite, "!!cn"),
+        (GeoDataKind::GeoSite, "cn@a b"),
+        (GeoDataKind::GeoSite, "cn@a\u{0}b"),
+    ] {
+        assert!(normalize_selector(kind, selector).is_err(), "{selector:?}");
+    }
+}
+
+#[test]
+fn attribute_intersection_inversion_and_all_pattern_kinds_share_one_base() {
+    let dir = tempdir().unwrap();
+    let both = [("ADS", 2, 0), ("cn", 3, 0)];
+    write_asset(
+        dir.path(),
+        GEOSITE_FILE_NAME,
+        &site_list(&[site(
+            "cn",
+            &[
+                attributed_domain(0, "keyword", &both),
+                attributed_domain(1, "^regex[0-9]+\\.example$", &both),
+                attributed_domain(2, "domain.example", &both),
+                attributed_domain(3, "full.example", &both),
+                attributed_domain(3, "ads-only.example", &[("ads", 2, 1)]),
+                attributed_domain(3, "plain.example", &[]),
+            ],
+        )]),
+    );
+    let rules = [
+        rule(RuleKind::GeoSite("CN@ADS@CN".into())),
+        rule(RuleKind::GeoSite("!cn@cn@ads".into())),
+        rule(RuleKind::GeoSite("cn".into())),
+        rule(RuleKind::GeoSite("!cn".into())),
+        rule(RuleKind::GeoSite("cn@missing".into())),
+        rule(RuleKind::GeoSite("!cn@missing".into())),
+    ];
+    let data = GeoData::load(dir.path(), &rules).unwrap();
+    assert_eq!(data.sites.len(), 1);
+    assert_eq!(data.sites[0].patterns.len(), 5);
+    assert_eq!(data.sites[0].regexes.len(), 1);
+    assert_eq!(data.sites[0].filters.len(), 2);
+    let filter = data.sites[0]
+        .filters
+        .iter()
+        .find(|filter| filter.attributes == "ads@cn")
+        .unwrap();
+    assert_eq!(filter.patterns.len(), 3);
+    assert_eq!(filter.regex_indices, [0]);
+    for name in [
+        "keyword.example",
+        "regex42.example",
+        "domain.example",
+        "sub.domain.example",
+        "full.example",
+    ] {
+        assert!(data.matches_geosite("cn@ads@cn", name), "{name}");
+        assert!(!data.matches_geosite("!cn@ads@cn", name), "{name}");
+    }
+    for name in ["ads-only.example", "plain.example", "absent.example"] {
+        assert!(!data.matches_geosite("cn@ads@cn", name), "{name}");
+        assert!(data.matches_geosite("!cn@ads@cn", name), "{name}");
+    }
+    assert!(!data.matches_geosite("!cn", ""));
+    assert!(!data.matches_geosite("!cn@missing", ""));
+    assert!(data.geosite_available("cn@missing"));
+    assert!(!data.matches_geosite("cn@missing", "any.example"));
+    assert!(data.matches_geosite("!cn@missing", "any.example"));
+    assert!(!data.geosite_available("cn@not-requested"));
+    assert!(!data.matches_geosite("!absent", "any.example"));
+}
+
+#[test]
+fn attribute_filtered_load_skips_unselected_invalid_regex_and_shares_record_union() {
+    let dir = tempdir().unwrap();
+    write_asset(
+        dir.path(),
+        GEOSITE_FILE_NAME,
+        &site_list(&[site(
+            "cn",
+            &[
+                attributed_domain(1, "(?=unsupported)", &[("other", 2, 1)]),
+                attributed_domain(3, "both.example", &[("a", 2, 0), ("b", 3, 0)]),
+                attributed_domain(3, "a.example", &[("a", 2, 1)]),
+                attributed_domain(3, "b.example", &[("b", 2, 1)]),
+            ],
+        )]),
+    );
+    let rules = [
+        rule(RuleKind::GeoSite("cn@a".into())),
+        rule(RuleKind::GeoSite("!cn@a".into())),
+        rule(RuleKind::GeoSite("CN@A@A".into())),
+        rule(RuleKind::GeoSite("cn@b".into())),
+    ];
+    let data = GeoData::load(dir.path(), &rules).unwrap();
+    assert_eq!(data.sites.len(), 1);
+    assert_eq!(data.sites[0].patterns.len(), 3);
+    assert_eq!(data.sites[0].filters.len(), 2);
+    assert_eq!(data.sites[0].selectors.len(), 3);
+    assert!(data.matches_geosite("cn@a", "both.example"));
+    assert!(data.matches_geosite("cn@b", "both.example"));
+    assert!(data.matches_geosite("cn@a", "a.example"));
+    assert!(!data.matches_geosite("cn@b", "a.example"));
+    assert!(data.matches_geosite("cn@b", "b.example"));
+    assert!(data.matches_geosite("!cn@a", "b.example"));
+}
+
+#[test]
+fn dns_selectors_share_attributes_with_business_rules_and_reload() {
+    let dir = tempdir().unwrap();
+    let key = "Σ";
+    let selector = normalize_selector(GeoDataKind::GeoSite, "cn@ς").unwrap();
+    let inverted = format!("!{selector}");
+    write_asset(
+        dir.path(),
+        GEOSITE_FILE_NAME,
+        &site_list(&[site(
+            "cn",
+            &[
+                attributed_domain(3, "old.example", &[(key, 2, 0)]),
+                attributed_domain(3, "unselected.example", &[]),
+            ],
+        )]),
+    );
+    let rules = [rule(RuleKind::GeoSite(selector.clone()))];
+    let policies = [dns_policy(&[&inverted, &selector])];
+    let requirements = GeoRequirements::collect(&rules, &policies).unwrap();
+    assert_eq!(requirements.total_codes(), 2);
+    assert_eq!(requirements.sites.values.len(), 1);
+    let manager = GeoDataManager::open(dir.path(), std::time::Duration::from_secs(60)).unwrap();
+    let registration = manager.register(requirements).unwrap();
+    let matcher = registration.matcher();
+    assert!(matcher.matches_geosite(&selector, "old.example"));
+    assert!(matcher.matches_geosite(&inverted, "unselected.example"));
+    write_asset(
+        dir.path(),
+        GEOSITE_FILE_NAME,
+        &site_list(&[site(
+            "cn",
+            &[attributed_domain(3, "new.example", &[("σ", 3, 0)])],
+        )]),
+    );
+    assert!(manager.reload().geosite_available);
+    assert!(!matcher.matches_geosite(&selector, "old.example"));
+    assert!(matcher.matches_geosite(&selector, "new.example"));
+    assert!(!matcher.matches_geosite(&inverted, "new.example"));
+}
+
+#[test]
+fn literal_bang_attribute_is_not_an_attribute_complement() {
+    let dir = tempdir().unwrap();
+    write_asset(
+        dir.path(),
+        GEOSITE_FILE_NAME,
+        &site_list(&[site(
+            "google",
+            &[
+                attributed_domain(3, "tagged.example", &[("!cn", 2, 0)]),
+                attributed_domain(3, "cn.example", &[("cn", 3, 0)]),
+                attributed_domain(3, "untagged.example", &[]),
+            ],
+        )]),
+    );
+    let rules = [
+        rule(RuleKind::GeoSite("google@!cn".into())),
+        rule(RuleKind::GeoSite("!google@!cn".into())),
+    ];
+    let data = GeoData::load(dir.path(), &rules).unwrap();
+    assert_eq!(data.sites[0].filters.len(), 1);
+    assert!(data.sites[0].filters[0].all_records);
+    assert!(data.sites[0].filters[0].patterns.is_empty());
+    assert!(data.sites[0].filters[0].regex_indices.is_empty());
+    assert!(data.matches_geosite("google@!cn", "tagged.example"));
+    for name in ["cn.example", "untagged.example"] {
+        assert!(!data.matches_geosite("google@!cn", name));
+        assert!(data.matches_geosite("!google@!cn", name));
+    }
+    assert!(!data.matches_geosite("!google@!cn", "tagged.example"));
+}
+
+#[test]
+fn selector_lowercase_and_attribute_key_simple_fold_follow_mihomo_order() {
+    let dir = tempdir().unwrap();
+    write_asset(
+        dir.path(),
+        GEOSITE_FILE_NAME,
+        &site_list(&[site(
+            "cn",
+            &[
+                attributed_domain(3, "ascii-i.example", &[("i", 2, 0)]),
+                attributed_domain(3, "dotted-i.example", &[("İ", 2, 0)]),
+            ],
+        )]),
+    );
+    let selector = normalize_selector(GeoDataKind::GeoSite, "cn@İ").unwrap();
+    let data = GeoData::load(dir.path(), &[rule(RuleKind::GeoSite(selector.clone()))]).unwrap();
+    assert!(data.matches_geosite(&selector, "ascii-i.example"));
+    assert!(!data.matches_geosite(&selector, "dotted-i.example"));
+}
+
+#[test]
+fn missing_inverted_category_is_unavailable_but_empty_filter_is_available() {
+    let dir = tempdir().unwrap();
+    write_asset(
+        dir.path(),
+        GEOSITE_FILE_NAME,
+        &site_list(&[site("cn", &[attributed_domain(3, "untagged.example", &[])])]),
+    );
+    let manager = GeoDataManager::open(dir.path(), std::time::Duration::from_secs(60)).unwrap();
+    let registration = manager
+        .register(
+            GeoRequirements::collect(&[rule(RuleKind::GeoSite("!missing".into()))], &[]).unwrap(),
+        )
+        .unwrap();
+    let matcher = registration.matcher();
+    assert!(!registration.initial_report().geosite.available);
+    assert!(!matcher.geosite_available("!missing"));
+    assert!(!matcher.matches_geosite("!missing", "any.example"));
+    drop(registration);
+    let registration = manager
+        .register(
+            GeoRequirements::collect(&[rule(RuleKind::GeoSite("!cn@missing".into()))], &[])
+                .unwrap(),
+        )
+        .unwrap();
+    let matcher = registration.matcher();
+    assert!(registration.initial_report().geosite.available);
+    assert!(matcher.geosite_available("!cn@missing"));
+    assert!(matcher.matches_geosite("!cn@missing", "any.example"));
+}
+
+#[test]
+fn inverted_ip_aliases_share_one_cidr_matcher_and_keep_all_sites() {
+    let dir = tempdir().unwrap();
+    write_asset(
+        dir.path(),
+        GEOIP_FILE_NAME,
+        &geoip_list(&[geoip("cn", &[cidr(&[10, 0, 0, 0], 8)], true)]),
+    );
+    write_asset(
+        dir.path(),
+        GEOSITE_FILE_NAME,
+        &site_list(&[site(
+            "cn",
+            &[
+                attributed_domain(3, "kept.example", &[("ads", 2, 0)]),
+                attributed_domain(3, "last.example", &[("ads", 2, 1)]),
+            ],
+        )]),
+    );
+    let rules = [
+        rule(RuleKind::GeoIp("!CN".into())),
+        rule(RuleKind::GeoIp("cn".into())),
+        rule(RuleKind::GeoSite("cn@ads".into())),
+    ];
+    let data = GeoData::load(dir.path(), &rules).unwrap();
+    assert_eq!(data.ips.len(), 1);
+    assert_eq!(data.ips[0].v4.len(), 1);
+    assert!(data.matches_geoip("!cn", "2001:db8::1".parse().unwrap()));
+    assert!(!data.matches_geoip("!cn", "10.2.3.4".parse().unwrap()));
+    assert!(data.matches_geosite("cn@ads", "kept.example"));
+    assert!(data.matches_geosite("cn@ads", "last.example"));
 }
 
 #[test]
@@ -281,8 +564,8 @@ fn category_lookup_preserves_independent_codes_through_load_and_reload() {
 fn geosite_loads_beyond_former_value_and_memory_quotas() {
     let dir = tempdir().unwrap();
     let mut selected = field_bytes(1, b"cn");
-    // Exceeds the former 2 MiB values and 8 MiB ledger budgets, while
-    // remaining inside the iOS/tvOS raw record limit.
+    // Exceeds the former 2 MiB values and 8 MiB ledger budgets; selected
+    // records are not truncated on any platform.
     for index in 0..131_073 {
         selected.extend(field_bytes(
             2,
@@ -324,344 +607,6 @@ fn geosite_loads_beyond_former_value_and_memory_quotas() {
         "cn",
         "long-domain-that-crosses-the-old-byte-budget-20000.example.test"
     ));
-}
-
-#[test]
-fn ios_tvos_geodata_record_limit_keeps_site_types_and_counts_raw_duplicates() {
-    let dir = tempdir().unwrap();
-    let limit = 5;
-    let duplicate = domain(2, "domain.example");
-    let mut category = repeated_site("cn", &duplicate, limit - 3);
-    for record in [
-        domain(3, "full.example"),
-        domain(0, "needle"),
-        domain(1, "^regex\\.example$"),
-    ] {
-        category.extend(field_bytes(2, &record));
-    }
-    category.extend(field_bytes(2, &domain(3, "dropped.example")));
-    write_asset(dir.path(), GEOSITE_FILE_NAME, &site_list(&[category]));
-    let rules = [rule(RuleKind::GeoSite("cn".into()))];
-    let data = load_with_record_limit(dir.path(), &rules, &[], limit).unwrap();
-    for value in [
-        "sub.domain.example",
-        "full.example",
-        "has-needle.example",
-        "regex.example",
-    ] {
-        assert!(data.matches_geosite("cn", value), "{value}");
-    }
-    assert!(!data.matches_geosite("cn", "absent.example"));
-    assert!(!data.matches_geosite("cn", "dropped.example"));
-}
-
-#[test]
-fn ios_tvos_geodata_record_limit_aggregates_rule_and_dns_categories_by_code() {
-    let dir = tempdir().unwrap();
-    let limit = 4;
-    write_asset(
-        dir.path(),
-        GEOSITE_FILE_NAME,
-        &site_list(&[
-            site(
-                "B",
-                &[domain(3, "b-first.example"), domain(3, "b-last.example")],
-            ),
-            site(
-                "A",
-                &[
-                    domain(3, "a-first.example"),
-                    domain(3, "a-second.example"),
-                    domain(3, "a-last.example"),
-                ],
-            ),
-            site("c", &[domain(3, "c.example")]),
-        ]),
-    );
-    for (rules, policies) in [
-        (
-            vec![
-                rule(RuleKind::GeoSite("B".into())),
-                rule(RuleKind::GeoSite("a".into())),
-            ],
-            vec![dns_policy(&["b", "C", "A"])],
-        ),
-        (
-            vec![
-                rule(RuleKind::GeoSite("A".into())),
-                rule(RuleKind::GeoSite("b".into())),
-            ],
-            vec![dns_policy(&["c"])],
-        ),
-    ] {
-        let data = load_with_record_limit(dir.path(), &rules, &policies, limit).unwrap();
-        for value in ["a-first.example", "a-second.example", "a-last.example"] {
-            assert!(data.matches_geosite("a", value), "{value}");
-        }
-        assert!(data.matches_geosite("b", "b-first.example"));
-        assert!(!data.matches_geosite("b", "b-last.example"));
-        assert!(data.geosite_available("c"));
-        assert!(!data.matches_geosite("c", "c.example"));
-    }
-}
-
-#[test]
-fn ios_tvos_geodata_record_limit_deduplicates_references_and_excludes_unselected() {
-    let dir = tempdir().unwrap();
-    let limit = 3;
-    write_asset(
-        dir.path(),
-        GEOSITE_FILE_NAME,
-        &site_list(&[
-            site(
-                "used",
-                &[
-                    domain(3, "first.example"),
-                    domain(3, "second.example"),
-                    domain(3, "last.example"),
-                ],
-            ),
-            repeated_site("unused", &domain(3, "unused.example"), limit + 1),
-        ]),
-    );
-    let data = load_with_record_limit(
-        dir.path(),
-        &[
-            rule(RuleKind::GeoSite("USED".into())),
-            rule(RuleKind::GeoSite("used".into())),
-        ],
-        &[dns_policy(&["Used"])],
-        limit,
-    )
-    .unwrap();
-    assert!(data.matches_geosite("used", "first.example"));
-    assert!(data.matches_geosite("used", "last.example"));
-    assert!(!data.geosite_available("unused"));
-}
-
-#[test]
-fn ios_tvos_geodata_record_limit_skips_truncated_site_decode_and_regex_compilation() {
-    let dir = tempdir().unwrap();
-    let limit = 2;
-    write_asset(
-        dir.path(),
-        GEOSITE_FILE_NAME,
-        &site_list(&[site(
-            "cn",
-            &[
-                domain(2, "kept.example"),
-                domain(3, "last-kept.example"),
-                domain(1, "["),
-                domain(99, "unsupported.example"),
-            ],
-        )]),
-    );
-    let data = load_with_record_limit(
-        dir.path(),
-        &[rule(RuleKind::GeoSite("cn".into()))],
-        &[],
-        limit,
-    )
-    .unwrap();
-    assert!(data.matches_geosite("cn", "sub.kept.example"));
-    assert!(data.matches_geosite("cn", "last-kept.example"));
-    assert!(!data.matches_geosite("cn", "unsupported.example"));
-
-    // The truncation boundary skips inner payload validation, but not the
-    // category's outer field/wire framing.
-    let mut category = site(
-        "cn",
-        &[domain(2, "kept.example"), domain(3, "last-kept.example")],
-    );
-    category.extend(field_varint(2, 1));
-    write_asset(dir.path(), GEOSITE_FILE_NAME, &site_list(&[category]));
-    let error = load_with_record_limit(
-        dir.path(),
-        &[rule(RuleKind::GeoSite("cn".into()))],
-        &[],
-        limit,
-    )
-    .unwrap_err();
-    assert!(matches!(error, GeoDataError::Malformed { .. }));
-}
-
-#[test]
-fn geodata_record_limit_is_only_applied_on_ios_and_tvos() {
-    let dir = tempdir().unwrap();
-    let limit = crate::limits::IOS_TVOS_GEODATA_RECORDS;
-    assert_eq!(limit, 1_280_000);
-    // One raw GeoIP record plus limit - 1 retained GeoSite records reach the
-    // shared limit exactly; the final GeoSite marker is the excess record.
-    let mut category = repeated_site("cn", &domain(2, "example.cn"), limit - 2);
-    category.extend(field_bytes(2, &domain(3, "last-kept.example")));
-    category.extend(field_bytes(2, &domain(3, "first-dropped.example")));
-    write_asset(dir.path(), GEOSITE_FILE_NAME, &site_list(&[category]));
-    write_asset(
-        dir.path(),
-        GEOIP_FILE_NAME,
-        &geoip_list(&[geoip("private", &[cidr(&[10, 0, 0, 0], 8)], false)]),
-    );
-    let rules = [
-        rule(RuleKind::GeoSite("cn".into())),
-        rule(RuleKind::GeoIp("private".into())),
-    ];
-    let bounded = load_with_record_limit(dir.path(), &rules, &[], limit).unwrap();
-    assert!(bounded.geosite_available("cn"));
-    assert!(bounded.matches_geosite("cn", "last-kept.example"));
-    assert!(!bounded.matches_geosite("cn", "first-dropped.example"));
-    drop(bounded);
-
-    let data = GeoData::load(dir.path(), &rules).unwrap();
-    assert!(data.geosite_available("cn"));
-    assert!(data.matches_geosite("cn", "www.example.cn"));
-    assert!(data.matches_geosite("cn", "last-kept.example"));
-    assert_eq!(
-        data.matches_geosite("cn", "first-dropped.example"),
-        !cfg!(any(target_os = "ios", target_os = "tvos"))
-    );
-    assert!(data.geoip_available("private"));
-    assert!(data.matches_geoip("private", "10.1.2.3".parse().unwrap()));
-}
-
-#[test]
-fn ios_tvos_geodata_record_limit_prioritizes_raw_ip_records_over_sites() {
-    let dir = tempdir().unwrap();
-    write_asset(
-        dir.path(),
-        GEOIP_FILE_NAME,
-        &geoip_list(&[
-            geoip("b", &[cidr(&[203, 0, 113, 9], 32)], false),
-            geoip(
-                "A",
-                &[cidr(&[10, 0, 0, 1], 32), cidr(&[10, 0, 0, 1], 32)],
-                false,
-            ),
-            geoip("unused", &vec![cidr(&[192, 0, 2, 1], 32); 5], false),
-        ]),
-    );
-    write_asset(
-        dir.path(),
-        GEOSITE_FILE_NAME,
-        &site_list(&[site(
-            "cn",
-            &[domain(3, "kept.example"), domain(3, "dropped.example")],
-        )]),
-    );
-    let rules = [
-        rule(RuleKind::GeoSite("cn".into())),
-        rule(RuleKind::GeoIp("b".into())),
-        rule(RuleKind::GeoIp("a".into())),
-        rule(RuleKind::GeoIp("A".into())),
-    ];
-    let policies = [dns_policy(&["CN"])];
-    let direct = load_with_record_limit(dir.path(), &rules, &policies, 4).unwrap();
-    let requirements = GeoRequirements::collect(&rules, &policies).unwrap();
-    let (managed, report) =
-        manager::load_snapshot_with_record_limit(dir.path(), &requirements, Some(4));
-    assert!(report.geosite.available);
-    assert!(report.geoip.available);
-    for data in [&direct, managed.as_ref()] {
-        assert!(data.matches_geoip("a", "10.0.0.1".parse().unwrap()));
-        assert!(data.matches_geoip("b", "203.0.113.9".parse().unwrap()));
-        assert!(!data.geoip_available("unused"));
-        assert!(data.matches_geosite("cn", "kept.example"));
-        // The two duplicate raw CIDRs compact to one matcher record, but
-        // still consume two entries of the shared allowance.
-        assert!(!data.matches_geosite("cn", "dropped.example"));
-    }
-}
-
-#[test]
-fn ios_tvos_geodata_record_limit_truncates_oversized_ip_and_keeps_empty_categories() {
-    let dir = tempdir().unwrap();
-    write_asset(
-        dir.path(),
-        GEOIP_FILE_NAME,
-        &geoip_list(&[
-            geoip("b", &[cidr(&[192, 0, 2, 1], 32)], false),
-            geoip(
-                "a",
-                &[
-                    cidr(&[10, 0, 0, 1], 32),
-                    cidr(&[10, 0, 0, 1], 32),
-                    cidr(&[203, 0, 113, 9], 32),
-                    cidr(&[198, 51, 100, 1], 33),
-                ],
-                false,
-            ),
-        ]),
-    );
-    write_asset(
-        dir.path(),
-        GEOSITE_FILE_NAME,
-        &site_list(&[site("cn", &[domain(1, "[")])]),
-    );
-    let rules = [
-        rule(RuleKind::GeoIp("B".into())),
-        rule(RuleKind::GeoSite("cn".into())),
-        rule(RuleKind::GeoIp("A".into())),
-    ];
-    let direct = load_with_record_limit(dir.path(), &rules, &[], 3).unwrap();
-    let requirements = GeoRequirements::collect(&rules, &[]).unwrap();
-    let (managed, report) =
-        manager::load_snapshot_with_record_limit(dir.path(), &requirements, Some(3));
-    assert!(report.geosite.available);
-    assert!(report.geoip.available);
-    for data in [&direct, managed.as_ref()] {
-        assert!(data.matches_geoip("a", "10.0.0.1".parse().unwrap()));
-        assert!(data.matches_geoip("a", "203.0.113.9".parse().unwrap()));
-        assert!(!data.matches_geoip("a", "198.51.100.1".parse().unwrap()));
-        assert!(data.geoip_available("b"));
-        assert!(!data.matches_geoip("b", "192.0.2.1".parse().unwrap()));
-        assert!(data.geosite_available("cn"));
-        assert!(!data.matches_geosite("cn", "example.test"));
-    }
-    let ip_only =
-        load_with_record_limit(dir.path(), &[rules[0].clone(), rules[2].clone()], &[], 3).unwrap();
-    assert!(ip_only.matches_geoip("a", "203.0.113.9".parse().unwrap()));
-    assert!(!ip_only.matches_geoip("b", "192.0.2.1".parse().unwrap()));
-}
-
-#[test]
-fn ios_tvos_geodata_record_limit_reclaims_allowance_when_ip_is_unavailable() {
-    let invalid_ip = geoip_list(&[geoip(
-        "a",
-        &[cidr(&[10, 0, 0, 1], 32), cidr(&[203, 0, 113, 9], 33)],
-        false,
-    )]);
-    for ip_asset in [None, Some(invalid_ip.as_slice())] {
-        let dir = tempdir().unwrap();
-        if let Some(contents) = ip_asset {
-            write_asset(dir.path(), GEOIP_FILE_NAME, contents);
-        }
-        write_asset(
-            dir.path(),
-            GEOSITE_FILE_NAME,
-            &site_list(&[site(
-                "cn",
-                &[
-                    domain(3, "first.example"),
-                    domain(3, "second.example"),
-                    domain(3, "last.example"),
-                ],
-            )]),
-        );
-        let requirements = GeoRequirements::collect(
-            &[
-                rule(RuleKind::GeoSite("cn".into())),
-                rule(RuleKind::GeoIp("a".into())),
-            ],
-            &[],
-        )
-        .unwrap();
-        let (data, report) =
-            manager::load_snapshot_with_record_limit(dir.path(), &requirements, Some(3));
-        assert!(report.geosite.available);
-        assert!(!report.geoip.available);
-        assert!(report.geoip.error.is_some());
-        assert!(data.matches_geosite("cn", "last.example"));
-        assert!(!data.geoip_available("a"));
-    }
 }
 
 #[test]
@@ -1044,16 +989,25 @@ fn missing_code_and_invalid_regex_are_errors() {
 }
 
 #[test]
-fn reverse_match_and_invalid_cidr_are_rejected() {
+fn dat_reverse_match_is_ignored_and_invalid_cidr_is_rejected() {
     let dir = tempdir().unwrap();
     write_asset(
         dir.path(),
         GEOIP_FILE_NAME,
-        &geoip_list(&[geoip("reverse", &[], true)]),
+        &geoip_list(&[geoip("reverse", &[cidr(&[10, 0, 0, 0], 8)], true)]),
     );
-    let error =
-        GeoData::load(dir.path(), &[rule(RuleKind::GeoIp("reverse".to_owned()))]).unwrap_err();
-    assert!(matches!(error, GeoDataError::ReverseMatch { .. }));
+    let data = GeoData::load(
+        dir.path(),
+        &[
+            rule(RuleKind::GeoIp("reverse".to_owned())),
+            rule(RuleKind::GeoIp("!reverse".to_owned())),
+        ],
+    )
+    .unwrap();
+    assert!(data.matches_geoip("reverse", "10.1.2.3".parse().unwrap()));
+    assert!(!data.matches_geoip("reverse", "192.0.2.1".parse().unwrap()));
+    assert!(!data.matches_geoip("!reverse", "10.1.2.3".parse().unwrap()));
+    assert!(data.matches_geoip("!reverse", "192.0.2.1".parse().unwrap()));
 
     write_asset(
         dir.path(),
@@ -1065,7 +1019,7 @@ fn reverse_match_and_invalid_cidr_are_rejected() {
 }
 
 #[test]
-fn geosite_regexes_load_without_separate_source_or_memory_quotas() {
+fn geosite_regexes_load_without_vcore_record_or_cumulative_source_quotas() {
     let dir = tempdir().unwrap();
     let records: Vec<_> = (0..513)
         .map(|index| domain(1, &format!("^{}r{index}\\.test$", "a".repeat(130))))
@@ -1080,11 +1034,110 @@ fn geosite_regexes_load_without_separate_source_or_memory_quotas() {
         assert!(data.matches_geosite("regex", &format!("{}r{index}.test", "a".repeat(130))));
     }
     assert!(!data.matches_geosite("regex", "no-match.test"));
-    assert!(data.allocation_capacity() > 512 * 1024);
+    // Only the owned vector capacity is visible to this diagnostic ledger;
+    // the library's compiled programs and search caches are intentionally not.
+    assert!(data.allocation_capacity() >= records.len() * mem::size_of::<Regex>());
 }
 
 #[test]
-fn geoip_records_below_shared_limit_load_before_cidr_compaction() {
+fn geosite_byte_regex_preserves_search_classes_and_supported_flags() {
+    let dir = tempdir().unwrap();
+    for (pattern, matched, not_matched) in [
+        (r"^a.b$", "a-b", "a\nb"),
+        (r"^[^.]+\.test$", "abc.test", "a.b.test"),
+        (r"^\w+\.test$", "abc_42.test", "a-b.test"),
+        (r"^\w+\.test$", "abc.test", "é.test"),
+        (r"needle", "has-needle.example", "absent.example"),
+        (r"(?i:FLAG)", "flag.example", "quiet.example"),
+        (r"(?m:^line$)", "first\nline\nlast", "first\nnot-line\nlast"),
+        (r"(?s:^a.b$)", "a\nb", "ab"),
+        (r"(?U:a.+b)", "prefix-a---b-suffix", "prefix-a-suffix"),
+    ] {
+        write_asset(
+            dir.path(),
+            GEOSITE_FILE_NAME,
+            &site_list(&[site("byte-regex", &[domain(1, pattern)])]),
+        );
+        let data =
+            GeoData::load(dir.path(), &[rule(RuleKind::GeoSite("byte-regex".into()))]).unwrap();
+        assert!(data.matches_geosite("byte-regex", matched), "{pattern}");
+        assert!(
+            !data.matches_geosite("byte-regex", not_matched),
+            "{pattern}"
+        );
+    }
+}
+
+#[test]
+fn geosite_byte_regex_loads_short_pattern_with_exponential_complete_dfa() {
+    let dir = tempdir().unwrap();
+    write_asset(
+        dir.path(),
+        GEOSITE_FILE_NAME,
+        &site_list(&[site("binary", &[domain(1, r"[01]*1[01]{20}")])]),
+    );
+    let data = GeoData::load(dir.path(), &[rule(RuleKind::GeoSite("binary".into()))]).unwrap();
+    assert!(data.matches_geosite("binary", &format!("1{}", "0".repeat(20))));
+    assert!(!data.matches_geosite("binary", &format!("1{}", "0".repeat(19))));
+    assert!(!data.matches_geosite("binary", &"0".repeat(21)));
+}
+
+#[test]
+fn geosite_byte_regex_library_rejections_do_not_expose_expression_source() {
+    let dir = tempdir().unwrap();
+    for (pattern, expected_detail) in [
+        ("private-expression([", "invalid regex syntax"),
+        (
+            "private-expression(?:ab){1000000}",
+            "compiled regex exceeds the library default size limit",
+        ),
+    ] {
+        write_asset(
+            dir.path(),
+            GEOSITE_FILE_NAME,
+            &site_list(&[site("rejected", &[domain(1, pattern)])]),
+        );
+        let error =
+            GeoData::load(dir.path(), &[rule(RuleKind::GeoSite("rejected".into()))]).unwrap_err();
+        let GeoDataError::InvalidRegex { ref detail, .. } = error else {
+            panic!("unexpected error kind");
+        };
+        assert_eq!(detail, expected_detail);
+        for formatted in [error.to_string(), format!("{error:?}")] {
+            assert!(!formatted.contains(pattern));
+            assert!(!formatted.contains("private-expression"));
+        }
+    }
+}
+
+#[test]
+fn rejected_byte_regex_reload_keeps_the_active_snapshot() {
+    let dir = tempdir().unwrap();
+    write_asset(
+        dir.path(),
+        GEOSITE_FILE_NAME,
+        &site_list(&[site("regex", &[domain(1, r"^kept\.example$")])]),
+    );
+    let manager = GeoDataManager::open(dir.path(), std::time::Duration::from_secs(60)).unwrap();
+    let registration = manager
+        .register(
+            GeoRequirements::collect(&[rule(RuleKind::GeoSite("regex".into()))], &[]).unwrap(),
+        )
+        .unwrap();
+    let matcher = registration.matcher();
+    assert!(matcher.matches_geosite("regex", "kept.example"));
+    write_asset(
+        dir.path(),
+        GEOSITE_FILE_NAME,
+        &site_list(&[site("regex", &[domain(1, "private-expression([")])]),
+    );
+    assert!(manager.reload().geosite_available);
+    assert!(matcher.matches_geosite("regex", "kept.example"));
+    assert!(!matcher.matches_geosite("regex", "new.example"));
+}
+
+#[test]
+fn geoip_records_load_without_count_limits_before_cidr_compaction() {
     let dir = tempdir().unwrap();
     let mut category = field_bytes(1, b"cn");
     for _ in 0..320_000 {

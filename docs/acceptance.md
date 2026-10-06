@@ -10,7 +10,8 @@
 ## 核心压力测试
 
 独立 benchmark 的 `stress` 面向指定 VCore 的原生 Linux TUN，默认 2 Gbps /
-60 秒 / 1,000 QPS DNS，并支持扩展 GeoData 记录负载；`compare` 保持完整增强
+60 秒 / 1,000 QPS DNS，默认加载完整增强 DAT；可选条数只改变实验输入，不是生产上限。
+`compare` 保持完整增强
 CN 的 VCore/Mihomo 1/1.5/2 Gbps 对比。两者分别记录混合 TCP/UDP 与 DNS 负载
 及指定内核 PID 的内存峰值，实际输入和门槛以 benchmark README 为准。
 50,000,000 bytes 为宿主工程目标；报告实际吞吐、丢包/错误、CPU、RSS 和 DNS 完成数。
@@ -23,10 +24,33 @@ Network Extension 实机内存。当前保持 standard，不新增生产业务�
 参数和范围由独立 benchmark README 维护；记录实际命令、源码身份、测量和失败，
 结束清理本轮产物，仅保留脱敏文字结论与共享公共依赖。复验重新运行，旧结果不续期。
 
-2026-10-06 的 1,280,000 条总 GeoData 原生 Linux TUN 压力已完成：2 Gbps /
-60 秒 / 1,000 QPS DNS 下 RSS 峰值 42,557,440 bytes，实际吞吐 1,989.45 Mbps。
-仍有 0.0402% UDP 丢包和 86 次 DNS 超时；具体分类和输入身份见 benchmark README。
-该次 RSS 低于 50,000,000 bytes，不是零丢包、任意输入内存保证或 iOS/tvOS 实机验收。
+GeoData 属性/反选、真实 Regex 编译、合成 Plain 和双快照重叠由独立 builder probe
+记录；它不包含生产 TUN/DNS 运行时，不能拼成更新与满速流量叠加验收。真实 DAT
+没有的类型明确报告为零，不把合成记录计入真实压力规模。最新完整输入结果与历史
+128 万无 Regex 基线分别见 benchmark README；均不代表任意输入内存保证或
+iOS/tvOS 实机验收。
+
+2026-10-06 切换常规 `regex::bytes::Regex` 后，执行两轮完整 CN 原生 Linux TUN
+复测：`compare --core vcore --rates 2000 --seconds 60 --source vcore=PATH`，
+仅加载 `geosite:cn` / `geoip:cn` 共 121,009 条，正常 Release + 生产 FFI，
+Ubuntu 26.04.1 LTS、NAT、5 CPU / 8 GiB、1,000 QPS DNS，线程/队列保持默认。
+RSS 峰值为 28,008,448 / 30,543,872 bytes，低于 50,000,000 bytes；分流与
+观测有效、进程正常退出，容器和 scratch 已清理。
+实际带宽仅 1,966.61 / 1,959.93 Mbps，**两轮均未达到 2 Gbps 的 99% 负载门槛**；
+发送速率也低于门槛，不能把差额全部归因于正则替换。UDP 丢包为
+7,077 / 28,190 包（每轮发送 6,249,984 包），DNS 成功 59,790 / 59,585 次
+（各计划 60,000），仍有超时和跳过；不宣称整体 2 Gbps、零丢包或全部查询通过。
+完整输入身份与两次文字证据见 benchmark README。本次未复跑完整资产或双快照
+probe，Linux RSS 不替代 Apple 实机 footprint，也不是任意输入的内存保证。
+
+以下完整资产与双快照数据为 2026-10-06 旧 dense DFA 历史基线，尚未针对常规正则重跑：
+完整增强资产共 1,572,166 条（GeoIP 1,054,987、GeoSite 517,179），
+未截断的 60 秒 / 2 Gbps / 1,000 QPS DNS 混合压力取得有效观测：实际吞吐
+1,993.88 Mbps、CPU 154.06%、指定 VCore 进程 RSS 峰值 53,542,912 bytes。
+50,000,000 bytes 内存目标 **未通过**；UDP 丢包 2,911 / 6,249,984，DNS 成功
+59,843 / 60,000 次计划查询。负载门槛通过不等于零丢包或全部查询完成。
+同轮离线双快照 probe 峰值 64,045,056 bytes，也超出该目标；它不是运行中更新
+叠加满速压力的结果。所有容器已正常退出并清理，不据此恢复条数截断。
 
 ## 必须保留的验证
 

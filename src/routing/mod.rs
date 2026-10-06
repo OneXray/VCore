@@ -383,12 +383,21 @@ impl RuleSet {
                     value.make_ascii_lowercase();
                     text_bytes = checked_text_bytes(text_bytes, value.len())?;
                 }
-                RuleKind::GeoSite(code) | RuleKind::GeoIp(code) => {
-                    if !valid_geo_code(code) {
-                        return Err(RuleSetError::InvalidGeoCode { rule_index: index });
-                    }
-                    code.make_ascii_lowercase();
-                    text_bytes = checked_text_bytes(text_bytes, code.len())?;
+                RuleKind::GeoSite(selector) => {
+                    *selector = crate::geodata::normalize_selector(
+                        crate::geodata::GeoDataKind::GeoSite,
+                        selector,
+                    )
+                    .map_err(|_| RuleSetError::InvalidGeoCode { rule_index: index })?;
+                    text_bytes = checked_text_bytes(text_bytes, selector.len())?;
+                }
+                RuleKind::GeoIp(selector) => {
+                    *selector = crate::geodata::normalize_selector(
+                        crate::geodata::GeoDataKind::GeoIp,
+                        selector,
+                    )
+                    .map_err(|_| RuleSetError::InvalidGeoCode { rule_index: index })?;
+                    text_bytes = checked_text_bytes(text_bytes, selector.len())?;
                 }
                 RuleKind::IpCidr(cidr) => {
                     if !valid_cidr(cidr) {
@@ -454,8 +463,8 @@ impl RuleSet {
         self.evaluate_with_geo(context, &EmptyGeoMatcher)
     }
 
-    /// Evaluates from top to bottom and stops at the first match. The hot path
-    /// performs no heap allocation.
+    /// Evaluates from top to bottom and stops at the first match. Rule traversal
+    /// does not allocate; GeoSite regexes may allocate internal search caches.
     #[must_use]
     pub fn evaluate_with_geo(
         &self,
@@ -618,15 +627,6 @@ fn checked_text_bytes(current: usize, additional: usize) -> Result<usize, RuleSe
     Ok(bytes)
 }
 
-fn valid_geo_code(code: &str) -> bool {
-    let bytes = code.as_bytes();
-    (1..=64).contains(&bytes.len())
-        && bytes[0].is_ascii_alphanumeric()
-        && bytes.iter().skip(1).all(|byte| {
-            byte.is_ascii_alphanumeric() || matches!(*byte, b'.' | b'_' | b'+' | b'!' | b'-')
-        })
-}
-
 fn valid_cidr(cidr: &IpCidr) -> bool {
     match cidr.network {
         IpAddr::V4(_) => cidr.prefix_len <= 32,
@@ -697,6 +697,31 @@ mod tests {
             RuleEvaluation::Matched(rule_match) => rule_match.action,
             other => panic!("expected match, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn geodata_selectors_are_canonicalized_at_the_routing_boundary() {
+        let rules = RuleSet::compile(vec![
+            spec(
+                RuleKind::GeoSite("!GOOGLE@CN@ADS@cn".to_owned()),
+                RuleAction::Direct,
+            ),
+            spec(RuleKind::GeoIp("!CN".to_owned()), RuleAction::Reject),
+            spec(RuleKind::Match, proxy_action(0)),
+        ])
+        .unwrap();
+        assert_eq!(
+            rules.rules[0].kind,
+            RuleKind::GeoSite("!google@ads@cn".to_owned())
+        );
+        assert_eq!(rules.rules[1].kind, RuleKind::GeoIp("!cn".to_owned()));
+        assert!(
+            RuleSet::compile(vec![
+                spec(RuleKind::GeoIp("cn@ads".to_owned()), RuleAction::Direct),
+                spec(RuleKind::Match, proxy_action(0)),
+            ])
+            .is_err()
+        );
     }
 
     #[test]

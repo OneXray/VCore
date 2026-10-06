@@ -2939,16 +2939,13 @@ fn normalize_rule_keyword(input: &str) -> Result<String> {
 }
 
 fn normalize_geo_code(input: &str, rule_type: &str) -> Result<String> {
-    let bytes = input.as_bytes();
-    if !(1..=64).contains(&bytes.len())
-        || !bytes[0].is_ascii_alphanumeric()
-        || !bytes.iter().skip(1).all(|byte| {
-            byte.is_ascii_alphanumeric() || matches!(*byte, b'.' | b'_' | b'+' | b'!' | b'-')
-        })
-    {
-        return invalid(format!("invalid {rule_type} code"));
-    }
-    Ok(input.to_ascii_lowercase())
+    let kind = if rule_type == "GEOIP" {
+        crate::geodata::GeoDataKind::GeoIp
+    } else {
+        crate::geodata::GeoDataKind::GeoSite
+    };
+    crate::geodata::normalize_selector(kind, input)
+        .map_err(|_| VCoreError::InvalidConfig(format!("invalid {rule_type} selector")))
 }
 
 fn parse_ip_cidr(input: &str, require_v6: bool) -> Result<IpCidr> {
@@ -5761,6 +5758,40 @@ dns:
     }
 
     #[test]
+    fn current_config_parses_geodata_attributes_and_inversion() {
+        let yaml = current_yaml(
+            r#"port: 1080
+authentication:
+  - measure:secret
+dns:
+  enable: true
+  nameserver: [1.1.1.1]
+  nameserver-policy:
+    "geosite:GOOGLE@ads@CN,!GOOGLE@ads": ["tcp://223.5.5.5"]
+rules:
+  - GEOSITE,!GOOGLE@CN@ADS@cn,DIRECT
+  - GEOSITE,geolocation-!cn,DIRECT
+  - GEOIP,!CN,DIRECT,no-resolve
+  - MATCH,proxy"#,
+        );
+        let config = Config::parse_yaml(yaml.as_bytes()).unwrap();
+        assert_eq!(
+            config.rules[0].kind,
+            RuleKind::GeoSite("!google@ads@cn".to_owned())
+        );
+        assert_eq!(
+            config.rules[1].kind,
+            RuleKind::GeoSite("geolocation-!cn".to_owned())
+        );
+        assert_eq!(config.rules[2].kind, RuleKind::GeoIp("!cn".to_owned()));
+        assert!(config.rules[2].no_resolve);
+        assert_eq!(
+            &*config.dns.nameserver_policies[0].geosite_codes,
+            ["google@ads@cn", "!google@ads"]
+        );
+    }
+
+    #[test]
     fn current_config_strictly_validates_nameserver_policy_schema_and_limits() {
         for policy in [
             r#"    "geosite:cn": "tcp://223.5.5.5""#,
@@ -5914,6 +5945,9 @@ authentication:
             "  - DOMAIN,example.com,unknown\n  - MATCH,proxy",
             "  - DOMAIN,example.com,DIRECT,no-resolve\n  - MATCH,proxy",
             "  - GEOIP,CN,DIRECT,NO-RESOLVE\n  - MATCH,proxy",
+            "  - GEOIP,CN@ads,DIRECT\n  - MATCH,proxy",
+            "  - GEOSITE,!,DIRECT\n  - MATCH,proxy",
+            "  - GEOSITE,@ads,DIRECT\n  - MATCH,proxy",
             "  - IP-CIDR,2001:db8::/32,DIRECT\n  - MATCH,proxy",
             "  - IP-CIDR6,192.0.2.0/24,DIRECT\n  - MATCH,proxy",
             "  - IP-CIDR,192.0.2.0/33,DIRECT\n  - MATCH,proxy",

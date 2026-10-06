@@ -1,6 +1,9 @@
 # GeoData 规则与资产
 
-VCore 管理 `dataDir/geodata` 下的 `geosite.dat` 和 `geoip.dat`，只为当前配置实际引用的分类构建匹配器。iOS/tvOS 对所选 GeoIP 原始 CIDR 与 GeoSite 原始 Domain 共用 1,280,000 条总保留额度，优先保留 GeoIP，再将剩余额度分配给 GeoSite，超出部分不进入匹配器；其他平台不设此上限，GeoData 不设内存预算。资产缺失或候选校验失败时，对应种类不可用或保持上一份有效快照；配置、格式、整数表示和可恢复分配错误仍然失败关闭。
+VCore 管理 `dataDir/geodata` 下的 `geosite.dat` 和 `geoip.dat`，只为当前配置实际引用的
+分类与属性交集构建匹配器。所有平台均不设 GeoData 条数上限，不按数量截断记录，
+也不设总内存预算。资产缺失或候选校验失败时，对应种类不可用或保持上一份有效快照；
+配置、格式、整数表示和可恢复分配错误仍然失败关闭。
 
 ## 规则
 
@@ -16,18 +19,31 @@ rules:
 语法：
 
 ```text
-GEOSITE,<code>,<target>
-GEOIP,<code>,<target>[,no-resolve]
+GEOSITE,[!]<code>[@<attribute>...],<target>
+GEOIP,[!]<code>,<target>[,no-resolve]
 ```
 
 - 规则类型和 `code` 不区分 ASCII 大小写，route target 名称大小写敏感并精确匹配。
 - `target` 只能是 `DIRECT`、`REJECT`、实际代理节点名或静态 `select` 组名。
-- `code` 必须匹配 `[A-Za-z0-9][A-Za-z0-9._+!-]{0,63}`，按 ASCII 大小写折叠后判重。
+- 基础 `code` 必须匹配 `[A-Za-z0-9][A-Za-z0-9._+!-]{0,63}`，按 ASCII 大小写折叠后定位。
 - `GEOSITE` 恰好三段；`GEOIP` 只允许可选且大小写敏感的 `no-resolve`。
-- 不支持反选、属性选择器、单条规则多个 code、源地址 GeoIP 或隐式局域网分类。
+- `GEOSITE,cn@ads@cn,DIRECT` 只保留同时存在 `ads` 和 `cn` 属性 key 的记录，多个属性为 AND。
+  属性只检查 key 存在，不解释 bool/int 值；`false`、`0` 或无 typed value 均不代表 key 缺失。
+- 属性名按 Mihomo 的先小写、后 Unicode simple-fold 比较语义归一；交集顺序与重复 key 不改变
+  结果。空 `@` 项忽略，非空属性首尾空白移除，但内部空白、控制字符和逗号不允许。
+- 前置 `!` 对整个正向匹配结果取反：`!cn@ads` 是 NOT(匹配 `cn@ads`)，不是“没有 ads 的记录”。
+  `cn@!ads` 查找字面 key `!ads`；`geolocation-!cn` 是字面分类名。
+- GeoIP 支持前置 `!`，不支持属性。业务规则不支持单条多个 code、源地址 GeoIP 或隐式局域网分类。
 - 规则按顺序首条命中，最终 `MATCH` 必须指向实际代理节点或代理组。
 
-DNS `nameserver-policy` 中的 `geosite:<code>[,<code>...]` 与业务规则共享同一份分类需求和匹配器。两者引用的 code 按 ASCII 大小写归一后合并为唯一分类集合，重复引用只加载一次。
+DNS `nameserver-policy` 中的 `geosite:<selector>[,<selector>...]` 接受相同的属性与反选语义，
+逗号连接的 selector 为 OR。业务规则与 DNS policy 共享基础分类、value arena 与正则，
+每个基础分类只解码一次；不同属性交集保留各自匹配索引，正反选不复制记录。
+
+存在分类但属性筛选为空时，该 selector 仍可用：正选不匹配，反选匹配所有合法非空域名。
+分类缺失、资产不可用或未声明的 selector 不能通过反选变成全匹配；没有域名时所有 GeoSite
+selector 均不命中。属性折叠使用依赖的 Unicode 16 simple-fold 表；不保证与采用其他
+Unicode 版本的 Mihomo 在所有新字符上完全等价。
 
 ## 资产格式
 
@@ -37,10 +53,12 @@ DNS `nameserver-policy` 中的 `geosite:<code>[,<code>...]` 与业务规则共�
 | `GEOIP` | `geoip.dat` | `GeoIPList` | code 与 IPv4/IPv6 CIDR |
 
 - 文件路径固定，YAML 不能指定本地路径或环境变量。
-- 文件必须是普通文件；外层帧、code、分类引用和保留的 CIDR / Domain 记录全部校验。iOS/tvOS 截掉记录的内部 payload 只按外层 wire/length 跳过，不解码 CIDR 或校验 value/Regex，也不压缩或编译。
+- 文件必须是普通文件；校验外层帧、code、分类引用、实际选中的 CIDR / Domain 记录。
 - 第一遍扫描建立 code 到文件范围的索引，容量按需增长；第二遍只解析被配置引用的分类。
+- 只引用属性交集时，先流式检查属性；未命中任何交集的记录按 wire/length 边界跳过，
+  不校验 value 或编译 Regex。引用无属性 selector 时则包含该分类的全部记录。
 - 目标 code 缺失、重复或损坏时，整份对应种类的快照不可用，不能当作空分类。
-- GeoSite 和 GeoIP 分别校验和报告可用性，一类不可用不影响基础规则；iOS/tvOS 的所选原始记录共用总数量额度。
+- GeoSite 和 GeoIP 分别校验和报告可用性，一类不可用不影响基础规则。
 
 ## 自动更新
 
@@ -118,7 +136,15 @@ Domain/Full 在加载时原地排序紧凑记录，运行时对完整名称及�
 未命中也不线性遍历全部 Domain/Full，不复制 value arena。Substr
 与 Regex 仍按各自语义匹配，分类内各记录是集合并集，不影响外层规则的首命中顺序。
 
-保留的 `Regex` 只接受 ASCII 源和 RE2 类子集，不支持 look-around、backreference 或额外内联模式。每条正则独立编译为 dense DFA，关闭 accelerator；不设置独立 Regex 记录数、累计源码、NFA/DFA 编译或保留内存预算。Regex 与其他 Domain、GeoIP 原始 CIDR 记录一起消耗 iOS/tvOS 的 GeoData 总额度。库自身的合法语法、嵌套深度与状态/索引可表示性检查仍有效；运行期匹配不分配堆内存。单条复杂正则也可能显著增加编译耗时和峰值，记录数量上限和“运行期不分配”均不能推导加载期内存有界。
+选中的 `Regex` 只接受 ASCII 源和 RE2 类子集，不支持 look-around、backreference 或
+额外内联模式，不宣称完整 Go 正则兼容。每条正则编译为共享的
+`regex::bytes::Regex`，使用 `RegexBuilder::unicode(false)` 保持 ASCII 匹配语义；
+不显式构建 dense DFA，也不在 VCore 中配置 NFA、DFA 或 determinization 额度。
+保留 `regex` 库默认的编译大小、语法嵌套和搜索缓存保护，超出库边界的所选表达式
+使候选加载失败，而不是丢弃记录。VCore 不设置正则条数、累计源码或总内存预算。
+正则的编译与搜索状态由库管理；搜索可能分配 scratch、增长缓存或竞争共享缓存，
+不再承诺 Regex 热路径无分配。Domain/Full 的紧凑无分配查找保持不变。
+库的局部保护不是全部正则合计内存或整进程峰值的上界。
 
 ## GeoIP 与 `no-resolve`
 
@@ -128,15 +154,16 @@ Domain/Full 在加载时原地排序紧凑记录，运行时对完整名称及�
 - A 结果先于 AAAA；第一个命中 CIDR 的有效地址成为当前会话或数据报的固定目标。
 - `dns.ipv6: false` 时不请求或采用 AAAA。
 - 运行时 DNS 不可用或失败时继续下一条规则，不使用引导解析器替代。
-- `GEOIP` 不执行反向 DNS，也不接受 `reverse_match`。
+- `GEOIP,!cn,...` 对同一次 CIDR 匹配结果取反，不执行反向 DNS。DAT 的 `reverse_match`
+  字段按 Mihomo loader 行为接受但忽略；是否取反只由 selector 的前置 `!` 决定。
 
 ## 生命周期
 
-- `validateConfig` 只校验结构、URL、code 和去重，不读磁盘、不联网；不限制 GeoData 唯一引用数或 GeoSite DNS policy 数。
+- `validateConfig` 只校验结构、URL、selector 和去重，不读磁盘、不联网；不限制 GeoData 唯一引用数或 GeoSite DNS policy 数。
 - `prepare` 注册去重后的需求并读取当时可用的本地快照，不等待更新。
 - Manager 只为当前公共实例构建匹配器；停止或销毁实例时释放需求和快照。
 - 后台更新通过完整校验后原子发布不可变快照。新流使用新快照，已经完成的选路不回溯。
-- iOS/tvOS 更新任一种资产时，候选重新加载 GeoIP 和 GeoSite 并重分配总额度；GeoIP 增长可使新快照保留更少 GeoSite 记录，不回溯已完成的选路。真正的候选加载失败保留旧整体快照及旧有效资产。
+- 重载按已注册的 selector 重建属性索引与匹配器；候选失败保留旧整体快照及旧有效资产。
 - 分类表在加载时按 code 排序，运行时大小写无关二分定位；规则仍按配置顺序首命中。
   每次业务选路捕获一份当前不可变快照，整次求值复用，不在每条 Geo 规则上重复读取 ArcSwap。
 - TUN UDP 的 IP 目标按五元组固定 action；源地址/端口、UDP 和入口由源关联固定，
@@ -155,67 +182,40 @@ Domain/Full 在加载时原地排序紧凑记录，运行时对完整名称及�
 
 ## 内存与安全边界
 
-iOS/tvOS 的每份 GeoData 快照对所选 GeoIP 原始 CIDR 与 GeoSite 原始 Domain
-共用 **1,280,000 条总保留额度**，没有新增 YAML 配置项。同种资产的 code 按 ASCII
-大小写归一后合并为唯一分类集合；GeoSite 业务规则与 DNS policy 共享该集合。
-重复引用同种 code 只加载一次，未引用分类不计数。所选分类中的重复记录仍逐条消耗
-额度，GeoIP CIDR 以及 GeoSite 的 `Domain`、`Full`、`Plain` / `Substr`、`Regex` 都计数，
-不按去重、排序或匹配器压缩后的数量计算。
+所有平台均不设置 GeoData 原始记录、分类、唯一引用、累计 value/Regex 源码字节或
+资产文件大小的独立额度，也不设置 GeoData 总内存预算；不因数量静默截断或丢弃记录。
+DNS GeoSite policy 没有独立项数/引用数上限。普通 YAML 256 KiB、显式 rules 1,024 条/
+合计 128 KiB/单条 1 KiB 仍是配置入口边界，不是 DAT 内记录数限制。
 
-先保留 GeoIP，再把剩余总额度交给 GeoSite。若所选 GeoIP 原始 CIDR 自身超过
-1,280,000 条，GeoIP 也截断至此数量，GeoSite 剩余额度为零，不能令总数超限。
-首次加载 GeoIP 缺失或损坏时，该不可用种类不消耗有效额度，GeoSite 可使用全部额度。
-同种资产的所选 code 按 ASCII 大小写归一后排序，不受配置引用顺序或资产顶层分类
-顺序影响；每个分类按文件中 CIDR / Domain（field 2）的原始顺序保留前缀。额度
-耗尽后的所选分类仍标记为 available 的空分类。未保留条目不再参与 GeoIP/GeoSite
-分流或 GeoSite DNS policy 命中，外层业务规则仍保持配置中的首命中顺序。
-
-截断不改写磁盘资产，不视为加载或更新失败。首次加载可使用截断后的快照，合法
-更新也可发布截断后的新匹配器。发生截断时记录脱敏数量警告，不包含 code、域名
-或 IP/CIDR。截掉记录只检查外层 wire/length 并跳过内部 payload，不解码/压缩 CIDR、
-校验 value/Regex 或编译正则；保留前缀仍严格校验 CIDR 地址宽度/前缀和 GeoSite
-记录。分类 header、外层 wire 和两遍扫描记录数一致性检查仍保留。该限制在资产
-加载/更新时执行，`validateConfig` 不读资产，
-因此不能预先判定是否需要截断。
-
-macOS、Android、Linux 和 Windows 不设 GeoData 记录数量上限。各平台均不设独立
-分类数、唯一引用数、累计 value/Regex 源码字节、资产文件大小或 GeoData 加载/正则
-内存预算；DNS GeoSite policy 不设独立项数/引用数上限。普通 YAML 256 KiB、
-显式 rules 1,024 条/合计 128 KiB/单条 1 KiB 是另外的配置入口边界，不是资产内
-记录数上限，当前保持不变。
-
-保留 checked arithmetic、fallible Vec 扩容、合法 protobuf 帧/长度、code、保留匹配值的
-UTF-8 与非空检查、CIDR 地址宽度/前缀和保留正则的语法检查。紧凑 value/Regex arena 的 offset/length 仍须
+基础分类、字面值和正则只存一份，属性交集使用共享 arena 的紧凑索引；多个交集仍会
+增加索引容量与加载成本，不能把共享存储理解为内存常量。保留 checked arithmetic、
+fallible Vec 扩容、合法 protobuf 帧/长度、code、选中匹配值的 UTF-8 与非空检查、CIDR
+地址宽度/前缀和选中正则的语法检查。紧凑 value/Regex arena 的 offset/length 仍须
 能表示为 u32；这是存储表示边界，不是可配置的内存预算。CIDR 仍无损去重、删除被覆盖
 前缀并合并对齐 sibling。分配失败可能返回错误；系统 OOM 或第三方不可恢复分配失败
 不保证可恢复。
 
-容量账本仅作诊断：统计 matcher/index/临时 Vec 和保留 DFA，扩容时记录新旧缓冲
-可能重叠的容量；没有最大值、不控制准入。**不包含正则编译器全部临时分配、配置需求
-集合、allocator 开销或整个进程 footprint**，其 accounted peak 不是加载峰值上界。
+容量账本仅作诊断：统计 VCore 自有 matcher/index/value/临时 Vec 的可见容量，扩容时
+记录新旧缓冲可能重叠的容量；没有最大值、不控制准入。`regex::bytes::Regex` 不提供
+完整内部状态的准确 `memory_usage`，所以账本**不包含正则内部编译状态、搜索缓存、
+动态 scratch、配置需求集合、allocator 开销或整个进程 footprint**。这些未计入的
+内存并不是零；accounted peak 不能作为加载或运行期峰值上界。
 50,000,000 bytes 是限定输入与联合负载下的进程实测验收目标，不是加载器保证。
 
 互通和内存/吞吐压力由公开 [container-benchmark](https://github.com/OneXray/container-benchmark)
 维护；`interop`、`stress` 和 `compare` 以 `--source vcore=PATH` 显式指定被测 checkout。
-128 万条总 GeoData 压力入口是 `stress --geodata-records 1280000`，VCore 自有脚本仅负责编译。
-既有 CN 观测仅加载 GeoSite 111,361 条与 GeoIP 9,648 条，共 121,009 条；2 Gbps
-混合 TCP/UDP、1,000 QPS DNS 的 Linux RSS 峰值 26.9 MiB 不能代表 1,280,000 条负载。
-2026-10-06 的 1,280,000 条总 GeoData Linux 原生 TUN 压力已执行：GeoIP
-1,054,987 条 + GeoSite 225,013 条，2 Gbps / 60 秒 / 1,000 QPS DNS 下 RSS 峰值
-42,557,440 bytes（40.59 MiB）。仍有 UDP 丢包和 DNS 超时，不能称为零丢包或
-全部成功；分类、输入身份与完整指标见 benchmark README。本轮 Site 为 Domain/Full，
-未覆盖复杂 Regex、更新叠加或不同分类组合的最坏峰值。
-该上限是指定工程值，不是实测数量极限，也不保证进程低于 50,000,000 bytes；Linux
-结果不能替代 Apple Network Extension physical footprint 或 iOS/tvOS 真机验收。
-
-生产 ABI 的少量命中/未命中见证与实际 fd-TUN 负载不逐条穷举规则语义；
-仅 prepare 成功或离线记录数统计不能证明实际转发路径已经运行。
+VCore 自有脚本仅负责编译。真实资产的类型分布、明确标识的四类型/复杂正则合成用例、
+属性/反选见证、加载与新旧快照重叠、联合吞吐/DNS/RSS 结果以 benchmark 的本轮文字结论为准。
+历史 Domain/Full 子集或单纯离线加载不能替代完整真实资产的 fd-TUN 压力，也不能证明
+任意正则的加载峰值。Linux RSS 不替代 Apple Network Extension physical footprint；
+少量转发见证不等同逐条规则语义穷举。
 
 ## 失败语义
 
-- 非法规则、URL 组合、code 或通用配置入口越界使配置校验失败。
+- 非法规则、URL 组合、selector 或通用配置入口越界使配置校验失败。
 - 文件缺失、损坏、下载失败或检查超时不使实例生命周期失败；对应资产保持不可用或继续使用上一份有效快照。
-- iOS/tvOS 的 GeoData 总记录超限仅截断匹配器，不使资产不可用或令实例 degraded。真正损坏的外层资产或无效的所选保留前缀仍导致加载/更新失败；首次失败保持对应种类不可用且不消耗有效额度，失败重载保留旧整体快照，失败更新保留旧整体快照和磁盘资产。
+- 损坏的外层资产或无效的所选记录导致加载/更新失败；首次失败保持对应种类不可用，
+  失败重载保留旧整体快照，失败更新保留旧整体快照和磁盘资产。
 - 不可用的 GeoIP 规则不得触发惰性 DNS。
 - 调度状态损坏时在更新锁内重置；异常退出留下的更新状态在锁释放后恢复。
 

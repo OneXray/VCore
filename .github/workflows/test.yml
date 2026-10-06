@@ -44,8 +44,8 @@ jobs:
         run: |
           cargo fmt --all -- --check
           uv run --project scripts --locked python -m unittest discover -s scripts/tests
-          uvx --refresh --from 'ruff<1' ruff check scripts
-          uvx --refresh --from 'ruff<1' ruff format --check scripts
+          uv run --project scripts --locked ruff check scripts
+          uv run --project scripts --locked ruff format --check scripts
       - name: Compile the public C and C++ header
         if: matrix.profile == 'features'
         shell: bash
@@ -176,6 +176,9 @@ jobs:
           )
           for filter in "${filters[@]}"; do run_test 1 --lib "$filter"; done
           exact_tests=(
+            dialer::tests::socket_initialization_churn_reclaims_completed_work
+            dialer::tests::socket_initialization_cancellation_joins_started_and_queued_work
+            dialer::tests::socket_initialization_shared_pool_contention_reclaims_cancelled_work
             outbound::connector::tests::authenticated_continuation_keeps_group_choice_but_has_a_new_io_deadline
             runtime::tests::integration_feature_admission_is_explicit_without_opening_sockets
             ffi::tests::runtime_thread_cannot_reenter_invoke

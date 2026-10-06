@@ -12,13 +12,13 @@
 | 编译工具回归 | 平台构建、产物身份与构建参数回归 | scripts/tests |
 | 协议互通 | 官方 listener、生产 ABI 消费者、TCP/UDP 内容与代理路径 | 独立 container-benchmark interop |
 | 性能评估 | Linux 原生 TUN、完整 CN 分流、吞吐/CPU/RSS/UDP 丢包/DNS | 独立 container-benchmark compare |
-| 内存压力 | 显式规模 GeoData、加载与实际流量下的进程峰值 | 独立 container-benchmark stress |
+| 内存压力 | 完整真实 GeoData、加载与联合流量下的进程峰值 | 独立 container-benchmark stress |
 
 在独立 benchmark 工程中执行，`PATH` 为显式 VCore checkout：
 
 ```sh
 container-benchmark interop --source vcore=PATH
-container-benchmark stress --source vcore=PATH --geodata-records 1280000
+container-benchmark stress --source vcore=PATH
 ```
 
 `interop --list` 可不提供 source，只列出测试，不运行互通。
@@ -29,6 +29,10 @@ container-benchmark stress --source vcore=PATH --geodata-records 1280000
 
 ## 必要回归与独立输入
 
+- Dialer 物理初始化：client-only TCP/UDP 的快速创建、64 个未完成提交、共享阻塞池
+  占用、慢 protect 故障注入、调用方取消、Stop 等待和新作用域恢复。mock protect
+  在 connect 前拒绝，不启动宿主 listener 或发送业务；有限负载回归不证明任意
+  等待者数量有界、完整 TUN 压力或 Apple 真机内存。
 - h2_stream_regression：完整 END_STREAM 后 RST 不丢响应，未完成响应仍报错。
 - stream_foundations 与 sing-mux：延迟响应遵守原建链期限；确认建立后允许继续读取。
 - stream_shutdown：gRPC/legacy H2/池化 gRPC 和 XHTTP H1/H2 先送完再关闭；
@@ -47,23 +51,23 @@ container-benchmark stress --source vcore=PATH --geodata-records 1280000
   双 UDP wire、分片/重组、关联 ID 退役、窗口/credit、Heartbeat 和 Stop。
 - httpupgrade_config/httpupgrade_memory：普通/fast-open、ED、严格 101、部分写、
   首包恰好一次及原期限；已建连接不受建链期限限制。
-- GeoData：iOS/tvOS 所选原始 GeoIP CIDR + GeoSite Domain 共用 1,280,000 条总保留
-  额度的包含边界和超限截断，GeoIP 优先、余量用于 GeoSite，GeoIP 自身超限也保持总数。
-  其他平台超旧数量/内存/文件额度的完整加载、整数溢出、缺失/损坏和原子快照。
-  业务规则和 DNS policy 共用大小写归一后的唯一分类集合；重复引用不重复计分类，
-  重复 CIDR 以及 Domain/Full/Plain（Substr）/Regex 都计数，未引用分类不计数。
-  归一 code 排序与分类内原始记录前缀决定保留内容，预算耗尽的所选分类仍 available；
-  超限不作为失败，合法更新可发布截断快照，两类资产共享总额度。截掉记录只检查外层
-  wire/length，不解码/压缩 CIDR、校验内部 value/Regex 或编译；保留前缀仍严格校验。
-  GeoIP 首次不可用不消耗有效额度；资产更新重分配整体额度，GeoIP 增长可减少
-  GeoSite 保留量，真正失败的重载/更新保留旧整体快照/资产。
+- GeoData：所有平台均无记录数上限、数量截断或总内存预算；超旧数量/文件额度的完整
+  加载、整数溢出、缺失/损坏和原子快照。四种 Domain 类型的正/负匹配、属性 key 存在性
+  （bool false/int 0）、多属性 AND、顺序/重复/空项归一、Unicode simple-fold、整 selector
+  反选与字面 `@!cn`；缺失/未声明 selector 不变全匹配，有效空交集与无域名保持独立。
+  GeoIP IPv4/IPv6 与 `!code`、DAT reverse_match 忽略；业务规则与 DNS policy 共享基础
+  分类和记录，属性重叠不重复 value/Regex。属性筛选在 value 解析/Regex 编译前执行，
+  未选中正则不编译。真正失败的重载/更新保留旧整体快照/资产。
   分类异序/大小写定位与重载保持独立；TUN UDP 五元组独立固定 action，提示/GeoData
   更新只影响新流并释放旧快照；认证 QUIC 连接标识变更、同标识重传、逐目标空闲回收
   与响应刷新保持独立。域名 DNS 答案和非 TUN 路径继续更新，已有组 transport 不迁移。
-  真实 fd-TUN 分流与进程峰值由独立 benchmark 压测；2026-10-06 的 1,280,000 条总
-  GeoData 在 2 Gbps / 60 秒 / 1,000 QPS DNS 下 Linux RSS 为 42,557,440 bytes，
-  仍有 UDP 丢包和 DNS 超时。输入、边界与指标见 benchmark README；旧 CN 121,009
-  条观测和本轮特定分类结果都不能扩展为任意输入的内存保证。
+  真实 fd-TUN 联合流量、完整资产、合成四类型/复杂正则与双快照实验由独立 benchmark
+  验证；输入身份、实测数据和证据边界见其 README。Regex 使用常规
+  `regex::bytes::Regex`，保持 ASCII 语义与库默认编译/嵌套/缓存保护；编译失败仍保留
+  旧有效快照。无 VCore 自设 NFA/DFA/determinization 额度、正则条数或总内存预算。
+  容量账本不含正则库内部状态或搜索 scratch；Regex 搜索可能分配，不报告其内存为零。
+  旧 dense DFA 输入实验不能替代当前实现的回归与压力结果，单次特定输入的 RSS
+  也不能扩展为任意输入的内存保证。
   不把少量选路见证当作逐条规则语义证明，Linux RSS 不替代 Apple 真机 footprint。
 - TUN UDP：reader 直接分流、慢关联隔离、TCP ingress Full 不阻塞 UDP/DNS；唯一 writer
   三通道公平/关闭/非法包隔离、平台接受前 DNS permit 生命周期、取消及关联/DNS 任务

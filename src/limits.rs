@@ -74,15 +74,15 @@ pub const IOS_TUN_PEAK_OBSERVATION_TARGET_BYTES: u64 = 45 * 1024 * 1024;
 /// telemetry. Crossing this value never prevents the runtime from starting.
 pub const IOS_TUN_START_OBSERVATION_TARGET_BYTES: u64 = 35 * 1024 * 1024;
 
-/// Raw records across unique referenced GeoIP and GeoSite categories on iOS/tvOS.
-/// Truncate excess records without imposing a limit on other platforms. This
-/// is not a GeoData byte budget or a process-memory bound.
-pub(crate) const IOS_TVOS_GEODATA_RECORDS: usize = 1_280_000;
-
 /// Fixed stack used by each bootstrap resolver worker.
 pub(crate) const DNS_WORKER_STACK_BYTES: usize = 512 * 1024;
 /// Process-wide ceiling for lazily created bootstrap resolver workers.
 pub(crate) const MAX_DNS_WORKERS: usize = 4;
+
+/// Unfinished physical socket setup jobs per lifecycle owner, shared by TCP
+/// and UDP. Callers wait for submission capacity; established connections are
+/// not counted and receive no business-concurrency quota.
+pub(crate) const MAX_SOCKET_INITIALIZATIONS: usize = 64;
 
 /// Retained-memory, queue and per-object safety boundaries.
 ///

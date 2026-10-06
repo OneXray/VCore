@@ -15,7 +15,7 @@ Configuration uses **Mihomo-compatible YAML for the supported feature set**. VCo
 - **Choose and chain proxies:** nested `select` groups, live group selection, and `dialer-proxy` chains that can reference nodes or groups. Selection changes apply to new physical transports without moving existing connections.
 - **Handle DNS:** controlled UDP/TCP nameservers, GeoSite-based nameserver policies, sequential failover, caching and duplicate-query coalescing; intercept TCP/UDP port 53 in TUN mode.
 - **Identify traffic for routing:** HTTP, TLS and QUIC domain sniffing, plus TUN DNS hints, without rewriting the actual destination. ICMPv4/ICMPv6 Echo is answered locally.
-- **Manage routing assets:** load referenced categories from `geosite.dat` / `geoip.dat` on demand and update them through the configured route. iOS/tvOS share a 1,280,000-record limit across raw GeoIP CIDRs and GeoSite Domain records, retaining GeoIP first and giving GeoSite the remainder; excess records are omitted from matchers. Other platforms have no count cap, and GeoData memory has no quota. See [GeoData boundaries](docs/geodata.md#内存与安全边界).
+- **Manage routing assets:** load referenced categories from `geosite.dat` / `geoip.dat` on demand and update them through the configured route. GeoSite supports Domain, Full, Plain and Regex records, attribute intersections and inverted selectors; GeoIP supports inverted selectors. All platforms retain selected records without a count cap or truncation; GeoData has no total memory quota. See [GeoData boundaries](docs/geodata.md#内存与安全边界).
 - **Expose client controls:** a loopback Controller for group selection and TUN traffic rates/totals, plus isolated node/chain delay measurement through Invoke API.
 
 ## Proxy protocols
@@ -105,7 +105,7 @@ The benchmark project also owns protocol interoperability (`interop`) and memory
 
 It measures **1 / 1.5 / 2 Gbps** mixed TCP/UDP traffic with **1,000 DNS queries/s** and enhanced `geosite:cn` / `geoip:cn` rules, reporting actual throughput, CPU, observed peak Linux RSS, UDP packet loss and successful DNS queries. It evaluates the TUN/DNS/routing path with DIRECT egress, not encrypted proxy throughput; Linux RSS is not Apple Network Extension footprint.
 
-The 2026-10-06 pressure run loaded 1,280,000 total GeoData records and observed a Linux RSS peak of 42,557,440 bytes at 2 Gbps / 60 seconds / 1,000 DNS QPS; UDP loss and DNS timeouts remain. The benchmark README records the selected categories and full results. The iOS/tvOS cap is a chosen engineering guard, not a measured limit or a 50,000,000-byte memory guarantee for arbitrary input. Omitted records no longer participate in GeoIP/GeoSite routing or GeoSite DNS-policy matching. Linux observations do not replace Apple device validation.
+The separate `stress` command loads complete enhanced GeoData assets by default, with attribute/inversion witnesses and a 2 Gbps / 60-second / 1,000 DNS QPS workload. The benchmark README records actual input types, measurements and failures. Optional record sizing changes only the benchmark input, never production behavior. No observation is a 50,000,000-byte guarantee for arbitrary input or a substitute for Apple device validation.
 
 ## Documentation
 
