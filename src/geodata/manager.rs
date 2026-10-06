@@ -469,6 +469,9 @@ impl GeoDataManager {
         // Routing readers use ArcSwap and never acquire this lock.
         let mut registration = lock(&self.registration);
         if let Some(entry) = registration.as_mut() {
+            // The disk generation may already be cached. Keep a retry signal
+            // even when cancellation prevents unloading the current matcher.
+            entry.reload_pending = true;
             check_cancellation(cancellation)?;
             entry.unload();
             entry.drain(cancellation)?;
@@ -1712,6 +1715,72 @@ mod tests {
         );
         worker.join().unwrap();
         assert!(matcher.matches_geosite("cn", "www.new.example"));
+    }
+
+    #[test]
+    fn status_recovers_external_generation_cancelled_before_unload() {
+        let root = tempdir().unwrap();
+        fs::write(
+            root.path().join(super::super::GEOSITE_FILE_NAME),
+            site_file("cn", "old.example"),
+        )
+        .unwrap();
+        let updater = GeoDataManager::open(root.path(), Duration::from_secs(3_600)).unwrap();
+        let consumer = GeoDataManager::open(root.path(), Duration::from_secs(3_600)).unwrap();
+        let registration = consumer
+            .register(requirements(&[rule(RuleKind::GeoSite("cn".to_owned()))]))
+            .unwrap();
+        let matcher = registration.matcher();
+        let lease = registration.updater_lease();
+        let update = updater.begin_update(GeoDataKind::GeoSite).unwrap();
+        let candidate = site_file("cn", "new.example");
+        let (hash, size) = stage_candidate(&update, &candidate);
+        update.commit(None, hash, size).unwrap();
+        let published_hash = updater.status().unwrap().geosite.hash.unwrap();
+
+        // Delay reload at its management lock, then cancel only after the
+        // production scheduler has observed the external disk generation.
+        let gate = lock(&consumer.registration);
+        let cancellation = CancellationToken::new();
+        let worker_manager = consumer.clone();
+        let worker_token = cancellation.clone();
+        let worker = std::thread::spawn(move || {
+            worker_manager.due_resources_for_active_registration_with_cancellation(
+                &lease,
+                [
+                    (
+                        GeoDataKind::GeoSite,
+                        "https://rules.example.test/geosite.dat",
+                    ),
+                    (GeoDataKind::GeoIp, "https://rules.example.test/geoip.dat"),
+                ],
+                SystemTime::now(),
+                &worker_token,
+            )
+        });
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let observed = loop {
+            if lock(&consumer.state).geosite.hash.as_deref() == Some(published_hash.as_str()) {
+                break true;
+            }
+            if Instant::now() >= deadline {
+                break false;
+            }
+            std::thread::yield_now();
+        };
+        cancellation.cancel();
+        drop(gate);
+        let result = worker.join().unwrap();
+        assert!(observed, "scheduler must observe the external generation");
+        assert!(matches!(result, Err(GeoDataManagerError::Cancelled)));
+        assert!(matcher.matches_geosite("cn", "www.old.example"));
+        assert!(!matcher.matches_geosite("cn", "www.new.example"));
+
+        // No second update or new registration: public status must retry the
+        // same generation and make its rules available through the matcher.
+        assert!(consumer.status().unwrap().geosite.available);
+        assert!(matcher.matches_geosite("cn", "www.new.example"));
+        assert!(!matcher.matches_geosite("cn", "www.old.example"));
     }
 
     #[test]
