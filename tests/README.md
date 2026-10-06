@@ -12,7 +12,7 @@
 | 编译工具回归 | 平台构建、产物身份与构建参数回归 | scripts/tests |
 | 协议互通 | 官方 listener、生产 ABI 消费者、TCP/UDP 内容与代理路径 | 独立 container-benchmark interop |
 | 性能评估 | Linux 原生 TUN、完整 CN 分流、吞吐/CPU/RSS/UDP 丢包/DNS | 独立 container-benchmark compare |
-| 内存压力 | 完整真实 GeoData、加载与联合流量下的进程峰值 | 独立 container-benchmark stress |
+| 内存压力 | 完整真实 CN GeoData、加载与联合流量下的进程峰值 | 独立 container-benchmark stress |
 
 在独立 benchmark 工程中执行，`PATH` 为显式 VCore checkout：
 
@@ -57,16 +57,21 @@ container-benchmark stress --source vcore=PATH
   反选与字面 `@!cn`；缺失/未声明 selector 不变全匹配，有效空交集与无域名保持独立。
   GeoIP IPv4/IPv6 与 `!code`、DAT reverse_match 忽略；业务规则与 DNS policy 共享基础
   分类和记录，属性重叠不重复 value/Regex。属性筛选在 value 解析/Regex 编译前执行，
-  未选中正则不编译。真正失败的重载/候选校验保留旧整体快照/资产；成功更新立即
-  发布到原 matcher，既有读者保持完整旧快照，退出后释放；过期更新租约不能写入资产
-  或替换新注册实例的快照。更新候选只构建一次，管理重载与提交串行。
+  未选中正则不编译。下载、文件结构和 staging 检查期间保留旧 matcher；构建新代前
+  卸载旧代，等待既有读者完成及存储析构，新流仅跳过不可用 Geo 规则，普通规则与
+  DNS 回落不变。卸载后的加载失败使坏种类不可用、健康另一类独立发布，旧磁盘资产
+  保留；过期更新租约不能卸载新注册实例、写入资产或替换其快照。更新候选只构建一次，
+  管理重载与提交串行。取消排空不迟发新候选；304 可用时只调度，不可用时重载本地。
+  后台管理任务受 Stop 等待，CPU 加载结束检查取消；排空的取消检查间隔不构成整个
+  Stop 时限。纯内存回归不替代真实自动更新叠加流量的压力验收。
   分类异序/大小写定位与重载保持独立；TUN UDP 五元组独立固定 action，提示/GeoData
   更新只影响新流并释放旧快照；认证 QUIC 连接标识变更、同标识重传、逐目标空闲回收
   与响应刷新保持独立。域名 DNS 答案和非 TUN 路径继续更新，已有组 transport 不迁移。
-  真实 fd-TUN 联合流量、完整资产、合成四类型/复杂正则与双快照实验由独立 benchmark
+  真实 fd-TUN 联合流量、完整 CN 选择、合成四类型/复杂正则与更新期间峰值由独立 benchmark
   验证；输入身份、实测数据和证据边界见其 README。Regex 使用常规
-  `regex::bytes::Regex`，保持 ASCII 语义与库默认编译/嵌套/缓存保护；编译失败仍保留
-  旧有效快照。无 VCore 自设 NFA/DFA/determinization 额度、正则条数或总内存预算。
+  `regex::bytes::Regex`，保持 ASCII 语义与库默认编译/嵌套/缓存保护；所选正则编译
+  失败使该种类不可用，不恢复旧整体快照。无 VCore 自设 NFA/DFA/determinization
+  额度、正则条数或总内存预算。
   容量账本不含正则库内部状态或搜索 scratch；Regex 搜索可能分配，不报告其内存为零。
   旧 dense DFA 输入实验不能替代当前实现的回归与压力结果，单次特定输入的 RSS
   也不能扩展为任意输入的内存保证。

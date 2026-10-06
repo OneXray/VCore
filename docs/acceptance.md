@@ -10,9 +10,10 @@
 ## 核心压力测试
 
 独立 benchmark 的 `stress` 面向指定 VCore 的原生 Linux TUN，默认 2 Gbps /
-60 秒 / 1,000 QPS DNS，默认加载完整增强 DAT；可选条数只改变实验输入，不是生产上限。
-`compare` 保持完整增强
-CN 的 VCore/Mihomo 1/1.5/2 Gbps 对比。两者分别记录混合 TCP/UDP 与 DNS 负载
+60 秒 / 1,000 QPS DNS，与 `compare` 一样固定只加载增强 DAT 中完整的
+`geosite:cn` / `geoip:cn`。原件下载和更新不裁剪、不扩展匹配器分类范围；
+`--geodata-update` 叠加真实更新，不改变规则选择。
+`compare` 执行 VCore/Mihomo 1/1.5/2 Gbps 对比。两者分别记录混合 TCP/UDP 与 DNS 负载
 及指定内核 PID 的内存峰值，实际输入和门槛以 benchmark README 为准。
 50,000,000 bytes 为宿主工程目标；报告实际吞吐、丢包/错误、CPU、RSS 和 DNS 完成数。
 未达到目标负载不能宣称该档内存通过，数据损坏、崩溃、观测或清理失败不能隐藏。
@@ -26,7 +27,7 @@ Network Extension 实机内存。当前保持 standard，不新增生产业务�
 
 GeoData 属性/反选、真实 Regex 编译、合成 Plain 和双快照重叠由独立 builder probe
 记录；它不包含生产 TUN/DNS 运行时，不能拼成更新与满速流量叠加验收。真实 DAT
-没有的类型明确报告为零，不把合成记录计入真实压力规模。最新完整输入结果与历史
+没有的类型明确报告为零，不把合成记录计入真实压力规模。最新完整 CN 结果与历史
 128 万无 Regex 基线分别见 benchmark README；均不代表任意输入内存保证或
 iOS/tvOS 实机验收。
 
@@ -43,7 +44,7 @@ RSS 峰值为 28,008,448 / 30,543,872 bytes，低于 50,000,000 bytes；分流�
 完整输入身份与两次文字证据见 benchmark README。本次未复跑完整资产或双快照
 probe，Linux RSS 不替代 Apple 实机 footprint，也不是任意输入的内存保证。
 
-以下完整资产与双快照数据为 2026-10-06 旧 dense DFA 历史基线，尚未针对常规正则重跑：
+以下全分类资产与双快照数据仅为 2026-10-06 旧 dense DFA 历史记录，不属于固定 CN 场景：
 完整增强资产共 1,572,166 条（GeoIP 1,054,987、GeoSite 517,179），
 未截断的 60 秒 / 2 Gbps / 1,000 QPS DNS 混合压力取得有效观测：实际吞吐
 1,993.88 Mbps、CPU 154.06%、指定 VCore 进程 RSS 峰值 53,542,912 bytes。

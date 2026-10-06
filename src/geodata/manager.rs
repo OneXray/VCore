@@ -4,16 +4,17 @@ use std::{
     net::IpAddr,
     path::{Path, PathBuf},
     sync::{
-        Arc, Mutex, MutexGuard, Weak,
+        Arc, Condvar, Mutex, MutexGuard, Weak,
         atomic::{AtomicU64, Ordering},
     },
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use arc_swap::ArcSwap;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
+use tokio_util::sync::CancellationToken;
 
 use super::{
     GeoData, GeoDataKind, GeoRequirements, load_ips_for_requirements, load_sites_for_requirements,
@@ -29,6 +30,49 @@ const MAX_ETAG_BYTES: usize = 1_024;
 const MAX_SOURCE_URL_BYTES: usize = 4_096;
 
 static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(1);
+
+#[derive(Debug, Default)]
+struct SnapshotReleaseState {
+    released: Mutex<bool>,
+    changed: Condvar,
+}
+
+impl SnapshotReleaseState {
+    fn wait(&self, cancellation: &CancellationToken) -> Result<(), GeoDataManagerError> {
+        let deadline = Instant::now() + super::updater::DEFAULT_DOWNLOAD_TIMEOUT;
+        let mut released = lock(&self.released);
+        while !*released {
+            check_cancellation(cancellation)?;
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(GeoDataManagerError::Validation(
+                    "GeoData readers did not release the retired snapshot in time".to_owned(),
+                ));
+            }
+            (released, _) = self
+                .changed
+                .wait_timeout(released, remaining.min(Duration::from_millis(25)))
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+        check_cancellation(cancellation)
+    }
+}
+
+/// Last GeoData field; dropping it proves all matcher storage was destroyed.
+pub(super) struct SnapshotRelease(Arc<SnapshotReleaseState>);
+
+impl SnapshotRelease {
+    pub(super) fn new() -> Self {
+        Self(Arc::new(SnapshotReleaseState::default()))
+    }
+}
+
+impl Drop for SnapshotRelease {
+    fn drop(&mut self) {
+        *lock(&self.0.released) = true;
+        self.0.changed.notify_all();
+    }
+}
 
 /// Lock-free routing matcher whose immutable snapshot can be replaced without
 /// stopping readers or the owning VCore instance.
@@ -193,6 +237,8 @@ pub struct GeoDataReloadReport {
 
 #[derive(Debug, Error)]
 pub enum GeoDataManagerError {
+    #[error("GeoData operation was cancelled")]
+    Cancelled,
     #[error("GeoData manager I/O failed at {path}: {source}")]
     Io {
         path: PathBuf,
@@ -279,6 +325,55 @@ struct RegistrationEntry {
     requirements: GeoRequirements,
     matcher: Arc<DynamicGeoData>,
     report: GeoDataLoadReport,
+    retired: Option<Arc<SnapshotReleaseState>>,
+    reload_pending: bool,
+}
+
+impl RegistrationEntry {
+    fn unload(&mut self) {
+        self.reload_pending = true;
+        let old = self.matcher.current.swap(Arc::new(GeoData::EMPTY));
+        if let Some(release) = &old.release {
+            self.retired = Some(release.0.clone());
+        }
+        drop(old);
+        self.report = GeoDataLoadReport {
+            geosite: dormant_report(&self.requirements, GeoDataKind::GeoSite),
+            geoip: dormant_report(&self.requirements, GeoDataKind::GeoIp),
+            allocation_capacity: 0,
+            peak_allocation_capacity: 0,
+        };
+    }
+
+    fn drain(&mut self, cancellation: &CancellationToken) -> Result<(), GeoDataManagerError> {
+        if let Some(retired) = &self.retired {
+            retired.wait(cancellation)?;
+            self.retired = None;
+        }
+        check_cancellation(cancellation)
+    }
+
+    fn publish(&mut self, snapshot: Arc<GeoData>, report: GeoDataLoadReport) {
+        self.matcher.activate(snapshot);
+        self.report = report;
+        self.reload_pending = false;
+    }
+}
+
+fn dormant_report(requirements: &GeoRequirements, kind: GeoDataKind) -> GeoDataResourceReport {
+    if requirements.requires(kind) {
+        GeoDataResourceReport::degraded("GeoData matcher is unavailable while reloading")
+    } else {
+        GeoDataResourceReport::not_required()
+    }
+}
+
+fn check_cancellation(cancellation: &CancellationToken) -> Result<(), GeoDataManagerError> {
+    if cancellation.is_cancelled() {
+        Err(GeoDataManagerError::Cancelled)
+    } else {
+        Ok(())
+    }
 }
 
 /// Core-owned GeoData store and hot-reload registry.
@@ -344,6 +439,8 @@ impl GeoDataManager {
             requirements,
             matcher: matcher.clone(),
             report: report.clone(),
+            retired: None,
+            reload_pending: false,
         });
         Ok(GeoDataRegistration {
             lease,
@@ -353,55 +450,71 @@ impl GeoDataManager {
         })
     }
 
-    /// Rebuilds the active snapshot from the current immutable resource files.
-    /// A reload never replaces an already available required resource with a
-    /// degraded snapshot; this matters when another process installs an asset
-    /// that does not contain a code used by this process.
+    /// Unloads the active matchers before loading current resource files.
+    /// New decisions skip unavailable Geo rules; other rules remain active.
+    /// GeoSite and GeoIP recover independently, just as on initial registration.
     pub fn reload(&self) -> GeoDataReloadReport {
+        if let Err(error) = self.reload_with_cancellation(&CancellationToken::new()) {
+            tracing::warn!(%error, "GeoData reload left its matchers unavailable");
+        }
+        reload_report(lock(&self.registration).as_ref())
+    }
+
+    pub(crate) fn reload_with_cancellation(
+        &self,
+        cancellation: &CancellationToken,
+    ) -> Result<GeoDataReloadReport, GeoDataManagerError> {
         // Serialize management operations through publication so a reload
         // started before an update cannot later publish an older snapshot.
         // Routing readers use ArcSwap and never acquire this lock.
         let mut registration = lock(&self.registration);
         if let Some(entry) = registration.as_mut() {
+            check_cancellation(cancellation)?;
+            entry.unload();
+            entry.drain(cancellation)?;
             let (snapshot, report) = load_snapshot(&self.store_dir, &entry.requirements);
-            if would_degrade_active_resource(&entry.report, &report) {
-                tracing::warn!(
-                    geosite_error = ?report.geosite.error,
-                    geoip_error = ?report.geoip.error,
-                    "preserving active GeoData snapshot after an incompatible external update"
-                );
-            } else {
-                entry.matcher.activate(snapshot);
-                entry.report = report;
-            }
+            check_cancellation(cancellation)?;
+            entry.publish(snapshot, report);
         }
-        reload_report(registration.as_ref())
+        Ok(reload_report(registration.as_ref()))
     }
 
-    fn refresh_durable_state(&self) -> Result<PersistentState, GeoDataManagerError> {
+    fn refresh_durable_state(
+        &self,
+        cancellation: &CancellationToken,
+    ) -> Result<PersistentState, GeoDataManagerError> {
+        check_cancellation(cancellation)?;
         let mut disk = read_state(&self.store_dir)?;
         if disk.geosite.updating || disk.geoip.updating {
             self.recover_interrupted_state()?;
             disk = read_state(&self.store_dir)?;
         }
-        self.observe_durable_state(&disk);
+        self.observe_durable_state(&disk, cancellation)?;
         Ok(disk)
     }
 
-    fn observe_durable_state(&self, disk: &PersistentState) {
+    fn observe_durable_state(
+        &self,
+        disk: &PersistentState,
+        cancellation: &CancellationToken,
+    ) -> Result<(), GeoDataManagerError> {
         let generation_changed = {
             let mut cached = lock(&self.state);
             let changed = asset_generation_changed(&cached, disk);
             *cached = disk.clone();
             changed
         };
-        if generation_changed {
-            self.reload();
+        let reload_pending = lock(&self.registration)
+            .as_ref()
+            .is_some_and(|entry| entry.reload_pending);
+        if generation_changed || reload_pending {
+            self.reload_with_cancellation(cancellation)?;
         }
+        Ok(())
     }
 
     pub fn status(&self) -> Result<GeoDataStatus, GeoDataManagerError> {
-        let disk = self.refresh_durable_state()?;
+        let disk = self.refresh_durable_state(&CancellationToken::new())?;
         Ok(status_for_entry(&disk, lock(&self.registration).as_ref()))
     }
 
@@ -410,8 +523,9 @@ impl GeoDataManager {
     fn status_for_active_registration(
         &self,
         lease: &GeoDataRegistrationLease,
+        cancellation: &CancellationToken,
     ) -> Result<Option<GeoDataStatus>, GeoDataManagerError> {
-        let disk = self.refresh_durable_state()?;
+        let disk = self.refresh_durable_state(cancellation)?;
         let registration = lock(&self.registration);
         Ok(registration
             .as_ref()
@@ -440,14 +554,30 @@ impl GeoDataManager {
     /// Returns resources due for the active configuration and its source URLs.
     /// A source change is immediately due regardless of the previous source's
     /// durable next-check time.
+    #[cfg(test)]
     pub(crate) fn due_resources_for_active_registration(
         &self,
         lease: &GeoDataRegistrationLease,
         sources: [(GeoDataKind, &str); 2],
         now: SystemTime,
     ) -> Result<Vec<GeoDataKind>, GeoDataManagerError> {
+        self.due_resources_for_active_registration_with_cancellation(
+            lease,
+            sources,
+            now,
+            &CancellationToken::new(),
+        )
+    }
+
+    pub(crate) fn due_resources_for_active_registration_with_cancellation(
+        &self,
+        lease: &GeoDataRegistrationLease,
+        sources: [(GeoDataKind, &str); 2],
+        now: SystemTime,
+        cancellation: &CancellationToken,
+    ) -> Result<Vec<GeoDataKind>, GeoDataManagerError> {
         let now = unix_seconds(now);
-        let Some(status) = self.status_for_active_registration(lease)? else {
+        let Some(status) = self.status_for_active_registration(lease, cancellation)? else {
             return Ok(Vec::new());
         };
         Ok(sources
@@ -475,6 +605,7 @@ impl GeoDataManager {
     /// due after acquiring the cross-process update lock. The second due check
     /// lets a later process observe the winner's durable state instead of
     /// downloading the same resource again.
+    #[cfg(test)]
     pub(crate) fn begin_update_for_active_registration(
         self: &Arc<Self>,
         lease: &GeoDataRegistrationLease,
@@ -482,12 +613,30 @@ impl GeoDataManager {
         source_url: &str,
         now: SystemTime,
     ) -> Result<Option<GeoUpdateSession>, GeoDataManagerError> {
+        self.begin_update_for_active_registration_with_cancellation(
+            lease,
+            kind,
+            source_url,
+            now,
+            &CancellationToken::new(),
+        )
+    }
+
+    pub(crate) fn begin_update_for_active_registration_with_cancellation(
+        self: &Arc<Self>,
+        lease: &GeoDataRegistrationLease,
+        kind: GeoDataKind,
+        source_url: &str,
+        now: SystemTime,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<GeoUpdateSession>, GeoDataManagerError> {
+        check_cancellation(cancellation)?;
         if source_url.len() > MAX_SOURCE_URL_BYTES {
             return Err(GeoDataManagerError::SourceUrlTooLarge { kind });
         }
         let lock_file = self.acquire_update_lock()?;
         let state = read_state(&self.store_dir)?;
-        self.observe_durable_state(&state);
+        self.observe_durable_state(&state, cancellation)?;
         let status = {
             let registration = lock(&self.registration);
             registration
@@ -594,13 +743,11 @@ impl GeoDataManager {
         Ok(())
     }
 
-    fn validate_candidate(
+    fn stage_candidate(
         &self,
         kind: GeoDataKind,
         candidate_dir: &Path,
-        validation_lease: Option<&GeoDataRegistrationLease>,
-        registration: Option<&RegistrationEntry>,
-    ) -> Result<Option<(Arc<GeoData>, GeoDataLoadReport)>, GeoDataManagerError> {
+    ) -> Result<(), GeoDataManagerError> {
         validate_asset_structure(candidate_dir, kind)
             .map_err(|error| GeoDataManagerError::Validation(error.to_string()))?;
 
@@ -615,27 +762,7 @@ impl GeoDataManager {
                 .map_err(|source| io_at(&other_candidate, source))?;
         }
 
-        if let Some(lease) = validation_lease {
-            let entry = registration
-                .filter(|entry| lease.matches(entry))
-                .ok_or_else(|| {
-                    GeoDataManagerError::Validation(
-                        "GeoData update registration is no longer active".to_owned(),
-                    )
-                })?;
-            if !entry.requirements.requires(kind) {
-                return Err(GeoDataManagerError::Validation(format!(
-                    "GeoData active registration does not require {kind}"
-                )));
-            }
-        }
-        if let Some(entry) = registration {
-            if !entry.requirements.requires(kind) {
-                return Ok(Some(load_snapshot(candidate_dir, &entry.requirements)));
-            }
-            return validate_registration_candidate(kind, other, candidate_dir, entry).map(Some);
-        }
-        Ok(None)
+        Ok(())
     }
 
     fn finish_success(
@@ -803,10 +930,20 @@ impl GeoUpdateSession {
     }
 
     pub fn commit(
+        self,
+        etag: Option<String>,
+        sha256: [u8; 32],
+        size: u64,
+    ) -> Result<GeoDataReloadReport, GeoDataManagerError> {
+        self.commit_with_cancellation(etag, sha256, size, &CancellationToken::new())
+    }
+
+    pub(crate) fn commit_with_cancellation(
         mut self,
         etag: Option<String>,
         sha256: [u8; 32],
         size: u64,
+        cancellation: &CancellationToken,
     ) -> Result<GeoDataReloadReport, GeoDataManagerError> {
         if etag
             .as_ref()
@@ -814,7 +951,7 @@ impl GeoUpdateSession {
         {
             return self.finish_error(GeoDataManagerError::EtagTooLarge);
         }
-        let result = self.commit_inner(etag, sha256, size);
+        let result = self.commit_inner(etag, sha256, size, cancellation);
         match result {
             Ok(report) => {
                 self.completed = true;
@@ -827,18 +964,61 @@ impl GeoUpdateSession {
     }
 
     /// Completes an HTTP 304-style check without replacing the current file.
-    pub fn not_modified(mut self, etag: Option<String>) -> Result<(), GeoDataManagerError> {
+    pub fn not_modified(self, etag: Option<String>) -> Result<(), GeoDataManagerError> {
+        self.not_modified_with_cancellation(etag, &CancellationToken::new())
+    }
+
+    pub(crate) fn not_modified_with_cancellation(
+        mut self,
+        etag: Option<String>,
+        cancellation: &CancellationToken,
+    ) -> Result<(), GeoDataManagerError> {
         if etag
             .as_ref()
             .is_some_and(|value| value.len() > MAX_ETAG_BYTES)
         {
             return self.finish_error(GeoDataManagerError::EtagTooLarge);
         }
-        self.manager
-            .finish_not_modified(self.kind, self.source_url.clone(), etag)?;
+        let result = self.not_modified_inner(etag, cancellation);
+        if let Err(error) = result {
+            return self.finish_error(error);
+        }
         self.completed = true;
         let _ = fs::remove_dir_all(&self.staging_dir);
         let _ = self.lock_file.unlock();
+        Ok(())
+    }
+
+    fn not_modified_inner(
+        &self,
+        etag: Option<String>,
+        cancellation: &CancellationToken,
+    ) -> Result<(), GeoDataManagerError> {
+        check_cancellation(cancellation)?;
+        let mut registration = lock(&self.manager.registration);
+        self.validate_active_lease(registration.as_ref())?;
+        let candidate = if let Some(entry) = registration.as_mut()
+            && [GeoDataKind::GeoSite, GeoDataKind::GeoIp]
+                .into_iter()
+                .any(|kind| {
+                    let report = entry.report.resource(kind);
+                    report.required && !report.available
+                }) {
+            entry.unload();
+            entry.drain(cancellation)?;
+            Some(load_snapshot(&self.manager.store_dir, &entry.requirements))
+        } else {
+            None
+        };
+        check_cancellation(cancellation)?;
+        self.manager
+            .finish_not_modified(self.kind, self.source_url.clone(), etag)?;
+        check_cancellation(cancellation)?;
+        if let Some(entry) = registration.as_mut()
+            && let Some((snapshot, report)) = candidate
+        {
+            entry.publish(snapshot, report);
+        }
         Ok(())
     }
 
@@ -856,7 +1036,9 @@ impl GeoUpdateSession {
         etag: Option<String>,
         sha256: [u8; 32],
         reported_size: u64,
+        cancellation: &CancellationToken,
     ) -> Result<GeoDataReloadReport, GeoDataManagerError> {
+        check_cancellation(cancellation)?;
         let metadata = fs::symlink_metadata(&self.staging_path)
             .map_err(|source| io_at(&self.staging_path, source))?;
         if !metadata.file_type().is_file() {
@@ -875,12 +1057,34 @@ impl GeoUpdateSession {
         // Keep the validated registration and candidate stable until both the
         // durable commit and publication finish. No routing read takes this lock.
         let mut registration = lock(&self.manager.registration);
-        let candidate = self.manager.validate_candidate(
-            self.kind,
-            &self.staging_dir,
-            self.validation_lease.as_ref(),
-            registration.as_ref(),
-        )?;
+        self.validate_active_lease(registration.as_ref())?;
+        // Framing checks and disk staging do not allocate matchers. Keep the
+        // old rules until this boundary, then release every old reader before
+        // constructing the new generation.
+        self.manager.stage_candidate(self.kind, &self.staging_dir)?;
+        let candidate = if let Some(entry) = registration.as_mut()
+            && entry.requirements.requires(self.kind)
+        {
+            entry.unload();
+            entry.drain(cancellation)?;
+            let (snapshot, report) = load_snapshot(&self.staging_dir, &entry.requirements);
+            check_cancellation(cancellation)?;
+            let target = report.resource(self.kind);
+            if !target.available {
+                let error = target
+                    .error
+                    .clone()
+                    .unwrap_or_else(|| format!("{} candidate is unavailable", self.kind));
+                // Reuse initial-load degradation: only the failed kind is
+                // missing. Keep the previous disk asset for a future retry.
+                entry.publish(snapshot, report);
+                return Err(GeoDataManagerError::Validation(error));
+            }
+            Some((snapshot, report))
+        } else {
+            None
+        };
+        check_cancellation(cancellation)?;
         let destination = self.manager.store_dir.join(self.kind.file_name());
         fs::rename(&self.staging_path, &destination)
             .map_err(|source| io_at(&destination, source))?;
@@ -892,14 +1096,35 @@ impl GeoUpdateSession {
             etag,
             hex_digest(&sha256),
         )?;
+        check_cancellation(cancellation)?;
         if let Some(entry) = registration.as_mut()
             && let Some((snapshot, report)) = candidate
-            && !would_degrade_active_resource(&entry.report, &report)
         {
-            entry.matcher.activate(snapshot);
-            entry.report = report;
+            entry.publish(snapshot, report);
         }
         Ok(reload_report(registration.as_ref()))
+    }
+
+    fn validate_active_lease(
+        &self,
+        registration: Option<&RegistrationEntry>,
+    ) -> Result<(), GeoDataManagerError> {
+        if let Some(lease) = &self.validation_lease {
+            let entry = registration
+                .filter(|entry| lease.matches(entry))
+                .ok_or_else(|| {
+                    GeoDataManagerError::Validation(
+                        "GeoData update registration is no longer active".to_owned(),
+                    )
+                })?;
+            if !entry.requirements.requires(self.kind) {
+                return Err(GeoDataManagerError::Validation(format!(
+                    "GeoData active registration does not require {}",
+                    self.kind
+                )));
+            }
+        }
+        Ok(())
     }
 
     fn finish_error<T>(mut self, error: GeoDataManagerError) -> Result<T, GeoDataManagerError> {
@@ -1002,47 +1227,6 @@ fn reload_report(registration: Option<&RegistrationEntry>) -> GeoDataReloadRepor
     }
 }
 
-fn would_degrade_active_resource(
-    active: &GeoDataLoadReport,
-    candidate: &GeoDataLoadReport,
-) -> bool {
-    [GeoDataKind::GeoSite, GeoDataKind::GeoIp]
-        .into_iter()
-        .any(|kind| {
-            let active = active.resource(kind);
-            let candidate = candidate.resource(kind);
-            active.required && active.available && candidate.required && !candidate.available
-        })
-}
-
-fn validate_registration_candidate(
-    kind: GeoDataKind,
-    other: GeoDataKind,
-    candidate_dir: &Path,
-    entry: &RegistrationEntry,
-) -> Result<(Arc<GeoData>, GeoDataLoadReport), GeoDataManagerError> {
-    let (snapshot, report) = load_snapshot(candidate_dir, &entry.requirements);
-    let target = report.resource(kind);
-    if !target.available {
-        return Err(GeoDataManagerError::Validation(
-            target
-                .error
-                .clone()
-                .unwrap_or_else(|| format!("{kind} candidate is unavailable")),
-        ));
-    }
-    let previous_other = entry.report.resource(other);
-    let candidate_other = report.resource(other);
-    if previous_other.available && !candidate_other.available {
-        return Err(GeoDataManagerError::Validation(
-            candidate_other.error.clone().unwrap_or_else(|| {
-                format!("{kind} candidate would deactivate the current {other} matcher")
-            }),
-        ));
-    }
-    Ok((snapshot, report))
-}
-
 fn scoped_status(disk: &PersistentState, report: &GeoDataLoadReport) -> GeoDataStatus {
     let site_error = report_error(&report.geosite);
     let ip_error = report_error(&report.geoip);
@@ -1076,7 +1260,8 @@ fn report_error(report: &GeoDataResourceReport) -> Option<&str> {
 fn resource_due(resource: &GeoResourceState, source_url: &str, now: u64) -> bool {
     resource.required
         && !resource.updating
-        && (resource.source_url.as_deref() != Some(source_url)
+        && (!resource.available
+            || resource.source_url.as_deref() != Some(source_url)
             || resource
                 .next_check
                 .is_none_or(|next_check| next_check <= now))
@@ -1477,6 +1662,95 @@ mod tests {
     }
 
     #[test]
+    fn reload_skips_geo_rules_until_the_old_reader_releases_its_snapshot() {
+        let root = tempdir().unwrap();
+        let manager = GeoDataManager::open(root.path(), Duration::from_secs(60)).unwrap();
+        let path = root.path().join(super::super::GEOSITE_FILE_NAME);
+        fs::write(&path, site_file("cn", "old.example")).unwrap();
+        let registration = manager
+            .register(requirements(&[rule(RuleKind::GeoSite("cn".to_owned()))]))
+            .unwrap();
+        let matcher = registration.matcher();
+        let old = matcher.snapshot();
+        fs::write(path, site_file("cn", "new.example")).unwrap();
+        let (send, receive) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || send.send(manager.reload()).unwrap());
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(1);
+        while matcher.geosite_available("cn") && std::time::Instant::now() < deadline {
+            std::thread::yield_now();
+        }
+        assert!(!matcher.geosite_available("cn"));
+        assert!(old.matches_geosite("cn", "www.old.example"));
+        assert!(receive.try_recv().is_err());
+        let rules = crate::routing::RuleSet::compile(vec![
+            rule(RuleKind::GeoSite("cn".to_owned())),
+            RuleSpec {
+                kind: RuleKind::DomainSuffix("example".to_owned()),
+                action: RuleAction::Direct,
+                no_resolve: false,
+            },
+            rule(RuleKind::Match),
+        ])
+        .unwrap();
+        let destination = crate::session::Destination::domain("www.old.example", 443).unwrap();
+        let context =
+            crate::routing::RoutingContext::new(crate::config::Network::Tcp, &destination).unwrap();
+        assert!(matches!(
+            rules.evaluate_with_geo(&context, matcher.as_ref()),
+            crate::routing::RuleEvaluation::Matched(crate::routing::RuleMatch {
+                action: RuleAction::Direct,
+                ..
+            })
+        ));
+        drop(old);
+        assert!(
+            receive
+                .recv_timeout(Duration::from_secs(2))
+                .unwrap()
+                .geosite_available
+        );
+        worker.join().unwrap();
+        assert!(matcher.matches_geosite("cn", "www.new.example"));
+    }
+
+    #[test]
+    fn status_recovers_a_cancelled_reload_without_a_new_disk_generation() {
+        let root = tempdir().unwrap();
+        let manager = GeoDataManager::open(root.path(), Duration::from_secs(60)).unwrap();
+        let path = root.path().join(super::super::GEOSITE_FILE_NAME);
+        fs::write(&path, site_file("cn", "old.example")).unwrap();
+        let registration = manager
+            .register(requirements(&[rule(RuleKind::GeoSite("cn".to_owned()))]))
+            .unwrap();
+        let matcher = registration.matcher();
+        let old = matcher.snapshot();
+        fs::write(path, site_file("cn", "new.example")).unwrap();
+        let cancellation = CancellationToken::new();
+        let worker_manager = manager.clone();
+        let worker_token = cancellation.clone();
+        let (send, receive) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            send.send(worker_manager.reload_with_cancellation(&worker_token))
+                .unwrap();
+        });
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while matcher.geosite_available("cn") && Instant::now() < deadline {
+            std::thread::yield_now();
+        }
+        assert!(!matcher.geosite_available("cn"));
+        cancellation.cancel();
+        assert!(matches!(
+            receive.recv_timeout(Duration::from_secs(1)).unwrap(),
+            Err(GeoDataManagerError::Cancelled)
+        ));
+        worker.join().unwrap();
+        drop(old);
+        assert!(manager.status().unwrap().geosite.available);
+        assert!(matcher.matches_geosite("cn", "www.new.example"));
+    }
+
+    #[test]
     fn preexisting_asset_is_available_and_due_when_state_is_missing() {
         let root = tempdir().unwrap();
         let manager = GeoDataManager::open(root.path(), Duration::from_secs(60)).unwrap();
@@ -1572,7 +1846,7 @@ mod tests {
     }
 
     #[test]
-    fn update_keeps_unchanged_rules_and_existing_reader_snapshots() {
+    fn update_drains_existing_readers_before_rebuilding_both_kinds() {
         let root = tempdir().unwrap();
         fs::write(
             root.path().join(super::super::GEOSITE_FILE_NAME),
@@ -1597,18 +1871,78 @@ mod tests {
 
         let update = manager.begin_update(GeoDataKind::GeoSite).unwrap();
         let (hash, size) = stage_candidate(&update, &site_file("cn", "new.example"));
-        let report = update.commit(None, hash, size).unwrap();
-
-        assert!(report.geosite_available && report.geoip_available);
-        assert!(matcher.matches_geosite("cn", "www.new.example"));
-        assert!(!matcher.matches_geosite("cn", "www.old.example"));
+        let (send, receive) = std::sync::mpsc::channel();
+        let worker =
+            std::thread::spawn(move || send.send(update.commit(None, hash, size)).unwrap());
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while matcher.geosite_available("cn") && Instant::now() < deadline {
+            std::thread::yield_now();
+        }
+        assert!(!matcher.geosite_available("cn"));
         let address = Ipv4Addr::new(10, 0, 0, 1).into();
-        assert!(matcher.matches_geoip("private", address));
+        assert!(!matcher.geoip_available("private"));
+        assert!(receive.try_recv().is_err());
         assert!(old_snapshot.matches_geosite("cn", "www.old.example"));
         assert!(!old_snapshot.matches_geosite("cn", "www.new.example"));
         assert!(old_snapshot.matches_geoip("private", address));
         drop(old_snapshot);
+        let report = receive
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap()
+            .unwrap();
+        worker.join().unwrap();
         assert!(old_weak.upgrade().is_none());
+        assert!(report.geosite_available && report.geoip_available);
+        assert!(matcher.matches_geosite("cn", "www.new.example"));
+        assert!(!matcher.matches_geosite("cn", "www.old.example"));
+        assert!(matcher.matches_geoip("private", address));
+    }
+
+    #[test]
+    fn cancelled_update_drain_never_publishes_and_304_recovers_local_assets() {
+        let root = tempdir().unwrap();
+        let path = root.path().join(super::super::GEOSITE_FILE_NAME);
+        let original = site_file("cn", "old.example");
+        fs::write(&path, &original).unwrap();
+        let manager = GeoDataManager::open(root.path(), Duration::from_secs(60)).unwrap();
+        let registration = manager
+            .register(requirements(&[rule(RuleKind::GeoSite("cn".to_owned()))]))
+            .unwrap();
+        let matcher = registration.matcher();
+        let old = matcher.snapshot();
+        let update = manager.begin_update(GeoDataKind::GeoSite).unwrap();
+        let (hash, size) = stage_candidate(&update, &site_file("cn", "new.example"));
+        let cancellation = CancellationToken::new();
+        let worker_token = cancellation.clone();
+        let (send, receive) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            send.send(update.commit_with_cancellation(None, hash, size, &worker_token))
+                .unwrap();
+        });
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while matcher.geosite_available("cn") && Instant::now() < deadline {
+            std::thread::yield_now();
+        }
+        assert!(!matcher.geosite_available("cn"));
+        cancellation.cancel();
+        assert!(matches!(
+            receive.recv_timeout(Duration::from_secs(1)).unwrap(),
+            Err(GeoDataManagerError::Cancelled)
+        ));
+        worker.join().unwrap();
+        drop(old);
+        assert!(!matcher.geosite_available("cn"));
+        assert_eq!(fs::read(path).unwrap(), original);
+
+        // A 304 can recover a valid local asset even if a previous load was
+        // interrupted; it must not merely advance next_check while empty.
+        manager
+            .begin_update(GeoDataKind::GeoSite)
+            .unwrap()
+            .not_modified(None)
+            .unwrap();
+        assert!(matcher.matches_geosite("cn", "www.old.example"));
+        assert!(!matcher.matches_geosite("cn", "www.new.example"));
     }
 
     #[test]
@@ -1732,7 +2066,7 @@ mod tests {
     }
 
     #[test]
-    fn external_update_preserves_active_code_until_a_compatible_asset_arrives() {
+    fn external_update_skips_missing_code_until_a_compatible_asset_arrives() {
         let root = tempdir().unwrap();
         let mut initial = site_file("a", "a.example");
         initial.extend(site_file("b", "old-b.example"));
@@ -1755,9 +2089,9 @@ mod tests {
         update.commit(None, hash, size).unwrap();
 
         let status = consumer.status().unwrap();
-        assert!(status.geosite.available);
-        assert!(matcher.geosite_available("b"));
-        assert!(matcher.matches_geosite("b", "www.old-b.example"));
+        assert!(!status.geosite.available);
+        assert!(!matcher.geosite_available("b"));
+        assert!(!matcher.matches_geosite("b", "www.old-b.example"));
 
         let update = updater.begin_update(GeoDataKind::GeoSite).unwrap();
         let mut compatible = site_file("a", "newer-a.example");
@@ -1924,10 +2258,18 @@ mod tests {
         let root = tempdir().unwrap();
         let initial = site_file("a", "old-a.example");
         fs::write(root.path().join(super::super::GEOSITE_FILE_NAME), initial).unwrap();
+        fs::write(
+            root.path().join(super::super::GEOIP_FILE_NAME),
+            ip_file("private", [10, 0, 0, 0], 8),
+        )
+        .unwrap();
 
         let manager = GeoDataManager::open(root.path(), Duration::from_secs(3_600)).unwrap();
         let registration = manager
-            .register(requirements(&[rule(RuleKind::GeoSite("a".to_owned()))]))
+            .register(requirements(&[
+                rule(RuleKind::GeoSite("a".to_owned())),
+                rule(RuleKind::GeoIp("private".to_owned())),
+            ]))
             .unwrap();
         let lease = registration.updater_lease();
         let matcher = registration.matcher();
@@ -1964,7 +2306,25 @@ mod tests {
             incompatible.commit(None, hash, size),
             Err(GeoDataManagerError::Validation(_))
         ));
-        assert!(matcher.matches_geosite("a", "www.new-a.example"));
+        assert!(!matcher.geosite_available("a"));
+        assert!(matcher.matches_geoip("private", Ipv4Addr::new(10, 0, 0, 1).into()));
+        assert_eq!(
+            fs::read(root.path().join(super::super::GEOSITE_FILE_NAME)).unwrap(),
+            only_a
+        );
+        assert!(
+            manager
+                .due_resources_for_active_registration(
+                    &lease,
+                    [
+                        (GeoDataKind::GeoSite, "https://a.example.test/geosite.dat"),
+                        (GeoDataKind::GeoIp, "https://a.example.test/geoip.dat")
+                    ],
+                    SystemTime::now(),
+                )
+                .unwrap()
+                .contains(&GeoDataKind::GeoSite)
+        );
     }
 
     #[test]

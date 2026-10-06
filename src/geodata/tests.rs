@@ -1111,7 +1111,7 @@ fn geosite_byte_regex_library_rejections_do_not_expose_expression_source() {
 }
 
 #[test]
-fn rejected_byte_regex_reload_keeps_the_active_snapshot() {
+fn rejected_byte_regex_reload_skips_the_unavailable_kind() {
     let dir = tempdir().unwrap();
     write_asset(
         dir.path(),
@@ -1131,8 +1131,9 @@ fn rejected_byte_regex_reload_keeps_the_active_snapshot() {
         GEOSITE_FILE_NAME,
         &site_list(&[site("regex", &[domain(1, "private-expression([")])]),
     );
-    assert!(manager.reload().geosite_available);
-    assert!(matcher.matches_geosite("regex", "kept.example"));
+    assert!(!manager.reload().geosite_available);
+    assert!(!matcher.geosite_available("regex"));
+    assert!(!matcher.matches_geosite("regex", "kept.example"));
     assert!(!matcher.matches_geosite("regex", "new.example"));
 }
 
