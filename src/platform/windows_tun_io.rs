@@ -259,7 +259,7 @@ fn closed() -> VCoreError {
 }
 
 fn saturating_increment(counter: &AtomicU64) {
-    _ = counter.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+    _ = counter.try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
         Some(value.saturating_add(1))
     });
 }

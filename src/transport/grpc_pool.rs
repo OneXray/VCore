@@ -186,7 +186,7 @@ struct Connection {
 impl Connection {
     fn reserve(&self, pool: &Arc<SyncMutex<Vec<Connection>>>) -> io::Result<(Sender, Lease)> {
         self.active
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |count| {
                 count.checked_add(1)
             })
             .map_err(|_| io::Error::from(io::ErrorKind::OutOfMemory))?;

@@ -53,6 +53,15 @@ fn site(code: &str, domains: &[Vec<u8>]) -> Vec<u8> {
     output
 }
 
+fn repeated_site(code: &str, record: &[u8], count: usize) -> Vec<u8> {
+    let mut output = field_bytes(1, code.as_bytes());
+    let framed_record = field_bytes(2, record);
+    for _ in 0..count {
+        output.extend_from_slice(&framed_record);
+    }
+    output
+}
+
 fn site_list(sites: &[Vec<u8>]) -> Vec<u8> {
     let mut output = Vec::new();
     for site in sites {
@@ -111,6 +120,15 @@ fn dns_policy(codes: &[&str]) -> DnsNameserverPolicy {
 
 fn write_asset(dir: &Path, name: &str, contents: &[u8]) {
     fs::write(dir.join(name), contents).unwrap();
+}
+
+fn load_with_record_limit(
+    dir: &Path,
+    rules: &[RuleSpec],
+    dns_policies: &[DnsNameserverPolicy],
+    limit: usize,
+) -> Result<GeoData, GeoDataError> {
+    GeoData::load_with_record_limit(dir, rules, dns_policies, Some(limit))
 }
 
 #[test]
@@ -260,10 +278,11 @@ fn category_lookup_preserves_independent_codes_through_load_and_reload() {
 }
 
 #[test]
-fn geosite_loads_beyond_former_record_value_and_memory_quotas() {
+fn geosite_loads_beyond_former_value_and_memory_quotas() {
     let dir = tempdir().unwrap();
     let mut selected = field_bytes(1, b"cn");
-    // Exceeds the former 131072 records, 2 MiB values and 8 MiB ledger.
+    // Exceeds the former 2 MiB values and 8 MiB ledger budgets, while
+    // remaining inside the iOS/tvOS raw record limit.
     for index in 0..131_073 {
         selected.extend(field_bytes(
             2,
@@ -305,6 +324,344 @@ fn geosite_loads_beyond_former_record_value_and_memory_quotas() {
         "cn",
         "long-domain-that-crosses-the-old-byte-budget-20000.example.test"
     ));
+}
+
+#[test]
+fn ios_tvos_geodata_record_limit_keeps_site_types_and_counts_raw_duplicates() {
+    let dir = tempdir().unwrap();
+    let limit = 5;
+    let duplicate = domain(2, "domain.example");
+    let mut category = repeated_site("cn", &duplicate, limit - 3);
+    for record in [
+        domain(3, "full.example"),
+        domain(0, "needle"),
+        domain(1, "^regex\\.example$"),
+    ] {
+        category.extend(field_bytes(2, &record));
+    }
+    category.extend(field_bytes(2, &domain(3, "dropped.example")));
+    write_asset(dir.path(), GEOSITE_FILE_NAME, &site_list(&[category]));
+    let rules = [rule(RuleKind::GeoSite("cn".into()))];
+    let data = load_with_record_limit(dir.path(), &rules, &[], limit).unwrap();
+    for value in [
+        "sub.domain.example",
+        "full.example",
+        "has-needle.example",
+        "regex.example",
+    ] {
+        assert!(data.matches_geosite("cn", value), "{value}");
+    }
+    assert!(!data.matches_geosite("cn", "absent.example"));
+    assert!(!data.matches_geosite("cn", "dropped.example"));
+}
+
+#[test]
+fn ios_tvos_geodata_record_limit_aggregates_rule_and_dns_categories_by_code() {
+    let dir = tempdir().unwrap();
+    let limit = 4;
+    write_asset(
+        dir.path(),
+        GEOSITE_FILE_NAME,
+        &site_list(&[
+            site(
+                "B",
+                &[domain(3, "b-first.example"), domain(3, "b-last.example")],
+            ),
+            site(
+                "A",
+                &[
+                    domain(3, "a-first.example"),
+                    domain(3, "a-second.example"),
+                    domain(3, "a-last.example"),
+                ],
+            ),
+            site("c", &[domain(3, "c.example")]),
+        ]),
+    );
+    for (rules, policies) in [
+        (
+            vec![
+                rule(RuleKind::GeoSite("B".into())),
+                rule(RuleKind::GeoSite("a".into())),
+            ],
+            vec![dns_policy(&["b", "C", "A"])],
+        ),
+        (
+            vec![
+                rule(RuleKind::GeoSite("A".into())),
+                rule(RuleKind::GeoSite("b".into())),
+            ],
+            vec![dns_policy(&["c"])],
+        ),
+    ] {
+        let data = load_with_record_limit(dir.path(), &rules, &policies, limit).unwrap();
+        for value in ["a-first.example", "a-second.example", "a-last.example"] {
+            assert!(data.matches_geosite("a", value), "{value}");
+        }
+        assert!(data.matches_geosite("b", "b-first.example"));
+        assert!(!data.matches_geosite("b", "b-last.example"));
+        assert!(data.geosite_available("c"));
+        assert!(!data.matches_geosite("c", "c.example"));
+    }
+}
+
+#[test]
+fn ios_tvos_geodata_record_limit_deduplicates_references_and_excludes_unselected() {
+    let dir = tempdir().unwrap();
+    let limit = 3;
+    write_asset(
+        dir.path(),
+        GEOSITE_FILE_NAME,
+        &site_list(&[
+            site(
+                "used",
+                &[
+                    domain(3, "first.example"),
+                    domain(3, "second.example"),
+                    domain(3, "last.example"),
+                ],
+            ),
+            repeated_site("unused", &domain(3, "unused.example"), limit + 1),
+        ]),
+    );
+    let data = load_with_record_limit(
+        dir.path(),
+        &[
+            rule(RuleKind::GeoSite("USED".into())),
+            rule(RuleKind::GeoSite("used".into())),
+        ],
+        &[dns_policy(&["Used"])],
+        limit,
+    )
+    .unwrap();
+    assert!(data.matches_geosite("used", "first.example"));
+    assert!(data.matches_geosite("used", "last.example"));
+    assert!(!data.geosite_available("unused"));
+}
+
+#[test]
+fn ios_tvos_geodata_record_limit_skips_truncated_site_decode_and_regex_compilation() {
+    let dir = tempdir().unwrap();
+    let limit = 2;
+    write_asset(
+        dir.path(),
+        GEOSITE_FILE_NAME,
+        &site_list(&[site(
+            "cn",
+            &[
+                domain(2, "kept.example"),
+                domain(3, "last-kept.example"),
+                domain(1, "["),
+                domain(99, "unsupported.example"),
+            ],
+        )]),
+    );
+    let data = load_with_record_limit(
+        dir.path(),
+        &[rule(RuleKind::GeoSite("cn".into()))],
+        &[],
+        limit,
+    )
+    .unwrap();
+    assert!(data.matches_geosite("cn", "sub.kept.example"));
+    assert!(data.matches_geosite("cn", "last-kept.example"));
+    assert!(!data.matches_geosite("cn", "unsupported.example"));
+
+    // The truncation boundary skips inner payload validation, but not the
+    // category's outer field/wire framing.
+    let mut category = site(
+        "cn",
+        &[domain(2, "kept.example"), domain(3, "last-kept.example")],
+    );
+    category.extend(field_varint(2, 1));
+    write_asset(dir.path(), GEOSITE_FILE_NAME, &site_list(&[category]));
+    let error = load_with_record_limit(
+        dir.path(),
+        &[rule(RuleKind::GeoSite("cn".into()))],
+        &[],
+        limit,
+    )
+    .unwrap_err();
+    assert!(matches!(error, GeoDataError::Malformed { .. }));
+}
+
+#[test]
+fn geodata_record_limit_is_only_applied_on_ios_and_tvos() {
+    let dir = tempdir().unwrap();
+    let limit = crate::limits::IOS_TVOS_GEODATA_RECORDS;
+    assert_eq!(limit, 1_280_000);
+    // One raw GeoIP record plus limit - 1 retained GeoSite records reach the
+    // shared limit exactly; the final GeoSite marker is the excess record.
+    let mut category = repeated_site("cn", &domain(2, "example.cn"), limit - 2);
+    category.extend(field_bytes(2, &domain(3, "last-kept.example")));
+    category.extend(field_bytes(2, &domain(3, "first-dropped.example")));
+    write_asset(dir.path(), GEOSITE_FILE_NAME, &site_list(&[category]));
+    write_asset(
+        dir.path(),
+        GEOIP_FILE_NAME,
+        &geoip_list(&[geoip("private", &[cidr(&[10, 0, 0, 0], 8)], false)]),
+    );
+    let rules = [
+        rule(RuleKind::GeoSite("cn".into())),
+        rule(RuleKind::GeoIp("private".into())),
+    ];
+    let bounded = load_with_record_limit(dir.path(), &rules, &[], limit).unwrap();
+    assert!(bounded.geosite_available("cn"));
+    assert!(bounded.matches_geosite("cn", "last-kept.example"));
+    assert!(!bounded.matches_geosite("cn", "first-dropped.example"));
+    drop(bounded);
+
+    let data = GeoData::load(dir.path(), &rules).unwrap();
+    assert!(data.geosite_available("cn"));
+    assert!(data.matches_geosite("cn", "www.example.cn"));
+    assert!(data.matches_geosite("cn", "last-kept.example"));
+    assert_eq!(
+        data.matches_geosite("cn", "first-dropped.example"),
+        !cfg!(any(target_os = "ios", target_os = "tvos"))
+    );
+    assert!(data.geoip_available("private"));
+    assert!(data.matches_geoip("private", "10.1.2.3".parse().unwrap()));
+}
+
+#[test]
+fn ios_tvos_geodata_record_limit_prioritizes_raw_ip_records_over_sites() {
+    let dir = tempdir().unwrap();
+    write_asset(
+        dir.path(),
+        GEOIP_FILE_NAME,
+        &geoip_list(&[
+            geoip("b", &[cidr(&[203, 0, 113, 9], 32)], false),
+            geoip(
+                "A",
+                &[cidr(&[10, 0, 0, 1], 32), cidr(&[10, 0, 0, 1], 32)],
+                false,
+            ),
+            geoip("unused", &vec![cidr(&[192, 0, 2, 1], 32); 5], false),
+        ]),
+    );
+    write_asset(
+        dir.path(),
+        GEOSITE_FILE_NAME,
+        &site_list(&[site(
+            "cn",
+            &[domain(3, "kept.example"), domain(3, "dropped.example")],
+        )]),
+    );
+    let rules = [
+        rule(RuleKind::GeoSite("cn".into())),
+        rule(RuleKind::GeoIp("b".into())),
+        rule(RuleKind::GeoIp("a".into())),
+        rule(RuleKind::GeoIp("A".into())),
+    ];
+    let policies = [dns_policy(&["CN"])];
+    let direct = load_with_record_limit(dir.path(), &rules, &policies, 4).unwrap();
+    let requirements = GeoRequirements::collect(&rules, &policies).unwrap();
+    let (managed, report) =
+        manager::load_snapshot_with_record_limit(dir.path(), &requirements, Some(4));
+    assert!(report.geosite.available);
+    assert!(report.geoip.available);
+    for data in [&direct, managed.as_ref()] {
+        assert!(data.matches_geoip("a", "10.0.0.1".parse().unwrap()));
+        assert!(data.matches_geoip("b", "203.0.113.9".parse().unwrap()));
+        assert!(!data.geoip_available("unused"));
+        assert!(data.matches_geosite("cn", "kept.example"));
+        // The two duplicate raw CIDRs compact to one matcher record, but
+        // still consume two entries of the shared allowance.
+        assert!(!data.matches_geosite("cn", "dropped.example"));
+    }
+}
+
+#[test]
+fn ios_tvos_geodata_record_limit_truncates_oversized_ip_and_keeps_empty_categories() {
+    let dir = tempdir().unwrap();
+    write_asset(
+        dir.path(),
+        GEOIP_FILE_NAME,
+        &geoip_list(&[
+            geoip("b", &[cidr(&[192, 0, 2, 1], 32)], false),
+            geoip(
+                "a",
+                &[
+                    cidr(&[10, 0, 0, 1], 32),
+                    cidr(&[10, 0, 0, 1], 32),
+                    cidr(&[203, 0, 113, 9], 32),
+                    cidr(&[198, 51, 100, 1], 33),
+                ],
+                false,
+            ),
+        ]),
+    );
+    write_asset(
+        dir.path(),
+        GEOSITE_FILE_NAME,
+        &site_list(&[site("cn", &[domain(1, "[")])]),
+    );
+    let rules = [
+        rule(RuleKind::GeoIp("B".into())),
+        rule(RuleKind::GeoSite("cn".into())),
+        rule(RuleKind::GeoIp("A".into())),
+    ];
+    let direct = load_with_record_limit(dir.path(), &rules, &[], 3).unwrap();
+    let requirements = GeoRequirements::collect(&rules, &[]).unwrap();
+    let (managed, report) =
+        manager::load_snapshot_with_record_limit(dir.path(), &requirements, Some(3));
+    assert!(report.geosite.available);
+    assert!(report.geoip.available);
+    for data in [&direct, managed.as_ref()] {
+        assert!(data.matches_geoip("a", "10.0.0.1".parse().unwrap()));
+        assert!(data.matches_geoip("a", "203.0.113.9".parse().unwrap()));
+        assert!(!data.matches_geoip("a", "198.51.100.1".parse().unwrap()));
+        assert!(data.geoip_available("b"));
+        assert!(!data.matches_geoip("b", "192.0.2.1".parse().unwrap()));
+        assert!(data.geosite_available("cn"));
+        assert!(!data.matches_geosite("cn", "example.test"));
+    }
+    let ip_only =
+        load_with_record_limit(dir.path(), &[rules[0].clone(), rules[2].clone()], &[], 3).unwrap();
+    assert!(ip_only.matches_geoip("a", "203.0.113.9".parse().unwrap()));
+    assert!(!ip_only.matches_geoip("b", "192.0.2.1".parse().unwrap()));
+}
+
+#[test]
+fn ios_tvos_geodata_record_limit_reclaims_allowance_when_ip_is_unavailable() {
+    let invalid_ip = geoip_list(&[geoip(
+        "a",
+        &[cidr(&[10, 0, 0, 1], 32), cidr(&[203, 0, 113, 9], 33)],
+        false,
+    )]);
+    for ip_asset in [None, Some(invalid_ip.as_slice())] {
+        let dir = tempdir().unwrap();
+        if let Some(contents) = ip_asset {
+            write_asset(dir.path(), GEOIP_FILE_NAME, contents);
+        }
+        write_asset(
+            dir.path(),
+            GEOSITE_FILE_NAME,
+            &site_list(&[site(
+                "cn",
+                &[
+                    domain(3, "first.example"),
+                    domain(3, "second.example"),
+                    domain(3, "last.example"),
+                ],
+            )]),
+        );
+        let requirements = GeoRequirements::collect(
+            &[
+                rule(RuleKind::GeoSite("cn".into())),
+                rule(RuleKind::GeoIp("a".into())),
+            ],
+            &[],
+        )
+        .unwrap();
+        let (data, report) =
+            manager::load_snapshot_with_record_limit(dir.path(), &requirements, Some(3));
+        assert!(report.geosite.available);
+        assert!(!report.geoip.available);
+        assert!(report.geoip.error.is_some());
+        assert!(data.matches_geosite("cn", "last.example"));
+        assert!(!data.geoip_available("a"));
+    }
 }
 
 #[test]
@@ -708,7 +1065,7 @@ fn reverse_match_and_invalid_cidr_are_rejected() {
 }
 
 #[test]
-fn geosite_regex_count_source_and_retained_memory_are_not_quotas() {
+fn geosite_regexes_load_without_separate_source_or_memory_quotas() {
     let dir = tempdir().unwrap();
     let records: Vec<_> = (0..513)
         .map(|index| domain(1, &format!("^{}r{index}\\.test$", "a".repeat(130))))
@@ -727,7 +1084,7 @@ fn geosite_regex_count_source_and_retained_memory_are_not_quotas() {
 }
 
 #[test]
-fn geoip_raw_record_count_is_not_an_admission_limit() {
+fn geoip_records_below_shared_limit_load_before_cidr_compaction() {
     let dir = tempdir().unwrap();
     let mut category = field_bytes(1, b"cn");
     for _ in 0..320_000 {

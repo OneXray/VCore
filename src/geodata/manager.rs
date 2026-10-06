@@ -16,8 +16,9 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use super::{
-    GeoData, GeoDataKind, GeoRequirements, load_ips_for_requirements, load_sites_for_requirements,
-    validate_asset_structure,
+    GEODATA_RECORD_LIMIT, GeoData, GeoDataKind, GeoRequirements, consume_record_allowance,
+    load_ips_for_requirements, load_sites_for_requirements, validate_asset_structure,
+    warn_record_truncation,
 };
 use crate::routing::GeoMatcher;
 
@@ -937,21 +938,54 @@ fn load_snapshot(
     asset_dir: &Path,
     requirements: &GeoRequirements,
 ) -> (Arc<GeoData>, GeoDataLoadReport) {
+    load_snapshot_with_record_limit(asset_dir, requirements, GEODATA_RECORD_LIMIT)
+}
+
+pub(super) fn load_snapshot_with_record_limit(
+    asset_dir: &Path,
+    requirements: &GeoRequirements,
+    record_limit: Option<usize>,
+) -> (Arc<GeoData>, GeoDataLoadReport) {
     let mut sites = Vec::new();
     let mut ips = Vec::new();
     let mut used = 0;
     let mut peak = 0;
     let mut site_report = GeoDataResourceReport::not_required();
     let mut ip_report = GeoDataResourceReport::not_required();
+    let mut remaining_records = record_limit;
+    let mut truncated = false;
 
+    if requirements.requires(GeoDataKind::GeoIp) {
+        match load_ips_for_requirements(
+            asset_dir,
+            requirements.code_set(GeoDataKind::GeoIp),
+            used,
+            peak,
+            remaining_records,
+        ) {
+            Ok(loaded) => {
+                consume_record_allowance(&mut remaining_records, loaded.loaded_records);
+                truncated |= loaded.truncated;
+                ips = loaded.values;
+                used = loaded.used;
+                peak = loaded.peak;
+                ip_report = GeoDataResourceReport::available();
+            }
+            // A failed GeoIP kind does not consume the usable snapshot's
+            // allowance or disable independent GeoSite routing.
+            Err(error) => ip_report = GeoDataResourceReport::degraded(error),
+        }
+    }
     if requirements.requires(GeoDataKind::GeoSite) {
         match load_sites_for_requirements(
             asset_dir,
             requirements.code_set(GeoDataKind::GeoSite),
             used,
             peak,
+            remaining_records,
         ) {
             Ok(loaded) => {
+                truncated |= loaded.truncated;
                 sites = loaded.values;
                 used = loaded.used;
                 peak = loaded.peak;
@@ -960,23 +994,8 @@ fn load_snapshot(
             Err(error) => site_report = GeoDataResourceReport::degraded(error),
         }
     }
-    if requirements.requires(GeoDataKind::GeoIp) {
-        match load_ips_for_requirements(
-            asset_dir,
-            requirements.code_set(GeoDataKind::GeoIp),
-            used,
-            peak,
-        ) {
-            Ok(loaded) => {
-                ips = loaded.values;
-                used = loaded.used;
-                peak = loaded.peak;
-                ip_report = GeoDataResourceReport::available();
-            }
-            Err(error) => ip_report = GeoDataResourceReport::degraded(error),
-        }
-    }
 
+    warn_record_truncation(record_limit, truncated);
     let snapshot = Arc::new(GeoData::from_loaded(sites, ips, used, peak));
     (
         snapshot,

@@ -7,11 +7,18 @@ VCore 纯核心回归直接使用的独立输入，不包含容器 catalog、消
   `tests/limit_foundations.rs` 直接读取并核对。
 - `encryption-crypto.json`：独立官方 Go 原语生成的 Encryption 密码向量；
   `src/outbound/vless/encryption/crypto.rs` 和 `records.rs` 的确定性回归直接使用。
-  生成器及外部验证由独立 container-benchmark 工程维护，不能从待测实现重生成期望。
+  不能从待测实现重生成期望；历史生成来源可在 Git 中追溯。
 
-核心检查命令见 [scripts](../../scripts/README.md)。容器协议互通、官方对端、
-catalog 和流消费者由独立 benchmark 显式接收 VCore checkout 后执行；
-它们不影响本仓库离线检查或平台构建。
+核心离线回归见 [tests](../README.md)，平台编译见 [scripts](../../scripts/README.md)。
+互通消费者、官方对端下载与编排位于公开的
+[container-benchmark](https://github.com/OneXray/container-benchmark)，入口为
+`container-benchmark interop --source vcore=PATH`，默认使用 Mihomo、Xray-core、
+Hysteria2、V2Ray 与 Caddy/Xray 的 64 个代表用例；Mihomo listener 的缺口保留原生
+或明确分层验证。`--backend` / `--protocol` 可筛选，`--list` 离线列举。
+原生 TUN 压力与两核性能比较使用该工程的 `stress` / `compare`；真实执行均显式
+提供 VCore checkout，不推断工程路径。网络互通不混入离线检查或平台构建。
+此入口不恢复历史全部字段、代理链、长测或 ClientHello golden 的网络矩阵，
+本目录独立输入的离线回归也不能冒充当前网络通过。
 
 输入文件属于受版本控制的测试源，不是每轮产生的测试数据。每轮容器实验仅保留
 脱敏文字结论，清理规则见[测试隔离](../../docs/testing-isolation.md)；

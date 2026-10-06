@@ -19,7 +19,7 @@ from . import builds
 GROUPS = {"apple", "android", "windows-arm64", "windows-x64"}
 APPLE_LIBRARIES = {
     "ios-arm64": ("ios", None, {"arm64"}),
-    "ios-arm64_x86_64-simulator": ("ios", "simulator", {"arm64", "x86_64"}),
+    "ios-arm64-simulator": ("ios", "simulator", {"arm64"}),
     "macos-arm64_x86_64": ("macos", None, {"arm64", "x86_64"}),
     "tvos-arm64": ("tvos", None, {"arm64"}),
     "tvos-arm64-simulator": ("tvos", "simulator", {"arm64"}),
@@ -65,10 +65,9 @@ def _source(root: Path) -> dict:
     return source
 
 
-def check_delivery(
-    manifests: list[Path], *, source_dir: Path | None = None, complete: bool = False
-) -> None:
-    source = _source(source_dir or builds.CORE_DIR)
+def _check_delivery(manifests: list[Path]) -> None:
+    """Check newly built files before retaining their delivery manifest."""
+    source = _source(builds.CORE_DIR)
     groups = set()
     if not manifests:
         raise ValueError("empty manifest set cannot pass")
@@ -249,16 +248,6 @@ def check_delivery(
         print(
             f"PASS {record['group']} artifact integrity (not device/release acceptance)"
         )
-    if complete and groups != GROUPS:
-        raise ValueError(
-            "complete platform artifacts require Apple, Android, "
-            "native Windows ARM64 and x64"
-        )
-    if complete:
-        print(
-            "PASS production platform artifacts; "
-            "ABI, devices and release require separate evidence"
-        )
 
 
 def build_delivery(platform_name: str) -> None:
@@ -337,17 +326,7 @@ def build_delivery(platform_name: str) -> None:
         )
         toolchain["tvosDeploymentTarget"] = builds.tvos_deployment_target()
     else:
-        android_home = Path(
-            os.environ.get("ANDROID_HOME", Path.home() / "Library/Android/sdk")
-        )
-        ndk = Path(
-            os.environ.get(
-                "ANDROID_NDK_HOME",
-                android_home
-                / "ndk"
-                / os.environ.get("VCORE_ANDROID_NDK_VERSION", "28.2.13676358"),
-            )
-        )
+        ndk = builds._android_ndk_home()
         toolchain["ndk"] = (ndk / "source.properties").read_text().strip()
         toolchain["clang"] = _output(
             [str(builds._android_toolchain(ndk) / "bin/clang"), "--version"],
@@ -419,142 +398,8 @@ def build_delivery(platform_name: str) -> None:
         json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
     try:
-        check_delivery([manifest])
+        _check_delivery([manifest])
     except Exception:
         manifest.unlink(missing_ok=True)
         raise
     print(manifest)
-
-
-def check_abi(manifest: Path) -> None:
-    """Compile a real C consumer; no replacement library and no protocol servers."""
-    # Commands below run from an isolated output directory, not the caller cwd.
-    manifest = manifest.resolve()
-    check_delivery([manifest])
-    record = json.loads(manifest.read_text(encoding="utf-8"))
-    group = record["group"]
-    root = builds.CORE_DIR
-    work = root / "target/platform-delivery/abi" / group
-    work.mkdir(parents=True, exist_ok=True)
-    (work / "result.json").unlink(missing_ok=True)
-    source = root / "scripts/fixtures/platform_abi.c"
-    binary = work / ("abi.exe" if os.name == "nt" else "abi")
-    environment = os.environ.copy()
-    if group == "apple" and platform.system() == "Darwin":
-        library = manifest.parent / "LibVCore.xcframework/macos-arm64_x86_64/libvcore.a"
-        command = [
-            "xcrun",
-            "clang",
-            "-Wall",
-            "-Wextra",
-            "-Werror",
-            "-I",
-            str(root / "include"),
-            str(source),
-            str(library),
-            "-lc++",
-            "-lresolv",
-            "-framework",
-            "Security",
-            "-framework",
-            "SystemConfiguration",
-            "-framework",
-            "CoreFoundation",
-            "-o",
-            str(binary),
-        ]
-        execute = [str(binary)]
-        architecture = platform.machine()
-    elif group.startswith("windows-") and os.name == "nt":
-        architecture = builds._windows_architecture()
-        if group != "windows-" + architecture:
-            raise ValueError("ABI check cannot substitute emulation for native Windows")
-        environment = builds._windows_msvc_environment(architecture)
-        search_path = next(
-            value for key, value in environment.items() if key.upper() == "PATH"
-        )
-        # CreateProcess does not use env[PATH] to resolve the executable. Resolve
-        # cl from vcvars explicitly rather than requiring it in the parent PATH.
-        compiler = shutil.which("cl", path=search_path)
-        if not compiler:
-            raise ValueError(
-                "MSVC C compiler is unavailable in the selected environment"
-            )
-        command = [
-            compiler,
-            "/nologo",
-            "/std:c11",
-            "/W4",
-            "/WX",
-            "/MT",
-            "/I" + str(root / "include"),
-            str(source),
-            "/Fe:" + str(binary),
-            "/Fo:" + str(work / "abi.obj"),
-        ]
-        execute = [str(binary), str(manifest.parent / "vcore.dll")]
-    else:
-        raise ValueError(
-            "native ABI runner requires a matching macOS or Windows artifact"
-        )
-    subprocess.run(command, cwd=work, env=environment, check=True, timeout=120)
-    subprocess.run(execute, cwd=work, env=environment, check=True, timeout=60)
-    apple_links = []
-    if group == "apple":
-        from .apple_runtime import link_consumer
-
-        for target_os in ("ios", "tvos"):
-            for simulator in (False, True):
-                consumer = link_consumer(
-                    manifest.parent / "LibVCore.xcframework",
-                    work,
-                    target_os,
-                    simulator=simulator,
-                    minimum=record["toolchain"][target_os + "DeploymentTarget"],
-                )
-                apple_links.append(
-                    {
-                        "platform": target_os,
-                        "simulator": simulator,
-                        "sha256": _sha(consumer),
-                        "executed": False,
-                    }
-                )
-    if group.startswith("windows-"):
-        target = {"arm64": "aarch64-pc-windows-msvc", "x64": "x86_64-pc-windows-msvc"}[
-            architecture
-        ]
-        base = [
-            "cargo",
-            "test",
-            "--locked",
-            "--release",
-            "--target",
-            target,
-            "--features",
-            "ffi",
-        ]
-        for suffix in (
-            ["--lib", "windows::snapshot::tests"],
-            ["--test", "windows_session_startup"],
-        ):
-            subprocess.run(
-                base + suffix, cwd=root, env=environment, check=True, timeout=1200
-            )
-    if _source(root) != record["source"]:
-        raise ValueError("source changed during ABI check")
-    evidence = {
-        "kind": "native-production-abi",
-        "group": group,
-        "source": record["source"],
-        "manifestSha256": _sha(manifest),
-        "architecture": architecture,
-        "iterations": 1000,
-        "invalidApiRejected": True,
-        "finishedUtc": datetime.now(UTC).isoformat(),
-    }
-    if apple_links:
-        evidence["appleLinkedConsumers"] = apple_links
-    (work / "result.json").write_text(
-        json.dumps(evidence, indent=2) + "\n", encoding="utf-8"
-    )

@@ -4,15 +4,15 @@
 
 ## 验证分层
 
-| 报告标签 | 脚本入口 | 证明范围 |
+| 历史报告标签 | 历史脚本入口 | 证明范围 |
 | --- | --- | --- |
 | FINGERPRINT-REFERENCE | protocol_fingerprint_reference | 官方客户端的独立基线，不是 VCore 互通 |
 | FINGERPRINT-WIRE | protocol_fingerprint_shape | 公开配置的内存 TLS 报文、恢复与过期 |
 | FINGERPRINT-INTEROP | protocol_fingerprint | 命名指纹在真实容器协议链路中的行为 |
 
-三个运行器均由独立 container-benchmark 工程维护，通过 `--vcore` 显式指定被测
-checkout；使用方法见 [外部 benchmark 入口](../../scripts/README.md)。用例、容器与报告
-按用途命名，不使用开发阶段编号。golden 中的 `case_id` 是当前用例标签；原始 TLS
+上述专用运行器可从 Git 历史查阅，未随当前精简 Mihomo 互通入口恢复；不得把它们
+当作现存命令。协议验证归 VCore，container-benchmark 只做性能评估；当前入口和
+范围见 [构建与验证](../../scripts/README.md)。golden 中的 `case_id` 是用例标签；原始 TLS
 字节、解析结果、来源版本及原报告 hash 保持独立采集时的值，不表示重新抓包。
 历史运行报告不改写，按其记录的 Git revision 复核；各层结果不能互相代替。
 
@@ -22,7 +22,8 @@ checkout；使用方法见 [外部 benchmark 入口](../../scripts/README.md)。
 four templates, ordinary TCP TLS and classic REALITY. The official latest Mihomo
 binary was downloaded, not compiled from the reference source. Binary identity,
 uTLS build dependency, raw record layout, handshake bytes and parsed fields are
-retained. `validate_capture` re-parses raw bytes and detects altered derived data.
+retained. The historical collector's `validate_capture` re-parsed raw bytes and
+detected altered derived data; that collector is not a current script entry.
 These are public ephemeral key shares and synthetic names, not private keys,
 proxy credentials, application traffic or user destinations.
 

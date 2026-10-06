@@ -49,7 +49,7 @@ def _check_apple_load_commands(
         raise ValueError("Apple artifact contains no Mach-O objects")
     ceiling = tuple((list(map(int, minimum.split("."))) + [0, 0])[:3])
     # These architectures did not exist at the older product deployment floor.
-    # Keep iOS 13 / macOS 10.15 for the existing older-architecture slices.
+    # Keep iOS 13 for devices and macOS 10.15 for the Intel desktop slice.
     architecture_floor = {
         ("ios", "simulator", "arm64"): (14, 0, 0),
         ("macos", None, "arm64"): (11, 0, 0),
@@ -69,9 +69,7 @@ def _check_apple_load_commands(
                     raise ValueError("wrong Apple Mach-O platform")
                 versions.append(fields.get("minos", ""))
             elif kind.startswith("LC_VERSION_MIN_"):
-                if kind != "LC_VERSION_MIN_" + legacy or (
-                    variant == "simulator" and architecture != "x86_64"
-                ):
+                if kind != "LC_VERSION_MIN_" + legacy or variant == "simulator":
                     raise ValueError("wrong legacy Apple Mach-O platform")
                 versions.append(fields.get("version", ""))
         if len(versions) != 1 or not re.fullmatch(r"\d+(?:\.\d+){0,2}", versions[0]):
@@ -266,16 +264,43 @@ def _android_toolchain(ndk_home: Path) -> Path:
     raise RuntimeError(f"Android NDK toolchain not found under {ndk_home}")
 
 
-def build_android() -> None:
-    if os.name == "nt":
-        raise RuntimeError("Android artifacts must be built on macOS or Linux")
+def _android_ndk_home() -> Path:
+    """Resolve an explicit NDK path/version or the newest installed stable major."""
+    if override := os.environ.get("ANDROID_NDK_HOME"):
+        return Path(override).resolve()
     android_home = Path(
         _env("ANDROID_HOME", Path.home() / "Library" / "Android" / "sdk")
     )
-    ndk_version = _env("VCORE_ANDROID_NDK_VERSION", "28.2.13676358")
-    ndk_home = Path(
-        _env("ANDROID_NDK_HOME", android_home / "ndk" / ndk_version)
-    ).resolve()
+    installed = android_home / "ndk"
+    selector = _env("VCORE_ANDROID_NDK_VERSION", "30")
+    if not selector.isdigit():
+        return (installed / selector).resolve()
+    candidates = []
+    for path in installed.glob(selector + ".*"):
+        properties = path / "source.properties"
+        if (
+            not path.is_dir()
+            or not re.fullmatch(r"\d+\.\d+\.\d+", path.name)
+            or not properties.is_file()
+        ):
+            continue
+        revision = re.search(
+            r"(?m)^\s*Pkg\.Revision\s*=\s*(\S+)\s*$",
+            properties.read_text(encoding="utf-8"),
+        )
+        # SDK preview directories can have numeric names. Their revision still
+        # carries a beta/rc suffix, so use package metadata to reject previews.
+        if revision and revision.group(1) == path.name:
+            candidates.append((tuple(map(int, path.name.split("."))), path))
+    if not candidates:
+        raise RuntimeError(f"no installed stable Android NDK for major {selector}")
+    return max(candidates, key=lambda candidate: candidate[0])[1].resolve()
+
+
+def build_android() -> None:
+    if os.name == "nt":
+        raise RuntimeError("Android artifacts must be built on macOS or Linux")
+    ndk_home = _android_ndk_home()
     android_api = _env("VCORE_ANDROID_API", "24")
     profile_name, profile_flags = _profile()
     features = _production_features(_env("VCORE_FEATURES", DEFAULT_FEATURES))
@@ -356,7 +381,6 @@ def build_apple() -> None:
     targets = [
         "aarch64-apple-ios",
         "aarch64-apple-ios-sim",
-        "x86_64-apple-ios",
         "aarch64-apple-darwin",
         "x86_64-apple-darwin",
         "aarch64-apple-tvos",
@@ -393,21 +417,10 @@ def build_apple() -> None:
         _require_identity(artifact, "Apple")
 
     shutil.copy2(artifacts["aarch64-apple-ios"], work / "ios-device/libvcore.a")
+    shutil.copy2(artifacts["aarch64-apple-ios-sim"], work / "ios-simulator/libvcore.a")
     shutil.copy2(artifacts["aarch64-apple-tvos"], work / "tvos-device/libvcore.a")
     shutil.copy2(
         artifacts["aarch64-apple-tvos-sim"], work / "tvos-simulator/libvcore.a"
-    )
-    _run(
-        [
-            "xcrun",
-            "lipo",
-            "-create",
-            artifacts["aarch64-apple-ios-sim"],
-            artifacts["x86_64-apple-ios"],
-            "-output",
-            work / "ios-simulator/libvcore.a",
-        ],
-        env=env,
     )
     _run(
         [
@@ -428,7 +441,7 @@ def build_apple() -> None:
             "ios-simulator",
             "ios",
             "simulator",
-            {"arm64", "x86_64"},
+            {"arm64"},
             env["IPHONEOS_DEPLOYMENT_TARGET"],
         ),
         ("macos", "macos", None, {"arm64", "x86_64"}, env["MACOSX_DEPLOYMENT_TARGET"]),

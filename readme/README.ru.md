@@ -4,157 +4,126 @@
   <a href="../README.md">English</a> · <a href="./README.zh_CN.md">简体中文</a> · Русский
 </p>
 
-VCore — независимое клиентское прокси-ядро на Rust, не привязанное к конкретному хост-приложению. Через строгую YAML-конфигурацию и Invoke API v5 оно предоставляет граф прокси, статические группы `select`, DNS, правила маршрутизации, GeoData, HTTP/SOCKS5 listeners, плоскость данных TUN и loopback Controller. Внутренняя ревизия схемы конфигурации — 28; она присутствует только в ответе `version` и `buildIdentity`, но не записывается в YAML.
+VCore — встраиваемое прокси-ядро на Rust для VPN-клиентов и локальных прокси. Оно маршрутизирует TCP/UDP-трафик через прямые соединения, прокси-узлы, группы и цепочки, объединяя DNS, GeoData и кроссплатформенную плоскость данных TUN.
 
-## Возможности
+Конфигурация использует **совместимый с Mihomo YAML в пределах поддерживаемых возможностей**. VCore ориентирован на клиентские функции и не реализует все поля Mihomo или его полный Dashboard API.
 
-SS2022 также поддерживает [strict ShadowTLS v3](../docs/outbounds.md#shadowtls-v3) для TCP; нативный UDP использует отдельный путь.
+## Что умеет VCore
 
-- Исходящие подключения: [VLESS TCP/WS/gRPC/HTTP/H2/XHTTP, TLS/REALITY и Vision](../docs/vless.md), SOCKS5 CONNECT/UDP ASSOCIATE, AnyTLS TCP/UoT, Shadowsocks 2022, [Trojan TCP/UDP через TLS/WS/gRPC](../docs/outbounds.md#trojan), [VMess AEAD через TCP/WS/gRPC/HTTP/H2](../docs/outbounds.md#vmess-aead), [Hysteria2 TCP/UDP, управление скоростью, Salamander и смена портов](../docs/outbounds.md#hysteria2) и DIRECT.
-- Цепочки прокси: `dialer-proxy` образует ориентированный ациклический граф произвольной длины. Если узел A указывает на B, физический путь имеет вид `client -> B -> A -> target`.
-- Группы прокси: статические группы `select` сохраняют порядок участников; участниками могут быть конкретные узлы, вложенные группы, `DIRECT` и `REJECT`. Выбор текущей session можно менять через Controller. `dialer-proxy` принимает узел или группу; DIRECT в группе верхнего уровня подключается к заранее разрешённому серверу текущего узла.
-- Маршрутизация: последовательно применяются `DOMAIN`, `DOMAIN-SUFFIX`, `DOMAIN-KEYWORD`, `GEOSITE`, `GEOIP`, `IP-CIDR`, `IP-CIDR6`, `DST-PORT`, `NETWORK` и завершающее правило `MATCH`.
-- DNS: UDP/TCP nameserver с фиксированным IP, явный outbound, последовательные policy/failover, typed/opaque cache, singleflight и перехват UDP/TCP-порта 53 в TUN.
-- TUN: raw IPv4/IPv6, TCP/UDP, локальные ответы ICMPv4/ICMPv6 Echo, HTTP/TLS/QUIC sniffer и четыре счётчика трафика на session.
-- Listeners: HTTP CONNECT/forward с аутентификацией и маршрутизацией каждого запроса, потоковыми телами, Keep-Alive и Upgrade; SOCKS5 CONNECT и UDP ASSOCIATE с авторизацией через TCP. По умолчанию доступ локальный без аутентификации; для LAN требуется общая пара имени пользователя и пароля.
-- GeoData: VCore управляет `geosite.dat` и `geoip.dat` в `dataDir/geodata`, загружает их по запросу и может обновлять через цепочку прокси.
-- Измерение задержки: `measureDelay` принимает за вызов 1–5 конфигураций node-only, использует до пяти частных worker и сохраняет порядок входных данных в результатах.
-- TLS: независимый pin сертификата и четыре необязательных [шаблона ClientHello](../docs/tls-client-fingerprint.md); [VLESS JLS](../docs/vless.md#jls) сохраняет полную аутентификацию TLS. [Статический ECH](../docs/vless.md#静态-ech) использует явную конфигурацию основного и download-соединения VLESS, без динамических DNS-запросов или отката при ошибке.
+- **Принимать трафик приложений и VPN:** пересылка HTTP, CONNECT и Upgrade; SOCKS5 CONNECT и UDP ASSOCIATE; IPv4/IPv6-пакеты TUN, предоставленные хостом.
+- **Маршрутизировать по назначению:** правила по домену, суффиксу или ключевому слову домена, IP CIDR, порту назначения, TCP/UDP, GeoSite и GeoIP, с явными действиями DIRECT и REJECT.
+- **Выбирать прокси и строить цепочки:** вложенные группы `select`, переключение групп во время работы и цепочки `dialer-proxy`, ссылающиеся на узлы или группы. Изменения выбора применяются к новым физическим транспортным соединениям, не перенося существующие.
+- **Обрабатывать DNS:** управляемые UDP/TCP-серверы, политики выбора серверов по GeoSite, последовательное переключение при отказе, кеширование и объединение одинаковых запросов; перехват TCP/UDP-порта 53 в режиме TUN.
+- **Определять трафик для маршрутизации:** извлечение домена из HTTP, TLS и QUIC, а также DNS-подсказки TUN, без изменения фактического назначения. На ICMPv4/ICMPv6 Echo ядро отвечает локально.
+- **Управлять данными маршрутизации:** загрузка используемых категорий из `geosite.dat` / `geoip.dat` по запросу и обновление файлов через заданный маршрут. На iOS/tvOS исходные CIDR GeoIP и записи Domain GeoSite совместно используют лимит в 1 280 000 записей: сначала сохраняются GeoIP, остаток выделяется GeoSite, лишние записи не включаются в механизм сопоставления. На остальных платформах лимита количества нет; квота памяти GeoData не задана. См. [границы GeoData](../docs/geodata.md#内存与安全边界).
+- **Предоставлять средства управления клиенту:** Controller на loopback-интерфейсе для выбора групп, текущей скорости и общего объёма TUN-трафика, а также изолированное измерение задержки узлов и цепочек через Invoke API.
 
-## Конфигурация
+## Прокси-протоколы
 
-[`docs/config.yaml`](../docs/config.yaml) — единственный полный пример. Основные ограничения:
+Все восемь протоколов ниже включены в сборку по умолчанию. Поддержка UDP настраивается для каждого узла.
 
-- Размер YAML ограничен 256 KiB; неизвестные поля, anchors, aliases, пользовательские tags и устаревшие структуры отклоняются.
-- На верхнем уровне должен быть хотя бы один proxy и включённый `port`, `socks-port` или `tun`.
-- Имена proxy и proxy group используют общее пространство имён с точным совпадением и учётом регистра. Имя занимает 1–64 байта UTF-8; запрещены окружающие Unicode-пробелы, управляющие символы, `, # / ? & = % \`, `.` и `..`, а `DIRECT`, `REJECT` и `RULES` зарезервированы. Внутренние обычные пробелы, CJK и emoji разрешены.
-- `proxy-groups` принимает только `select`. Порядок и повторы участников сохраняются; без `default-selected` выбирается первый участник, а явное значение должно быть прямым участником. Все ссылки `dialer-proxy` и участники групп, включая невыбранные, должны образовывать единый ациклический граф.
-- `rules` обязателен и должен завершаться ровно одним `MATCH`, указывающим на настроенный proxy node или proxy group.
-- `DIRECT` и `REJECT` — встроенные actions и участники групп; любой другой route target должен быть настроенным proxy node или proxy group. `RULES` зарезервирован только для DNS.
-- Конфигурация передаётся inline через `configYaml` / `configYamls`; VCore не читает пути конфигурации хоста.
-- Runtime-значения, включая Controller, TUN fd, порт и secret Controller, создаются хостом и не сохраняются в пользовательском RAW YAML.
+| Протокол | Возможности |
+| --- | --- |
+| [VLESS](../docs/vless.md) | TCP, WebSocket / HTTPUpgrade, gRPC, HTTP-маскировка первого пакета, legacy H2, [XHTTP H1/H2/H3](../docs/xhttp.md); Vision, Encryption, REALITY, JLS, статический ECH и sing-mux в поддерживаемых сочетаниях |
+| [VMess AEAD](../docs/outbounds.md#vmess-aead) | TCP, WebSocket / HTTPUpgrade, gRPC, HTTP-маскировка первого пакета и legacy H2; TCP/UDP, транспорт без TLS или со стандартным TLS |
+| [Trojan](../docs/outbounds.md#trojan) | TCP/UDP через TLS TCP, WebSocket / HTTPUpgrade или gRPC |
+| [Shadowsocks 2022](../docs/outbounds.md#shadowsocks-2022) | TCP/UDP; AES-128-GCM, AES-256-GCM и ChaCha20-Poly1305; цепочки идентификации AES; опциональный strict ShadowTLS v3 для TCP и UoT v2 |
+| [AnyTLS](../docs/outbounds.md#anytls) | TLS-сессии и UDP over TCP v2 |
+| [SOCKS5](../docs/outbounds.md#socks5) | CONNECT и UDP ASSOCIATE, с опциональной аутентификацией по имени пользователя и паролю |
+| [Hysteria2](../docs/outbounds.md#hysteria2) | TCP/UDP через QUIC, управление пропускной способностью, Salamander, смена портов и mTLS |
+| [TUIC v5](../docs/outbounds.md#tuic-v5) | TCP/UDP через QUIC, режимы передачи UDP native/quic и выбор алгоритма управления перегрузкой |
 
-## Жизненный цикл и ABI
+Стандартные TLS-соединения поддерживают проверку сертификатов и закрепление сертификата по SHA-256. Поддерживаемые TCP-пути с TLS могут использовать шаблоны ClientHello Chrome, Firefox или Safari; `client-fingerprint` не зависит от `fingerprint` сертификата. Точные имена и сочетания описаны в [профилях TLS и политике сертификатов](../docs/tls-client-fingerprint.md). Эти функции не гарантируют неотличимость от браузера или произвольные сочетания протоколов.
 
-Кроссплатформенные точки входа:
+SS2022 использует официальную Rust-библиотеку без изменений; известные риски пустой первой записи, сценария server-first и padding описаны в [контракте Shadowsocks](../docs/outbounds.md#shadowsocks-2022).
+
+## Конфигурация в стиле Mihomo
+
+Используйте привычные структуры `proxies`, `proxy-groups`, `rules`, `dns`, `port`, `socks-port` и `tun`. Например:
+
+```yaml
+socks-port: 1080
+allow-lan: false
+
+proxies:
+  - name: edge
+    type: anytls
+    server: proxy.example.com
+    port: 443
+    password: replace-with-your-password
+    client-fingerprint: chrome
+    udp: true
+
+proxy-groups:
+  - name: Proxy
+    type: select
+    proxies: [edge, DIRECT]
+
+dns:
+  enable: true
+  nameserver:
+    - "udp://223.5.5.5:53#DIRECT"
+
+rules:
+  - GEOSITE,cn,DIRECT
+  - GEOIP,cn,DIRECT,no-resolve
+  - MATCH,Proxy
+```
+
+Замените адрес сервера и учётные данные в примере. Для правил GeoSite/GeoIP нужны соответствующие файлы в `<dataDir>/geodata`; без них эти типы правил недоступны. См. [полный справочник конфигурации](../docs/config.yaml) и [поведение GeoData](../docs/geodata.md).
+
+Совместимость ограничена документированными полями и поведением и не распространяется на произвольные конфигурации Mihomo. Группы пока поддерживают статический `select`; DNS-серверы задаются буквальными IP-адресами и используют UDP/TCP. Providers, автоматический выбор в группах, зашифрованный DNS и fake-IP не входят в текущий набор возможностей. Неизвестные поля и недопустимые сочетания отклоняются, а не игнорируются; особенности семантики VCore отмечены в соответствующих контрактах.
+
+Хост передаёт YAML inline через `configYaml`; дескрипторы TUN и платформенные callbacks предоставляются отдельно через runtime API. VCore не читает пути конфигурации хоста и не настраивает системные маршруты Linux автоматически.
+
+## Платформы и интеграция
+
+| Платформа | Интеграция TUN |
+| --- | --- |
+| iOS / macOS | Дескриптор файла utun, предоставленный хостом |
+| tvOS 17+ | Дескриптор файла utun, предоставленный хостом; ARM64-устройства и симулятор |
+| Android | Дескриптор `VpnService` с защитой исходящих сокетов |
+| Linux | Настоящий raw-IP TUN с одной очередью; создание интерфейса и изоляцию маршрутизации обеспечивает хост |
+| Windows | Нативный Provider на `Windows.Networking.Vpn` и полностью доверенный Session Host, без Wintun или эмуляции fd |
+
+VCore — библиотека, а не самостоятельное VPN-приложение. На Unix исходный дескриптор TUN принадлежит хосту; VCore использует и закрывает собственную копию. Публичный API packetFlow от Apple не гарантирует доступ к raw fd, поэтому интеграция с Network Extension и проверка на устройствах остаются ответственностью хоста. См. [интеграцию TUN](../docs/tun-platform.md) и [границы приёмки платформ](../docs/acceptance.md).
+
+Кроссплатформенный C ABI принимает JSON-запросы через Invoke API v5:
 
 ```c
 char *VCoreInvoke(const char *request_json);
 void VCoreFree(char *response);
 ```
 
-Пакеты Windows также используют host bridge ревизии 3 для глобальной VPN policy, profile, Session Snapshot и необязательного session backend:
+Один публичный экземпляр проходит жизненный цикл `initialize → createInstance → prepare(configYaml) → start → stop → destroyInstance`. API также предоставляет проверку конфигурации, запросы состояния, статус GeoData и измерение задержки. См. [Invoke API](../docs/invoke-api.md), [Controller API](../docs/controller-api.md) и [пример интеграции Windows](../example/windows-uwp/README.md).
 
-```c
-char *VCoreWindowsVpnInvoke(const char *request_json);
-```
+## Benchmark
 
-Публичный runtime содержит один экземпляр:
+[**TUN-бенчмарк VCore / Mihomo**](https://github.com/OneXray/container-benchmark) содержит воспроизводимую методику, результаты измерений и сравнительные графики для обоих ядер в одинаковой среде с нативным Linux TUN.
 
-```text
-initialize
-  -> createInstance
-  -> prepare(configYaml)
-  -> start
-  -> stop
-  -> destroyInstance
-```
+Проект benchmark также выполняет проверку совместимости протоколов (`interop`) и тесты нагрузки на память (`stress`), используя явно указанный checkout `--source vcore=PATH`. Собственные скрипты VCore только компилируют ядро и платформенные артефакты.
 
-`instanceId` — generation token, который не используется повторно текущим runtime. Команды одного экземпляра завершаются fail-fast, если другая команда уже выполняется; чистые вызовы `validateConfig` могут выполняться параллельно. Полный envelope, методы, владение fd и контракт Android protect описаны в [`docs/invoke-api.md`](../docs/invoke-api.md).
+Он измеряет смешанный TCP/UDP-трафик на **1 / 1,5 / 2 Гбит/с** с **1 000 DNS-запросов/с** и расширенными правилами `geosite:cn` / `geoip:cn`, показывая фактическую пропускную способность, CPU, наблюдаемый пиковый Linux RSS, потери UDP-пакетов и успешные DNS-запросы. Проверяется путь TUN/DNS/маршрутизации с выходом через DIRECT, а не пропускная способность зашифрованных прокси; Linux RSS не отражает потребление памяти Apple Network Extension.
 
-Состояние runtime доступно через session-local loopback Controller:
-
-```http
-GET /traffic
-GET /group
-GET /group/{name}
-GET /proxies/{name}
-PUT /proxies/{name}
-Authorization: Bearer <secret>
-```
-
-`GET /traffic` возвращает одноразовый TUN snapshot `up/down/upTotal/downTotal`. Конечные точки групп читают и изменяют выбранного прямого участника статической группы `select`; успешное изменение влияет только на новые физические TCP-, UDP- и DNS-transports текущей session. Оно не переносит существующие соединения, UDP associations, состояние DNS или pooled TCP transports и не выполняет автоматический failover. Controller, управляющий группами, требует один Bearer secret для всех маршрутов и может работать без TUN. Подробности — в [`docs/controller-api.md`](../docs/controller-api.md).
-
-Аутентифицированная сессия Hysteria2 сохраняет выбранный upstream при смене портов. Замена socket в той же QUIC-сессии не считывает выбор группы заново; новый выбор применяется только к новой аутентифицированной сессии.
-
-## Платформы
-
-| Платформа | Плоскость данных | Статус |
-| --- | --- | --- |
-| iOS / macOS | Хост предоставляет utun fd; VCore дублирует его и использует синхронный device `rust-tun` с Tokio `AsyncFd` | Реализовано; footprint на реальном iOS-устройстве для Release остаётся release gate |
-| Android | `VpnService` предоставляет raw-IP fd; каждый outbound socket сначала должен пройти protect callback | Реализовано; матрица реальных устройств остаётся release gate |
-| Windows | AppContainer Provider на `Windows.Networking.Vpn` и отдельный full-trust runtime для каждой session; raw IP передаётся через named pipes внутри пакета | Пакет для Windows 11 ARM64 с тестовой подписью прошёл функциональные, lifecycle, pressure и bounded-batching проверки |
-| Linux | — | Не поддерживается; запуск завершается fail closed |
-
-Windows не использует слой эмуляции fd. Provider владеет только `VpnChannel`, buffers, routes, мониторингом физической сети, packet gateway и fail-closed Stop. Полный runtime VCore, Controller, DNS, rules и outbounds находятся в Session Host. Packet channel сохраняет framing protocol v1 и объединяет не более восьми уже готовых frames, не ожидая будущие packets.
-
-## Ограничения ресурсов
-
-Текущий TUN profile сохраняет локальные структурные пределы вместо фиксированного admission limit на общее число прикладных flows:
-
-```text
-raw packet / MTU                 1,500 bytes
-packet queue                     256
-ordinary event / UDP response    128
-DNS ingress / DNS response       128 / 128
-TCP buffer                       32 KiB per direction
-rustls / XHTTP buffer            64 KiB
-DNS typed cache                  256 entries
-DNS opaque cache                 64 entries / 256 KiB
-GeoData allocation capacity      8 MiB
-```
-
-Windows объявляет L3 MTU 1 400 байт согласно требованиям `StartWithMainTransport`; 1 500 байт остаётся межплатформенным пределом парсера.
-
-TCP sessions, обычные UDP associations, half-open connections, outbound handshakes и активные DNS transports создаются по запросу. Структурную безопасность обеспечивают bounded queues, buffers на flow, ограничения wire/parser, timeouts, idle cleanup и caches. Цели iOS 35/45 MiB являются best-effort наблюдениями и не меняют результаты жизненного цикла.
+Тест от 2026-10-06 загрузил 1 280 000 записей GeoData: при 2 Гбит/с, 60 секундах и 1 000 DNS-запросах/с наблюдаемый пик Linux RSS составил 42 557 440 байт; потери UDP и тайм-ауты DNS сохраняются. Категории и полные результаты приведены в README benchmark. Лимит iOS/tvOS — выбранная инженерная граница, а не измеренный предел или гарантия памяти ниже 50 000 000 байт для произвольных данных. Пропущенные записи не участвуют в маршрутизации GeoIP/GeoSite и сопоставлении GeoSite DNS-policy. Наблюдения Linux не заменяют проверку на устройствах Apple.
 
 ## Документация
 
-- [Documentation index](../docs/README.md)
-- [Configuration](../docs/config.yaml)
-- [Invoke API](../docs/invoke-api.md)
-- [Build and test](../scripts/README.md)
-- [Acceptance boundaries](../docs/acceptance.md)
+- [Указатель документации](../docs/README.md)
+- [Справочник конфигурации](../docs/config.yaml)
+- [Сборка ядра и платформенных артефактов](../scripts/README.md)
+- [Регрессионные тесты ядра](../tests/README.md)
+- [Политика ресурсов](../docs/runtime-resource-policy.md)
+- [Приёмка и известные ограничения](../docs/acceptance.md)
 
-## Пример
+## Благодарности
 
-- [Минимальная интеграция Windows UWP VPN](../example/windows-uwp/README.md): Provider и Session Host в одном пакете, full-trust foreground host, MSIX manifest и запускаемый command-line demo.
+VCore использует публичные зависимости и опирается на реализации протоколов и примеры платформенной интеграции:
 
-## Проверка
-
-```bash
-cargo fmt --all -- --check
-uv run --project scripts --locked vcore-scripts check core --profile debug
-cargo clippy --locked --all-features --lib --bins -- -D warnings
-cargo test --manifest-path crates/vcore-netstack/Cargo.toml --all-targets
-cargo clippy --manifest-path crates/vcore-netstack/Cargo.toml --all-targets -- -D warnings
-uv run --project scripts --locked vcore-scripts check c-header
-uv run --project scripts --locked vcore-scripts check tls-dependencies
-uv run --project scripts --locked python -m unittest discover -s scripts/tests
-uv run --project scripts --locked ruff check scripts
-uv run --project scripts --locked ruff format --check scripts
-```
-
-Артефакты платформ (полные команды и переменные окружения приведены в [`scripts/README.md`](../scripts/README.md)):
-
-```bash
-uv run --project scripts --locked vcore-scripts build apple
-uv run --project scripts --locked vcore-scripts build android
-uv run --project scripts --locked vcore-scripts build windows
-```
-
-Текущая подтверждённая область проверки и отложенные release gates для физических устройств и Windows перечислены в [`docs/acceptance.md`](../docs/acceptance.md).
-
-## Credits
-
-К зависимостям VCore, сопровождаемым forks, справочным материалам по открытым API/протоколам, архитектурным ориентирам и объектам interoperability относятся:
-
-- [smoltcp](https://github.com/smoltcp-rs/smoltcp), [clash-rs](https://github.com/Watfaq/clash-rs) и [netstack-smoltcp](https://github.com/automesh-network/netstack-smoltcp): userspace IP stacks и TUN netstacks.
-- [windows-rs](https://github.com/microsoft/windows-rs), [UWP VPN Plugin Sample](https://github.com/microsoft/UwpVpnPluginSample), [wireguard-uwp-rs](https://github.com/luqmana/wireguard-uwp-rs), [Maple](https://github.com/YtFlow/Maple) и [YtFlowCore](https://github.com/YtFlow/YtFlowCore): Windows VPN, активация WinRT и packet flow.
-- [Xray-core](https://github.com/XTLS/Xray-core), [Mihomo](https://github.com/MetaCubeX/mihomo) и [Leaf](https://github.com/eycorsican/leaf): прокси-протоколы, маршрутизация, архитектура TUN и interoperability references.
-- [rustls](https://github.com/rustls/rustls): TLS без fingerprint, QUIC и общая проверка сертификатов WebPKI.
-- [boring](https://github.com/cloudflare/boring) / [BoringSSL](https://boringssl.googlesource.com/boringssl/): именованные профили TLS ClientHello и расширение classic REALITY в собственном fork VCore.
+- Сеть и маршрутизация: [smoltcp](https://github.com/smoltcp-rs/smoltcp), [clash-rs](https://github.com/Watfaq/clash-rs), [netstack-smoltcp](https://github.com/automesh-network/netstack-smoltcp), [Mihomo](https://github.com/MetaCubeX/mihomo), [Xray-core](https://github.com/XTLS/Xray-core) и [Leaf](https://github.com/eycorsican/leaf).
+- TLS и Shadowsocks: [rustls](https://github.com/rustls/rustls), [boring](https://github.com/cloudflare/boring), [BoringSSL](https://boringssl.googlesource.com/boringssl/) и [shadowsocks-rust](https://github.com/shadowsocks/shadowsocks-rust). Заимствованный код replay-window сохраняет [уведомления MIT](../src/outbound/shadowsocks/packet_window.rs).
+- Интеграция Windows: [windows-rs](https://github.com/microsoft/windows-rs), [UWP VPN Plugin Sample](https://github.com/microsoft/UwpVpnPluginSample), [wireguard-uwp-rs](https://github.com/luqmana/wireguard-uwp-rs), [Maple](https://github.com/YtFlow/Maple) и [YtFlowCore](https://github.com/YtFlow/YtFlowCore).
 
 ## Лицензия
 
-VCore распространяется по [лицензии MIT](../LICENSE).
+[MIT](../LICENSE).

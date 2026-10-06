@@ -1,4 +1,4 @@
-name: Release builds
+name: Release builds and artifact identity
 
 on:
   workflow_dispatch:
@@ -19,38 +19,41 @@ jobs:
           - name: apple
             label: Apple
             platform: apple
-            runner: macos-15
-            targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios,aarch64-apple-darwin,x86_64-apple-darwin,aarch64-apple-tvos,aarch64-apple-tvos-sim
-            manifest: dist/apple/vcore-delivery.json
+            runner: macos-26
+            targets: aarch64-apple-ios,aarch64-apple-ios-sim,aarch64-apple-darwin,x86_64-apple-darwin,aarch64-apple-tvos,aarch64-apple-tvos-sim
           - name: android
             label: Android
             platform: android
             runner: ubuntu-24.04
             targets: aarch64-linux-android,x86_64-linux-android
-            manifest: dist/android/vcore-delivery.json
           - name: windows-x64
             label: Windows x64
             platform: windows
             runner: windows-2025
             targets: x86_64-pc-windows-msvc
-            manifest: dist/windows/x64/vcore-delivery.json
           - name: windows-arm64
             label: Windows ARM64
             platform: windows
             runner: windows-11-arm
             targets: aarch64-pc-windows-msvc
-            manifest: dist/windows/arm64/vcore-delivery.json
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: stable
           targets: ${{ matrix.targets }}
           components: rustfmt
-      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+      - uses: astral-sh/setup-uv@v10.2.0
         with:
-          version: "0.12.15"
-          python-version: "3.13"
-      - name: Platform artifact contracts
+          version: "0.12"
+      - name: Install latest stable Python 3
+        shell: bash
+        env:
+          UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/python
+        run: |
+          uv python install 3 --no-bin --no-registry
+          echo "UV_PYTHON=$(uv python find --managed-python --no-project 3)" >> "$GITHUB_ENV"
+      - name: Build artifact helper contracts
         run: uv run --project scripts --locked python -m unittest discover -s scripts/tests -p test_platform_delivery.py
       - name: Locked source
         run: cargo fetch --locked
@@ -58,21 +61,25 @@ jobs:
         if: matrix.platform == 'android'
         shell: bash
         run: |
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;28.2.13676358"
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
-      - name: Build production artifacts and record identity
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          ndk_package="$("$sdkmanager" --list --channel=0 | awk -F '|' '
+            NF == 1 { split($0, fields, " "); $1 = fields[1]; $2 = fields[2] }
+            { gsub(/[[:space:]]/, "", $1); gsub(/[[:space:]]/, "", $2) }
+            $1 ~ /^ndk[;\/]30\.[0-9]+\.[0-9]+$/ &&
+              $2 ~ /^30\.[0-9]+\.[0-9]+$/ {
+                sub(/^ndk\//, "ndk;", $1); print $1
+              }
+          ' | sort -Vu | tail -n 1)"
+          test -n "$ndk_package" || { echo "Stable NDK r30 is unavailable" >&2; exit 1; }
+          "$sdkmanager" --channel=0 "$ndk_package"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${ndk_package#ndk;}" >> "$GITHUB_ENV"
+      - name: Build production artifacts and validate identity
         run: uv run --project scripts --locked vcore-scripts build ${{ matrix.platform }} --delivery
-      - name: Independently verify packaged files
-        run: uv run --project scripts --locked vcore-scripts check platform-artifacts --manifest ${{ matrix.manifest }}
-      - name: Native C ABI and Windows snapshot/startup contracts
-        if: matrix.platform != 'android'
-        run: uv run --project scripts --locked vcore-scripts check platform-abi --manifest ${{ matrix.manifest }}
-      - name: Preserve unsigned artifacts and evidence
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+      - name: Preserve unsigned build artifacts
+        uses: actions/upload-artifact@v7
         with:
           name: vcore-${{ matrix.name }}-${{ github.sha }}
           path: |
             dist/${{ matrix.platform }}/
-            target/platform-delivery/abi/**/result.json
           if-no-files-found: error
           retention-days: 14

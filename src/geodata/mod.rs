@@ -39,6 +39,11 @@ pub const GEOSITE_FILE_NAME: &str = "geosite.dat";
 pub const GEOIP_FILE_NAME: &str = "geoip.dat";
 
 const MAX_CODE_BYTES: usize = 64;
+const GEODATA_RECORD_LIMIT: Option<usize> = if cfg!(any(target_os = "ios", target_os = "tvos")) {
+    Some(crate::limits::IOS_TVOS_GEODATA_RECORDS)
+} else {
+    None
+};
 
 /// The two supported Xray GeoData assets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -184,6 +189,15 @@ impl GeoData {
         rules: &[RuleSpec],
         dns_policies: &[DnsNameserverPolicy],
     ) -> Result<Self, GeoDataError> {
+        Self::load_with_record_limit(config_dir, rules, dns_policies, GEODATA_RECORD_LIMIT)
+    }
+
+    fn load_with_record_limit(
+        config_dir: &Path,
+        rules: &[RuleSpec],
+        dns_policies: &[DnsNameserverPolicy],
+        record_limit: Option<usize>,
+    ) -> Result<Self, GeoDataError> {
         let requested = RequestedCodes::collect(rules, dns_policies)?;
         if requested.total() == 0 {
             return Ok(Self::EMPTY);
@@ -195,13 +209,33 @@ impl GeoData {
         ensure_vec_capacity(&mut sites, requested.sites.values.len(), &mut ledger)?;
         ensure_vec_capacity(&mut ips, requested.ips.values.len(), &mut ledger)?;
 
-        if !requested.sites.values.is_empty() {
-            load_site_file(config_dir, &requested.sites, &mut sites, &mut ledger)?;
-        }
+        let mut remaining_records = record_limit;
+        let mut truncated = false;
+        // GeoIP takes priority. Count retained raw CIDRs before compaction,
+        // then give GeoSite only the remaining shared record allowance.
         if !requested.ips.values.is_empty() {
-            load_ip_file(config_dir, &requested.ips, &mut ips, &mut ledger)?;
+            let loaded = load_ip_file_with_record_limit(
+                config_dir,
+                &requested.ips,
+                &mut ips,
+                &mut ledger,
+                remaining_records,
+            )?;
+            consume_record_allowance(&mut remaining_records, loaded.loaded_records);
+            truncated |= loaded.truncated;
+        }
+        if !requested.sites.values.is_empty() {
+            let loaded = load_site_file_with_record_limit(
+                config_dir,
+                &requested.sites,
+                &mut sites,
+                &mut ledger,
+                remaining_records,
+            )?;
+            truncated |= loaded.truncated;
         }
 
+        warn_record_truncation(record_limit, truncated);
         Ok(Self::from_loaded(sites, ips, ledger.used, ledger.peak))
     }
 
@@ -467,6 +501,29 @@ struct KindLoad<T> {
     values: Vec<T>,
     used: usize,
     peak: usize,
+    loaded_records: usize,
+    truncated: bool,
+}
+
+struct RecordLoad {
+    loaded_records: usize,
+    truncated: bool,
+}
+
+fn consume_record_allowance(remaining: &mut Option<usize>, loaded_records: usize) {
+    if let Some(remaining) = remaining {
+        // Each loader keeps at most its supplied allowance.
+        *remaining -= loaded_records;
+    }
+}
+
+fn warn_record_truncation(record_limit: Option<usize>, truncated: bool) {
+    if let (Some(maximum), true) = (record_limit, truncated) {
+        tracing::warn!(
+            maximum_records = maximum,
+            "GeoData record limit reached; selected categories truncated"
+        );
+    }
 }
 
 fn load_sites_for_requirements(
@@ -474,15 +531,24 @@ fn load_sites_for_requirements(
     requested: &CodeSet,
     used: usize,
     peak: usize,
+    record_limit: Option<usize>,
 ) -> Result<KindLoad<SiteCategory>, GeoDataError> {
     let mut ledger = AllocationLedger { used, peak };
     let mut values = Vec::new();
     ensure_vec_capacity(&mut values, requested.values.len(), &mut ledger)?;
-    load_site_file(asset_dir, requested, &mut values, &mut ledger)?;
+    let loaded = load_site_file_with_record_limit(
+        asset_dir,
+        requested,
+        &mut values,
+        &mut ledger,
+        record_limit,
+    )?;
     Ok(KindLoad {
         values,
         used: ledger.used,
         peak: ledger.peak,
+        loaded_records: loaded.loaded_records,
+        truncated: loaded.truncated,
     })
 }
 
@@ -491,15 +557,24 @@ fn load_ips_for_requirements(
     requested: &CodeSet,
     used: usize,
     peak: usize,
+    record_limit: Option<usize>,
 ) -> Result<KindLoad<IpCategory>, GeoDataError> {
     let mut ledger = AllocationLedger { used, peak };
     let mut values = Vec::new();
     ensure_vec_capacity(&mut values, requested.values.len(), &mut ledger)?;
-    load_ip_file(asset_dir, requested, &mut values, &mut ledger)?;
+    let loaded = load_ip_file_with_record_limit(
+        asset_dir,
+        requested,
+        &mut values,
+        &mut ledger,
+        record_limit,
+    )?;
     Ok(KindLoad {
         values,
         used: ledger.used,
         peak: ledger.peak,
+        loaded_records: loaded.loaded_records,
+        truncated: loaded.truncated,
     })
 }
 
@@ -515,6 +590,7 @@ struct IndexEntry {
     code: Code,
     offset: u64,
     len: u64,
+    record_count: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -522,38 +598,84 @@ struct SelectedRange {
     code: Code,
     offset: u64,
     len: u64,
+    record_count: usize,
 }
 
-fn load_site_file(
+fn load_site_file_with_record_limit(
     config_dir: &Path,
     requested: &CodeSet,
     output: &mut Vec<SiteCategory>,
     ledger: &mut AllocationLedger,
-) -> Result<(), GeoDataError> {
-    let kind = GeoDataKind::GeoSite;
-    let (mut file, len) = open_asset(config_dir, kind)?;
-    let selected = index_selected(&mut file, len, kind, requested, ledger)?;
-    for range in &selected {
-        output.push(parse_site_category(&mut file, *range, ledger)?);
-    }
-    release_vec(&selected, ledger);
-    Ok(())
+    record_limit: Option<usize>,
+) -> Result<RecordLoad, GeoDataError> {
+    load_selected_file_with_record_limit(
+        GeoDataKind::GeoSite,
+        config_dir,
+        requested,
+        output,
+        ledger,
+        record_limit,
+        parse_site_category,
+    )
 }
 
-fn load_ip_file(
+fn load_ip_file_with_record_limit(
     config_dir: &Path,
     requested: &CodeSet,
     output: &mut Vec<IpCategory>,
     ledger: &mut AllocationLedger,
-) -> Result<(), GeoDataError> {
-    let kind = GeoDataKind::GeoIp;
+    record_limit: Option<usize>,
+) -> Result<RecordLoad, GeoDataError> {
+    load_selected_file_with_record_limit(
+        GeoDataKind::GeoIp,
+        config_dir,
+        requested,
+        output,
+        ledger,
+        record_limit,
+        parse_ip_category,
+    )
+}
+
+fn load_selected_file_with_record_limit<T>(
+    kind: GeoDataKind,
+    config_dir: &Path,
+    requested: &CodeSet,
+    output: &mut Vec<T>,
+    ledger: &mut AllocationLedger,
+    record_limit: Option<usize>,
+    parse_category: fn(
+        &mut File,
+        SelectedRange,
+        &mut AllocationLedger,
+        Option<usize>,
+    ) -> Result<T, GeoDataError>,
+) -> Result<RecordLoad, GeoDataError> {
     let (mut file, len) = open_asset(config_dir, kind)?;
-    let selected = index_selected(&mut file, len, kind, requested, ledger)?;
+    let mut selected = index_selected(&mut file, len, kind, requested, ledger)?;
+    selected.sort_unstable_by_key(|range| range.code);
+    // Spend this kind's allowance in stable code order, keeping each category's
+    // raw record prefix. Discarded payloads never enter a matcher or compiler.
+    let mut remaining_records = record_limit;
+    let mut truncated = false;
+    let mut loaded_records = 0_usize;
     for range in &selected {
-        output.push(parse_ip_category(&mut file, *range, ledger)?);
+        let retained_records = remaining_records.as_mut().map(|remaining| {
+            let retained = (*remaining).min(range.record_count);
+            *remaining -= retained;
+            truncated |= retained < range.record_count;
+            retained
+        });
+        loaded_records = loaded_records
+            .checked_add(retained_records.unwrap_or(range.record_count))
+            .ok_or_else(|| malformed_error(kind, "record count overflows usize"))?;
+        output.push(parse_category(&mut file, *range, ledger, retained_records)?);
     }
     release_vec(&selected, ledger);
-    Ok(())
+    Ok(RecordLoad {
+        loaded_records,
+        truncated,
+    })
 }
 
 fn open_asset(config_dir: &Path, kind: GeoDataKind) -> Result<(File, u64), GeoDataError> {
@@ -607,12 +729,13 @@ fn index_selected(
         let entry_len = read_length(file, file_len, kind)?;
         let offset = position(file, kind)?;
         let end = checked_end(offset, entry_len, file_len, kind)?;
-        let code = scan_category_header(file, end, kind)?;
+        let (code, record_count) = scan_category_header(file, end, kind)?;
         ensure_vec_capacity(&mut index, 1, ledger)?;
         index.push(IndexEntry {
             code,
             offset,
             len: entry_len,
+            record_count,
         });
         seek(file, end, kind)?;
     }
@@ -646,6 +769,7 @@ fn index_selected(
                     code: entry.code,
                     offset: entry.offset,
                     len: entry.len,
+                    record_count: entry.record_count,
                 });
             }
             Err(error) => {
@@ -663,9 +787,10 @@ fn scan_category_header(
     file: &mut File,
     end: u64,
     kind: GeoDataKind,
-) -> Result<Code, GeoDataError> {
+) -> Result<(Code, usize), GeoDataError> {
     let mut code = None;
     let mut reverse_match = false;
+    let mut record_count = 0_usize;
     while position(file, kind)? < end {
         let (field, wire) = read_key(file, end, kind)?;
         match (field, kind) {
@@ -688,6 +813,13 @@ fn scan_category_header(
             (2, _) => {
                 require_wire(kind, wire, 2, "category record")?;
                 skip_field_payload(file, wire, end, kind)?;
+                record_count =
+                    record_count
+                        .checked_add(1)
+                        .ok_or_else(|| GeoDataError::Malformed {
+                            kind,
+                            detail: "category record count does not fit usize".to_owned(),
+                        })?;
             }
             (3, GeoDataKind::GeoIp) => {
                 require_wire(kind, wire, 0, "reverse_match")?;
@@ -706,7 +838,7 @@ fn scan_category_header(
             code: code.as_str().to_owned(),
         });
     }
-    Ok(code)
+    Ok((code, record_count))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -795,6 +927,7 @@ fn parse_site_category(
     file: &mut File,
     range: SelectedRange,
     ledger: &mut AllocationLedger,
+    record_limit: Option<usize>,
 ) -> Result<SiteCategory, GeoDataError> {
     let kind = GeoDataKind::GeoSite;
     let end = checked_end(range.offset, range.len, u64::MAX, kind)?;
@@ -805,6 +938,8 @@ fn parse_site_category(
     let mut regex_ranges = Vec::new();
     let mut scratch = Vec::new();
     let mut seen_code = false;
+    let mut remaining_records = range.record_count;
+    let mut records_to_load = record_limit.unwrap_or(range.record_count);
 
     let result = (|| {
         while position(file, kind)? < end {
@@ -823,20 +958,29 @@ fn parse_site_category(
                 }
                 2 => {
                     require_wire(kind, wire, 2, "Domain")?;
+                    remaining_records = remaining_records.checked_sub(1).ok_or_else(|| {
+                        GeoDataError::Malformed {
+                            kind,
+                            detail: "GeoSite record count changed between scan passes".to_owned(),
+                        }
+                    })?;
                     let len = read_length(file, end, kind)?;
                     let start = position(file, kind)?;
                     let record_end = checked_end(start, len, end, kind)?;
-                    parse_domain_record(
-                        file,
-                        record_end,
-                        range.code,
-                        &mut patterns,
-                        &mut values,
-                        &mut regex_bytes,
-                        &mut regex_ranges,
-                        &mut scratch,
-                        ledger,
-                    )?;
+                    if records_to_load != 0 {
+                        parse_domain_record(
+                            file,
+                            record_end,
+                            range.code,
+                            &mut patterns,
+                            &mut values,
+                            &mut regex_bytes,
+                            &mut regex_ranges,
+                            &mut scratch,
+                            ledger,
+                        )?;
+                        records_to_load -= 1;
+                    }
                     seek(file, record_end, kind)?;
                 }
                 _ => skip_field_payload(file, wire, end, kind)?,
@@ -844,6 +988,9 @@ fn parse_site_category(
         }
         if !seen_code {
             return malformed(kind, "GeoSite is missing code");
+        }
+        if remaining_records != 0 {
+            return malformed(kind, "GeoSite record count changed between scan passes");
         }
         compile_regex_set(range.code, &regex_bytes, &regex_ranges, ledger)
     })();
@@ -1281,6 +1428,7 @@ fn parse_ip_category(
     file: &mut File,
     range: SelectedRange,
     ledger: &mut AllocationLedger,
+    record_limit: Option<usize>,
 ) -> Result<IpCategory, GeoDataError> {
     let kind = GeoDataKind::GeoIp;
     let end = checked_end(range.offset, range.len, u64::MAX, kind)?;
@@ -1289,6 +1437,8 @@ fn parse_ip_category(
     let mut v6 = Vec::new();
     let mut seen_code = false;
     let mut reverse_match = false;
+    let mut remaining_records = range.record_count;
+    let mut records_to_load = record_limit.unwrap_or(range.record_count);
     let result = (|| {
         while position(file, kind)? < end {
             let (field, wire) = read_key(file, end, kind)?;
@@ -1306,10 +1456,16 @@ fn parse_ip_category(
                 }
                 2 => {
                     require_wire(kind, wire, 2, "CIDR")?;
+                    remaining_records = remaining_records.checked_sub(1).ok_or_else(|| {
+                        malformed_error(kind, "GeoIP record count changed between scan passes")
+                    })?;
                     let len = read_length(file, end, kind)?;
                     let start = position(file, kind)?;
                     let record_end = checked_end(start, len, end, kind)?;
-                    parse_cidr_record(file, record_end, range.code, &mut v4, &mut v6, ledger)?;
+                    if records_to_load != 0 {
+                        parse_cidr_record(file, record_end, range.code, &mut v4, &mut v6, ledger)?;
+                        records_to_load -= 1;
+                    }
                     seek(file, record_end, kind)?;
                 }
                 3 => {
@@ -1321,6 +1477,9 @@ fn parse_ip_category(
         }
         if !seen_code {
             return malformed(kind, "GeoIP is missing code");
+        }
+        if remaining_records != 0 {
+            return malformed(kind, "GeoIP record count changed between scan passes");
         }
         if reverse_match {
             return Err(GeoDataError::ReverseMatch {

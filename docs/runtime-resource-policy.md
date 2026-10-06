@@ -5,7 +5,7 @@
 ## 原则
 
 1. 数据正确性、安全边界和同步停止优先。
-2. 数据面队列、缓冲区、缓存和解析器保留局部容量边界；空闲资源必须有回收机制。容量界与时间回收不是同一保证，GeoData 不设数量/内存配额。
+2. 数据面队列、缓冲区、缓存和解析器保留局部容量边界；空闲资源必须有回收机制。容量界与时间回收不是同一保证。GeoData 不设内存预算，只有 iOS/tvOS 的所选 GeoIP 原始 CIDR 与 GeoSite 原始 Domain 共用 1,280,000 条总保留额度，优先保留 GeoIP。
 3. TCP 会话、普通 UDP 关联、半开连接、出站握手和活动 DNS 传输不设置固定业务数量上限。
 4. 队列满时按局部协议语义丢当前项目或失败，不能阻塞 TUN 回调或全局循环。
 5. 当前值和峰值只用于诊断，不参与 admission。
@@ -48,7 +48,7 @@ Windows L3 接口及其 Session Host netstack 使用 1400 MTU，因此按 IPv6 U
   唯一 writer 公平轮转 TCP/ICMP raw、普通 UDP/DNS 响应三通道，至多暂持 8 包，
   UDP 在复用 MTU frame 中构包，不增加中转队列。非法输出也计入工作预算。批次中途取消或
   失败仍按已完成结果逐包统计；非法包局部隔离，Unix 系统调用保持单包边界。
-- 有局部预算的结构在扩容前检查额度；GeoData 仅检查整数可表示性和实际分配失败。
+- 有局部预算的结构在扩容前检查额度；GeoData 保留整数可表示性、实际分配失败检查，以及 iOS/tvOS 的所选原始 CIDR + Domain 总记录计数边界。
 
 ## TCP 与握手
 
@@ -174,25 +174,40 @@ IP-only协议接点持有`ResolutionContext`，runtime DNS通过Weak绑定，不
 
 ## GeoData
 
-- GeoSite/GeoIP 不设分类、引用、记录、文件大小、累计源码/值字节或加载内存配额；DNS GeoSite policy 也不保留独立项数/引用数上限。
+- iOS/tvOS 每份 GeoData 快照的所选 GeoIP 原始 CIDR 与 GeoSite 原始 Domain 共用 1,280,000 条总保留额度。先保留 GeoIP，再将剩余额度交给 GeoSite；GeoIP 自身超限也截断至 1,280,000 条，GeoSite 此时为零。其他平台不设此上限，没有新增 YAML 配置项。
+- 同种 code 按 ASCII 大小写归一后合并为唯一集合；业务规则与 DNS policy 共享 GeoSite 集合，重复引用不重复计分类，未引用分类不计数。重复原始 CIDR 以及 Domain/Full/Plain（Substr）/Regex 都逐条消耗额度，不按压缩后的数量计数。
+- 同种 code 归一排序，每类按文件 CIDR / Domain（field 2）的原始顺序保留前缀；截断不受配置或资产分类顺序影响。额度耗尽后的所选分类仍是 available 的空分类，未保留记录不再参与 GeoIP/GeoSite 分流和 GeoSite DNS policy 命中。
+- 各平台均不设独立 GeoData 分类、引用、文件大小、累计源码/值字节或加载内存预算；DNS GeoSite policy 也不保留独立项数/引用数上限。
 - Loader 只解析被引用的分类，其他分类按 wire 长度跳过。
 - 匹配器使用紧凑连续存储，运行期匹配不分配。
 - 分类按 code 二分定位；TUN UDP 五元组固定规则 action，不保留 GeoData 快照
-  或域名。没有全局目的缓存、规则配额或旧快照引用；各目标独立空闲回收。
+  或域名。没有全局目的缓存或旧快照引用；各目标独立空闲回收。
   活动流的规则数据更新在新流生效；DNS 查询、域名目标和非 TUN 路径不受此固定策略影响。
-- 正则编译和保留 DFA 不设固定内存预算。容量账本仅作诊断，不涵盖编译器全部临时内存，不能充当进程峰值上界。
-- 资产缺失或更新失败只使对应种类不可用，不阻塞准备或启动。
+- 正则没有独立记录数、源码、编译或保留 DFA 内存预算。单条复杂 Regex 仍可能显著增加加载峰值，GeoData 计数不能约束其内存。容量账本仅作诊断，不涵盖编译器全部临时内存，不能充当进程峰值上界。
+- GeoData 超限只截断匹配器，不改写磁盘资产，不视为加载/更新失败；首次可用，合法更新可发布截断快照。截掉记录只检查外层 wire/length，跳过内部 CIDR 解码/压缩、value/Regex 校验和编译；保留前缀仍严格校验，分类 header、外层 wire 和两遍扫描记录数一致性仍检查。截断警告只含数量，不含 code、域名或 IP/CIDR。
+- 首次加载缺失、外层损坏或所选保留前缀无效使对应种类不可用且不消耗有效额度，实例以 degraded 状态继续准备/启动；GeoIP 首次不可用时 GeoSite 可用全部额度。更新任一种资产都重新加载两类并重分配额度；GeoIP 增长可减少新快照的 GeoSite 记录。真正的失败重载保留旧整体快照，失败更新保留旧整体快照和资产，不回溯已完成的选路。
+
+1,280,000 是指定的 iOS/tvOS 总 GeoData 工程边界。公开 [benchmark](https://github.com/OneXray/container-benchmark)
+的旧 CN 观测只有 111,361 条 GeoSite + 9,648 条 GeoIP，共 121,009 条；该轮 2 Gbps、
+1,000 QPS DNS 的 Linux RSS 峰值 26.9 MiB 不代表 1,280,000 条压力负载。
+2026-10-06 已执行 1,280,000 条 Linux 原生 TUN 压力：GeoIP 1,054,987 条 +
+GeoSite 225,013 条，2 Gbps / 60 秒 / 1,000 QPS DNS 下 RSS 峰值 42,557,440 bytes
+（40.59 MiB）。仍有 UDP 丢包和 DNS 超时，本轮 Site 不包含 Plain/Regex，不能
+扩展为任意分类、复杂正则或更新叠加的最坏内存保证。完整指标见 benchmark README。
+互通和内存压力由 benchmark 的 `interop` / `stress` 执行，并显式指定 `--source vcore=PATH`；
+VCore 自有脚本只负责编译。记录边界不是实测数量极限或
+50,000,000 bytes 保证，不替代 Apple 真机 footprint 验收。
 
 完整边界见 [GeoData 规则与资产](geodata.md)。
 
 ## 当前限制的保留判断
 
-本轮内存开发维持 `standard` 行为，不新增 `resourceProfile` API 或 iOS/tvOS 业务准入
-配额。完整 CN 的代表性协议冷/热、双栈入口、取消/重建及资源叠加短测仍有明显余量；
-这不是完整矩阵、长期最坏值或正式 Provider 的签收。是否需要移动专用策略，等同一
-最终候选的完整矩阵与真机结果再判定。若以后确需数量限制，只作用于明确选择的
-iOS/tvOS low-memory 场景，不传播到 macOS/Android/Windows，也不恢复 GeoData 数量
-或内存预算。局部队列、解析和缓冲继续保持有界。
+运行时维持 `standard` 行为，不新增 `resourceProfile` API 或活动业务流准入配额。
+iOS/tvOS 的 GeoData 1,280,000 条总保留边界在资产加载时执行，GeoIP 优先，适用于
+该平台全部运行时，不依赖 low-memory 配置，也不传播到 macOS/Android/Linux/Windows。
+GeoData 内存仍无预算。完整 CN 的代表性协议冷/热、双栈入口、取消/重建及资源叠加
+短测仍有明显余量；这不是完整矩阵、长期最坏值或正式 Provider 的签收。其他移动
+资源策略仍需同一最终候选的完整矩阵与真机结果。局部队列、解析和缓冲继续保持有界。
 
 完整 CN、IPv4、16 条背景 TCP、300 秒、DIRECT/代理各承担一半流量的 1 Gbps 子集
 曾测得最坏 7,864,824 bytes；它不覆盖最大并发、DNS 冷查询风暴、UDP、TUN、协议池

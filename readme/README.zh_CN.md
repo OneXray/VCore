@@ -4,142 +4,126 @@
   <a href="../README.md">English</a> · 简体中文 · <a href="./README.ru.md">Русский</a>
 </p>
 
-VCore 是独立且不绑定特定宿主应用的 Rust 客户端代理 core。它通过严格 YAML 配置和 Invoke API v5 提供代理图、静态 `select` 代理组、DNS、规则、GeoData、HTTP/SOCKS5 listener、TUN 数据面与回环 Controller。内部配置 schema revision 为 28；revision 只出现在 `version` 响应和 `buildIdentity` 中，不写入 YAML。
+VCore 是可嵌入 VPN 客户端和本地代理的 Rust 代理内核。它通过直连、代理节点、代理组和代理链转发 TCP/UDP 流量，并集成 DNS、GeoData 和跨平台 TUN 数据面。
 
-## 能力
+配置采用**与 Mihomo 兼容的 YAML，兼容范围限于 VCore 已支持的功能**。VCore 聚焦客户端能力，并未实现 Mihomo 的全部字段或完整 Dashboard API。
 
-SS2022 另支持 [strict ShadowTLS v3](../docs/outbounds.md#shadowtls-v3) TCP 包装；原生 UDP 仍走独立路径。
+## 内核能做什么
 
-- Outbound：[VLESS TCP/WS/gRPC/HTTP/H2/XHTTP、TLS/REALITY 与 Vision](../docs/vless.md)、SOCKS5 CONNECT/UDP ASSOCIATE、AnyTLS TCP/UoT、Shadowsocks 2022、[Trojan TCP/UDP（TLS/WS/gRPC）](../docs/outbounds.md#trojan)、[VMess AEAD（TCP/WS/gRPC/HTTP/H2）](../docs/outbounds.md#vmess-aead)、[Hysteria2 TCP/UDP、带宽、Salamander 与端口跳跃](../docs/outbounds.md#hysteria2)、DIRECT。
-- 代理链：`dialer-proxy` 组成任意长度的有向无环图；节点 A 指向 B 时，物理路径为 `client -> B -> A -> target`。
-- 代理组：静态 `select` 组保留有序成员，可包含具体节点、嵌套组、`DIRECT` 与 `REJECT`；当前 session 的选择可通过 Controller 实时修改。`dialer-proxy` 可引用节点或组；上游组的 DIRECT 连接当前节点预解析的服务器。
-- 路由：顺序执行 `DOMAIN`、`DOMAIN-SUFFIX`、`DOMAIN-KEYWORD`、`GEOSITE`、`GEOIP`、`IP-CIDR`、`IP-CIDR6`、`DST-PORT`、`NETWORK` 和最终 `MATCH`。
-- DNS：固定 IP 的 UDP/TCP nameserver、显式出口、顺序 policy/failover、typed/opaque cache、singleflight、TUN UDP/TCP 53 劫持。
-- TUN：raw IPv4/IPv6、TCP/UDP、ICMPv4/ICMPv6 Echo 本地响应、HTTP/TLS/QUIC sniffer、每 session 四字段流量统计。
-- Listener：HTTP CONNECT/forward，逐请求认证与选路，支持流式正文、Keep-Alive 和 Upgrade；SOCKS5 CONNECT 与 TCP 授权的 UDP ASSOCIATE。默认本机免认证，局域网共享强制使用一组共用账号密码。
-- GeoData：VCore 管理 `dataDir/geodata` 下的 `geosite.dat` 和 `geoip.dat`，按需求加载并可通过代理链后台更新。
-- 测速：`measureDelay` 单次接收 1–5 份 node-only 配置，使用最多五个私有 worker，结果保持输入顺序。
-- TLS：独立证书 pin 与四种可选 [ClientHello 模板](../docs/tls-client-fingerprint.md)；[VLESS JLS](../docs/vless.md#jls)保留完整原生 TLS 认证。[静态 ECH](../docs/vless.md#静态-ech)接受显式的 VLESS 主/下载腿配置，不执行动态 DNS 查询或失败回落。
+- **接入应用与 VPN 流量：**HTTP 转发、CONNECT 和 Upgrade；SOCKS5 CONNECT 和 UDP ASSOCIATE；宿主提供的 IPv4/IPv6 TUN 数据包。
+- **按目标路由：**支持域名、域名后缀/关键字、IP CIDR、目标端口、TCP/UDP、GeoSite 和 GeoIP 规则，以及明确的 DIRECT 和 REJECT 动作。
+- **选择和串联代理：**支持嵌套 `select` 组、实时切换组选择，以及引用节点或组的 `dialer-proxy` 代理链。选择变化只影响新建的物理传输连接，不迁移既有连接。
+- **处理 DNS：**支持指定出口的 UDP/TCP 上游、基于 GeoSite 的上游策略、顺序故障转移、缓存与重复查询合并；TUN 模式下拦截 TCP/UDP 53 端口。
+- **识别流量用于路由：**通过 HTTP、TLS、QUIC 域名嗅探与 TUN DNS 提示辅助路由，不改写实际目标地址。ICMPv4/ICMPv6 Echo 在本地应答。
+- **管理路由数据：**按需从 `geosite.dat` / `geoip.dat` 加载被引用的类别，并通过配置的路由更新文件。iOS/tvOS 的所选 GeoIP 原始 CIDR 与 GeoSite 原始 Domain 共用 1,280,000 条总保留额度，优先 GeoIP，余量交给 GeoSite，超出部分不进入匹配器；其他平台不设数量上限，GeoData 内存不设预算。详见 [GeoData 边界](../docs/geodata.md#内存与安全边界)。
+- **提供客户端控制：**回环 Controller 支持代理组选择及 TUN 流量速率/累计量查询；Invoke API 提供隔离的节点/代理链延迟测量。
 
-## 配置
+## 代理协议
 
-[`docs/config.yaml`](../docs/config.yaml) 是唯一完整示例。核心约束：
+默认构建启用下列全部八种协议。UDP 支持按节点配置。
 
-- YAML 最大 256 KiB，拒绝未知字段、anchor、alias、自定义 tag 和历史结构。
-- 顶层至少包含一个 proxy，并启用 `port`、`socks-port` 或 `tun`。
-- proxy 与 proxy group 定义名共享一个精确且大小写敏感的命名空间。名称为 1–64 UTF-8 字节，拒绝首尾 Unicode 空白、控制字符、`, # / ? & = % \`、`.`、`..`，并保留 `DIRECT`、`REJECT` 与 `RULES`；内部普通空格、CJK 和 emoji 可用。
-- `proxy-groups` 只接受 `select`。成员顺序与重复项均保留；省略 `default-selected` 时选择第一项，显式值必须是直接成员。节点上游与全部组成员（包括未选成员）必须组成同一张无环图。
-- `rules` 必填，必须恰好以一个指向已配置 proxy node 或 proxy group 的 `MATCH` 结束。
-- `DIRECT` 和 `REJECT` 是内置 action 与组成员；其他 route target 必须是已配置 proxy node 或 proxy group。`RULES` 只由 DNS 保留。
-- 配置通过 `configYaml` / `configYamls` 内联交付；VCore 不读取宿主配置路径。
-- Controller、TUN fd、Controller 端口/secret 等运行时值由宿主生成，不进入用户保存的 RAW YAML。
+| 协议 | 能力 |
+| --- | --- |
+| [VLESS](../docs/vless.md) | TCP、WebSocket / HTTPUpgrade、gRPC、HTTP 首包伪装、传统 H2、[XHTTP H1/H2/H3](../docs/xhttp.md)；在支持的组合中提供 Vision、Encryption、REALITY、JLS、静态 ECH 和 sing-mux |
+| [VMess AEAD](../docs/outbounds.md#vmess-aead) | TCP、WebSocket / HTTPUpgrade、gRPC、HTTP 首包伪装和传统 H2；TCP/UDP，明文或标准 TLS |
+| [Trojan](../docs/outbounds.md#trojan) | 通过 TLS TCP、WebSocket / HTTPUpgrade 或 gRPC 传输 TCP/UDP |
+| [Shadowsocks 2022](../docs/outbounds.md#shadowsocks-2022) | TCP/UDP；AES-128-GCM、AES-256-GCM 和 ChaCha20-Poly1305；AES 身份链；可选 strict ShadowTLS v3 TCP 包装和 UoT v2 |
+| [AnyTLS](../docs/outbounds.md#anytls) | TLS 会话与 UDP over TCP v2 |
+| [SOCKS5](../docs/outbounds.md#socks5) | CONNECT 和 UDP ASSOCIATE，可选用户名/密码认证 |
+| [Hysteria2](../docs/outbounds.md#hysteria2) | QUIC TCP/UDP、带宽控制、Salamander、端口跳跃和 mTLS |
+| [TUIC v5](../docs/outbounds.md#tuic-v5) | QUIC TCP/UDP、native/quic UDP 转发模式，以及可选的拥塞控制算法 |
 
-## 生命周期与 ABI
+标准 TLS 连接支持证书验证与 SHA-256 证书固定。适用的 TCP TLS 路径可使用 Chrome、Firefox 或 Safari ClientHello 模板；`client-fingerprint` 与证书 `fingerprint` 相互独立。准确的名称和支持组合见 [TLS 配置与证书策略](../docs/tls-client-fingerprint.md)。这些功能不保证与浏览器不可区分，也不支持任意协议组合。
 
-跨平台业务入口：
+SS2022 使用未经修改的官方 Rust 库；已知的空首写入、服务端先发送和 padding 风险见 [Shadowsocks 契约](../docs/outbounds.md#shadowsocks-2022)。
+
+## Mihomo 风格配置
+
+使用熟悉的 `proxies`、`proxy-groups`、`rules`、`dns`、`port`、`socks-port` 和 `tun` 结构。例如：
+
+```yaml
+socks-port: 1080
+allow-lan: false
+
+proxies:
+  - name: edge
+    type: anytls
+    server: proxy.example.com
+    port: 443
+    password: replace-with-your-password
+    client-fingerprint: chrome
+    udp: true
+
+proxy-groups:
+  - name: Proxy
+    type: select
+    proxies: [edge, DIRECT]
+
+dns:
+  enable: true
+  nameserver:
+    - "udp://223.5.5.5:53#DIRECT"
+
+rules:
+  - GEOSITE,cn,DIRECT
+  - GEOIP,cn,DIRECT,no-resolve
+  - MATCH,Proxy
+```
+
+请替换示例中的服务器地址与凭据。GeoSite/GeoIP 规则需要 `<dataDir>/geodata` 下的对应数据文件；缺失文件时，相应规则类型不可用。详见[完整配置参考](../docs/config.yaml)与 [GeoData 行为](../docs/geodata.md)。
+
+兼容范围限于文档列出的字段和行为，不覆盖任意 Mihomo 配置。代理组目前支持静态 `select`；DNS 上游使用固定 IP，通过 UDP/TCP 查询。Providers、自动代理组选择、加密 DNS 和 fake-IP 不在当前功能范围内。未知字段与无效组合会被拒绝，不会静默忽略；VCore 特有的语义会在相应契约中说明。
+
+宿主通过 `configYaml` 内联传入 YAML；TUN 描述符和平台回调通过运行时 API 单独提供。VCore 不读取宿主配置路径，也不自动配置 Linux 系统路由。
+
+## 平台与集成
+
+| 平台 | TUN 集成 |
+| --- | --- |
+| iOS / macOS | 宿主提供 utun 文件描述符 |
+| tvOS 17+ | 宿主提供 utun 文件描述符；支持 ARM64 真机和模拟器目标 |
+| Android | `VpnService` 文件描述符与出站 socket 保护 |
+| Linux | 真实的单队列 raw-IP TUN；宿主负责创建接口与路由隔离 |
+| Windows | 原生 `Windows.Networking.Vpn` Provider 与完全信任的 Session Host，不使用 Wintun 或 fd 模拟 |
+
+VCore 是库，不是独立的 VPN 应用。Unix 宿主持有原始 TUN 描述符；VCore 使用并关闭自己复制的描述符。Apple 公开的 packetFlow API 不保证可获取 raw fd，因此实际 Network Extension 集成和设备验证仍由宿主负责。详见 [TUN 集成](../docs/tun-platform.md)与[平台验收边界](../docs/acceptance.md)。
+
+跨平台 C ABI 通过 Invoke API v5 接受 JSON 请求：
 
 ```c
 char *VCoreInvoke(const char *request_json);
 void VCoreFree(char *response);
 ```
 
-Windows 安装包另提供 revision-3 host bridge，负责全应用 VPN policy、profile、Session Snapshot 和可选 session backend：
+单个公共实例遵循 `initialize → createInstance → prepare(configYaml) → start → stop → destroyInstance` 生命周期。API 还提供配置验证、状态查询、GeoData 状态与延迟测量。详见 [Invoke API](../docs/invoke-api.md)、[Controller API](../docs/controller-api.md)与 [Windows 集成示例](../example/windows-uwp/README.md)。
 
-```c
-char *VCoreWindowsVpnInvoke(const char *request_json);
-```
+## Benchmark
 
-业务生命周期为单公共实例：
+[**VCore / Mihomo TUN benchmark**](https://github.com/OneXray/container-benchmark) 提供两个内核在相同原生 Linux TUN 环境下的可复现测试设置、实测结果与对比图表。
 
-```text
-initialize
-  -> createInstance
-  -> prepare(configYaml)
-  -> start
-  -> stop
-  -> destroyInstance
-```
+benchmark 工程同时负责协议互通（`interop`）与内存压力（`stress`），通过显式 `--source vcore=PATH` 提供被测 checkout；VCore 自有脚本只编译核心与平台产物。
 
-`instanceId` 是当前 runtime 内不可复用的 generation token。同实例命令 fail-fast；纯 `validateConfig` 可并发执行。完整 envelope、method、fd 所有权和 Android protect 契约见 [`docs/invoke-api.md`](../docs/invoke-api.md)。
+测试使用 **1 / 1.5 / 2 Gbps** 混合 TCP/UDP 流量、**每秒 1,000 次 DNS 查询**和增强的 `geosite:cn` / `geoip:cn` 规则，报告实际吞吐量、CPU、观察到的 Linux 峰值 RSS、UDP 丢包与成功的 DNS 查询数。它使用 DIRECT 出口评估 TUN/DNS/路由路径，不衡量加密代理吞吐量；Linux RSS 不等同于 Apple Network Extension 内存占用。
 
-运行时状态通过 session-local loopback Controller 访问：
-
-```http
-GET /traffic
-GET /group
-GET /group/{name}
-GET /proxies/{name}
-PUT /proxies/{name}
-Authorization: Bearer <secret>
-```
-
-`GET /traffic` 返回一次 TUN `up/down/upTotal/downTotal` snapshot。代理组端点读取或修改静态 `select` 组的当前直接成员；成功切换只影响当前 session 后续新建的物理 TCP、UDP 与 DNS transport，不迁移既有连接、UDP association、DNS 状态或 TCP 连接池，也不自动故障转移。Controller 管理代理组时，全部路由必须共用一个 Bearer secret，并且可以不启用 TUN。详见 [`docs/controller-api.md`](../docs/controller-api.md)。
-
-已认证的 Hysteria2 会话在端口跳跃期间保留上游选择；同一 QUIC 会话替换物理 socket 不重新读取组选择，只有新建认证会话才使用新选择。
-
-## 平台
-
-| 平台 | 数据面 | 状态 |
-| --- | --- | --- |
-| iOS / macOS | 宿主提供 utun fd；VCore duplicate 后通过 `rust-tun` 同步 device + Tokio `AsyncFd` 收发 | 已实现；Release iOS 真机 footprint 仍是发布门禁 |
-| Android | `VpnService` 提供 raw-IP fd；每个 outbound socket 必须先通过 protect callback | 已实现；真机矩阵仍需按发布计划执行 |
-| Windows | `Windows.Networking.Vpn` AppContainer provider + 每 session full-trust runtime；同包命名管道传输 raw-IP | Windows 11 ARM64 开发签名包已通过功能、lifecycle、pressure 与有界 batching 验收 |
-| Linux | — | 不支持，入口 fail closed |
-
-Windows 不使用 fd 模拟层。Provider 只拥有 `VpnChannel`、buffer、routes、物理网络监控、packet gateway 和 fail-closed Stop；完整 VCore runtime、Controller、DNS、rules 与 outbounds 位于 Session Host。packet channel 保持 protocol v1 framing，最多合并 8 个已经就绪的 frame，不等待未来 packet。
-
-## 资源边界
-
-使用局部队列、缓冲、解析上限、期限与所有者取消，不设置全局业务流准入数量。
-共享上限见[资源策略](../docs/runtime-resource-policy.md)，专用预算见协议契约；内存遥测不改变生命周期结果。
+2026-10-06 的压力测试加载了 1,280,000 条总 GeoData，在 2 Gbps / 60 秒 / 1,000 QPS DNS 下观测到 Linux RSS 峰值 42,557,440 字节；仍有 UDP 丢包和 DNS 超时。分类与完整指标见 benchmark README。iOS/tvOS 上限是指定工程值，不是实测极限，也不保证任意输入下进程低于 50,000,000 字节。未保留条目不再参与 GeoIP/GeoSite 分流或 GeoSite DNS policy 命中。Linux 观测不替代 Apple 真机验收。
 
 ## 文档
 
-- [Documentation index](../docs/README.md)
-- [Configuration](../docs/config.yaml)
-- [Invoke API](../docs/invoke-api.md)
-- [Build and test](../scripts/README.md)
-- [Acceptance boundaries](../docs/acceptance.md)
-
-## 示例
-
-- [Windows UWP VPN 最小集成](../example/windows-uwp/README.md)：同包 Provider、Session Host、完全信任前台、MSIX manifest 和可运行命令行 demo。
-
-## 验证
-
-```bash
-cargo fmt --all -- --check
-uv run --project scripts --locked vcore-scripts check core --profile debug
-cargo clippy --locked --all-features --lib --bins -- -D warnings
-cargo test --manifest-path crates/vcore-netstack/Cargo.toml --all-targets
-cargo clippy --manifest-path crates/vcore-netstack/Cargo.toml --all-targets -- -D warnings
-uv run --project scripts --locked vcore-scripts check c-header
-uv run --project scripts --locked vcore-scripts check tls-dependencies
-uv run --project scripts --locked python -m unittest discover -s scripts/tests
-uv run --project scripts --locked ruff check scripts
-uv run --project scripts --locked ruff format --check scripts
-```
-
-平台产物（完整命令和环境变量见 [`scripts/README.md`](../scripts/README.md)）：
-
-```bash
-uv run --project scripts --locked vcore-scripts build apple
-uv run --project scripts --locked vcore-scripts build android
-uv run --project scripts --locked vcore-scripts build windows
-```
-
-当前有效的验证范围与仍延期的物理设备、Windows 发布矩阵见 [`docs/acceptance.md`](../docs/acceptance.md)。
+- [文档索引](../docs/README.md)
+- [配置参考](../docs/config.yaml)
+- [核心与平台构建](../scripts/README.md)
+- [核心回归测试](../tests/README.md)
+- [资源策略](../docs/runtime-resource-policy.md)
+- [验收与已知限制](../docs/acceptance.md)
 
 ## Credits
 
-VCore 的依赖、维护中的 fork、公开 API/协议参考、架构参考与互操作对象包括：
+VCore 使用并参考以下公开依赖、协议实现和平台资料：
 
-- [smoltcp](https://github.com/smoltcp-rs/smoltcp)、[clash-rs](https://github.com/Watfaq/clash-rs) 与 [netstack-smoltcp](https://github.com/automesh-network/netstack-smoltcp)：用户态 IP stack 与 TUN netstack。
-- [windows-rs](https://github.com/microsoft/windows-rs)、[UWP VPN Plugin Sample](https://github.com/microsoft/UwpVpnPluginSample)、[wireguard-uwp-rs](https://github.com/luqmana/wireguard-uwp-rs)、[Maple](https://github.com/YtFlow/Maple) 与 [YtFlowCore](https://github.com/YtFlow/YtFlowCore)：Windows VPN、WinRT activation 与 packet flow。
-- [Xray-core](https://github.com/XTLS/Xray-core)、[Mihomo](https://github.com/MetaCubeX/mihomo) 与 [Leaf](https://github.com/eycorsican/leaf)：代理协议、路由、TUN 架构与互操作参考。
-- [rustls](https://github.com/rustls/rustls)：未启用指纹的 TLS、QUIC 与共享 WebPKI 证书验证。
-- [boring](https://github.com/cloudflare/boring) / [BoringSSL](https://boringssl.googlesource.com/boringssl/)：命名 TLS ClientHello profile 与 VCore 自有 fork 中的 classic REALITY 扩展。
+- 网络与路由：[smoltcp](https://github.com/smoltcp-rs/smoltcp)、[clash-rs](https://github.com/Watfaq/clash-rs)、[netstack-smoltcp](https://github.com/automesh-network/netstack-smoltcp)、[Mihomo](https://github.com/MetaCubeX/mihomo)、[Xray-core](https://github.com/XTLS/Xray-core) 和 [Leaf](https://github.com/eycorsican/leaf)。
+- TLS 与 Shadowsocks：[rustls](https://github.com/rustls/rustls)、[boring](https://github.com/cloudflare/boring)、[BoringSSL](https://boringssl.googlesource.com/boringssl/) 和 [shadowsocks-rust](https://github.com/shadowsocks/shadowsocks-rust)。衍生的重放窗口代码保留了 [MIT 声明](../src/outbound/shadowsocks/packet_window.rs)。
+- Windows 集成：[windows-rs](https://github.com/microsoft/windows-rs)、[UWP VPN Plugin Sample](https://github.com/microsoft/UwpVpnPluginSample)、[wireguard-uwp-rs](https://github.com/luqmana/wireguard-uwp-rs)、[Maple](https://github.com/YtFlow/Maple) 和 [YtFlowCore](https://github.com/YtFlow/YtFlowCore)。
 
 ## License
 
-VCore 使用 MIT License，见 [`LICENSE`](../LICENSE)。
+[MIT](../LICENSE)。

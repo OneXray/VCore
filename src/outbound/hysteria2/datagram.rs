@@ -47,7 +47,7 @@ impl Registry {
     ) -> Result<Box<dyn DatagramTransport>, DispatchError> {
         let id = self
             .next
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
                 value.checked_add(1)
             })
             .map_err(|_| DispatchError::NotAllowed)?;

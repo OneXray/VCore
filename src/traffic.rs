@@ -94,7 +94,7 @@ impl TunTrafficStats {
 }
 
 fn saturating_add(counter: &AtomicU64, value: u64) {
-    let _ = counter.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+    let _ = counter.try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
         Some(current.saturating_add(value).min(MAX_PUBLIC_TRAFFIC_BYTES))
     });
 }

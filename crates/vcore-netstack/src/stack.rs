@@ -1149,7 +1149,7 @@ mod tests {
         assert_eq!(stream.recv_batch(&mut packets, 8).await, 2);
         assert_eq!(packets, vec![packet(0), packet(1)]);
         assert_eq!(stream.recv_batch(&mut packets, 8).await, 0);
-        assert!(packets.is_empty());
+        assert_eq!(packets, Vec::<Packet>::new());
     }
 
     #[tokio::test]
@@ -1160,7 +1160,7 @@ mod tests {
         let mut packets = vec![packet(99)];
 
         assert_eq!(stream.recv_batch(&mut packets, 8).await, 0);
-        assert!(packets.is_empty());
+        assert_eq!(packets, Vec::<Packet>::new());
         assert_eq!(stream.receiver.len(), 1);
     }
 
@@ -1184,7 +1184,7 @@ mod tests {
 
         cancellation.cancel();
         assert_eq!(receive.await, 0);
-        assert!(packets.is_empty());
+        assert_eq!(packets, Vec::<Packet>::new());
     }
 
     #[tokio::test]

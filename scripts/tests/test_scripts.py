@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import copy
+import contextlib
 import hashlib
+import io
 import json
 import os
 import tempfile
@@ -14,14 +15,6 @@ from unittest.mock import MagicMock, patch
 
 from vcore_scripts import builds, cli
 from vcore_scripts.builds import EXPECTED_IDENTITY, _android_target, _require_identity
-from vcore_scripts.checks import (
-    BORING_GIT_SOURCE,
-    BORING_REVISION,
-    CRATES_IO_SOURCES,
-    _shadowsocks_aws_lc_errors,
-    _tls_dependency_errors,
-)
-from vcore_scripts.tun2socks import derive_xray_config
 
 
 def _windows_pe(machine: int) -> bytes:
@@ -76,23 +69,39 @@ class ScriptTest(unittest.TestCase):
                     self.assertEqual(builds._cargo_target_dir(), expected)
                     self.assertEqual(builds._cargo_target_dir(environment), expected)
 
-    def test_legacy_demo_requires_explicit_config_and_source(self):
-        with patch("vcore_scripts.cli.run_demo") as run:
-            self.assertEqual(
-                cli.main(
-                    [
-                        "demo",
-                        "windows-tun2socks",
-                        "fixture.json",
-                        "--xray-source",
-                        "fixture-xray",
-                    ]
-                ),
-                0,
-            )
-        run.assert_called_once_with(
-            Path("fixture.json"), xray_source=Path("fixture-xray")
-        )
+    def test_cli_only_dispatches_platform_builds(self):
+        for platform_name in ("apple", "android", "windows"):
+            with (
+                self.subTest(platform=platform_name),
+                patch(f"vcore_scripts.cli.build_{platform_name}") as build,
+            ):
+                self.assertEqual(cli.main(["build", platform_name]), 0)
+                build.assert_called_once_with()
+            with (
+                self.subTest(platform=platform_name, delivery=True),
+                patch("vcore_scripts.platform_delivery.build_delivery") as delivery,
+            ):
+                self.assertEqual(cli.main(["build", platform_name, "--delivery"]), 0)
+                delivery.assert_called_once_with(platform_name)
+
+    def test_cli_rejects_removed_validation_and_demo_commands_before_building(self):
+        for arguments in (
+            ["check", "core"],
+            ["check", "protocol-interop"],
+            ["check", "platform-artifacts"],
+            ["check", "platform-abi"],
+            ["demo", "windows-tun2socks"],
+            ["build", "linux"],
+        ):
+            with (
+                self.subTest(arguments=arguments),
+                contextlib.redirect_stderr(io.StringIO()),
+                patch("subprocess.Popen") as spawn,
+            ):
+                with self.assertRaises(SystemExit) as error:
+                    cli.main(arguments)
+                self.assertEqual(error.exception.code, 2)
+                spawn.assert_not_called()
 
     def test_cli_dispatches_windows_build_without_architecture(self):
         with patch("vcore_scripts.cli.build_windows") as build:
@@ -315,284 +324,6 @@ class ScriptTest(unittest.TestCase):
                         RuntimeError, "incompatible Rust identity"
                     ):
                         builds.build_windows()
-
-    def test_tls_metadata_accepts_the_locked_graph(self):
-        registry = next(iter(CRATES_IO_SOURCES))
-        metadata = {
-            "packages": [
-                {
-                    "id": "rustls-id",
-                    "name": "rustls",
-                    "version": "0.23.45",
-                    "source": registry,
-                },
-                {
-                    "id": "tokio-rustls-id",
-                    "name": "tokio-rustls",
-                    "version": "0.26.5",
-                    "source": registry,
-                },
-                {
-                    "id": "ring-id",
-                    "name": "ring",
-                    "version": "0.17.14",
-                    "source": registry,
-                },
-                *[
-                    dict(id=name, name=name, version="5.2.0", source=BORING_GIT_SOURCE)
-                    for name in ("boring", "boring-sys", "tokio-boring")
-                ],
-                dict(id="hpke", name="hpke", version="0.14.1", source=registry),
-            ],
-            "resolve": {
-                "nodes": [
-                    {
-                        "id": "rustls-id",
-                        "features": ["ring", "std", "tls12"],
-                        "deps": [],
-                    },
-                    {
-                        "id": "boring",
-                        "features": [
-                            "reality",
-                            "client-fingerprint",
-                            "shadow-tls-v3",
-                            "jls",
-                        ],
-                        "deps": [{"pkg": "boring-sys"}],
-                    },
-                    {
-                        "id": "boring-sys",
-                        "features": ["reality", "shadow-tls-v3", "jls"],
-                    },
-                    {
-                        "id": "tokio-boring",
-                        "features": [],
-                        "deps": [{"pkg": "boring"}, {"pkg": "boring-sys"}],
-                    },
-                    {
-                        "id": "hpke",
-                        "features": ["alloc", "aes", "chacha", "x25519", "hkdfsha2"],
-                    },
-                ]
-            },
-        }
-        self.assertEqual(_tls_dependency_errors(metadata), [])
-
-        for invalid_source in (None, BORING_GIT_SOURCE):
-            invalid = copy.deepcopy(metadata)
-            invalid["packages"][-1]["source"] = invalid_source
-            self.assertTrue(_tls_dependency_errors(invalid))
-        for feature in ("alloc", "aes", "chacha", "x25519"):
-            invalid = copy.deepcopy(metadata)
-            invalid["resolve"]["nodes"][-1]["features"].remove(feature)
-            self.assertTrue(_tls_dependency_errors(invalid))
-
-        for index, old_version in [(0, "0.23.43"), (1, "0.26.4"), (3, "5.1.0")]:
-            with self.subTest(outdated_version=old_version):
-                outdated = copy.deepcopy(metadata)
-                outdated["packages"][index]["version"] = old_version
-                self.assertTrue(_tls_dependency_errors(outdated))
-
-        for source in [
-            None,
-            registry,
-            BORING_GIT_SOURCE.rsplit("#", 1)[0] + "#" + "f" * 40,
-            BORING_GIT_SOURCE.replace("?branch=release", "?branch=main"),
-            BORING_GIT_SOURCE.replace("?branch=release", f"?rev={BORING_REVISION}"),
-            BORING_GIT_SOURCE.replace("OneXray/boring", "example/boring"),
-        ]:
-            for index in (3, 4, 5):
-                with self.subTest(boring_source=source, package=index):
-                    invalid = copy.deepcopy(metadata)
-                    invalid["packages"][index]["source"] = source
-                    self.assertTrue(_tls_dependency_errors(invalid))
-
-        for required in ["reality", "client-fingerprint", "shadow-tls-v3", "jls"]:
-            with self.subTest(boring_feature=required):
-                invalid = copy.deepcopy(metadata)
-                invalid["resolve"]["nodes"][1]["features"].remove(required)
-                self.assertTrue(_tls_dependency_errors(invalid))
-
-        for missing in ["edge", "node", "package"]:
-            with self.subTest(boring_missing=missing):
-                invalid = copy.deepcopy(metadata)
-                if missing == "edge":
-                    invalid["resolve"]["nodes"][1]["deps"] = []
-                elif missing == "node":
-                    invalid["resolve"]["nodes"].pop()
-                else:
-                    invalid["packages"].pop()
-                self.assertTrue(_tls_dependency_errors(invalid))
-
-        for forbidden in ["reality", "aws_lc_rs", "fips"]:
-            invalid = copy.deepcopy(metadata)
-            invalid["resolve"]["nodes"][0]["features"].append(forbidden)
-            self.assertTrue(_tls_dependency_errors(invalid))
-
-        for forbidden in ("fips", "restls"):
-            for index in (1, 2, 3):
-                with self.subTest(native_feature=forbidden, node=index):
-                    invalid = copy.deepcopy(metadata)
-                    invalid["resolve"]["nodes"][index]["features"].append(forbidden)
-                    self.assertTrue(_tls_dependency_errors(invalid))
-
-        for source in CRATES_IO_SOURCES:
-            with self.subTest(rustls_registry=source):
-                official = copy.deepcopy(metadata)
-                official["packages"][0]["source"] = source
-                self.assertEqual(_tls_dependency_errors(official), [])
-
-        for source in (
-            None,
-            "git+https://example.invalid/rustls?branch=custom#" + "a" * 40,
-            "git+https://github.com/rustls/rustls#" + "a" * 40,
-            "registry+https://example.invalid/index",
-        ):
-            with self.subTest(rustls_source=source):
-                invalid = copy.deepcopy(metadata)
-                invalid["packages"][0]["source"] = source
-                self.assertTrue(
-                    any(
-                        "rustls must come from crates.io" in error
-                        for error in _tls_dependency_errors(invalid)
-                    )
-                )
-
-        duplicate = copy.deepcopy(metadata)
-        duplicate["packages"].append(
-            dict(
-                id="second-rustls",
-                name="rustls",
-                version="0.23.45",
-                source="git+https://github.com/rustls/rustls#" + "a" * 40,
-            )
-        )
-        self.assertTrue(_tls_dependency_errors(duplicate))
-
-        metadata["packages"].append(
-            {
-                "id": "aws-id",
-                "name": "aws-lc-rs",
-                "version": "1.0.0",
-                "source": registry,
-            }
-        )
-        self.assertTrue(
-            any(
-                "AWS-LC package is forbidden" in error
-                for error in _tls_dependency_errors(metadata)
-            )
-        )
-
-        metadata["packages"][0]["source"] = None
-        self.assertTrue(
-            any(
-                "rustls must come from crates.io" in error
-                for error in _tls_dependency_errors(metadata)
-            )
-        )
-
-    def test_aws_lc_exception_is_restricted_to_official_shadowsocks_chain(self):
-        registry = next(iter(CRATES_IO_SOURCES))
-        names = ["shadowsocks", "shadowsocks-crypto", "aws-lc-rs", "aws-lc-sys"]
-        metadata = {
-            "packages": [
-                {"id": name, "name": name, "version": version, "source": source}
-                for name, version, source in zip(
-                    names,
-                    ["1.25.0", "0.8.0", "1.18.1", "0.45.0"],
-                    [registry] * 4,
-                    strict=True,
-                )
-            ],
-            "resolve": {
-                "nodes": [
-                    {
-                        "id": name,
-                        "features": features,
-                        "deps": [{"pkg": names[i + 1]}] if i < 3 else [],
-                    }
-                    for i, (name, features) in enumerate(
-                        zip(
-                            names,
-                            [["aead-cipher-2022"], ["v2", "aws-lc"], [], []],
-                            strict=True,
-                        )
-                    )
-                ]
-            },
-        }
-        self.assertEqual(_shadowsocks_aws_lc_errors(metadata), [])
-        for source in CRATES_IO_SOURCES:
-            with self.subTest(shadowsocks_registry=source):
-                official = copy.deepcopy(metadata)
-                official["packages"][0]["source"] = source
-                self.assertEqual(_shadowsocks_aws_lc_errors(official), [])
-        for source in (
-            "git+https://github.com/shadowsocks/shadowsocks-rust.git?rev="
-            "ab388c7466d21f979430e33cc9ef10e22fb05955#"
-            "ab388c7466d21f979430e33cc9ef10e22fb05955",
-            "registry+https://example.invalid/index",
-        ):
-            with self.subTest(shadowsocks_source=source):
-                invalid = copy.deepcopy(metadata)
-                invalid["packages"][0]["source"] = source
-                self.assertTrue(_shadowsocks_aws_lc_errors(invalid))
-        for index, feature in [(0, "aead-cipher-2022-extra"), (1, "v2-extra")]:
-            invalid = copy.deepcopy(metadata)
-            invalid["resolve"]["nodes"][index]["features"].append(feature)
-            self.assertTrue(_shadowsocks_aws_lc_errors(invalid))
-        for target in names[1:]:
-            with self.subTest(extra_consumer=target):
-                invalid = copy.deepcopy(metadata)
-                invalid["resolve"]["nodes"].append(
-                    {"id": "another-consumer", "deps": [{"pkg": target}]}
-                )
-                self.assertTrue(_shadowsocks_aws_lc_errors(invalid))
-        for index in range(4):
-            with self.subTest(unofficial_source=names[index]):
-                invalid = copy.deepcopy(metadata)
-                invalid["packages"][index]["source"] = None
-                self.assertTrue(_shadowsocks_aws_lc_errors(invalid))
-            with self.subTest(missing_node=names[index]):
-                invalid = copy.deepcopy(metadata)
-                del invalid["resolve"]["nodes"][index]
-                self.assertTrue(_shadowsocks_aws_lc_errors(invalid))
-        invalid = copy.deepcopy(metadata)
-        invalid["packages"].append({"id": "fips", "name": "aws-lc-fips-sys"})
-        self.assertTrue(_shadowsocks_aws_lc_errors(invalid))
-
-    def test_tun2socks_config_moves_direct_sockopt(self):
-        source = {
-            "inbounds": [
-                {
-                    "tag": "proxy",
-                    "protocol": "socks",
-                    "listen": "0.0.0.0",
-                    "port": 1080,
-                    "settings": {"udp": False},
-                }
-            ],
-            "outbounds": [
-                {"tag": "proxy", "protocol": "vless", "settings": {}},
-                {
-                    "tag": "direct",
-                    "protocol": "freedom",
-                    "settings": {},
-                    "sockopt": {"interface": "Ethernet"},
-                },
-            ],
-        }
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "source.json"
-            path.write_text(json.dumps(source), encoding="utf-8")
-            config, inbound_tag, direct_tag = derive_xray_config(path, Path(directory))
-        self.assertEqual((inbound_tag, direct_tag), ("proxy", "direct"))
-        direct = next(item for item in config["outbounds"] if item["tag"] == "direct")
-        self.assertNotIn("sockopt", direct)
-        self.assertEqual(direct["streamSettings"]["sockopt"], {"interface": "Ethernet"})
-        self.assertTrue(config["inbounds"][0]["settings"]["udp"])
 
 
 if __name__ == "__main__":
