@@ -75,7 +75,8 @@ fn tun_netstack_config(limits: ResourceLimits, fake_icmp_echo: bool) -> NetStack
         mtu: effective_tun_mtu(limits),
         packet_queue: limits.packet_queue_capacity,
         tcp_accept_queue: limits.event_queue_capacity,
-        tcp_buffer_per_direction: limits.tcp_buffer_per_direction,
+        tcp_recv_buffer: limits.tcp_buffer_per_direction,
+        tcp_send_buffer: limits.tcp_buffer_per_direction,
         fake_icmp_echo,
         ..NetStackConfig::default()
     }

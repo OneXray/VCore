@@ -12,9 +12,9 @@ mod linux_tun;
 #[cfg_attr(target_os = "macos", allow(dead_code))]
 pub(crate) mod process_memory;
 #[cfg(all(unix, feature = "tun"))]
-mod rust_tun_io;
-#[cfg(all(unix, feature = "tun"))]
 mod tun_fd;
+#[cfg(all(unix, feature = "tun"))]
+mod tun_rs_io;
 #[cfg(all(feature = "tun", any(windows, test)))]
 #[cfg_attr(not(windows), allow(dead_code))]
 mod windows_tun_io;
@@ -24,8 +24,8 @@ mod windows_tun_io;
 pub(crate) const TUN_PACKET_BATCH_SIZE: usize = 8;
 
 #[cfg(all(unix, feature = "tun"))]
-pub use rust_tun_io::RustTunIo as TunIo;
-#[cfg(all(unix, feature = "tun"))]
 pub use tun_fd::TunFd;
+#[cfg(all(unix, feature = "tun"))]
+pub use tun_rs_io::TunRsIo as TunIo;
 #[cfg(all(windows, feature = "tun"))]
 pub(crate) use windows_tun_io::{WindowsPacketAdapter, WindowsPacketStats, WindowsTunIo as TunIo};

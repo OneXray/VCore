@@ -120,7 +120,8 @@ The separate `stress` command uses the same complete enhanced `geosite:cn` / `ge
 
 VCore builds on and learns from public dependencies, protocol implementations and platform references:
 
-- Networking and routing: [smoltcp](https://github.com/smoltcp-rs/smoltcp), [clash-rs](https://github.com/Watfaq/clash-rs), [netstack-smoltcp](https://github.com/automesh-network/netstack-smoltcp), [Mihomo](https://github.com/MetaCubeX/mihomo), [Xray-core](https://github.com/XTLS/Xray-core) and [Leaf](https://github.com/eycorsican/leaf).
+- TUN dependencies: the local [`vcore-netstack`](crates/vcore-netstack/README.md) uses [smoltcp](https://github.com/smoltcp-rs/smoltcp); Unix packet I/O uses [tun-rs](https://github.com/tun-rs/tun-rs).
+- Networking and routing references: [clash-rs](https://github.com/Watfaq/clash-rs), [netstack-smoltcp](https://github.com/cavivie/netstack-smoltcp), [Mihomo](https://github.com/MetaCubeX/mihomo), [Xray-core](https://github.com/XTLS/Xray-core) and [Leaf](https://github.com/eycorsican/leaf). These reference projects are not netstack dependencies.
 - TLS and Shadowsocks: [rustls](https://github.com/rustls/rustls), [boring](https://github.com/cloudflare/boring), [BoringSSL](https://boringssl.googlesource.com/boringssl/) and [shadowsocks-rust](https://github.com/shadowsocks/shadowsocks-rust). Derived replay-window code retains its [MIT notices](src/outbound/shadowsocks/packet_window.rs).
 - Windows integration: [windows-rs](https://github.com/microsoft/windows-rs), [UWP VPN Plugin Sample](https://github.com/microsoft/UwpVpnPluginSample), [wireguard-uwp-rs](https://github.com/luqmana/wireguard-uwp-rs), [Maple](https://github.com/YtFlow/Maple) and [YtFlowCore](https://github.com/YtFlow/YtFlowCore).
 

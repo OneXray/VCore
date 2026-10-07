@@ -12,7 +12,7 @@ use std::{
     thread,
 };
 
-use super::rust_tun_io::TUN_MTU;
+use super::tun_rs_io::TUN_MTU;
 
 const NETLINK_HEADER: usize = 16;
 const LINK_HEADER: usize = 16;
