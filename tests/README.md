@@ -2,7 +2,7 @@
 
 本仓库保留生产核心的配置、内存 IO、安全和生命周期回归，直接以定向 Rust 测试
 执行。[VCore scripts](../scripts/README.md) 只编译核心与平台产物。协议互通、对端
-下载、容器消费者以及内存/吞吐压力由独立的 [container-benchmark](https://github.com/OneXray/container-benchmark)
+下载、容器消费者以及内存/吞吐压力由独立的 [container-benchmark](https://github.com/YuanDevTeam/container-benchmark)
 维护，通过显式 VCore checkout 指定被测核心；编译不依赖 benchmark 的安装或路径。
 
 | 层次 | 保留内容 | 入口 |

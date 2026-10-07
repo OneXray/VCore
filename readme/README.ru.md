@@ -99,7 +99,7 @@ void VCoreFree(char *response);
 
 ## Benchmark
 
-[**TUN-бенчмарк VCore / Mihomo**](https://github.com/OneXray/container-benchmark) содержит воспроизводимую методику, результаты измерений и сравнительные графики для обоих ядер в одинаковой среде с нативным Linux TUN.
+[**TUN-бенчмарк VCore / Mihomo**](https://github.com/YuanDevTeam/container-benchmark) содержит воспроизводимую методику, результаты измерений и сравнительные графики для обоих ядер в одинаковой среде с нативным Linux TUN.
 
 Проект benchmark также выполняет проверку совместимости протоколов (`interop`) и тесты нагрузки на память (`stress`), используя явно указанный checkout `--source vcore=PATH`. Собственные скрипты VCore только компилируют ядро и платформенные артефакты.
 
@@ -120,7 +120,8 @@ void VCoreFree(char *response);
 
 VCore использует публичные зависимости и опирается на реализации протоколов и примеры платформенной интеграции:
 
-- Сеть и маршрутизация: [smoltcp](https://github.com/smoltcp-rs/smoltcp), [clash-rs](https://github.com/Watfaq/clash-rs), [netstack-smoltcp](https://github.com/automesh-network/netstack-smoltcp), [Mihomo](https://github.com/MetaCubeX/mihomo), [Xray-core](https://github.com/XTLS/Xray-core) и [Leaf](https://github.com/eycorsican/leaf).
+- Зависимости TUN: локальный [`vcore-netstack`](../crates/vcore-netstack/README.md) использует [smoltcp](https://github.com/smoltcp-rs/smoltcp), а пакетный I/O на Unix — [tun-rs](https://github.com/tun-rs/tun-rs).
+- Архитектурные ориентиры для сети и маршрутизации: [clash-rs](https://github.com/Watfaq/clash-rs), [netstack-smoltcp](https://github.com/cavivie/netstack-smoltcp), [Mihomo](https://github.com/MetaCubeX/mihomo), [Xray-core](https://github.com/XTLS/Xray-core) и [Leaf](https://github.com/eycorsican/leaf). Эти проекты не являются зависимостями netstack.
 - TLS и Shadowsocks: [rustls](https://github.com/rustls/rustls), [boring](https://github.com/cloudflare/boring), [BoringSSL](https://boringssl.googlesource.com/boringssl/) и [shadowsocks-rust](https://github.com/shadowsocks/shadowsocks-rust). Заимствованный код replay-window сохраняет [уведомления MIT](../src/outbound/shadowsocks/packet_window.rs).
 - Интеграция Windows: [windows-rs](https://github.com/microsoft/windows-rs), [UWP VPN Plugin Sample](https://github.com/microsoft/UwpVpnPluginSample), [wireguard-uwp-rs](https://github.com/luqmana/wireguard-uwp-rs), [Maple](https://github.com/YtFlow/Maple) и [YtFlowCore](https://github.com/YtFlow/YtFlowCore).
 

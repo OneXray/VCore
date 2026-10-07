@@ -99,7 +99,7 @@ void VCoreFree(char *response);
 
 ## Benchmark
 
-[**VCore / Mihomo TUN benchmark**](https://github.com/OneXray/container-benchmark) 提供两个内核在相同原生 Linux TUN 环境下的可复现测试设置、实测结果与对比图表。
+[**VCore / Mihomo TUN benchmark**](https://github.com/YuanDevTeam/container-benchmark) 提供两个内核在相同原生 Linux TUN 环境下的可复现测试设置、实测结果与对比图表。
 
 benchmark 工程同时负责协议互通（`interop`）与内存压力（`stress`），通过显式 `--source vcore=PATH` 提供被测 checkout；VCore 自有脚本只编译核心与平台产物。
 
@@ -120,7 +120,8 @@ benchmark 工程同时负责协议互通（`interop`）与内存压力（`stress
 
 VCore 使用并参考以下公开依赖、协议实现和平台资料：
 
-- 网络与路由：[smoltcp](https://github.com/smoltcp-rs/smoltcp)、[clash-rs](https://github.com/Watfaq/clash-rs)、[netstack-smoltcp](https://github.com/automesh-network/netstack-smoltcp)、[Mihomo](https://github.com/MetaCubeX/mihomo)、[Xray-core](https://github.com/XTLS/Xray-core) 和 [Leaf](https://github.com/eycorsican/leaf)。
+- TUN 依赖：自有 [`vcore-netstack`](../crates/vcore-netstack/README.md) 使用 [smoltcp](https://github.com/smoltcp-rs/smoltcp)，Unix 包 I/O 使用 [tun-rs](https://github.com/tun-rs/tun-rs)。
+- 网络与路由参考：[clash-rs](https://github.com/Watfaq/clash-rs)、[netstack-smoltcp](https://github.com/cavivie/netstack-smoltcp)、[Mihomo](https://github.com/MetaCubeX/mihomo)、[Xray-core](https://github.com/XTLS/Xray-core) 和 [Leaf](https://github.com/eycorsican/leaf)。这些参考项目并非 netstack 依赖。
 - TLS 与 Shadowsocks：[rustls](https://github.com/rustls/rustls)、[boring](https://github.com/cloudflare/boring)、[BoringSSL](https://boringssl.googlesource.com/boringssl/) 和 [shadowsocks-rust](https://github.com/shadowsocks/shadowsocks-rust)。衍生的重放窗口代码保留了 [MIT 声明](../src/outbound/shadowsocks/packet_window.rs)。
 - Windows 集成：[windows-rs](https://github.com/microsoft/windows-rs)、[UWP VPN Plugin Sample](https://github.com/microsoft/UwpVpnPluginSample)、[wireguard-uwp-rs](https://github.com/luqmana/wireguard-uwp-rs)、[Maple](https://github.com/YtFlow/Maple) 和 [YtFlowCore](https://github.com/YtFlow/YtFlowCore)。
 

@@ -67,7 +67,7 @@ Git release 依赖，按 [TLS 来源契约](../docs/tls-dependencies.md) 审查�
 
 ## 独立容器验证
 
-互通与压力编排位于公开的 [container-benchmark](https://github.com/OneXray/container-benchmark)，
+互通与压力编排位于公开的 [container-benchmark](https://github.com/YuanDevTeam/container-benchmark)，
 始终显式提供 VCore checkout；VCore 编译入口不导入该工程或猜测相邻路径。
 
 ```sh

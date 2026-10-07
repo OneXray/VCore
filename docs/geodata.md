@@ -226,7 +226,7 @@ fallible Vec 扩容、合法 protobuf 帧/长度、code、选中匹配值的 UTF
 内存并不是零；accounted peak 不能作为加载或运行期峰值上界。
 50,000,000 bytes 是限定输入与联合负载下的进程实测验收目标，不是加载器保证。
 
-互通和内存/吞吐压力由公开 [container-benchmark](https://github.com/OneXray/container-benchmark)
+互通和内存/吞吐压力由公开 [container-benchmark](https://github.com/YuanDevTeam/container-benchmark)
 维护；`interop`、`stress` 和 `compare` 以 `--source vcore=PATH` 显式指定被测 checkout。
 VCore 自有脚本仅负责编译。压力与横向比较固定只引用完整 `geosite:cn` / `geoip:cn`，
 更新下载保留原始增强 DAT，但不因此加载其他分类。真实资产的类型分布、明确标识的四类型/复杂正则合成用例、

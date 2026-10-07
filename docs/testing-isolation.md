@@ -12,7 +12,7 @@
 ## 工程边界与结果保留
 
 协议互通的容器编排、对端下载、网络消费者和压力测试统一由公开的
-[container-benchmark](https://github.com/OneXray/container-benchmark) 管理。
+[container-benchmark](https://github.com/YuanDevTeam/container-benchmark) 管理。
 互通入口为 `container-benchmark interop --source vcore=PATH`，压力入口为
 `container-benchmark stress --source vcore=PATH`；真实执行必须显式指定 checkout，
 不推断父项目或相邻路径。VCore 的 `vcore-scripts` 仅编译平台产物，Rust 的

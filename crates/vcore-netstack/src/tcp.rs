@@ -85,10 +85,14 @@ pub(crate) struct TcpStreamHandle {
 }
 
 impl TcpStreamHandle {
-    pub(crate) fn new(app_buffer: usize, driver_notify: Arc<Notify>) -> Self {
+    pub(crate) fn new(
+        app_recv_buffer: usize,
+        app_send_buffer: usize,
+        driver_notify: Arc<Notify>,
+    ) -> Self {
         Self {
-            app_recv: ByteQueue::new(app_buffer),
-            app_send: ByteQueue::new(app_buffer),
+            app_recv: ByteQueue::new(app_recv_buffer),
+            app_send: ByteQueue::new(app_send_buffer),
             recv_waker: AtomicWaker::new(),
             send_waker: AtomicWaker::new(),
             dropped: AtomicBool::new(false),
@@ -321,7 +325,7 @@ mod tests {
 
     #[tokio::test]
     async fn closed_socket_unblocks_buffered_flush_and_rejects_writes() {
-        let handle = Arc::new(TcpStreamHandle::new(16, Arc::new(Notify::new())));
+        let handle = Arc::new(TcpStreamHandle::new(16, 16, Arc::new(Notify::new())));
         let mut stream = TcpStream::new(
             FlowKey {
                 source: "192.0.2.1:12000".parse().unwrap(),

@@ -624,10 +624,11 @@ impl Driver {
             return false;
         }
 
-        let layer_buffer = self.config.layer_buffer_size();
+        let recv_layer_buffer = self.config.recv_layer_buffer_size();
+        let send_layer_buffer = self.config.send_layer_buffer_size();
         let mut socket = tcp::Socket::new(
-            tcp::SocketBuffer::new(vec![0_u8; layer_buffer]),
-            tcp::SocketBuffer::new(vec![0_u8; layer_buffer]),
+            tcp::SocketBuffer::new(vec![0_u8; recv_layer_buffer]),
+            tcp::SocketBuffer::new(vec![0_u8; send_layer_buffer]),
         );
         socket.set_keep_alive(Some(smoltcp::time::Duration::from_secs(28)));
         socket.set_timeout(Some(self.config.tcp_idle_timeout.into()));
@@ -639,7 +640,11 @@ impl Driver {
             return false;
         }
 
-        let handle = Arc::new(TcpStreamHandle::new(layer_buffer, self.notify.clone()));
+        let handle = Arc::new(TcpStreamHandle::new(
+            recv_layer_buffer,
+            send_layer_buffer,
+            self.notify.clone(),
+        ));
         let socket_handle = self.sockets.add(socket);
         let stream = TcpStream::new(flow, handle.clone());
         if self.tcp_accept.try_send(stream).is_err() {

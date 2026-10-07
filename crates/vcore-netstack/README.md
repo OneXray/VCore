@@ -7,7 +7,7 @@ datagrams to async Rust code, and returns generated raw-IP packets.
 The default local buffers are intentionally small for an iOS TUN runtime;
 VCore does not assume the host process role:
 
-- 32 KiB total buffering per TCP direction, configurable;
+- 32 KiB total buffering per TCP direction, independently configurable;
 - bounded raw-packet, TCP-accept and UDP-datagram queues;
 - TCP flow state reclaimed by protocol completion or idle timeout;
 - no unbounded channel;
@@ -15,6 +15,13 @@ VCore does not assume the host process role:
 
 The repository-root `LICENSE` covers this crate. Upstream projects are credited
 in the repository `README.md`.
+
+`NetStackConfig::tcp_recv_buffer` bounds each flow's receive direction from raw
+IP to `TcpStream`'s `AsyncRead`, and `tcp_send_buffer` bounds its send direction
+from `AsyncWrite` to raw IP. Each total is split equally between the smoltcp
+socket buffer and the application-facing byte queue. Both default to 32 KiB
+(16 KiB per layer), must be even, and must be at least 4 KiB independently.
+Increasing one direction does not reserve additional bytes for the other.
 
 ## TCP/ICMP driver and UDP codec
 

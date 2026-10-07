@@ -5,7 +5,7 @@ VCore 的 netstack、DNS、规则和出站只处理完整的原始 IPv4/IPv6 数
 ## Unix 借用 fd
 
 ```text
-TunRuntime -> RustTunIo -> 宿主持有的 TUN fd 副本
+TunRuntime -> TunRsIo -> 宿主持有的 TUN fd 副本
 ```
 
 - iOS/tvOS/macOS：宿主提供 utun 文件描述符，适配器处理四字节 packet-information 头。
@@ -17,10 +17,10 @@ TunRuntime -> RustTunIo -> 宿主持有的 TUN fd 副本
 
 1. 验证文件描述符有效且已设置 `O_NONBLOCK`；
 2. 通过 `F_DUPFD_CLOEXEC` 创建 VCore 持有的副本；
-3. 把副本交给同步 TUN device，并用 Tokio `AsyncFd` 驱动；
+3. 把副本交给 `tun-rs::SyncDevice::from_fd`，并用 Tokio `AsyncFd` 驱动；
 4. 停止时只关闭副本。
 
-VCore 不调用会修改共享 open-file-description 标志的异步构造器。`tunFraming` 是严格宿主协议：Apple 只接受 `utun`，Android 和 Linux 只接受 `rawIp`，不自动探测。
+VCore 不调用会修改共享 open-file-description 标志的异步构造器，不通过 device builder 创建或重配置接口。`tunFraming` 是严格宿主协议：Apple 只接受 `utun`，Android 和 Linux 只接受 `rawIp`，不自动探测。
 
 Linux 启动前查询真实 TUN 及其所属网络命名空间，验证内核链接参数、实际 MTU 和
 raw-IP 格式；普通 socket/pipe、TAP、PI、VNET header 或多队列设备失败关闭。
@@ -95,6 +95,16 @@ TxToken 在消费 RX 前预留现有 raw egress 的槽位，生成包后直接�
 token 归还容量。满输出保留尚未处理的 TCP 包和协议状态，低优先级 ICMP 仍可
 丢当前请求。writer 消费包会显式唤醒 Driver；满输出不以零延迟 timer 忙重试，
 输出端关闭则停止 Driver、释放 socket 并唤醒全部等待者。
+
+netstack 的 TCP 接收与发送缓冲可独立配置，各方向的容量包含 smoltcp 与应用
+缓冲，两层各占一半。生产 TUN 仍从现有资源策略取得每方向 32 KiB，合计每流
+64 KiB 数据缓冲；不扩大默认容量、不新增用户 YAML 参数，也不改变其他协议
+的缓冲策略。该容量不包含代理 relay、包队列或 allocator 的内存。
+
+Linux 目前不启用 GRO/GSO：`tun-rs` 的 Linux offload 示例通过 builder 创建并
+配置带 VNET header 的设备，而当前借用 fd 构造器不识别该模式。对现有 raw-IP
+设备调用 `recv_multiple` 不会自动合并读取或启用 offload。VCore 保留宿主
+MTU/格式与 fd 标志，不以增加 builder 或修改宿主接口来暗中启用该能力。
 
 ## Windows VPN
 

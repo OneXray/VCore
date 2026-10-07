@@ -312,12 +312,101 @@ async fn dropping_the_only_output_consumer_stops_active_tcp_and_other_endpoints(
 }
 
 #[tokio::test]
+async fn asymmetric_tcp_buffers_bound_each_direction_and_stop_unblocks_writes() {
+    for (recv_buffer, send_buffer) in [(4 * 1024, 16 * 1024), (16 * 1024, 4 * 1024)] {
+        for flow in [Flow::v4(13_500), Flow::v6(13_501)] {
+            let mut parts = NetStack::start_tcp(NetStackConfig {
+                tcp_recv_buffer: recv_buffer,
+                tcp_send_buffer: send_buffer,
+                ..NetStackConfig::default()
+            })
+            .unwrap();
+            parts
+                .packet_sink
+                .send(build_tcp(&flow, 100, 0, TcpFlags::SYN, &[]))
+                .await
+                .unwrap();
+            let syn_ack = timeout_packet(&mut parts.packet_stream).await;
+            assert!(is_syn_ack(&syn_ack, &flow));
+            assert_eq!(usize::from(tcp_window(&syn_ack)), recv_buffer / 2);
+            let server_sequence = tcp_sequence(&syn_ack).wrapping_add(1);
+            let mut stream = parts.tcp_listener.accept().await.unwrap();
+
+            let recv_payload = vec![0x3c; 3000];
+            let mut client_sequence = 101_u32;
+            for chunk in recv_payload.chunks(1000) {
+                parts
+                    .packet_sink
+                    .send(build_tcp(
+                        &flow,
+                        client_sequence,
+                        server_sequence,
+                        TcpFlags::ACK,
+                        chunk,
+                    ))
+                    .await
+                    .unwrap();
+                client_sequence = client_sequence.wrapping_add(u32::try_from(chunk.len()).unwrap());
+                // Wait for each ACK so the driver can transfer received bytes
+                // into the application queue before the next ingress batch.
+                loop {
+                    let reply = timeout_packet(&mut parts.packet_stream).await;
+                    if tcp_acknowledgement(&reply) == client_sequence {
+                        break;
+                    }
+                }
+            }
+            let mut received = vec![0_u8; recv_payload.len()];
+            let count = tokio::time::timeout(WAIT, stream.read(&mut received))
+                .await
+                .expect("asymmetric receive buffer did not deliver data")
+                .unwrap();
+            assert_eq!(count, recv_payload.len().min(recv_buffer / 2));
+            tokio::time::timeout(WAIT, stream.read_exact(&mut received[count..]))
+                .await
+                .expect("draining the receive queue did not wake the driver")
+                .unwrap();
+            assert_eq!(received, recv_payload);
+
+            let send_payload = vec![0x5a; send_buffer + 1];
+            // This first write completes without yielding to the driver, so
+            // it measures the independently sized application send queue.
+            let count = stream.write(&send_payload).await.unwrap();
+            assert_eq!(count, send_buffer / 2);
+            tokio::time::timeout(WAIT, stream.write_all(&send_payload[count..send_buffer]))
+                .await
+                .expect("TCP send layers did not hold their configured total")
+                .unwrap();
+            // The peer never ACKs server data: smoltcp retains half the total
+            // and the application queue retains the other half.
+            let mut blocked = Box::pin(stream.write_all(&send_payload[send_buffer..]));
+            assert!(
+                tokio::time::timeout(Duration::from_millis(100), &mut blocked)
+                    .await
+                    .is_err(),
+                "send direction exceeded its configured total"
+            );
+            parts.control.stop().await;
+            assert!(
+                tokio::time::timeout(WAIT, blocked)
+                    .await
+                    .expect("stop did not wake the full asymmetric send queue")
+                    .is_err()
+            );
+            assert!(stream.is_stopped());
+            assert_eq!(parts.stats.snapshot().active_tcp, 0);
+        }
+    }
+}
+
+#[tokio::test]
 async fn tcp_write_applies_backpressure_and_stop_unblocks_it() {
     let config = NetStackConfig {
         packet_queue: 1,
         tcp_accept_queue: 1,
         udp_queue: 1,
-        tcp_buffer_per_direction: 8 * 1024,
+        tcp_recv_buffer: 8 * 1024,
+        tcp_send_buffer: 8 * 1024,
         max_poll_interval: Duration::from_millis(5),
         ..NetStackConfig::default()
     };
@@ -946,6 +1035,16 @@ fn is_syn_ack(packet: &Packet, flow: &Flow) -> bool {
 fn tcp_sequence(packet: &Packet) -> u32 {
     let offset = ip_header_len(packet.data());
     u32::from_be_bytes(packet.data()[offset + 4..offset + 8].try_into().unwrap())
+}
+
+fn tcp_acknowledgement(packet: &Packet) -> u32 {
+    let offset = ip_header_len(packet.data());
+    u32::from_be_bytes(packet.data()[offset + 8..offset + 12].try_into().unwrap())
+}
+
+fn tcp_window(packet: &Packet) -> u16 {
+    let offset = ip_header_len(packet.data());
+    u16::from_be_bytes(packet.data()[offset + 14..offset + 16].try_into().unwrap())
 }
 
 fn assert_icmp_checksums(packet: &Packet) {

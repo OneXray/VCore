@@ -13,7 +13,7 @@ TLS provider、ECH 算法和 SS2022/AWS-LC 消费链；没有独立的检查 CLI
 | 用途 | 来源 / 约束 |
 | --- | --- |
 | 普通无指纹 TLS、QUIC、共享 WebPKI | crates.io 官方 rustls/tokio-rustls，仅 ring |
-| 命名 ClientHello、REALITY、JLS、ShadowTLS v3 | 自有 OneXray/boring；开发用本地路径，PR/发布用 release 分支并由 lockfile 固定完整 revision |
+| 命名 ClientHello、REALITY、JLS、ShadowTLS v3 | 自有 YuanDevTeam/boring；开发用本地路径，PR/发布用 release 分支并由 lockfile 固定完整 revision |
 | SS 2022 | crates.io shadowsocks 版本依赖，原样官方库，仅 aead-cipher-2022 |
 | Encryption 原语 | 同一 boring 的公共 X25519、ML-KEM、AEAD、AES-CTR；官方 blake3 |
 | 静态 ECH | 官方 hpke，经 rustls 公开 HPKE trait；命名模板使用 boring 既有 ECH 接口 |
@@ -31,8 +31,8 @@ SS 日志抑制与未修补风险见[出站](outbounds.md#shadowsocks-2022)。
 
 1. 本地开发将三个 crate 一起改为自有 fork checkout 的相对 `path` 依赖；保留版本和
    feature 约束，更新 Cargo.lock 后执行 locked 构建与相关测试，不混用本地和 Git 来源。
-2. 发起或更新 VCore PR 前，先将所需 fork 改动发布至 OneXray/boring 的 `release`，
-   再将三个 crate 一起切回 `git = "https://github.com/OneXray/boring", branch = "release"`。
+2. 发起或更新 VCore PR 前，先将所需 fork 改动发布至 YuanDevTeam/boring 的 `release`，
+   再将三个 crate 一起切回 `git = "https://github.com/YuanDevTeam/boring", branch = "release"`。
    更新 Cargo.lock；若 revision 前移，对新的完整 revision 重新完成来源与能力审查。
 3. 在不依赖本地 fork 的 checkout 核对三个 crate 的 Git release 来源、完整锁定
    revision、registry 校验值与 provider/feature graph，再执行相关构建和定向回归。

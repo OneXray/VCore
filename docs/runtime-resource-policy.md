@@ -209,7 +209,7 @@ IP-only协议接点持有`ResolutionContext`，runtime DNS通过Weak绑定，不
   304 在 matcher 已可用时只调度，不可用时重载本地资产。既有 TCP 选路与 TUN UDP
   固定 action 不回溯；没有新增公开 API、业务数量配额或 GeoData 内存预算。
 
-公开 [benchmark](https://github.com/OneXray/container-benchmark) 的 `stress` 与 `compare`
+公开 [benchmark](https://github.com/YuanDevTeam/container-benchmark) 的 `stress` 与 `compare`
 固定只加载增强 DAT 中完整 `geosite:cn` / `geoip:cn`，不裁剪原件或扩展分类；
 `stress` 叠加 2 Gbps / 60 秒 / 1,000 QPS DNS，可选 `--geodata-update` 验证负载中
 真实下载与重载。该测试选择不限制生产支持的分类。真实资产中的类型计数、

@@ -1752,10 +1752,8 @@ fn tun_netstack_keeps_queue_and_per_flow_bounds_without_a_flow_count_ceiling() {
     let config = tun_netstack_config(limits, false);
 
     assert_eq!(config.tcp_accept_queue, limits.event_queue_capacity);
-    assert_eq!(
-        config.tcp_buffer_per_direction,
-        limits.tcp_buffer_per_direction
-    );
+    assert_eq!(config.tcp_recv_buffer, limits.tcp_buffer_per_direction);
+    assert_eq!(config.tcp_send_buffer, limits.tcp_buffer_per_direction);
     assert_eq!(config.mtu, 1_500);
     assert_eq!(limits.max_datagram_size, 65_535);
 }
