@@ -23,7 +23,7 @@ Read the relevant document completely before changing that area:
 - Windows VPN/TUN, outbound binding, AppContainer packet buffers, or package lifecycle: `docs/windows-vpn.md` and `docs/tun-platform.md`.
 - Builds: `scripts/README.md`; `vcore-scripts build` is compile-only, including delivery artifact-integrity checks.
 - Offline regressions: `tests/README.md`. Rust memory/configuration tests remain in VCore; run explicit pure-memory filters, with all-target coverage limited to `--no-run`.
-- Protocol interoperability or pressure: the public [container-benchmark](https://github.com/OneXray/container-benchmark) owns all container orchestration and fixtures. Supply the checkout explicitly with `--source vcore=PATH`; VCore builds do not import it or infer workspace paths.
+- Protocol interoperability or pressure: the public [container-benchmark](https://github.com/YuanDevTeam/container-benchmark) owns all container orchestration and fixtures. Supply the checkout explicitly with `--source vcore=PATH`; VCore builds do not import it or infer workspace paths.
 - Server-side tests: `docs/testing-isolation.md`. Use isolated benchmark containers for every server peer and network origin; container failure is not permission for a host fallback.
 - Claims that something passed: `docs/acceptance.md`. Record only commands and environments actually executed; host tests and cross-builds do not prove physical-device data paths.
 

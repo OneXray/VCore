@@ -2,7 +2,7 @@
 
 核心离线测试见 [tests](../tests/README.md)，平台编译入口见 [scripts](../scripts/README.md)。
 容器互通、压力与性能比较由公开的
-[container-benchmark](https://github.com/OneXray/container-benchmark) 的
+[container-benchmark](https://github.com/YuanDevTeam/container-benchmark) 的
 `interop` / `stress` / `compare` 分别执行，通过 `--source vcore=PATH`
 显式指定被测 checkout；VCore 编译入口不执行网络或压力验收。
 本文定义证据边界，不是随源码自动续期的“全部通过”证明。
@@ -133,8 +133,8 @@ Encryption、REALITY/JLS 等额外配置不在本入口覆盖内。这套代表�
 
 ## 当前证据如何使用
 
-精简前的[冻结验收索引](https://github.com/OneXray/VCore/blob/b7c0100602e188bf28b9fa5370e11120069b54f7/docs/acceptance.md)
-保留各次运行、原始失败、环境和适用 revision；[完整阶段记录](https://github.com/OneXray/VCore/tree/b7c0100602e188bf28b9fa5370e11120069b54f7/docs/acceptance)
+精简前的[冻结验收索引](https://github.com/YuanDevTeam/VCore/blob/b7c0100602e188bf28b9fa5370e11120069b54f7/docs/acceptance.md)
+保留各次运行、原始失败、环境和适用 revision；[完整阶段记录](https://github.com/YuanDevTeam/VCore/tree/b7c0100602e188bf28b9fa5370e11120069b54f7/docs/acceptance)
 可在 Git 历史查阅。它们不再复制到当前文档。
 
 该基线记录过本地协议集成、持续压力与 Apple/Android 构建通过；随后 boring release /

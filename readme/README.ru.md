@@ -99,7 +99,7 @@ void VCoreFree(char *response);
 
 ## Benchmark
 
-[**TUN-бенчмарк VCore / Mihomo**](https://github.com/OneXray/container-benchmark) содержит воспроизводимую методику, результаты измерений и сравнительные графики для обоих ядер в одинаковой среде с нативным Linux TUN.
+[**TUN-бенчмарк VCore / Mihomo**](https://github.com/YuanDevTeam/container-benchmark) содержит воспроизводимую методику, результаты измерений и сравнительные графики для обоих ядер в одинаковой среде с нативным Linux TUN.
 
 Проект benchmark также выполняет проверку совместимости протоколов (`interop`) и тесты нагрузки на память (`stress`), используя явно указанный checkout `--source vcore=PATH`. Собственные скрипты VCore только компилируют ядро и платформенные артефакты.
 

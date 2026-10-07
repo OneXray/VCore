@@ -92,7 +92,7 @@ jobs:
           packages = metadata["packages"]
           nodes = {node["id"]: node for node in metadata["resolve"]["nodes"]}
           registry = {"registry+https://github.com/rust-lang/crates.io-index", "registry+https://index.crates.io/"}
-          boring_source = "git+https://github.com/OneXray/boring?branch=release#43c1c1d5b9464b3f2d5204be8664778fada7dbaf"
+          boring_source = "git+https://github.com/YuanDevTeam/boring?branch=release#43c1c1d5b9464b3f2d5204be8664778fada7dbaf"
 
           def require(condition, message):
               if not condition:

@@ -99,7 +99,7 @@ void VCoreFree(char *response);
 
 ## Benchmark
 
-[**VCore / Mihomo TUN benchmark**](https://github.com/OneXray/container-benchmark) 提供两个内核在相同原生 Linux TUN 环境下的可复现测试设置、实测结果与对比图表。
+[**VCore / Mihomo TUN benchmark**](https://github.com/YuanDevTeam/container-benchmark) 提供两个内核在相同原生 Linux TUN 环境下的可复现测试设置、实测结果与对比图表。
 
 benchmark 工程同时负责协议互通（`interop`）与内存压力（`stress`），通过显式 `--source vcore=PATH` 提供被测 checkout；VCore 自有脚本只编译核心与平台产物。
 

@@ -99,7 +99,7 @@ One public instance follows `initialize → createInstance → prepare(configYam
 
 ## Benchmark
 
-[**VCore / Mihomo TUN benchmark**](https://github.com/OneXray/container-benchmark) contains the reproducible setup, measured results and comparison charts for both cores under the same native Linux TUN environment.
+[**VCore / Mihomo TUN benchmark**](https://github.com/YuanDevTeam/container-benchmark) contains the reproducible setup, measured results and comparison charts for both cores under the same native Linux TUN environment.
 
 The benchmark project also owns protocol interoperability (`interop`) and memory-pressure runs (`stress`), with an explicit `--source vcore=PATH` checkout. VCore's own scripts only compile core and platform artifacts.
 
