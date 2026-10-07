@@ -2,8 +2,7 @@
 //!
 //! The service is attached to a running instance, but the manager and its
 //! cross-process lock own the shared resource state. Network traffic is sent
-//! only through the raw configured default-proxy dispatcher supplied by the
-//! runtime.
+//! only through the final MATCH route dispatcher supplied by the runtime.
 
 use std::{
     io,
@@ -70,11 +69,7 @@ impl GeoDataUpdateService {
                 return Ok(());
             }
 
-            match self.manager.due_resources_for_active_registration(
-                &self.registration,
-                self.sources(),
-                SystemTime::now(),
-            ) {
+            match self.due_resources(cancellation.clone()).await {
                 Ok(due) => {
                     retries.clear_expired_not_due(&due, Instant::now());
                     for kind in due {
@@ -89,6 +84,7 @@ impl GeoDataUpdateService {
                             Ok(UpdateAttempt::Busy) => {
                                 retries.defer(kind, UPDATE_BUSY_RETRY);
                             }
+                            Err(_) if cancellation.is_cancelled() => return Ok(()),
                             Err(error) => {
                                 let delay = retries.failed(kind);
                                 tracing::warn!(
@@ -101,6 +97,7 @@ impl GeoDataUpdateService {
                         }
                     }
                 }
+                Err(_) if cancellation.is_cancelled() => return Ok(()),
                 Err(error) => {
                     tracing::warn!(
                         error = %error,
@@ -121,11 +118,26 @@ impl GeoDataUpdateService {
         }
     }
 
-    fn sources(&self) -> [(GeoDataKind, &str); 2] {
-        [
-            (GeoDataKind::GeoSite, self.urls.geosite.as_str()),
-            (GeoDataKind::GeoIp, self.urls.geoip.as_str()),
-        ]
+    async fn due_resources(
+        &self,
+        cancellation: CancellationToken,
+    ) -> Result<Vec<GeoDataKind>, String> {
+        let manager = self.manager.clone();
+        let registration = self.registration.clone();
+        let urls = self.urls.clone();
+        blocking_operation(move || {
+            manager.due_resources_for_active_registration_with_cancellation(
+                &registration,
+                [
+                    (GeoDataKind::GeoSite, urls.geosite.as_str()),
+                    (GeoDataKind::GeoIp, urls.geoip.as_str()),
+                ],
+                SystemTime::now(),
+                &cancellation,
+            )
+        })
+        .await?
+        .map_err(|error| error.to_string())
     }
 
     async fn update_one(
@@ -133,13 +145,22 @@ impl GeoDataUpdateService {
         kind: GeoDataKind,
         cancellation: CancellationToken,
     ) -> Result<UpdateAttempt, String> {
-        let source_url = resource_url(&self.urls, kind);
-        let session = match self.manager.begin_update_for_active_registration(
-            &self.registration,
-            kind,
-            source_url,
-            SystemTime::now(),
-        ) {
+        let source_url = resource_url(&self.urls, kind).to_owned();
+        let manager = self.manager.clone();
+        let registration = self.registration.clone();
+        let begin_source = source_url.clone();
+        let begin_cancellation = cancellation.clone();
+        let session = match blocking_operation(move || {
+            manager.begin_update_for_active_registration_with_cancellation(
+                &registration,
+                kind,
+                &begin_source,
+                SystemTime::now(),
+                &begin_cancellation,
+            )
+        })
+        .await?
+        {
             Ok(Some(session)) => session,
             Ok(None) => return Ok(UpdateAttempt::Completed),
             Err(GeoDataManagerError::UpdateBusy) => return Ok(UpdateAttempt::Busy),
@@ -148,26 +169,30 @@ impl GeoDataUpdateService {
         let etag = session.request_etag().map(ToOwned::to_owned);
         let request = GeoDataDownloadRequest {
             dispatcher: self.dispatcher.clone(),
-            url: source_url.to_owned(),
+            url: source_url,
             etag: etag.clone(),
             temporary_path: session.temporary_path().to_path_buf(),
             timeout: DEFAULT_DOWNLOAD_TIMEOUT,
-            cancellation,
+            cancellation: cancellation.clone(),
         };
         match download_geodata_via_proxy(request).await {
             Ok(GeoDataDownloadOutcome::NotModified) => {
-                session
-                    .not_modified(etag)
-                    .map_err(|error| error.to_string())?;
+                blocking_operation(move || {
+                    session.not_modified_with_cancellation(etag, &cancellation)
+                })
+                .await?
+                .map_err(|error| error.to_string())?;
                 tracing::info!(geodata_kind = %kind, "VCore GeoData is current");
                 Ok(UpdateAttempt::Completed)
             }
             Ok(GeoDataDownloadOutcome::Downloaded {
                 etag, sha256, size, ..
             }) => {
-                let report = session
-                    .commit(etag, sha256, size)
-                    .map_err(|error| error.to_string())?;
+                let report = blocking_operation(move || {
+                    session.commit_with_cancellation(etag, sha256, size, &cancellation)
+                })
+                .await?
+                .map_err(|error| error.to_string())?;
                 tracing::info!(
                     geodata_kind = %kind,
                     bytes = size,
@@ -178,13 +203,27 @@ impl GeoDataUpdateService {
             }
             Err(error) => {
                 let message = error.to_string();
-                if let Err(cleanup_error) = session.fail(&message) {
+                let failure = message.clone();
+                if let Err(cleanup_error) = blocking_operation(move || session.fail(failure))
+                    .await
+                    .and_then(|result| result.map_err(|error| error.to_string()))
+                {
                     return Err(format!("{message}; state cleanup failed: {cleanup_error}"));
                 }
                 Err(message)
             }
         }
     }
+}
+
+/// Always join management work, including during cancellation. Dropping a
+/// blocking task's handle would let it outlive the runtime's stop barrier.
+async fn blocking_operation<T: Send + 'static>(
+    operation: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, String> {
+    tokio::task::spawn_blocking(operation)
+        .await
+        .map_err(|_| "GeoData management task failed".to_owned())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -274,6 +313,108 @@ fn resource_url(urls: &GeoDataUrls, kind: GeoDataKind) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        config::{RuleAction, RuleKind, RuleSpec},
+        dispatch::{BoxStream, DatagramTransport, DispatchError},
+        geodata::{GEOSITE_FILE_NAME, GeoRequirements},
+        routing::GeoMatcher,
+        session::{DatagramSession, StreamSession},
+    };
+
+    struct NoNetworkDispatcher;
+
+    #[async_trait::async_trait]
+    impl Dispatcher for NoNetworkDispatcher {
+        async fn connect_tcp(&self, _: StreamSession) -> Result<BoxStream, DispatchError> {
+            panic!("GeoData drain regression must not connect to a network peer");
+        }
+
+        async fn open_datagram(
+            &self,
+            _: DatagramSession,
+        ) -> Result<Box<dyn DatagramTransport>, DispatchError> {
+            panic!("GeoData drain regression must not open a datagram transport");
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn stop_joins_external_reload_without_blocking_the_async_worker_or_publishing_late() {
+        use sha2::{Digest, Sha256};
+        use std::{fs, io::Write};
+
+        let root = tempfile::tempdir().unwrap();
+        let old_asset = b"\x0a\x15\x0a\x02cn\x12\x0f\x08\x02\x12\x0bold.example";
+        let new_asset = b"\x0a\x15\x0a\x02cn\x12\x0f\x08\x02\x12\x0bnew.example";
+        let manager = GeoDataManager::open(root.path(), Duration::from_secs(60)).unwrap();
+        fs::write(root.path().join(GEOSITE_FILE_NAME), old_asset).unwrap();
+        let registration = manager
+            .register(
+                GeoRequirements::collect(
+                    &[RuleSpec {
+                        kind: RuleKind::GeoSite("cn".to_owned()),
+                        action: RuleAction::Direct,
+                        no_resolve: false,
+                    }],
+                    &[],
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        let matcher = registration.matcher();
+        let old = matcher.snapshot();
+        assert!(old.matches_geosite("cn", "www.old.example"));
+
+        let external = GeoDataManager::open(root.path(), Duration::from_secs(60)).unwrap();
+        let update = external.begin_update(GeoDataKind::GeoSite).unwrap();
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(update.temporary_path())
+            .unwrap();
+        file.write_all(new_asset).unwrap();
+        file.sync_all().unwrap();
+        drop(file);
+        update
+            .commit(
+                None,
+                Sha256::digest(new_asset).into(),
+                new_asset.len() as u64,
+            )
+            .unwrap();
+
+        let cancellation = CancellationToken::new();
+        let service = GeoDataUpdateService::new(
+            manager,
+            Arc::new(NoNetworkDispatcher),
+            registration.updater_lease(),
+            GeoDataUrls {
+                geoip: "https://rules.example.test/geoip.dat".to_owned(),
+                geosite: "https://rules.example.test/geosite.dat".to_owned(),
+            },
+        );
+        let run = tokio::spawn(service.run(cancellation.clone()));
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while matcher.geosite_available("cn") {
+                tokio::task::yield_now().await;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        })
+        .await
+        .expect("GeoData drain must leave the current-thread async worker responsive");
+        assert!(!run.is_finished());
+        assert!(old.matches_geosite("cn", "www.old.example"));
+
+        cancellation.cancel();
+        tokio::time::timeout(Duration::from_secs(1), run)
+            .await
+            .expect("Stop must cancel and join the pending GeoData drain")
+            .unwrap()
+            .unwrap();
+        drop(old);
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(!matcher.geosite_available("cn"));
+        assert!(!matcher.matches_geosite("cn", "www.new.example"));
+    }
 
     #[test]
     fn retry_backoff_is_bounded_and_resets_after_success() {

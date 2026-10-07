@@ -142,6 +142,9 @@ pub struct GeoData {
     ips: Vec<IpCategory>,
     allocation_capacity: usize,
     peak_allocation_capacity: usize,
+    // Fields drop in declaration order: signal only after matcher storage is
+    // destroyed, not merely when the Arc strong count reaches zero.
+    release: Option<manager::SnapshotRelease>,
 }
 
 impl std::fmt::Debug for GeoData {
@@ -168,6 +171,7 @@ impl GeoData {
         ips: Vec::new(),
         allocation_capacity: 0,
         peak_allocation_capacity: 0,
+        release: None,
     };
 
     /// Loads only categories referenced by `rules` from the two fixed sibling
@@ -214,11 +218,13 @@ impl GeoData {
         // manager reloads share this allocation-free indexing step.
         sites.sort_unstable_by_key(|category| category.code);
         ips.sort_unstable_by_key(|category| category.code);
+        let release = (!sites.is_empty() || !ips.is_empty()).then(manager::SnapshotRelease::new);
         Self {
             sites,
             ips,
             allocation_capacity,
             peak_allocation_capacity,
+            release,
         }
     }
 

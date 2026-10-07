@@ -105,7 +105,7 @@ benchmark 工程同时负责协议互通（`interop`）与内存压力（`stress
 
 测试使用 **1 / 1.5 / 2 Gbps** 混合 TCP/UDP 流量、**每秒 1,000 次 DNS 查询**和增强的 `geosite:cn` / `geoip:cn` 规则，报告实际吞吐量、CPU、观察到的 Linux 峰值 RSS、UDP 丢包与成功的 DNS 查询数。它使用 DIRECT 出口评估 TUN/DNS/路由路径，不衡量加密代理吞吐量；Linux RSS 不等同于 Apple Network Extension 内存占用。
 
-独立 `stress` 命令默认加载完整增强 GeoData，包含属性/反选见证，并叠加 2 Gbps / 60 秒 / 1,000 QPS DNS。实际输入类型、测量和失败见 benchmark README。可选条数参数只调整实验输入，不改变生产行为；任何单次观测都不是任意输入低于 50,000,000 字节的保证，也不替代 Apple 真机验收。
+独立 `stress` 命令使用同样的完整增强 `geosite:cn` / `geoip:cn`，叠加 2 Gbps / 60 秒 / 1,000 QPS DNS。原始 DAT 不裁剪，但只加载 CN 分类；可选 `--geodata-update` 在流量期间执行真实下载与重载。实际输入类型、测量和失败见 benchmark README。任何单次观测都不是任意输入低于 50,000,000 字节的保证，也不替代 Apple 真机验收。
 
 ## 文档
 

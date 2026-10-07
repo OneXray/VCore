@@ -105,7 +105,7 @@ The benchmark project also owns protocol interoperability (`interop`) and memory
 
 It measures **1 / 1.5 / 2 Gbps** mixed TCP/UDP traffic with **1,000 DNS queries/s** and enhanced `geosite:cn` / `geoip:cn` rules, reporting actual throughput, CPU, observed peak Linux RSS, UDP packet loss and successful DNS queries. It evaluates the TUN/DNS/routing path with DIRECT egress, not encrypted proxy throughput; Linux RSS is not Apple Network Extension footprint.
 
-The separate `stress` command loads complete enhanced GeoData assets by default, with attribute/inversion witnesses and a 2 Gbps / 60-second / 1,000 DNS QPS workload. The benchmark README records actual input types, measurements and failures. Optional record sizing changes only the benchmark input, never production behavior. No observation is a 50,000,000-byte guarantee for arbitrary input or a substitute for Apple device validation.
+The separate `stress` command uses the same complete enhanced `geosite:cn` / `geoip:cn` selection with a 2 Gbps / 60-second / 1,000 DNS QPS workload. Original DAT files are downloaded without trimming; only CN categories are loaded. Optional `--geodata-update` adds real downloading and reloading during traffic. The benchmark README records actual input types, measurements and failures. No observation is a 50,000,000-byte guarantee for arbitrary input or a substitute for Apple device validation.
 
 ## Documentation
 
