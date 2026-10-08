@@ -15,7 +15,7 @@ use std::{
 
 use crate::dialer::SocketProtector;
 
-use super::{
+use crate::invoke::{
     MAX_INVOKE_BYTES, invoke_bytes_admitted, is_runtime_thread, replace_android_socket_protector,
     runtime_thread_response,
 };

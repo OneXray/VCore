@@ -24,7 +24,7 @@ Release 构建优先吞吐（`opt-level = 3`），保留 thin LTO 与现有缓�
 
 ```text
 原始包 / MTU                    1,500 字节
-最终代理 UDP 负载               1,452 字节（Windows 1,352）
+最终代理 UDP 负载               1,452 字节（Windows WinRT 1,352）
 包队列                          256
 普通事件 / TCP accept           128
 每关联 UDP 入站                 64
@@ -37,7 +37,7 @@ DNS 原始响应缓存                64 项 / 256 KiB
 TUN 域名提示                    256 项（按需）
 ```
 
-Windows L3 接口及其 Session Host netstack 使用 1400 MTU，因此按 IPv6 UDP 头保守计算的响应负载上限是 1352；表中的 1500 是跨平台原始包解析上限和其他 TUN 平台的固定 MTU。
+Windows WinRT L3 接口及其 Session Host netstack 使用 1400 MTU，因此按 IPv6 UDP 头保守计算的响应负载上限是 1352；表中的 1500 是跨平台原始包解析上限，以及 Unix 和 Windows Wintun 的固定 MTU。
 
 - 普通 UDP 在 reader 同步分流并直接提交到每源关联，不经过 TCP Driver 或共享 UDP 入站队列；DNS 查询独立提交受跟踪任务。
 - 每关联请求、普通响应和 DNS 响应使用独立内部容量，不扩大 128 项的 TCP accept，也不增加公开配置字段。
@@ -135,7 +135,7 @@ Linux TUN `txqueuelen` 属于宿主网络配置，VCore
 平台；Linux 吞吐与 RSS 结果也不替代 iOS/tvOS physical footprint 或真机验收。
 诊断计时探针、强制让步、Full 后重试和无协作预算发送不属于生产优化策略。
 
-嵌套代理协议可以增加有界帧头，但最终解封装负载仍不得超过调用方按有效 MTU 给出的上限；其他 TUN 平台为 1,452 字节，Windows 为 1,352 字节。
+嵌套代理协议可以增加有界帧头，但最终解封装负载仍不得超过调用方按有效 MTU 给出的上限；Unix 和 Windows Wintun 为 1,452 字节，Windows WinRT 为 1,352 字节。
 
 ### 定向数据报预算与受控 QUIC
 

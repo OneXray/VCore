@@ -151,7 +151,7 @@ if (response != nullptr) {
   "bridgeVersion": 3,
   "method": "startVpn",
   "payload": {
-    "configYaml": "tun:\n  enable: true\n...",
+    "configYaml": "tun:\n  enable: true\n  mtu: 1400\n...",
     "networkSettings": {
       "ipv4Address": "192.168.3.1",
       "ipv6Address": "fd00::2",

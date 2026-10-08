@@ -4,9 +4,17 @@ VCore turns host-captured IP traffic into routed proxy or direct sessions while 
 
 ## Language
 
+**VCore CLI**:
+The foreground `vcore` executable that reads one YAML configuration and owns one shared-core session. Its configuration-test mode performs core validation without initialization or networking; its normal mode waits for shutdown and core cleanup.
+_Avoid_: Windows session host, second proxy core, service, daemon
+
 **Windows VPN provider**:
 The packaged AppContainer participant that owns one active Windows tunnel session and exchanges its raw-IP packets with the Windows session runtime.
 _Avoid_: Plugin, background task when referring to the whole participant, proxy core
+
+**Windows Wintun adapter**:
+The desktop raw-IP platform adapter backed by a host-provided Wintun DLL. It connects to the shared VCore TUN runtime without a Windows VPN Provider, package identity or packet channel; the first release leaves system network configuration to the host.
+_Avoid_: Windows VPN provider, second proxy core, Unix fd emulation
 
 **Windows VPN policy**:
 The profile-level Always On and destination-bypass choices for a Windows tunnel whose application scope is always global.
@@ -45,7 +53,7 @@ The small package-local record that lets one Windows session host locate the act
 _Avoid_: Session record, tunnel snapshot, configuration file
 
 **Physical network binding**:
-The immutable adapter identity and source-IP/interface-index pairs selected for one Windows tunnel session.
+The immutable adapter identity and source-IP/interface-index pairs selected by the WinRT Provider for one Windows VPN session and passed to its Session Host. Desktop Wintun leaves physical egress and routing isolation to the host; its default Dialer does not acquire this Provider-owned binding.
 _Avoid_: Default interface, automatic fallback, interface-only binding
 
 **TUN traffic snapshot**:

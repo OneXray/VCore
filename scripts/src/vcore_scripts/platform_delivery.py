@@ -76,7 +76,12 @@ def _check_delivery(manifests: list[Path]) -> None:
         if (
             record.get("formatVersion") != 1
             or record.get("profile") != "release"
-            or record.get("features") != builds.DEFAULT_FEATURES.split(",")
+            or record.get("features")
+            != (
+                builds.WINDOWS_FEATURES
+                if str(record.get("group", "")).startswith("windows-")
+                else builds.DEFAULT_FEATURES
+            ).split(",")
             or record.get("buildIdentity") != builds.EXPECTED_IDENTITY.decode()
         ):
             raise ValueError("incompatible production artifact metadata")
@@ -374,7 +379,11 @@ def build_delivery(platform_name: str) -> None:
         "group": group,
         "profile": "release",
         "source": source,
-        "features": builds.DEFAULT_FEATURES.split(","),
+        "features": (
+            builds.WINDOWS_FEATURES
+            if platform_name == "windows"
+            else builds.DEFAULT_FEATURES
+        ).split(","),
         "buildIdentity": builds.EXPECTED_IDENTITY.decode(),
         "host": {
             "os": platform.system(),

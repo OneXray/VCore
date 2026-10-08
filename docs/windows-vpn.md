@@ -1,6 +1,12 @@
 # Windows VPN 平台边界
 
-Windows 数据面只使用官方 `Windows.Networking.Vpn` 和 `windows-rs`，不使用 Wintun 或文件描述符模拟层。完整代理运行时位于每会话 Session Host；AppContainer Provider 只负责 Windows VPN 平台资源和失败关闭。
+本文维护 MSIX 安装包中的官方 `Windows.Networking.Vpn` / `windows-rs` 路径。完整代理运行时位于每会话 Session Host；AppContainer Provider 只负责 Windows VPN 平台资源和失败关闭。普通桌面进程的 Wintun 适配见 [TUN 平台层](tun-platform.md#windows-wintun)，两条路径共用内核且不互相降级。
+
+Windows 包构建显式启用 `ffi,windows-uwp`。`invoke` 提供共用业务 dispatcher，`ffi`
+仅包装 C ABI/JNI；`windows-uwp` 单独启用 WinRT VPN 功能、Provider/Session Host 与包集成。
+普通 CLI 使用 `cli,windows-wintun`，两种后端在 Windows 编译时互斥，UWP 不拉入
+tun-rs 的 Wintun 后端，也不依赖外置 `wintun.dll`。Wintun 的 interruptible I/O
+会间接使用 Windows Win32 bindings；这不启用 `Networking_Vpn` 等 WinRT 包功能。
 
 ## 安装包边界
 
@@ -66,7 +72,7 @@ u16 大端序包长
 - Provider 两侧包队列容量均为 256；从空变为非空时只发一次唤醒；
 - `Decapsulate` 每次排空当前已就绪队列，队列满按包计数。
 
-`StartWithMainTransport` 按 WinRT 契约使用 1400 MTU 和 1412 最大 frame；Session Host netstack 同样使用 1400 MTU，并把 TUN/XUDP 与 DNS UDP 响应负载保守限制为 MTU 减 48，即 1352 字节。packet channel 的 1500 上限仍是帧解析的结构边界，不是 Windows L3 接口宣告值。
+`tun.mtu` 同时用于 Provider 的 `StartWithMainTransport`、Session Host netstack 和包校验，最大 frame 为 MTU 加 12。WinRT 接口 MTU 上限为 1400；配置必须显式填写受支持值，例如 `mtu: 1400`。内核通用默认 9000 在此路径会报错，不会被静默截断。TUN/XUDP 与 DNS UDP 响应负载保守限制为 MTU 减 48；MTU 1400 时为 1352 字节。packet channel 的 1500 上限仍是帧解析的结构边界，不是 Windows L3 接口宣告值。
 
 控制消息使用独立管道，避免包背压阻塞启动和停止。
 

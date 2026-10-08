@@ -20,6 +20,8 @@ DEFAULT_FEATURES = (
     "outbound-hysteria2,outbound-tuic,shadow-tls-v3"
 )
 
+WINDOWS_FEATURES = DEFAULT_FEATURES + ",windows-uwp"
+
 
 def tvos_deployment_target() -> str:
     value = _env("VCORE_TVOS_DEPLOYMENT_TARGET", "17.0")
@@ -592,6 +594,35 @@ def _windows_msvc_environment(architecture: str) -> dict[str, str]:
     return env
 
 
+def check_windows_wintun_cli() -> None:
+    """Typecheck the other native Windows backend without staging artifacts."""
+    if os.name != "nt":
+        raise RuntimeError("Windows Wintun CLI must be checked on Windows")
+    architecture = _windows_architecture()
+    target = {
+        "arm64": "aarch64-pc-windows-msvc",
+        "x64": "x86_64-pc-windows-msvc",
+    }[architecture]
+    env = _windows_msvc_environment(architecture)
+    _run(
+        [
+            "cargo",
+            "check",
+            "--locked",
+            "--release",
+            "--target",
+            target,
+            "--no-default-features",
+            "--features",
+            "cli,windows-wintun",
+            "--lib",
+            "--bin",
+            "vcore",
+        ],
+        env=env,
+    )
+
+
 def build_windows() -> None:
     if os.name != "nt":
         raise RuntimeError("Windows artifacts must be built on Windows")
@@ -616,7 +647,7 @@ def build_windows() -> None:
         target,
         "--no-default-features",
         "--features",
-        DEFAULT_FEATURES,
+        WINDOWS_FEATURES,
     ]
     _run([*base, "--lib", "--bins"], env=env)
 

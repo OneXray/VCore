@@ -84,6 +84,45 @@ async fn ready_tcp_burst_preserves_flow_binding_and_neighboring_icmp() {
 }
 
 #[tokio::test]
+async fn configured_jumbo_mtu_reaches_tcp_mss_for_both_ip_families() {
+    let mut parts = NetStack::start_tcp(NetStackConfig {
+        mtu: 9000,
+        ..NetStackConfig::default()
+    })
+    .unwrap();
+    for flow in [Flow::v4(12000), Flow::v6(12001)] {
+        parts
+            .packet_sink
+            .send(build_tcp(&flow, 100, 0, TcpFlags::SYN, &[]))
+            .await
+            .unwrap();
+        let reply = timeout_packet(&mut parts.packet_stream).await;
+        assert!(is_syn_ack(&reply, &flow));
+        let offset = ip_header_len(reply.data());
+        let header_len = usize::from(reply.data()[offset + 12] >> 4) * 4;
+        let mut options = &reply.data()[offset + 20..offset + header_len];
+        let mut mss = None;
+        while let Some(kind) = options.first().copied() {
+            match kind {
+                0 => break,
+                1 => options = &options[1..],
+                _ => {
+                    let length = usize::from(options[1]);
+                    assert!(length >= 2 && length <= options.len());
+                    if kind == 2 {
+                        assert_eq!(length, 4);
+                        mss = Some(u16::from_be_bytes([options[2], options[3]]));
+                    }
+                    options = &options[length..];
+                }
+            }
+        }
+        assert_eq!(mss, Some(u16::try_from(9000 - offset - 20).unwrap()));
+    }
+    parts.control.stop().await;
+}
+
+#[tokio::test]
 async fn synthetic_tun_supports_ipv4_and_ipv6_tcp_and_udp() {
     let stack = NetStack::start(NetStackConfig::default()).unwrap();
     let mut parts = stack.into_parts();

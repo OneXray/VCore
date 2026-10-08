@@ -14,12 +14,21 @@ impl TunFd {
     /// host must supply a nonblocking descriptor because `dup` shares file
     /// status flags with the original open-file description; VCore never
     /// changes those shared flags behind the host's back.
-    /// Linux additionally validates a real, raw-IP, single-queue TUN with MTU
-    /// 1500 in its owning network namespace before accepting the duplicate.
+    /// Linux additionally validates a real raw-IP single-queue TUN and its
+    /// configured MTU in the owning network namespace before acceptance.
     pub fn duplicate(borrowed_fd: RawFd) -> Result<Self> {
+        Self::duplicate_with_mtu(borrowed_fd, 1500)
+    }
+
+    pub fn duplicate_with_mtu(borrowed_fd: RawFd, mtu: u16) -> Result<Self> {
+        if mtu < 1280 {
+            return Err(
+                std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid TUN MTU").into(),
+            );
+        }
         let fd = Self::duplicate_descriptor(borrowed_fd)?;
         #[cfg(target_os = "linux")]
-        super::linux_tun::validate(fd.as_fd())?;
+        super::linux_tun::validate(fd.as_fd(), mtu)?;
         Ok(fd)
     }
 

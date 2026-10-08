@@ -20,7 +20,7 @@ use windows::{
     ApplicationModel::{
         Background::{IBackgroundTask, IBackgroundTask_Impl, IBackgroundTaskInstance},
         Core::CoreApplication,
-        FullTrustProcessLauncher,
+        FullTrustProcessLauncher, Package,
     },
     Networking::{
         Connectivity::{ConnectionProfile, NetworkInformation, NetworkStatusChangedEventHandler},
@@ -61,19 +61,23 @@ use windows_collections::IVectorView;
 use windows_core::{AgileReference, IUnknownImpl as _};
 
 use super::{
-    WINDOWS_VPN_MTU, log,
+    log,
     packet_channel::{
         AddressBindingV4, AddressBindingV6, PacketCounters, PhysicalBinding, ProviderPacketSession,
         remove_rendezvous,
     },
+    packet_channel_mtu,
     policy::{WindowsVpnCidr, WindowsVpnPolicy},
     profile::{WindowsNetworkSettings, WindowsProfileConfiguration},
+    snapshot::SessionReference,
 };
-use crate::platform::{TunIo, WindowsPacketAdapter, WindowsPacketStats};
+use crate::{
+    config::Config,
+    platform::{TunIo, WindowsPacketAdapter, WindowsPacketStats},
+};
 
 const CLASS_NAME: &str = "VCore.VpnBackgroundTask";
 const PACKET_QUEUE_CAPACITY: usize = 256;
-const WINDOWS_VPN_MAX_FRAME_SIZE: u32 = WINDOWS_VPN_MTU as u32 + 12;
 const FAIL_CLOSED_IDLE: u8 = 0;
 const FAIL_CLOSED_STOPPING: u8 = 1;
 const FAIL_CLOSED_CANCELLED: u8 = 2;
@@ -644,6 +648,12 @@ impl VpnProvider {
             &channel.Configuration()?.CustomField()?.to_string(),
         )?;
         let token = profile.snapshot_token().to_owned();
+        let installed_folder =
+            PathBuf::from(Package::Current()?.InstalledLocation()?.Path()?.to_string());
+        let snapshot = SessionReference::parse(&token)?.read(&local_folder, &installed_folder)?;
+        let config = Config::parse_yaml(snapshot.config_yaml().as_bytes())
+            .map_err(|_| Error::new(E_FAIL, "invalid VCore configuration"))?;
+        let mtu = packet_channel_mtu(&config).map_err(windows_error)?;
         let physical = PhysicalNetwork::current()?;
 
         let transport_address = physical
@@ -676,9 +686,10 @@ impl VpnProvider {
         let dns = vpn_dns_assignment(profile.network_settings(), ipv6)?;
 
         let wake_output = AgileReference::new(&output)?;
-        let (tun, packets) = TunIo::new(PACKET_QUEUE_CAPACITY, move || {
+        let (tun, packets) = TunIo::new(PACKET_QUEUE_CAPACITY, mtu, move || {
             write_dummy(&wake_output.resolve().map_err(io::Error::other)?).map_err(io::Error::other)
-        });
+        })
+        .map_err(windows_error)?;
         let (fail_closed, fail_closed_handle) = FailClosedStop::start(channel, physical.clone())?;
 
         {
@@ -724,8 +735,8 @@ impl VpnProvider {
             None::<&VpnInterfaceId>,
             &routes,
             &dns,
-            WINDOWS_VPN_MTU as u32,
-            WINDOWS_VPN_MAX_FRAME_SIZE,
+            u32::from(mtu),
+            u32::from(mtu) + 12,
             false,
             &transport,
         )?;

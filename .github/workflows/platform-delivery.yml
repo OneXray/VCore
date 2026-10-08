@@ -82,6 +82,11 @@ jobs:
           cache-bin: "false"
       - name: Build production artifacts and validate identity
         run: uv run --project scripts --locked vcore-scripts build ${{ matrix.platform }} --delivery
+      - name: Check native Wintun CLI without staging release assets
+        if: matrix.platform == 'windows'
+        run: >-
+          uv run --project scripts --locked python -c
+          "from vcore_scripts.builds import check_windows_wintun_cli; check_windows_wintun_cli()"
       - name: Preserve unsigned build artifacts
         uses: actions/upload-artifact@v7
         with:

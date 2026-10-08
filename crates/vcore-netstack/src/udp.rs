@@ -252,6 +252,31 @@ mod tests {
         )
     }
 
+    #[test]
+    fn configured_jumbo_mtu_preserves_full_udp_packets_for_both_families() {
+        for (source, destination, overhead) in [
+            ("192.0.2.1:4000", "198.51.100.2:443", 28),
+            ("[2001:db8::1]:4000", "[2001:db8::2]:443", 48),
+        ] {
+            let datagram = UdpDatagram::new(
+                source.parse().unwrap(),
+                destination.parse().unwrap(),
+                vec![0x5a; 9000 - overhead],
+            );
+            let mut frame = Vec::new();
+            encode_udp_packet_into(&datagram, 9000, &mut frame).unwrap();
+            assert_eq!(frame.len(), 9000);
+            let parsed = parse_udp_packet_view(&frame).unwrap();
+            assert_eq!(parsed.source, datagram.source);
+            assert_eq!(parsed.destination, datagram.destination);
+            assert_eq!(parsed.payload, datagram.payload.as_ref());
+            assert!(matches!(
+                encode_udp_packet_into(&datagram, 8999, &mut frame),
+                Err(UdpError::MtuExceeded { .. })
+            ));
+        }
+    }
+
     #[tokio::test]
     async fn sender_backpressure_does_not_block_socket_receive() {
         let (mut socket, inbound, mut output) = socket_fixture();

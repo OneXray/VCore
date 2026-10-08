@@ -38,6 +38,24 @@ class ScriptTest(unittest.TestCase):
         self.assertNotIn("interop-test", features)
         self.assertNotIn("benchmark-geodata-http", features)
 
+    def test_windows_backend_dependencies_and_host_bins_are_explicit(self):
+        manifest = tomllib.loads((builds.CORE_DIR / "Cargo.toml").read_text())
+        features = manifest["features"]
+        self.assertEqual(features["ffi"], ["invoke"])
+        self.assertEqual(features["cli"], ["invoke"])
+        self.assertIn("dep:tun-rs", features["windows-wintun"])
+        self.assertNotIn("dep:tun-rs", features["tun"])
+        self.assertNotIn("dep:tun-rs", features["windows-uwp"])
+        self.assertFalse(
+            set(features["invoke"]) & {"windows-uwp", "windows-wintun", "ffi"}
+        )
+        windows = manifest["target"]["cfg(windows)"]["dependencies"]
+        self.assertTrue(windows["tun-rs"]["optional"])
+        self.assertEqual(windows["tun-rs"]["features"], ["interruptible"])
+        for binary in manifest["bin"]:
+            if binary["name"].startswith("vcore-windows-"):
+                self.assertEqual(binary["required-features"], ["ffi", "windows-uwp"])
+
     def test_platform_cargo_build_rejects_test_features_before_spawn(self):
         for features in (
             "ffi,benchmark-geodata-http",
@@ -280,6 +298,75 @@ class ScriptTest(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "incompatible Rust identity"):
                 _require_identity(artifact, "test")
 
+    def test_native_windows_wintun_check_preserves_packaged_delivery_outputs(self):
+        for architecture, target in (
+            ("x64", "x86_64-pc-windows-msvc"),
+            ("arm64", "aarch64-pc-windows-msvc"),
+        ):
+            with (
+                self.subTest(architecture=architecture),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                root = Path(directory)
+                output = root / "dist/windows" / architecture
+                output.mkdir(parents=True)
+                files = {
+                    name: name.encode()
+                    for name in (
+                        "vcore.dll",
+                        "vcore-windows-artifacts.json",
+                        "vcore-delivery.json",
+                    )
+                }
+                for name, data in files.items():
+                    (output / name).write_bytes(data)
+                env = {"VCORE_NATIVE_CHECK": architecture}
+                with (
+                    patch.object(builds, "CORE_DIR", root),
+                    patch.object(builds, "os", SimpleNamespace(name="nt")),
+                    patch.object(
+                        builds, "_windows_architecture", return_value=architecture
+                    ),
+                    patch.object(
+                        builds, "_windows_msvc_environment", return_value=env
+                    ) as native,
+                    patch.object(builds, "_run") as run,
+                ):
+                    builds.check_windows_wintun_cli()
+                    native.assert_called_once_with(architecture)
+                    run.assert_called_once_with(
+                        [
+                            "cargo",
+                            "check",
+                            "--locked",
+                            "--release",
+                            "--target",
+                            target,
+                            "--no-default-features",
+                            "--features",
+                            "cli,windows-wintun",
+                            "--lib",
+                            "--bin",
+                            "vcore",
+                        ],
+                        env=env,
+                    )
+                    self.assertEqual(
+                        {path.name: path.read_bytes() for path in output.iterdir()},
+                        files,
+                    )
+
+    def test_wintun_check_rejects_non_windows_before_toolchain_or_compiler(self):
+        with (
+            patch.object(builds, "os", SimpleNamespace(name="posix")),
+            patch.object(builds, "_windows_msvc_environment") as native,
+            patch.object(builds, "_run") as run,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "on Windows"):
+                builds.check_windows_wintun_cli()
+            native.assert_not_called()
+            run.assert_not_called()
+
     def test_windows_release_build_uses_production_features_and_checks_identity(self):
         for configured in (False, True):
             with (
@@ -327,7 +414,7 @@ class ScriptTest(unittest.TestCase):
                             "aarch64-pc-windows-msvc",
                             "--no-default-features",
                             "--features",
-                            builds.DEFAULT_FEATURES,
+                            builds.WINDOWS_FEATURES,
                             "--lib",
                             "--bins",
                         ],

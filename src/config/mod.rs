@@ -4,6 +4,7 @@ use std::{
     collections::{HashMap, VecDeque},
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     str::FromStr,
+    time::Duration,
 };
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -39,10 +40,10 @@ mod vmess;
 pub use vmess::StreamTransport as VmessTransport;
 pub use vmess::{StreamTransport, VmessCipher, VmessOutboundConfig, VmessPacketEncoding};
 
-#[cfg(feature = "ffi")]
+#[cfg(feature = "invoke")]
 mod measure;
 
-#[cfg(feature = "ffi")]
+#[cfg(feature = "invoke")]
 pub(crate) use measure::MeasureConfig;
 
 pub const MAX_CONFIG_BYTES: usize = 256 * 1024;
@@ -101,10 +102,38 @@ pub struct GeoDataUrls {
     pub geosite: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TunConfig {
     pub enable: bool,
     pub mtu: u16,
+    pub file_descriptor: i32,
+    pub device: String,
+    pub dns_hijack: Vec<SocketAddr>,
+    pub udp_timeout: Duration,
+}
+
+impl Default for TunConfig {
+    fn default() -> Self {
+        Self {
+            enable: false,
+            mtu: default_mtu(),
+            file_descriptor: 0,
+            device: String::new(),
+            dns_hijack: vec![SocketAddr::from((Ipv4Addr::UNSPECIFIED, 53))],
+            udp_timeout: Duration::from_secs(300),
+        }
+    }
+}
+
+impl TunConfig {
+    /// Match Mihomo's TUN DNS targets: exact endpoints, or any destination
+    /// on port 53 when a configured endpoint has an unspecified IP address.
+    #[must_use]
+    pub fn hijacks_dns(&self, destination: SocketAddr) -> bool {
+        self.dns_hijack.iter().any(|target| {
+            *target == destination || (target.ip().is_unspecified() && destination.port() == 53)
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -755,9 +784,69 @@ struct RawGeoDataUrls {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawTunConfig {
+    #[serde(default)]
     enable: bool,
-    #[serde(default = "default_mtu")]
+    #[serde(default)]
     mtu: u16,
+    #[serde(rename = "file-descriptor", default)]
+    file_descriptor: i32,
+    #[serde(default)]
+    device: String,
+    #[serde(
+        rename = "dns-hijack",
+        default = "default_dns_hijack",
+        deserialize_with = "deserialize_non_null_vec"
+    )]
+    dns_hijack: Vec<String>,
+    #[serde(rename = "udp-timeout", default)]
+    udp_timeout: u64,
+}
+
+impl RawTunConfig {
+    fn normalize(self) -> Result<TunConfig> {
+        let mtu = if self.mtu == 0 {
+            default_mtu()
+        } else {
+            self.mtu
+        };
+        if mtu < 1_280 {
+            return invalid("tun.mtu must be 0 or 1280..65535");
+        }
+        if self.file_descriptor < 0 {
+            return invalid("tun.file-descriptor must be a nonnegative descriptor");
+        }
+        if self.device.chars().any(char::is_control) {
+            return invalid("tun.device must not contain control characters");
+        }
+        let dns_hijack = self
+            .dns_hijack
+            .into_iter()
+            .map(|target| {
+                let endpoint = target
+                    .split_once("://")
+                    .map_or(target.as_str(), |(_, value)| value);
+                let endpoint = endpoint.replacen("any", "0.0.0.0", 1);
+                endpoint.parse::<SocketAddr>().map_err(|_| {
+                    VCoreError::InvalidConfig(
+                        "tun.dns-hijack requires IP:port or any:port endpoints".into(),
+                    )
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let udp_timeout = Duration::from_secs(if self.udp_timeout == 0 {
+            300
+        } else {
+            self.udp_timeout
+        });
+        Ok(TunConfig {
+            enable: self.enable,
+            mtu,
+            file_descriptor: self.file_descriptor,
+            device: self.device,
+            dns_hijack,
+            udp_timeout,
+        })
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -1239,7 +1328,11 @@ struct PendingProxyConfig {
 }
 
 fn default_mtu() -> u16 {
-    1_500
+    9_000
+}
+
+fn default_dns_hijack() -> Vec<String> {
+    vec!["0.0.0.0:53".into()]
 }
 
 fn default_true() -> bool {
@@ -1349,19 +1442,9 @@ impl RawVCoreConfig {
             return invalid("authentication or allow-lan requires an enabled mixed-port");
         }
 
-        let tun = self.tun.map_or(
-            TunConfig {
-                enable: false,
-                mtu: default_mtu(),
-            },
-            |tun| TunConfig {
-                enable: tun.enable,
-                mtu: tun.mtu,
-            },
-        );
-        if tun.mtu != default_mtu() {
-            return invalid("TUN only supports mtu: 1500");
-        }
+        let tun = self
+            .tun
+            .map_or_else(|| Ok(TunConfig::default()), RawTunConfig::normalize)?;
         if mixed_port.is_none() && !tun.enable {
             return invalid("configuration requires mixed-port or tun.enable: true");
         }
@@ -1715,7 +1798,7 @@ fn normalize_proxy_authentication(
     }
 }
 
-#[cfg(feature = "ffi")]
+#[cfg(feature = "invoke")]
 fn normalize_proxy_graph(
     raw_proxies: Vec<RawOutbound>,
 ) -> Result<(Vec<ProxyConfig>, ProxyIdsByTag)> {
@@ -4093,7 +4176,7 @@ outbounds: []
     #[test]
     fn validates_listener_and_tun_constraints() {
         for yaml in [
-            CURRENT_TLS.replace("mtu: 1500", "mtu: 1400"),
+            CURRENT_TLS.replace("mtu: 1500", "mtu: 1279"),
             CURRENT_TLS.replace(
                 "mixed-port: 1080
 authentication:
@@ -4769,7 +4852,8 @@ rules:
             config.tun,
             TunConfig {
                 enable: true,
-                mtu: 1500
+                mtu: 1500,
+                ..TunConfig::default()
             }
         );
         assert!(!config.dns.ipv6);
@@ -4876,6 +4960,74 @@ authentication:
     }
 
     #[test]
+    fn tun_config_uses_mihomo_defaults_and_zero_sentinels() {
+        for fields in ["", "  mtu: 0\n  udp-timeout: 0"] {
+            let yaml = current_yaml(&format!("tun:\n  enable: true\n{fields}"));
+            let config = Config::parse_yaml(yaml.as_bytes()).unwrap();
+            assert_eq!(
+                config.tun,
+                TunConfig {
+                    enable: true,
+                    ..TunConfig::default()
+                }
+            );
+            assert_eq!(config.tun.mtu, 9000);
+            assert_eq!(config.tun.udp_timeout, Duration::from_secs(300));
+        }
+    }
+
+    #[test]
+    fn tun_config_normalizes_config_owned_resources_and_dns_targets() {
+        let yaml = current_yaml(
+            "tun:\n  enable: true\n  mtu: 1400\n  file-descriptor: 23\n  device: host-tun\n  dns-hijack: [any:5353, 'tcp://192.0.2.53:5353', '[2001:db8::53]:53']\n  udp-timeout: 7",
+        );
+        let tun = Config::parse_yaml(yaml.as_bytes()).unwrap().tun;
+        assert_eq!(tun.file_descriptor, 23);
+        assert_eq!(tun.device, "host-tun");
+        assert_eq!(tun.mtu, 1400);
+        assert_eq!(tun.udp_timeout, Duration::from_secs(7));
+        assert!(tun.hijacks_dns("[2001:db8::1]:53".parse().unwrap()));
+        assert!(tun.hijacks_dns("192.0.2.53:5353".parse().unwrap()));
+        assert!(!tun.hijacks_dns("192.0.2.54:5353".parse().unwrap()));
+        let disabled =
+            Config::parse_yaml(current_yaml("tun:\n  enable: true\n  dns-hijack: []").as_bytes())
+                .unwrap();
+        assert!(!disabled.tun.hijacks_dns("1.1.1.1:53".parse().unwrap()));
+    }
+
+    #[test]
+    fn tun_config_rejects_invalid_values_and_unimplemented_mihomo_fields() {
+        for fields in [
+            "mtu: 1279",
+            "mtu: 65536",
+            "file-descriptor: -1",
+            "file-descriptor: 2147483648",
+            "device: null",
+            "device: \"bad\\nname\"",
+            "udp-timeout: -1",
+            "udp-timeout: null",
+            "dns-hijack: [name.example:53]",
+            "dns-hijack: null",
+            "framing: rawIp",
+            "auto-route: false",
+            "auto-redirect: false",
+            "auto-detect-interface: false",
+            "stack: mips",
+            "inet4-address: [198.18.0.1/30]",
+            "inet6-address: ['fd00::1/126']",
+            "route-address: [0.0.0.0/1]",
+            "strict-route: false",
+            "gso: false",
+        ] {
+            let yaml = current_yaml(&format!("tun:\n  enable: true\n  {fields}"));
+            assert!(
+                Config::parse_yaml(yaml.as_bytes()).is_err(),
+                "invalid TUN field accepted: {fields}"
+            );
+        }
+    }
+
+    #[test]
     fn current_config_defaults_disabled_dns_and_tun() {
         let config = Config::parse_yaml(
             current_yaml(
@@ -4891,7 +5043,7 @@ authentication:
             config.tun,
             TunConfig {
                 enable: false,
-                mtu: 1500
+                ..TunConfig::default()
             }
         );
         assert_eq!(config.dns, DnsConfig::disabled().unwrap());
@@ -4938,7 +5090,7 @@ authentication:
         for yaml in [
             current_yaml("mixed-port: 0\nauthentication:\n  - measure:secret"),
             current_yaml("tun:\n  enable: false"),
-            current_yaml("tun:\n  enable: true\n  mtu: 1400"),
+            current_yaml("tun:\n  enable: true\n  mtu: 1279"),
             current_yaml(
                 "mixed-port: 1080
 authentication:

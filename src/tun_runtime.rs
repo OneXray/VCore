@@ -7,7 +7,7 @@ use std::{
         Arc,
         atomic::{AtomicU64, Ordering},
     },
-    time::{Duration, Instant as StdInstant},
+    time::Duration,
 };
 
 use bytes::Bytes;
@@ -26,7 +26,7 @@ use vcore_netstack::{
 
 use crate::{
     ResourceLimits, VCoreError,
-    config::SnifferConfig,
+    config::{SnifferConfig, TunConfig},
     dispatch::{DatagramTransport, DispatchError, Dispatcher},
     dns::{
         classify_query,
@@ -48,6 +48,7 @@ use crate::{
 #[cfg(test)]
 use crate::dns::{ClassifiedDnsQuery, synthesize_servfail_response};
 
+#[cfg(test)]
 const TUN_MTU: usize = 1_500;
 const TCP_RELAY_BUFFER: usize = 4 * 1024;
 const QUIC_SNIFF_FLOW_MAX: usize = 4;
@@ -57,6 +58,7 @@ const QUIC_SNIFF_READY_DATAGRAM_MAX: usize = QUIC_SNIFF_PENDING_DATAGRAM_MAX + 1
 const QUIC_SNIFF_TIMEOUT: Duration = Duration::from_millis(500);
 const OUTBOUND_OPEN_TIMEOUT: Duration = Duration::from_secs(15);
 const OUTBOUND_SEND_TIMEOUT: Duration = Duration::from_secs(15);
+#[cfg(test)]
 const UDP_IDLE_TIMEOUT_SECONDS: u64 = 30;
 const UDP_CLEANUP_INTERVAL: Duration = Duration::from_secs(10);
 const UDP_CLOSE_TIMEOUT: Duration = Duration::from_secs(1);
@@ -67,7 +69,7 @@ const TUN_NETSTACK_STATS_FINAL_EVENT: &str = "tun_netstack_stats_final";
 static NEXT_DIAGNOSTIC_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 
 fn effective_tun_mtu(limits: ResourceLimits) -> usize {
-    TUN_MTU.min(limits.tun_max_datagram_size)
+    limits.tun_max_datagram_size
 }
 
 fn tun_netstack_config(limits: ResourceLimits, fake_icmp_echo: bool) -> NetStackConfig {
@@ -85,6 +87,7 @@ fn tun_netstack_config(limits: ResourceLimits, fake_icmp_echo: bool) -> NetStack
 pub(crate) struct TunRuntime {
     tun: Arc<TunIo>,
     limits: ResourceLimits,
+    config: TunConfig,
     dispatcher: Arc<dyn Dispatcher>,
     dns: Option<Arc<RuntimeDns>>,
     ipv6: bool,
@@ -107,6 +110,12 @@ impl TunRuntime {
         Self::new_with_stats(
             tun,
             limits,
+            &TunConfig {
+                mtu: u16::try_from(limits.tun_max_datagram_size)
+                    .map_err(|_| io::ErrorKind::InvalidInput)?,
+                udp_timeout: Duration::from_secs(UDP_IDLE_TIMEOUT_SECONDS),
+                ..TunConfig::default()
+            },
             dispatcher,
             dns,
             ipv6,
@@ -120,6 +129,7 @@ impl TunRuntime {
     pub(crate) fn new_with_stats(
         tun: TunIo,
         limits: ResourceLimits,
+        config: &TunConfig,
         dispatcher: Arc<dyn Dispatcher>,
         dns: Option<Arc<RuntimeDns>>,
         ipv6: bool,
@@ -130,15 +140,16 @@ impl TunRuntime {
         limits
             .validate()
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
-        if limits.tun_max_datagram_size < 1_280 {
+        if limits.tun_max_datagram_size != usize::from(config.mtu) || config.mtu < 1_280 {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
-                "TUN tun_max_datagram_size must be at least the IPv6 minimum MTU",
+                "TUN resource MTU must match tun.mtu",
             ));
         }
         Ok(Self {
             tun: Arc::new(tun),
             limits,
+            config: config.clone(),
             dispatcher,
             dns,
             ipv6,
@@ -173,6 +184,7 @@ impl TunRuntime {
                 dns: self.dns,
                 sniffer: self.sniffer.clone(),
                 limits: self.limits,
+                config: self.config.clone(),
                 resource_stats: resource_stats.clone(),
             },
             cancellation.clone(),
@@ -330,12 +342,10 @@ async fn tun_read_inner(
 ) -> io::Result<()> {
     let mtu = effective_tun_mtu(udp.context.limits);
     let mut packets: [Vec<u8>; TUN_PACKET_BATCH_SIZE] =
-        std::array::from_fn(|_| Vec::with_capacity(TUN_MTU));
+        std::array::from_fn(|_| Vec::with_capacity(mtu));
     let mut outcomes = Vec::with_capacity(TUN_PACKET_BATCH_SIZE);
-    let mut cleanup = interval_at(
-        TokioInstant::now() + UDP_CLEANUP_INTERVAL,
-        UDP_CLEANUP_INTERVAL,
-    );
+    let cleanup_interval = UDP_CLEANUP_INTERVAL.min(udp.context.config.udp_timeout);
+    let mut cleanup = interval_at(TokioInstant::now() + cleanup_interval, cleanup_interval);
     cleanup.set_missed_tick_behavior(MissedTickBehavior::Skip);
     let mut first_read_logged = false;
     let mut first_ingress_logged = false;
@@ -859,7 +869,7 @@ fn configured_quic_sniffing(config: Option<&SnifferConfig>, port: u16) -> bool {
 
 #[derive(Clone)]
 struct AssociationClock {
-    started: StdInstant,
+    started: TokioInstant,
     #[cfg(test)]
     injected_tick: Option<Arc<AtomicU64>>,
 }
@@ -867,7 +877,7 @@ struct AssociationClock {
 impl AssociationClock {
     fn realtime() -> Self {
         Self {
-            started: StdInstant::now(),
+            started: TokioInstant::now(),
             #[cfg(test)]
             injected_tick: None,
         }
@@ -876,7 +886,7 @@ impl AssociationClock {
     #[cfg(test)]
     fn injected(tick: Arc<AtomicU64>) -> Self {
         Self {
-            started: StdInstant::now(),
+            started: TokioInstant::now(),
             injected_tick: Some(tick),
         }
     }
@@ -925,13 +935,14 @@ fn remove_completed_association(
 fn take_expired_or_closed_associations(
     associations: &mut HashMap<SocketAddr, UdpAssociation>,
     now: u64,
+    idle_timeout: Duration,
 ) -> Vec<(SocketAddr, UdpAssociation)> {
     let sources = associations
         .iter()
         .filter_map(|(source, association)| {
             (association.sender.is_closed()
-                || association.idle_seconds(now) >= UDP_IDLE_TIMEOUT_SECONDS)
-                .then_some(*source)
+                || association.idle_seconds(now) >= idle_timeout.as_secs())
+            .then_some(*source)
         })
         .collect::<Vec<_>>();
     sources
@@ -945,10 +956,9 @@ fn take_expired_or_closed_associations(
 }
 
 fn cancel_removed_associations(removed: Vec<(SocketAddr, UdpAssociation)>) {
-    for (source, association) in removed {
+    for (_source, association) in removed {
         tracing::debug!(
             association_id = association.generation,
-            %source,
             "TUN UDP association cleaned up"
         );
         // The map entry has already been removed, so a stale completion can
@@ -993,6 +1003,7 @@ struct UdpIngressContext {
     dns: Option<Arc<RuntimeDns>>,
     sniffer: Option<Arc<SnifferConfig>>,
     limits: ResourceLimits,
+    config: TunConfig,
     resource_stats: RuntimeResourceStats,
 }
 
@@ -1042,7 +1053,7 @@ impl UdpIngress {
         if self.cancellation.is_cancelled() {
             return;
         }
-        if datagram.destination.port() == 53
+        if self.context.config.hijacks_dns(datagram.destination)
             && let Some(dns) = &self.context.dns
         {
             if let Err(error) = classify_query(datagram.payload) {
@@ -1096,6 +1107,7 @@ impl UdpIngress {
                     association_clock: self.association_clock.clone(),
                     last_activity,
                     tun_mtu: effective_tun_mtu(self.context.limits),
+                    udp_timeout: self.context.config.udp_timeout,
                     sniffer: self.context.sniffer.clone(),
                     cancellation: child_cancellation,
                 },
@@ -1129,6 +1141,7 @@ impl UdpIngress {
         cancel_removed_associations(take_expired_or_closed_associations(
             &mut self.associations,
             self.association_clock.now(),
+            self.context.config.udp_timeout,
         ));
     }
 
@@ -1422,6 +1435,7 @@ struct UdpQuicSniffState<S, F> {
     pending_datagrams: usize,
     pending_bytes: usize,
     new_sniffer: F,
+    idle_timeout: Duration,
 }
 
 impl<S, F> UdpQuicSniffState<S, F>
@@ -1429,12 +1443,13 @@ where
     S: QuicSniffEngine,
     F: FnMut() -> S,
 {
-    fn new(new_sniffer: F) -> Self {
+    fn with_idle_timeout(new_sniffer: F, idle_timeout: Duration) -> Self {
         Self {
             flows: HashMap::new(),
             pending_datagrams: 0,
             pending_bytes: 0,
             new_sniffer,
+            idle_timeout,
         }
     }
 
@@ -1453,8 +1468,7 @@ where
         let connection_key = quic_connection_key(&datagram.payload);
         let state = self.flows.remove(&destination).filter(|state| match state {
             QuicFlowState::Matched { completed, .. } | QuicFlowState::NoDomain(completed) => {
-                now.saturating_duration_since(completed.last_used)
-                    < Duration::from_secs(UDP_IDLE_TIMEOUT_SECONDS)
+                now.saturating_duration_since(completed.last_used) < self.idle_timeout
             }
             QuicFlowState::Pending(_) => true,
         });
@@ -1827,6 +1841,7 @@ struct UdpAssociationTaskContext {
     association_clock: AssociationClock,
     last_activity: Arc<AtomicU64>,
     tun_mtu: usize,
+    udp_timeout: Duration,
     sniffer: Option<Arc<SnifferConfig>>,
     cancellation: CancellationToken,
 }
@@ -1945,7 +1960,7 @@ where
         }
     };
 
-    let mut quic_sniff = UdpQuicSniffState::new(new_sniffer);
+    let mut quic_sniff = UdpQuicSniffState::with_idle_timeout(new_sniffer, context.udp_timeout);
     // Ordinary UDP needs only one pending send, not an allocated replay queue.
     // The deque grows only for actual QUIC replay and keeps its existing bound.
     let mut ready = VecDeque::new();

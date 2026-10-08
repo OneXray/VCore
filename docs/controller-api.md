@@ -151,4 +151,7 @@ Hysteria2 已认证 QUIC 会话也保留其 `dialer-proxy` 上游组快照，包
 
 第一版不提供 provider/`use`、health check、自动 failover、`url-test`/`fallback`/`load-balance`、delay 测试、连接管理、配置修改、WebSocket 推送、Controller 版本协商或完整 Dashboard response。除 `GET /traffic`、`GET /group`、`GET /group/{name}`、`GET /proxies/{name}` 和 `PUT /proxies/{name}` 外，其他路径和方法均不属于公共协议。
 
-Windows 的完整运行时和 Controller 位于独立 Session Host。App 通过回环 HTTP 直接访问实际 Running Session；组查询和切换不经过 `VCoreInvoke`、Windows bridge 或 Provider 控制管道，不携带 `instanceId`，也不占用 Invoke 命令锁。
+Windows WinRT VPN 的完整运行时和 Controller 位于独立 Session Host；桌面 Wintun 的
+Controller 位于普通业务运行时。宿主通过回环 HTTP 直接访问实际 Running Session；
+组查询和切换不经过 `VCoreInvoke`、Windows bridge 或 Provider 控制管道，
+不携带 `instanceId`，也不占用 Invoke 命令锁。

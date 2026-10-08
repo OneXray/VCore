@@ -1,6 +1,8 @@
 # VCore Invoke API
 
-配置只通过内联的 `configYaml` 或 `configYamls` 传入；每份已加载的 VCore 运行时最多拥有一个公共实例。业务代理入口仅通过 `mixed-port` 配置，HTTP/SOCKS5 TCP 与 SOCKS5 UDP 共用端口；顶层 `port`、`socks-port`、`udp` 和 `listeners` 都会失败。代理组实时选择沿用 Controller。静态 ECH 只使用节点内联配置，不新增 bootstrap DNS 入参。
+业务实例通过内联的 `configYaml` 启动，测速通过 `configYamls` 传入节点配置；前台 `foreground` 操作负责从文件或标准输入加载同一配置。每份已加载的 VCore 运行时最多拥有一个公共实例。业务代理入口仅通过 `mixed-port` 配置，HTTP/SOCKS5 TCP 与 SOCKS5 UDP 共用端口；顶层 `port`、`socks-port`、`udp` 和 `listeners` 都会失败。代理组实时选择沿用 Controller。静态 ECH 只使用节点内联配置，不新增 bootstrap DNS 入参。
+
+共享请求处理位于 `src/invoke/`。Rust 调用方使用 `vcore::invoke::invoke_bytes(&[u8]) -> Vec<u8>`；CLI 和 C ABI 都调用该入口。`invoke` feature 提供共享操作，`cli` 和 `ffi` 分别添加命令行与原生传输适配。
 
 ## C ABI
 
@@ -17,7 +19,7 @@ void VCoreFree(char *response);
 - 非法输入、未知方法、状态错误和 panic 返回合法失败 JSON；只有灾难性分配失败可以返回 `NULL`。
 - 业务运行时线程不能重入 Invoke；Debug 和 Release 构建都立即返回失败 JSON，包括 `version` 等只读请求。
 - 请求正文、响应正文、完整配置、UUID、密钥、short ID 和凭据不得写入日志。
-- `VCoreWindowsVpnInvoke` 是独立的 Windows 安装包桥接接口。
+- `VCoreWindowsVpnInvoke` 只在 `windows-uwp` 构建中提供，是独立的 Windows 安装包桥接接口。
 - `VCoreWindowsVpnInvoke` 当前在调用线程上初始化 MTA；调用线程必须尚未初始化 COM，或已经是 MTA。STA/ASTA 调用不受支持。
 
 ## 请求与响应
@@ -56,7 +58,7 @@ void VCoreFree(char *response);
 
 ## 初始化与生命周期
 
-每份已加载的 VCore 运行时先调用：
+宿主管理业务实例时，先调用：
 
 ```json
 {
@@ -72,7 +74,7 @@ void VCoreFree(char *response);
 <dataDir>/geodata   # VCore 管理的 GeoData 目录
 ```
 
-同一路径重复初始化幂等，切换路径失败。
+同一路径重复初始化幂等，切换路径失败。`version`、`validateConfig` 和前台帮助不要求初始化；`foreground` 的运行模式自行初始化并管理实例。
 
 公共实例状态：
 
@@ -86,9 +88,10 @@ stopped -> preparing -> prepared -> starting -> running
 
 - `instanceId` 是当前运行时内不可复用的代次令牌，不代表支持并行公共实例。
 - 同一实例一次只执行一个生命周期命令，重叠命令立即失败。
-- `validateConfig` 是可并发的纯校验方法。
+- `validateConfig` 是可并发的纯校验方法，不要求或执行 `initialize`。
 - `measureDelay` 使用独立批次和私有工作器，不进入公共实例表。
-- 不支持配置热重载；切换配置需要 `stop -> prepare -> start`。唯一的运行期路由变更是通过 Controller 修改静态 `select` 组的当前选择，它不修改已 prepare 的配置。
+- 公开生命周期为 `initialize -> createInstance -> start(configYaml) -> stop -> destroyInstance`。`preparing`、`prepared` 和 `starting` 是 `start` 内部阶段，没有公共 `prepare` 方法。
+- 不支持配置热重载；切换配置需要 `stop -> start(新 configYaml)`。唯一的运行期路由变更是通过 Controller 修改静态 `select` 组的当前选择，它不修改启动配置。
 - `stop` 在 stopped 状态幂等；`destroyInstance` 是最终同步清理屏障。
 
 ## 方法
@@ -189,53 +192,99 @@ stopped -> preparing -> prepared -> starting -> running
 }
 ```
 
-完成大小、YAML、结构、共享 route-target 命名空间、引用和字段组合校验。节点的 `dialer-proxy` 可引用节点或组；全部上游和组成员边（包括未选成员）统一做无环校验。不创建实例、不解析远端域名、不联网，也不读取 GeoData。资产缺失不影响纯配置校验。
-
-### `prepare`
-
-实例级方法，只允许 stopped 状态：
-
-```json
-{
-  "method": "prepare",
-  "instanceId": "1",
-  "payload": {"configYaml": "proxies:\n  - name: edge\n    ...\n"}
-}
-```
-
-- 读取当时可用的本地 GeoData，不启动或等待下载。
-- 为所有潜在物理首跳执行引导 DNS：节点无上游，或其上游组经纯组成员链能选到 DIRECT 时，预解析节点服务器及独立 VLESS 下载端点，包括尚未选中的 DIRECT 路径。候选解析失败则 prepare 失败；仅经代理访问的域名交给下一跳。切换 DIRECT 不新增系统 DNS。
-- 校验每个静态 `select` 组的初始选择；省略 `default-selected` 时使用第一项，显式值必须是直接成员。可变的 session 选择状态到 `start` 时才创建。
-- 成功进入 prepared；失败释放临时资源并回到 stopped。
-- 含 TUN 的配置从 preparing 起持有运行时本地的 TUN/protect 租约，直到停止或销毁。
-- Android 只有在实际启用 TUN 时才要求事先注册 protect controller。
+无需 `initialize`，完成大小、YAML、结构、共享 route-target 命名空间、引用和字段组合校验。节点的 `dialer-proxy` 可引用节点或组；全部上游和组成员边（包括未选成员）统一做无环校验。不创建实例、不解析远端域名、不联网，也不读取 GeoData。资产缺失不影响纯配置校验。
 
 ### `start`
 
-Apple、Android 和 Linux 的 TUN 启动参数：
+实例级方法，只允许 stopped 状态。唯一 payload 字段是内联配置：
 
 ```json
 {
   "method": "start",
   "instanceId": "1",
-  "payload": {"tunFd":23,"tunFraming":"utun"}
+  "payload": {"configYaml": "tun:\n  enable: true\n  mtu: 1500\n  file-descriptor: 23\nproxies:\n  ...\n"}
 }
 ```
 
-Android 和 Linux 使用 `rawIp`。非 TUN 配置必须省略 `tunFd` 和 `tunFraming`。
+`prepare` 方法、`tunFd` 与 `tunFraming` payload 已删除，提交这些旧输入会失败。
+TUN 资源参数来自 YAML 的 `tun`，平台包格式由内核选择。
 
-- `tunFd` 由宿主借用，宿主必须预先设置 nonblocking。
-- VCore 校验后建立带 `CLOEXEC` 的副本，只关闭副本。
-- Apple 只接受 `utun`，Android 和 Linux 只接受 `rawIp`。
-- Linux 要求真实单队列 TUN、关闭 PI/VNET header、实际 MTU 1500；普通 socket/pipe
-  不能作为生产 TUN fd。校验失败保持 prepared，可修正宿主输入后重试。
-- Linux 宿主创建并保持 TUN 参数和路由隔离，保证 VCore 物理出站不重新进入 TUN；
-  VCore 不创建接口或修改系统路由。跨网络命名空间的参数校验需要宿主提供相应权限，
-  完整 fd 契约见 [TUN 平台层](tun-platform.md)。
-- 从 prepared 配置创建本次 session 的代理组选择状态。
-- 所有监听器和关键数据面成功后才进入 running。
+同一命令内先准备配置，再获取平台资源并启动：
+
+- 读取当时可用的本地 GeoData，不启动或等待下载。
+- 为所有潜在物理首跳执行引导 DNS：节点无上游，或其上游组经纯组成员链能选到 DIRECT 时，预解析节点服务器及独立 VLESS 下载端点，包括尚未选中的 DIRECT 路径。候选解析失败则启动失败；仅经代理访问的域名交给下一跳。切换 DIRECT 不新增系统 DNS。
+- 校验每个静态 `select` 组的初始选择；省略 `default-selected` 时使用第一项，显式值必须是直接成员。启动时创建本次 session 的可变选择状态。
+- 含 TUN 的配置从内部 preparing 阶段起持有运行时本地的 TUN/protect 租约，直到停止或销毁。Android 必须在 `start` 前注册 protect controller。
+- 所有监听器和关键数据面成功后才进入 running。准备、资源获取或启动失败均清理本次临时资源并回到 stopped；重试需要再次提交完整 `configYaml`。
 - GeoData 更新只在启动后按需后台运行，不属于启动关键路径。
-- Windows 系统 VPN 使用安装包桥接接口，不使用文件描述符启动参数。
+
+`tun.file-descriptor > 0` 时，Unix 宿主借用已经 nonblocking 的 TUN fd。
+VCore 校验后建立带 `CLOEXEC` 的副本，只关闭副本，不更改原始 fd 的所有权或标志。
+Apple 使用 utun 包头，Android 与 Linux 使用 raw-IP。Linux 要求真实单队列 TUN、关闭
+PI/VNET header，并验证实际 MTU 与 `tun.mtu` 相同；跨网络命名空间的校验需要宿主提供权限。
+
+`tun.file-descriptor` 省略或为 0 时，Linux 与 macOS 根据 `tun.device` 创建或打开原生
+TUN；移动平台仍需要宿主描述符。接口地址、DNS、路由和物理出口隔离由宿主配置，VCore
+不自动管理系统路由。`tun.mtu` 省略或为 0 使用 9000；完整六字段契约及借用 fd 边界见
+[配置参考](config.yaml)与 [TUN 平台层](tun-platform.md)。
+
+Windows 编译时选择互斥的 `windows-wintun` 或 `windows-uwp`：
+
+- Wintun 构建中，业务 `start(configYaml)` 在 `tun.enable: true` 时自动打开或创建
+  Wintun。设备名取 `tun.device`，空值使用 `VCore`；MTU 使用 `tun.mtu`。仅加载进程
+  可执行文件所在目录的外置 `wintun.dll`，宿主提供匹配架构的官方 DLL，并负责系统网络
+  配置与物理出口防环。该入口不要求包身份，且不下载或打包 DLL。
+- UWP 构建的系统 VPN 通过独立安装包桥接与 Session Host 启动，保留物理绑定和网络监控。
+  其配置 MTU 必须在 1280–1400 范围内；默认 9000 不适用，需要显式配置。普通业务
+  `start` 不替代 Provider 的 packet channel。两种构建都不接受 Windows 文件描述符。
+
+Stop 关闭本次持有的 fd、session 和原生句柄；Wintun 不承诺移除宿主已有的同名接口
+或卸载驱动。平台启动失败不切换另一种 Windows 后端。
+
+### `foreground`
+
+运行时级前台操作，省略 `instanceId`：
+
+```json
+{
+  "method": "foreground",
+  "payload": {
+    "action": "run",
+    "dataDir": "./state",
+    "configPath": "./config.yaml"
+  }
+}
+```
+
+`action` 必填，只接受 `run`、`validate` 或 `help`；`dataDir`、`configPath` 为可选
+路径元数据，不是 YAML 内容。成功数据为 `{"output":"...","diagnostics":"..."}`：
+
+| action | 行为 | 成功输出 |
+| --- | --- | --- |
+| `help` | 返回静态帮助，不读取环境、工作目录、文件或标准输入。 | `output` 为空，`diagnostics` 为帮助文本。 |
+| `validate` | 有界读取配置后执行纯配置校验，不初始化数据目录、创建实例、解析远端或检查 TUN 设备。 | `output` 为 `configuration valid\n`，`diagnostics` 为空。 |
+| `run` | 初始化数据目录，创建一个公共实例，执行同一内部 `start(configYaml)`，等待退出并停止、销毁实例。 | 停止与清理成功后两项均为空。 |
+
+省略路径时，分别使用 `VCORE_HOME_DIR` 和 `VCORE_CONFIG_FILE`；显式空字符串绕过
+对应环境值并恢复默认。默认数据目录为 Unix `HOME` / Windows `USERPROFILE` 下的
+`.config/vcore`，用户目录缺失时从启动工作目录计算。该默认目录元数据读取失败时，
+若定义 `XDG_CONFIG_HOME`，使用 `<XDG_CONFIG_HOME>/vcore`。相对数据目录和显式
+配置路径分别从启动工作目录解析；配置默认 `<dataDir>/config.yaml`。
+`configPath: "-"` 从标准输入读取。文件必须是普通文件，文件和标准输入均最多 256 KiB；
+不会下载、创建模板或改写配置。详细命令行映射见 [CLI](cli.md)。
+
+普通 Unicode 路径使用 JSON 字符串。需要保留平台原生编码时，Unix 可使用
+`{"unixBytes":[47,116,109,112,255]}`，Windows 可使用
+`{"windowsWide":[67,58,92,55360]}`。对象只接受对应平台的一个字段，整数元素分别为
+字节或 UTF-16 code unit；不会通过有损字符串转换。编码保留不替代文件系统对路径的合法性检查。
+
+`run` 同步占用当前调用直到会话结束；同一运行时只允许一个前台运行操作。它消费进程的
+标准输入和退出信号，并安装有界 stderr 诊断，适用于前台进程宿主。嵌入式、服务或 VPN
+宿主继续用普通业务生命周期方法和自身的退出机制。
+Unix 等待 SIGINT/SIGTERM，Windows 等待 Ctrl+C/Ctrl+Break；标准输入先读取，之后在
+内部准备和启动前注册信号。启动中收到信号仍等待启动工作器结束，再停止和销毁；运行期
+通过引擎完成通知等待结束，随后 join 确认结果，不持有命令锁等待信号。启动、关键数据面、
+信号或清理失败返回失败响应，错误保留有界摘要；操作返回前完成本次清理。
 
 ### `stop`
 
@@ -243,7 +292,7 @@ Android 和 Linux 使用 `rawIp`。非 TUN 配置必须省略 `tunFd` 和 `tunFr
 {"method":"stop","instanceId":"1","payload":{}}
 ```
 
-同步取消并等待监听器、Controller、TUN、netstack、DNS、会话、出站和更新任务，关闭 VCore 持有的文件描述符副本并释放平台回调租约。返回后不得继续产生数据包或调用 protect callback；本次 session 的代理组选择随之销毁。
+同步取消并等待监听器、Controller、TUN、netstack、DNS、会话、出站和更新任务，关闭 VCore 持有的文件描述符副本并释放平台回调租约；Wintun 还唤醒并等待 reader 线程退出、释放设备资源。返回后不得继续产生数据包或调用 protect callback；本次 session 的代理组选择随之销毁。
 
 ### `getState`
 
@@ -302,7 +351,7 @@ Android TUN 通过 Invoke 之外的运行时本地回调注册：
 ProtectFd(fd) -> bool
 ```
 
-- 含 TUN 的实例必须在 `prepare` 前注册；非 TUN 和 `measureDelay` 不需要。
+- 含 TUN 的实例必须在 `start` 前注册；非 TUN 和 `measureDelay` 不需要。
 - 每个出站 TCP/UDP socket 在 connect 前同步调用 protect。
 - socket 初始化和 protect 可以在受跟踪的 Tokio 阻塞线程执行；不保证回调来自某个
   固定业务线程。取消不能中断已经开始的同步回调，Stop 返回前必须等待其完成。
@@ -375,7 +424,7 @@ ProtectFd(fd) -> bool
 
 - 所有 JSON DTO 拒绝未知字段。
 - 配置、错误和日志按 UTF-8 字节计数并受固定上限约束。
-- TUN 原始数据包解析最大 1,500 字节；最终代理 UDP 响应按有效 MTU 减去 48 字节限制，其他 TUN 平台最大 1,452 字节，Windows 最大 1,352 字节。
+- TUN 原始数据包按 `tun.mtu` 限制；最终代理 UDP 响应最多为该 MTU 减去 48 字节。默认 9000 对应 8952 字节；显式 1500 对应 1452 字节，Windows UWP 的最高 1400 对应 1352 字节。
 - 嵌套 UDP 协议可以增加有界帧头，但解封装后的最终负载仍受该平台响应上限限制。
 - 节点和代理组定义名共享大小写敏感的严格 UTF-8 命名空间；`DIRECT`、`REJECT` 和 `RULES` 不能用作定义名。
 - Secret、password、UUID、REALITY key、short ID、目标地址和完整配置不得进入日志。

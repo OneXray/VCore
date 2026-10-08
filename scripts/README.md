@@ -1,6 +1,7 @@
-# 平台编译
+# 平台与 CLI 编译
 
-`vcore-scripts` 只负责编译 Apple、Android、Windows 产物及记录交付身份。
+`vcore-scripts` 负责编译 Apple、Android、Windows 库产物及记录交付身份；
+独立 `vcore_scripts.cli_release` 模块维护六目标 CLI tag 归档与内部构建记录。
 命令从 VCore 根目录运行，或通过 `--project` 显式指定本仓库 scripts；Python 工程由
 uv / uv.lock 管理，不推断外部工程。Rust 的定向离线回归见 [tests](../tests/README.md)。
 
@@ -61,9 +62,46 @@ Git release 依赖，按 [TLS 来源契约](../docs/tls-dependencies.md) 审查�
 
 交付前拒绝输出路径中的符号链接/reparse point，清除旧记录；Android 同时清空标准
 输出以隔离旧 ABI。构建后的内部完整性检查核对文件集合、源码身份、架构与平台元数据，
-包括 Android C++ runtime、Apple 全部切片和 Windows 配套进程。
+包括 Android C++ runtime、Apple 全部切片和 Windows 配套进程。Windows 包构建显式
+启用 `ffi,windows-uwp` 与完整生产协议；`windows-uwp` 和 `windows-wintun` 在 Windows
+编译时互斥，UWP 依赖图不包含 tun-rs 的 Windows Wintun 后端。原生 Windows x64 /
+ARM64 交付矩阵随后对 `cli,windows-wintun` 执行 locked release `cargo check`，检查
+另一后端的真实 Windows Rust/API 编译；此步骤不运行驱动、不打包或增加交付资产。
 检查失败不保留交付 manifest。它不执行原生 C/Swift 消费者，不证明设备 VPN、
 签名安装、许可证审核或正式发布；这些按 [验收边界](../docs/acceptance.md) 独立取证。
+
+## CLI tag 发布
+
+本地前台程序可直接构建：
+
+```sh
+# Linux / macOS
+cargo build --locked --release --no-default-features --features cli --bin vcore
+# Windows
+cargo build --locked --release --no-default-features --features cli,windows-wintun --bin vcore
+```
+
+[CLI release 工作流](../.github/workflows/cli-release.yml) 在正式 `vX.Y.Z` tag 上
+调用下列独立入口；要求版本匹配且 checkout 干净、已提交并位于该 tag。
+每个目标在对应 OS/架构的原生宿主构建，完整生产协议通过 `cli` / `invoke` feature 启用。
+Windows CLI 显式选择 `cli,windows-wintun`，不启用 FFI、UWP 或 WinRT 宿主程序。
+Wintun interruptible I/O 的间接 Windows Win32 bindings 允许存在，门禁拒绝直接
+包 SDK 依赖和 `Networking_Vpn` 等 WinRT features。
+
+```sh
+uv run --project scripts --locked python -m vcore_scripts.cli_release build \
+  --target aarch64-apple-darwin --tag v0.1.0 --repository YuanDevTeam/VCore
+uv run --project scripts --locked python -m vcore_scripts.cli_release assemble \
+  --tag v0.1.0 --repository YuanDevTeam/VCore \
+  --input dist/cli-incoming --notes /path/to/release.md
+```
+
+`build` 输出 `dist/cli/<target>` 中的固定名称归档及内部 `manifest.json`，校验实际
+依赖图、二进制格式/架构/构建身份，并运行 `-h/-v/-t` 离线检查。完整已链接依赖许可证
+与原生通知嵌入可执行文件，打包前验证文本保留。`assemble` 要求六项源代码和锁文件
+身份一致，解压检查二进制及通知 hash，生成 Release 描述；模块本身不发布。
+工作流只上传六个可执行文件归档，不发布 manifest、checksums、Wintun DLL 或 WinRT hosts。
+矩阵、配置路径和参数语义见 [CLI](../docs/cli.md)。
 
 ## 独立容器验证
 

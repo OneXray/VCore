@@ -12,8 +12,6 @@ use std::{
     thread,
 };
 
-use super::tun_rs_io::TUN_MTU;
-
 const NETLINK_HEADER: usize = 16;
 const LINK_HEADER: usize = 16;
 const MAX_LINK_MESSAGE: usize = 8192;
@@ -24,7 +22,7 @@ const IFLA_TUN_PI: u16 = 4;
 const IFLA_TUN_VNET_HDR: u16 = 5;
 const IFLA_TUN_MULTI_QUEUE: u16 = 7;
 
-pub(super) fn validate(fd: BorrowedFd<'_>) -> io::Result<()> {
+pub(super) fn validate(fd: BorrowedFd<'_>, mtu: u16) -> io::Result<()> {
     // SAFETY: all-zero ifreq is valid storage for the kernel's output.
     let mut request: libc::ifreq = unsafe { std::mem::zeroed() };
     // SAFETY: fd is borrowed and request is writable for a complete ifreq.
@@ -54,7 +52,7 @@ pub(super) fn validate(fd: BorrowedFd<'_>) -> io::Result<()> {
     if target_identity.dev() == current_identity.dev()
         && target_identity.ino() == current_identity.ino()
     {
-        return validate_link(name);
+        return validate_link(name, mtu);
     }
 
     // setns is thread-local. Only this short-lived thread enters the device
@@ -68,7 +66,7 @@ pub(super) fn validate(fd: BorrowedFd<'_>) -> io::Result<()> {
             if unsafe { libc::setns(namespace.as_raw_fd(), libc::CLONE_NEWNET) } < 0 {
                 return Err(os_error("Linux TUN namespace entry"));
             }
-            validate_link(name)
+            validate_link(name, mtu)
         })?
         .join()
         .map_err(|_| io::Error::other("Linux TUN validation thread panicked"))?
@@ -83,7 +81,7 @@ fn validate_flags(flags: u16) -> io::Result<()> {
     Ok(())
 }
 
-fn validate_link(name: [libc::c_char; libc::IFNAMSIZ]) -> io::Result<()> {
+fn validate_link(name: [libc::c_char; libc::IFNAMSIZ], mtu: u16) -> io::Result<()> {
     let control = socket(libc::AF_INET, libc::SOCK_DGRAM, 0)?;
     // SAFETY: all-zero ifreq is valid before writing its interface name.
     let mut request: libc::ifreq = unsafe { std::mem::zeroed() };
@@ -170,10 +168,10 @@ fn validate_link(name: [libc::c_char; libc::IFNAMSIZ]) -> io::Result<()> {
     {
         return Err(invalid("Linux TUN link query returned an invalid response"));
     }
-    validate_link_message(&response[..received as usize], index)
+    validate_link_message(&response[..received as usize], index, mtu)
 }
 
-fn validate_link_message(message: &[u8], index: i32) -> io::Result<()> {
+fn validate_link_message(message: &[u8], index: i32, expected_mtu: u16) -> io::Result<()> {
     if message.len() < NETLINK_HEADER
         || native_u32(&message[0..4])? as usize != message.len()
         || native_u32(&message[8..12])? != QUERY_SEQUENCE
@@ -204,8 +202,8 @@ fn validate_link_message(message: &[u8], index: i32) -> io::Result<()> {
     let attributes = &message[NETLINK_HEADER + LINK_HEADER..];
     let mtu = attribute(attributes, libc::IFLA_MTU)?
         .ok_or_else(|| invalid("Linux TUN link response is missing MTU"))?;
-    if native_u32(mtu)? != TUN_MTU as u32 {
-        return Err(invalid("Linux TUN interface MTU must be 1500"));
+    if native_u32(mtu)? != u32::from(expected_mtu) {
+        return Err(invalid("Linux TUN interface MTU does not match tun.mtu"));
     }
     let info = attribute(attributes, libc::IFLA_LINKINFO)?
         .ok_or_else(|| invalid("Linux TUN link response is missing device information"))?;
@@ -334,7 +332,7 @@ mod tests {
         ] {
             assert!(validate_flags(flags as u16).is_err());
         }
-        assert!(validate_link_message(&link_message(1500, 0, 0, 0), 7).is_ok());
+        assert!(validate_link_message(&link_message(1500, 0, 0, 0), 7, 1500).is_ok());
         // TUNGETIFF can falsely expose NO_PI via the NOFILTER alias. The
         // authoritative IFLA_TUN_PI field must still reject this device.
         for parameters in [
@@ -344,7 +342,16 @@ mod tests {
             (1400, 0, 0, 0),
         ] {
             let (mtu, pi, vnet, multi) = parameters;
-            assert!(validate_link_message(&link_message(mtu, pi, vnet, multi), 7).is_err());
+            assert!(validate_link_message(&link_message(mtu, pi, vnet, multi), 7, 1500).is_err());
+        }
+    }
+
+    #[test]
+    fn link_metadata_matches_the_configured_mtu_without_reconfiguring() {
+        for mtu in [1280, 1400, 1500, 9000, 65535] {
+            let message = link_message(u32::from(mtu), 0, 0, 0);
+            assert!(validate_link_message(&message, 7, mtu).is_ok());
+            assert!(validate_link_message(&message, 7, mtu - 1).is_err());
         }
     }
 
@@ -352,22 +359,22 @@ mod tests {
     fn link_metadata_rejects_truncation_duplicates_and_wrong_identity() {
         let message = link_message(1500, 0, 0, 0);
         for end in 0..message.len() {
-            assert!(validate_link_message(&message[..end], 7).is_err());
+            assert!(validate_link_message(&message[..end], 7, 1500).is_err());
         }
-        assert!(validate_link_message(&message, 8).is_err());
+        assert!(validate_link_message(&message, 8, 1500).is_err());
         let mut wrong_sequence = message.clone();
         wrong_sequence[8..12].copy_from_slice(&2_u32.to_ne_bytes());
-        assert!(validate_link_message(&wrong_sequence, 7).is_err());
+        assert!(validate_link_message(&wrong_sequence, 7, 1500).is_err());
         let mut malformed = message.clone();
         malformed.extend_from_slice(&[8, 0, 99, 0]);
         let len = malformed.len() as u32;
         malformed[..4].copy_from_slice(&len.to_ne_bytes());
-        assert!(validate_link_message(&malformed, 7).is_err());
+        assert!(validate_link_message(&malformed, 7, 1500).is_err());
         let mut duplicate = message;
         duplicate.extend(attr(libc::IFLA_MTU, &1500_u32.to_ne_bytes()));
         let len = duplicate.len() as u32;
         duplicate[..4].copy_from_slice(&len.to_ne_bytes());
-        assert!(validate_link_message(&duplicate, 7).is_err());
+        assert!(validate_link_message(&duplicate, 7, 1500).is_err());
         assert!(attribute(&[3, 0, 4, 0], 4).is_err());
         assert!(attribute(&[8, 0, 4, 0], 4).is_err());
     }

@@ -1,4 +1,4 @@
-#![cfg_attr(not(feature = "ffi"), allow(dead_code))]
+#![cfg_attr(not(any(feature = "invoke", feature = "cli")), allow(dead_code))]
 
 #[cfg(all(
     test,
@@ -22,9 +22,21 @@ use futures_util::future::{join_all, select_all};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-#[cfg(all(feature = "tun", any(unix, windows)))]
+#[cfg(all(
+    feature = "tun",
+    any(
+        unix,
+        all(windows, any(feature = "windows-wintun", feature = "windows-uwp"))
+    )
+))]
 use crate::{platform::TunIo, tun_runtime::TunRuntime};
-#[cfg(not(all(feature = "tun", any(unix, windows))))]
+#[cfg(not(all(
+    feature = "tun",
+    any(
+        unix,
+        all(windows, any(feature = "windows-wintun", feature = "windows-uwp"))
+    )
+)))]
 type TunRuntime = ();
 
 #[cfg(any(feature = "inbound-http", feature = "inbound-socks5"))]
@@ -32,7 +44,7 @@ use crate::controller::RuntimeController;
 #[cfg(not(any(feature = "inbound-http", feature = "inbound-socks5")))]
 type RuntimeController = ();
 
-#[cfg(feature = "ffi")]
+#[cfg(feature = "invoke")]
 use crate::config::MeasureConfig;
 #[cfg(test)]
 use crate::config::ProxyId;
@@ -91,6 +103,12 @@ pub(crate) struct PreparedCore {
     rules: RuleSet,
     geodata_manager: Arc<GeoDataManager>,
     geodata_registration: GeoDataRegistration,
+    // Shared TUN startup uses this in FFI, Windows CLI, and memory tests.
+    // The Unix CLI has no host descriptor to attach.
+    #[cfg_attr(
+        all(feature = "cli", not(feature = "invoke"), unix, not(test)),
+        allow(dead_code)
+    )]
     traffic_stats: Option<Arc<TunTrafficStats>>,
 }
 
@@ -99,7 +117,7 @@ pub(crate) struct PreparedCore {
 /// Unlike `PreparedCore`, this type never registers GeoData, compiles rules,
 /// builds DNS, or starts an inbound. Each value owns independent connector and
 /// security state and is dropped when its measurement item completes.
-#[cfg(feature = "ffi")]
+#[cfg(feature = "invoke")]
 pub(crate) struct PreparedMeasurement {
     config: MeasureConfig,
     endpoints: Vec<PreparedProxyEndpoints>,
@@ -118,13 +136,13 @@ struct PreparedProxyEndpoints {
     download: Option<ResolvedEndpoint>,
 }
 
-#[cfg(feature = "ffi")]
+#[cfg(feature = "invoke")]
 pub(crate) struct MeasurementRuntime {
     dispatcher: Arc<dyn Dispatcher>,
     proxy_graph: BuiltProxyGraph,
 }
 
-#[cfg(feature = "ffi")]
+#[cfg(feature = "invoke")]
 impl MeasurementRuntime {
     #[must_use]
     pub(crate) fn dispatcher(&self) -> Arc<dyn Dispatcher> {
@@ -137,7 +155,7 @@ impl MeasurementRuntime {
     }
 }
 
-#[cfg(feature = "ffi")]
+#[cfg(feature = "invoke")]
 impl Drop for MeasurementRuntime {
     fn drop(&mut self) {
         self.proxy_graph.begin_shutdown();
@@ -146,6 +164,11 @@ impl Drop for MeasurementRuntime {
 
 struct BuiltRuntimeParts {
     dispatcher: Arc<dyn Dispatcher>,
+    // Local dispatch owns its DNS reference; this copy feeds shared TUN startup.
+    #[cfg_attr(
+        all(feature = "cli", not(feature = "invoke"), unix, not(test)),
+        allow(dead_code)
+    )]
     dns: Option<Arc<RuntimeDns>>,
     geodata_updater: Option<GeoDataUpdateService>,
     proxy_groups: Arc<ProxyGroups>,
@@ -166,6 +189,7 @@ enum BuiltRouteTarget {
 }
 
 impl BuiltProxyGraph {
+    #[cfg(feature = "invoke")]
     fn get(&self, index: usize) -> Option<&Arc<dyn OutboundConnector>> {
         self.nodes.get(index)
     }
@@ -300,6 +324,11 @@ impl PreparedCore {
     }
 
     #[must_use]
+    // Retained for FFI, Windows CLI, and memory tests that attach TUN I/O.
+    #[cfg_attr(
+        all(feature = "cli", not(feature = "invoke"), unix, not(test)),
+        allow(dead_code)
+    )]
     pub(crate) fn traffic_stats(&self) -> Option<Arc<TunTrafficStats>> {
         self.traffic_stats.clone()
     }
@@ -312,6 +341,11 @@ impl PreparedCore {
         }
     }
 
+    // Sniffing remains a shared TUN capability, including Windows CLI.
+    #[cfg_attr(
+        all(feature = "cli", not(feature = "invoke"), unix, not(test)),
+        allow(dead_code)
+    )]
     fn domain_sniffer_config(&self) -> Option<Arc<crate::config::SnifferConfig>> {
         (self.has_tun() && self.config.sniffer.enable && self.rules.uses_domain_routing())
             .then(|| Arc::new(self.config.sniffer.clone()))
@@ -369,14 +403,17 @@ impl PreparedCore {
             geodata_rules,
             geo_matcher.clone(),
         ));
-        let router: Arc<dyn Dispatcher> = Arc::new(RoutingDispatcher::new_with_ipv6(
-            route_targets,
-            direct,
-            dns.clone(),
-            self.config.ipv6,
-            rules,
-            geo_matcher,
-        ));
+        let router: Arc<dyn Dispatcher> = Arc::new(
+            RoutingDispatcher::new_with_ipv6(
+                route_targets,
+                direct,
+                dns.clone(),
+                self.config.ipv6,
+                rules,
+                geo_matcher,
+            )
+            .with_tun_config(&self.config.tun),
+        );
         let session_stats = RuntimeResourceStats::new("runtime_session_observation");
         Ok(BuiltRuntimeParts {
             dispatcher: observe_sessions_with_stats(router, session_stats),
@@ -479,10 +516,40 @@ impl PreparedCore {
         .await
     }
 
+    #[must_use]
+    pub(crate) fn tun_config(&self) -> Option<&crate::config::TunConfig> {
+        self.config.tun.enable.then_some(&self.config.tun)
+    }
+
+    /// Ordinary Windows sessions own a Wintun adapter. Packaged VPN
+    /// sessions supply their packet adapter explicitly through `start_tun`.
+    #[cfg(all(windows, feature = "windows-wintun"))]
+    pub(crate) async fn start_wintun(self, dialer: Dialer) -> io::Result<RunningCore> {
+        // Creation stays in the startup future; callers must await it through
+        // shutdown rather than detach native work onto a blocking task.
+        let config = self.tun_config().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "TUN configuration is missing")
+        })?;
+        let device = crate::platform::WindowsWintunIo::open(&config.device, config.mtu)?;
+        self.start_tun(TunIo::from_wintun(device), dialer).await
+    }
+
     /// Starts the configured TUN listener and any loopback HTTP listener in the
     /// same cancellation domain.
-    #[cfg(all(feature = "tun", any(unix, windows)))]
-    pub(crate) async fn start_tun(self, tun: TunIo, dialer: Dialer) -> io::Result<RunningCore> {
+    #[cfg(all(
+        feature = "tun",
+        any(
+            unix,
+            all(windows, any(feature = "windows-wintun", feature = "windows-uwp"))
+        )
+    ))]
+    // Unix CLI supplies no descriptor; FFI, Windows CLI, and tests use this seam.
+    #[cfg_attr(
+        all(feature = "cli", not(feature = "invoke"), unix, not(test)),
+        allow(dead_code)
+    )]
+    pub(crate) async fn start_tun(mut self, tun: TunIo, dialer: Dialer) -> io::Result<RunningCore> {
+        self.limits.tun_max_datagram_size = usize::from(self.config.tun.mtu);
         let tun_count = self
             .config
             .inbounds
@@ -512,6 +579,7 @@ impl PreparedCore {
         let tun_runtime = TunRuntime::new_with_stats(
             tun,
             self.limits,
+            self.tun_config().expect("validated TUN configuration"),
             dispatcher.clone(),
             dns,
             self.config.ipv6,
@@ -533,7 +601,7 @@ impl PreparedCore {
     }
 }
 
-#[cfg(feature = "ffi")]
+#[cfg(feature = "invoke")]
 impl PreparedMeasurement {
     pub(crate) async fn prepare_config(
         config: MeasureConfig,
@@ -1197,7 +1265,13 @@ impl RunningCore {
             tasks.push(crate::resources::observation::spawn(server.serve(child)));
         }
 
-        #[cfg(all(feature = "tun", any(unix, windows)))]
+        #[cfg(all(
+            feature = "tun",
+            any(
+                unix,
+                all(windows, any(feature = "windows-wintun", feature = "windows-uwp"))
+            )
+        ))]
         if let Some(tun_runtime) = tun_runtime {
             let child = cancellation.clone();
             tasks.push(crate::resources::observation::spawn(tun_runtime.run(child)));
@@ -1248,21 +1322,32 @@ impl RunningCore {
             completed = wait_first_task(&mut self.tasks), if !self.tasks.is_empty() => (completed, None),
         };
         self.proxy_graph.begin_shutdown();
-        self.cancellation.cancel();
-        let mut first_error = shutdown_error.or_else(|| completed.map(component_completion_error));
-        for task in self.tasks.drain(..) {
-            match task.await {
-                Ok(Ok(())) => {}
-                Ok(Err(error)) if first_error.is_none() => first_error = Some(error),
-                Err(error) if first_error.is_none() => {
-                    first_error = Some(io::Error::other(error));
-                }
-                _ => {}
-            }
-        }
+        let result = stop_components(
+            &self.cancellation,
+            &mut self.tasks,
+            shutdown_error.or_else(|| completed.map(component_completion_error)),
+        )
+        .await;
         self.proxy_graph.shutdown().await;
-        first_error.map_or(Ok(()), Err)
+        result
     }
+}
+
+async fn stop_components(
+    cancellation: &CancellationToken,
+    tasks: &mut Vec<JoinHandle<io::Result<()>>>,
+    mut first_error: Option<io::Error>,
+) -> io::Result<()> {
+    cancellation.cancel();
+    for task in tasks.drain(..) {
+        match task.await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) if first_error.is_none() => first_error = Some(error),
+            Err(error) if first_error.is_none() => first_error = Some(io::Error::other(error)),
+            _ => {}
+        }
+    }
+    first_error.map_or(Ok(()), Err)
 }
 
 async fn wait_first_task(
@@ -1308,6 +1393,83 @@ async fn abort_and_join(tasks: &mut Vec<JoinHandle<io::Result<()>>>) {
 }
 
 #[cfg(test)]
+mod shutdown_tests {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+
+    use tokio::sync::oneshot;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn stopping_waits_for_component_cleanup() {
+        let cancellation = CancellationToken::new();
+        let child = cancellation.clone();
+        let released = Arc::new(AtomicBool::new(false));
+        let observed = released.clone();
+        let (cancelled, cancelled_rx) = oneshot::channel();
+        let (finish, finish_rx) = oneshot::channel();
+        let component = tokio::spawn(async move {
+            child.cancelled().await;
+            cancelled.send(()).unwrap();
+            finish_rx.await.unwrap();
+            released.store(true, Ordering::SeqCst);
+            Ok(())
+        });
+        let barrier = tokio::spawn(async move {
+            let mut tasks = vec![component];
+            stop_components(&cancellation, &mut tasks, None)
+                .await
+                .unwrap();
+            assert!(tasks.is_empty());
+        });
+
+        cancelled_rx.await.unwrap();
+        assert!(!barrier.is_finished());
+        assert!(!observed.load(Ordering::SeqCst));
+        finish.send(()).unwrap();
+        barrier.await.unwrap();
+        assert!(observed.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn unexpected_component_exit_joins_siblings_before_reporting_failure() {
+        let cancellation = CancellationToken::new();
+        let child = cancellation.clone();
+        let (started, started_rx) = oneshot::channel();
+        let (cancelled, cancelled_rx) = oneshot::channel();
+        let (finish, finish_rx) = oneshot::channel();
+        let sibling = tokio::spawn(async move {
+            started.send(()).unwrap();
+            child.cancelled().await;
+            cancelled.send(()).unwrap();
+            finish_rx.await.unwrap();
+            Err(io::Error::other("sibling cleanup failed"))
+        });
+        started_rx.await.unwrap();
+        let completed = tokio::spawn(async { Ok(()) });
+        let barrier = tokio::spawn(async move {
+            let mut tasks = vec![completed, sibling];
+            let failure = component_completion_error(wait_first_task(&mut tasks).await.unwrap());
+            assert_eq!(failure.kind(), io::ErrorKind::UnexpectedEof);
+            let result = stop_components(&cancellation, &mut tasks, Some(failure)).await;
+            assert!(tasks.is_empty());
+            result
+        });
+
+        cancelled_rx.await.unwrap();
+        assert!(!barrier.is_finished());
+        finish.send(()).unwrap();
+        assert_eq!(
+            barrier.await.unwrap().unwrap_err().kind(),
+            io::ErrorKind::UnexpectedEof
+        );
+    }
+}
+
+#[cfg(test)]
 #[path = "runtime_group_tests.rs"]
 mod group_tests;
 
@@ -1328,7 +1490,13 @@ mod tests {
         atomic::{AtomicUsize, Ordering},
     };
 
-    #[cfg(all(feature = "tun", any(unix, windows)))]
+    #[cfg(all(
+        feature = "tun",
+        any(
+            unix,
+            all(windows, any(feature = "windows-wintun", feature = "windows-uwp"))
+        )
+    ))]
     use std::net::Ipv4Addr;
 
     #[cfg(all(unix, feature = "tun"))]
@@ -2082,17 +2250,19 @@ rules:
         assert_eq!(build(chain).await, 6);
     }
 
-    #[cfg(all(windows, feature = "tun"))]
+    #[cfg(all(windows, feature = "windows-uwp"))]
     #[tokio::test]
     async fn windows_packet_adapter_runs_the_tun_runtime() {
         let prepared = PreparedCore::prepare(
-            CURRENT_TUN_CONFIG.as_bytes(),
+            CURRENT_TUN_CONFIG
+                .replace("mtu: 1500", "mtu: 1400")
+                .as_bytes(),
             &FixedResolver,
             ResourceLimits::default(),
         )
         .await
         .unwrap();
-        let (tun, adapter) = TunIo::new(4, || Ok(()));
+        let (tun, adapter) = TunIo::new(4, 1400, || Ok(())).unwrap();
         let running = prepared.start_tun(tun, Dialer::default()).await.unwrap();
 
         assert!(adapter.try_send(icmpv4_echo_request()));
@@ -2291,7 +2461,13 @@ rules:
         drop(crate::inbound::listen::bind_udp(address).unwrap());
     }
 
-    #[cfg(all(feature = "tun", any(unix, windows)))]
+    #[cfg(all(
+        feature = "tun",
+        any(
+            unix,
+            all(windows, any(feature = "windows-wintun", feature = "windows-uwp"))
+        )
+    ))]
     const CURRENT_TUN_CONFIG: &str = r#"tun:
   enable: true
 proxies:
@@ -2335,7 +2511,13 @@ rules:
         }
     }
 
-    #[cfg(all(feature = "tun", any(unix, windows)))]
+    #[cfg(all(
+        feature = "tun",
+        any(
+            unix,
+            all(windows, any(feature = "windows-wintun", feature = "windows-uwp"))
+        )
+    ))]
     fn icmpv4_echo_request() -> Vec<u8> {
         let mut message = vec![8, 0, 0, 0, 0x12, 0x34, 0x56, 0x78, b'o', b'd', b'd'];
         let checksum = test_checksum(&message);
@@ -2356,7 +2538,13 @@ rules:
         packet
     }
 
-    #[cfg(all(feature = "tun", any(unix, windows)))]
+    #[cfg(all(
+        feature = "tun",
+        any(
+            unix,
+            all(windows, any(feature = "windows-wintun", feature = "windows-uwp"))
+        )
+    ))]
     fn test_checksum(bytes: &[u8]) -> u16 {
         let mut sum = 0_u32;
         let (chunks, remainder) = bytes.as_chunks::<2>();

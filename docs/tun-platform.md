@@ -1,6 +1,6 @@
 # TUN 平台层
 
-VCore 的 netstack、DNS、规则和出站只处理完整的原始 IPv4/IPv6 数据包。平台差异集中在编译期选择的 `platform::TunIo`。
+VCore 的 netstack、DNS、规则和出站只处理完整的原始 IPv4/IPv6 数据包。平台差异集中在 `platform::TunIo`；Windows 通过互斥的 `windows-wintun` / `windows-uwp` feature 选择桌面 Wintun 或安装包 WinRT VPN，两者共用其后的运行时和代理图。
 
 ## Unix 借用 fd
 
@@ -10,8 +10,14 @@ TunRuntime -> TunRsIo -> 宿主持有的 TUN fd 副本
 
 - iOS/tvOS/macOS：宿主提供 utun 文件描述符，适配器处理四字节 packet-information 头。
 - Android：`VpnService` 提供 raw-IP 文件描述符。
-- Linux：宿主创建真实单队列 TUN，使用 `IFF_TUN | IFF_NO_PI`、无 VNET header、
-  MTU 1500；宿主负责接口、网络命名空间和路由，VCore 不自动接管系统网络。
+- Linux：真实单队列 TUN，使用 `IFF_TUN | IFF_NO_PI`、无 VNET header；接口实际 MTU
+  必须与 `tun.mtu` 一致。宿主负责地址、网络命名空间和路由，VCore 不自动接管系统网络。
+
+`tun.file-descriptor` 缺省或 0 时，Linux / macOS 由 core 打开本机 TUN，Android / iOS /
+tvOS 仍需宿主提供 fd。`tun.device` 控制原生打开的接口名：空值在 Linux 使用 `VCore`，
+macOS 自动选择 utun。core 只设置自有接口的 MTU 和自有 fd 的 nonblocking，不配置地址、
+DNS 或路由；Stop 关闭自有句柄，不承诺删除宿主已有接口。创建失败没有备用数据面。
+正数 file-descriptor 选择下述借用路径；fd 数字必须对当前进程有效，CLI 不增加专用 fd 参数。
 
 宿主始终拥有原始文件描述符。VCore 启动时：
 
@@ -20,7 +26,10 @@ TunRuntime -> TunRsIo -> 宿主持有的 TUN fd 副本
 3. 把副本交给 `tun-rs::SyncDevice::from_fd`，并用 Tokio `AsyncFd` 驱动；
 4. 停止时只关闭副本。
 
-VCore 不调用会修改共享 open-file-description 标志的异步构造器，不通过 device builder 创建或重配置接口。`tunFraming` 是严格宿主协议：Apple 只接受 `utun`，Android 和 Linux 只接受 `rawIp`，不自动探测。
+借用路径不调用会修改共享 open-file-description 标志的异步构造器，也不重配置接口。
+帧格式是平台内部固定约定：Apple 使用 utun packet-information，Android 和 Linux 使用
+raw IP；YAML 和 Invoke 不提供 framing 参数。借用 fd 时以真实接口身份为准，`device`
+不重命名已有接口。配置校验不取得 fd 或创建接口；资源检查发生在核心启动阶段。
 
 Linux 启动前查询真实 TUN 及其所属网络命名空间，验证内核链接参数、实际 MTU 和
 raw-IP 格式；普通 socket/pipe、TAP、PI、VNET header 或多队列设备失败关闭。
@@ -53,7 +62,7 @@ VCore 的借用 fd 契约不能证明宿主 KVC 提取 fd 是稳定公开方案�
 
 - `recv == 0` 表示设备关闭；
 - 首个半字节必须表示 IPv4 或 IPv6；
-- 单次读取缓冲区固定为 1,500 字节；
+- 单次读取缓冲区按配置 MTU 复用，缺省或零值为 9,000 字节；
 - 写入必须一次完成整个包，部分写入立即失败；
 - Apple 写入的瞬时 `ENOBUFS` 不终止整个运行时：只保留当前尚未接受的包，异步退让
   1 ms 后重试，Stop/取消仍直接释放该 future；不新建后台重试任务、不扩大宿主 socket
@@ -62,8 +71,8 @@ VCore 的借用 fd 契约不能证明宿主 KVC 提取 fd 是稳定公开方案�
 
 所有平台的公共 TUN 循环按最多 8 包的有界批次推进：等到首包后只收取已经就绪的包，
 不等待计时器或未来数据。Unix 在同一次 readiness guard 下逐包读写；每次系统调用仍
-对应一个独立 IP 包，不使用 `readv/writev` 拼接多个包。Windows 在同一队列临界区内
-批量交接，保留非阻塞丢当前包与空到非空唤醒语义。
+对应一个独立 IP 包，不使用 `readv/writev` 拼接多个包。Windows 的包适配器在同一队列临界区内
+批量交接，保留非阻塞丢当前包与空到非空唤醒语义；Wintun reader 保留逐包边界。
 
 Unix 读缓冲区和公共批次容器复用；非法包只丢该槽位，不丢合法邻包。批次中途发生错误或
 取消时保留已经完成的逐包结果，流量只统计有效的已完成前缀，未完成包不得重放已完成
@@ -79,7 +88,7 @@ Unix 读缓冲区和公共批次容器复用；非法包只丢该槽位，不丢
 UDP 直接在复用的 MTU frame 中构包，不再经过 response writer 和 raw output
 的二次交接；每批最多处理 8 个已就绪项目，非法响应也消耗工作预算。DNS permit
 保留到对应包被平台接受、最终丢弃或取消，ENOBUFS 待重试时不释放；Windows
-Adapter 成功处理仍不承诺 Windows 框架最终交付。
+WinRT Adapter 成功处理仍不承诺 Windows 框架最终交付。
 
 平台无关的 netstack 驱动同样最多连续消费 8 个已就绪入站包，再执行全量 TCP
 socket / 应用缓冲维护及 egress polling。TCP 协议 ingress 仍逐包推进，保证相邻
@@ -102,11 +111,36 @@ netstack 的 TCP 接收与发送缓冲可独立配置，各方向的容量包含
 的缓冲策略。该容量不包含代理 relay、包队列或 allocator 的内存。
 
 Linux 目前不启用 GRO/GSO：`tun-rs` 的 Linux offload 示例通过 builder 创建并
-配置带 VNET header 的设备，而当前借用 fd 构造器不识别该模式。对现有 raw-IP
+配置带 VNET header 的设备，而 VCore 的原生和借用路径均不启用该模式。对现有 raw-IP
 设备调用 `recv_multiple` 不会自动合并读取或启用 offload。VCore 保留宿主
-MTU/格式与 fd 标志，不以增加 builder 或修改宿主接口来暗中启用该能力。
+MTU/格式与 fd 标志，原生 builder 只打开 raw-IP TUN，不暗中启用 offload 或改变借用接口。
 
-## Windows VPN
+## Windows Wintun
+
+桌面 Wintun 使用宿主提供的动态库与原始 IP 适配器，通过同一 `TunIo` 边界进入
+TunRuntime、netstack、DNS、规则和出站图。启用 TUN 的普通 Windows 业务运行时
+走这条路径，不要求 MSIX 包身份，也不借用 WinRT Provider 或 packet channel。
+实际启动调用见 [Invoke API](invoke-api.md#start)。
+
+宿主提供与程序架构一致的官方 `wintun.dll`。加载路径固定为进程可执行文件所在目录下的
+`wintun.dll`；适配器名由 `tun.device` 控制，空值为 `VCore`，启动可打开已有同名适配器或创建新适配器。
+VCore 不下载或打包该动态库，不搜索 PATH 或启动工作目录。
+系统接口地址、DNS、路由与防递归出口配置由宿主完成；YAML 不提供 DLL 路径或路由字段。
+Wintun 使用配置的 MTU，共享原始包校验、IPv6 政策、局部队列预算和同步停止屏障。
+UWP 的 1400 MTU 上限只适用于该安装包路径；超过上限明确拒绝，不静默截断。
+Windows 不接受 Unix file-descriptor 借用路径。
+
+平台 I/O 使用 `tun-rs` 的可中断 `SyncDevice`。唯一 reader 线程逐包收取 Wintun ring，
+非阻塞地提交到既有 `WindowsPacketAdapter` 的 256 包入站队列；队列满只丢当前包。
+写端直接提交到 2 MiB Wintun ring，ring 暂满时只保留当前尚未接受的包，异步退让
+1 ms 后重试；取消会释放待写包，不创建后台写任务或重放已成功提交的包。
+Stop 唤醒阻塞 reader 并等待线程结束，设备所有者随后关闭 VCore 持有的 session 和原生句柄。
+这不承诺移除宿主已有的接口，也不卸载系统驱动。
+
+驱动加载、权限、真实接口收发、物理出口与 Stop 后的设备资源释放须在 Windows 上
+独立验证；非 Windows 编译和内存回归不能作为 Wintun 设备通过证据。
+
+## Windows WinRT VPN
 
 ```text
 VpnChannel callback
@@ -117,7 +151,7 @@ VpnChannel callback
   -> TunRuntime
 ```
 
-Windows 使用 `Windows.Networking.Vpn` 回调，不使用文件描述符或适配器 ring：
+WinRT VPN 使用 `Windows.Networking.Vpn` 回调，不使用文件描述符或 Wintun ring：
 
 - Provider 在回调内复制 `VpnPacketBuffer` 字节，不保存系统缓冲区的借用；
 - 顶层 `ipv6: false` 时，Provider 向 `StartWithMainTransport` 传 null IPv6 client-address 参数，不分配 IPv6 TUN 地址，也不安装 IPv6 路由或 DNS；`startVpn` 的 IPv6 地址字段仍严格必填并经过验证；
@@ -133,11 +167,14 @@ Windows 使用 `Windows.Networking.Vpn` 回调，不使用文件描述符或适�
 
 ## MTU 与结构上限
 
-用户 TUN 配置当前只接受 MTU 1500。Windows 因 `StartWithMainTransport` 平台上限对 L3 接口和 Session Host netstack 使用 1400；packet channel 仍保留 1500 字节解析上限：
+`tun.mtu` 缺省或零值为 9000，接受 1280–65535，贯通平台 I/O、netstack 及 UDP 回包预算。
+借用 fd 的实际接口 MTU 由宿主预先设置并保持一致，Linux 启动时验证真实值。
+UWP 因 `StartWithMainTransport` 平台上限要求配置不超过 1400；packet channel 保留
+1500 字节 wire 结构上限，包适配器同时执行更小的配置 MTU。
 
 ```text
-原始 TUN 包                   1,500 字节
-最终代理 UDP 负载             1,452 字节（Windows 1,352）
+原始 TUN 包                   配置 MTU（默认 9,000）
+最终代理 UDP 负载             配置 MTU - 48（默认 8,952；UWP 1400 时 1,352）
 包队列                        256
 普通事件 / TCP accept         128
 每关联 UDP 入站               64
@@ -162,8 +199,9 @@ netstack 端点及纯 UDP codec，独立 crate 的通用 UDP endpoint 不在生�
 - Linux：宿主负责网络命名空间或等效路由隔离，确保被捕获的客户端流量进入 TUN，
   VCore 出站绕过 TUN；不能把仅绑定 source IP 当作绕路保证。没有自动路由配置或降级路径。
 - Android：每个出站 TCP/UDP socket 在 connect 前调用宿主 protect；失败则当前连接失败关闭。
-- Windows：Provider 为当前会话选择不可变的物理网络绑定；每个地址族只从非 link-local 地址中选择一个源 IP 和接口索引交给 Session Host，同时独立保留物理适配器全部去重的 on-link prefixes（包括 link-local）用于 VPN 路由。普通出站 socket 必须同时绑定源地址和 WinSock 接口索引。
-- Windows 只有配置中显式使用 `127.0.0.0/8` 范围内的 IPv4 字面量或 `::1` 的本地出站可以跳过物理绑定；物理代理服务器的域名解析到任何回环地址都会失败关闭。
-- 物理适配器、选定源地址、全部 on-link prefixes 或网络身份变化后，Provider 等待 2 秒消抖并停止会话，不迁移 socket 或自动回退。
+- Windows WinRT：Provider 为当前会话选择不可变的物理网络绑定；每个地址族只从非 link-local 地址中选择一个源 IP 和接口索引交给 Session Host，同时独立保留物理适配器全部去重的 on-link prefixes（包括 link-local）用于 VPN 路由。普通出站 socket 必须同时绑定源地址和 WinSock 接口索引。
+- Windows WinRT 只有配置中显式使用 `127.0.0.0/8` 范围内的 IPv4 字面量或 `::1` 的本地出站可以跳过物理绑定；物理代理服务器的域名解析到任何回环地址都会失败关闭。
+- Windows Wintun：普通出站复用默认 Dialer，不获取 Provider 的物理绑定或网络变化监控。宿主必须配置物理出口和路由隔离，确保 VCore 出站不重新进入 Wintun；VCore 不自动修改地址、DNS 或路由。
+- WinRT 物理适配器、选定源地址、全部 on-link prefixes 或网络身份变化后，Provider 等待 2 秒消抖并停止会话，不迁移 socket 或自动回退。
 
 主机测试只能证明帧、所有权、队列和生命周期逻辑；平台实测范围见 [验收矩阵](acceptance.md)。

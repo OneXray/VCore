@@ -23,13 +23,14 @@ use windows::{
 };
 
 use super::{
-    WINDOWS_VPN_MTU, log,
+    log,
     managed_processes::ManagedProcessSet,
     packet_channel::{
         ControlMessage, DATA_PIPE_READ_BUFFER_BYTES, MAX_PACKET_BATCH_PACKETS, PROTOCOL_VERSION,
         PhysicalBinding, Rendezvous, read_control_async, read_packet_frame_async, read_rendezvous,
         write_control_async, write_packet_batch_async,
     },
+    packet_channel_mtu,
     snapshot::SessionReference,
 };
 use crate::{
@@ -75,8 +76,8 @@ pub fn run() -> io::Result<()> {
 fn run_initialized() -> io::Result<()> {
     let (local_folder, installed_folder) = package_folders()?;
     log::append(&local_folder, "session", "Session Host starting");
-    let _runtime_thread = crate::ffi::RuntimeThreadGuard::enter();
-    let runtime = crate::ffi::engine_runtime_builder()
+    let _runtime_thread = crate::invoke::RuntimeThreadGuard::enter();
+    let runtime = crate::invoke::engine_runtime_builder()
         .enable_io()
         .enable_time()
         .build()?;
@@ -277,23 +278,24 @@ async fn start_vcore(
 ) -> io::Result<(RunningCore, JoinSet<io::Result<()>>)> {
     let config = Config::parse_yaml(config_yaml.as_bytes())
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+    let mtu = packet_channel_mtu(&config)?;
     let geodata = GeoDataManager::open(
         local_folder.join("vcore/geodata"),
         Duration::from_secs(24 * 60 * 60),
     )
     .map_err(io::Error::other)?;
     let limits = ResourceLimits {
-        tun_max_datagram_size: WINDOWS_VPN_MTU,
+        tun_max_datagram_size: usize::from(mtu),
         ..ResourceLimits::default()
     };
     let prepared = PreparedCore::prepare_config(config, geodata, &SystemResolver, limits).await?;
 
     let wake = Arc::new(Notify::new());
     let observed = Arc::clone(&wake);
-    let (tun, packets) = TunIo::new(PACKET_QUEUE_CAPACITY, move || {
+    let (tun, packets) = TunIo::new(PACKET_QUEUE_CAPACITY, mtu, move || {
         observed.notify_one();
         Ok(())
-    });
+    })?;
     let (data_read, mut data_write) = tokio::io::split(data);
     let mut data_read = BufReader::with_capacity(DATA_PIPE_READ_BUFFER_BYTES, data_read);
     let mut tasks = JoinSet::new();

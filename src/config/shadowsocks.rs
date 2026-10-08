@@ -315,7 +315,7 @@ mod tests {
         );
         let runtime = format!("mixed-port: 1080\nproxies: [{node}]\nrules: ['MATCH,ss']");
         assert!(Config::parse_yaml(runtime.as_bytes()).is_err());
-        #[cfg(feature = "ffi")]
+        #[cfg(feature = "invoke")]
         assert!(
             crate::config::MeasureConfig::parse_yaml(format!("proxies: [{node}]").as_bytes())
                 .is_err()

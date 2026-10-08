@@ -7,7 +7,7 @@
 
 | 层次 | 保留内容 | 入口 |
 | --- | --- | --- |
-| 核心回归 | 严格配置、协议/TLS 内存 IO、局部上限、取消、FFI 边界和确定性回归 | 定向 cargo test |
+| 核心回归 | 严格配置、协议/TLS 内存 IO、局部上限、取消、Invoke/原生传输边界和确定性回归 | 定向 cargo test |
 | 编译 | 精简 feature、生产 feature、平台架构与全目标编译 | VCore scripts build |
 | 编译工具回归 | 平台构建、产物身份与构建参数回归 | scripts/tests |
 | 协议互通 | 官方 listener、生产 ABI 消费者、TCP/UDP 内容与代理路径 | 独立 container-benchmark interop |
@@ -41,10 +41,31 @@ Rust 依赖缓存区分检查种类、工具链、锁文件和 runner 镜像/SDK
 
 ## 必要回归与独立输入
 
-- Invoke：无版本字段的请求可查询核心身份和 stopped 实例；精确响应对象、初始化幂等、
-  缺失 method/payload 与未知字段拒绝由 `ffi::tests::version_and_state_use_the_fixed_response_envelope`、
-  `initialize_is_idempotent_only_for_the_same_data_directory` 和 `envelope_and_payload_are_strict`
-  的精确纯内存过滤器覆盖。
+- CLI：`cargo test --locked --no-default-features --features cli --bin vcore cli::tests::`
+  覆盖五个参数的 Go flag 语法、优先级、原始路径/空值请求转换、未知参数脱敏、无损路径元数据、
+  响应输出流和退出码。路径、环境默认、文件读取和信号属于共享 Invoke，不能由 CLI 另行实现。
+  `cargo test --locked --no-default-features --features cli --lib invoke::foreground::tests::`
+  覆盖用户/XDG 默认、独立路径归属、普通文件/FIFO/读取上限、标准输入、原生字符路径、
+  帮助无路径依赖、有效 TUN 与缺失 GeoData 的无初始化校验、失败脱敏、启动中信号仍等待
+  worker，以及 stderr 上限和运行工作器日志继承；Unix 非 Unicode 字节文件的真实读写只在
+  Linux 执行，其他 Unix 仍校验元数据往返。`runtime::shutdown_tests::` 覆盖取消后任务
+  join 和核心错误保留，不启动宿主监听器。CLI 的完整生产 feature 通过独立 `cli` 编译，
+  不能以 `ffi` 的隐式激活代替。发布 helper 的离线回归由 `scripts/tests/test_cli_release.py`
+  执行；六目标 tag 工作流配置不等于已运行通过。
+
+- Invoke：共享入口位于 `src/invoke/`，C ABI/JNI 只是传输层。无版本字段的请求可查询核心
+  身份和 stopped 实例；精确响应对象、初始化幂等、缺失 method/payload 与未知字段拒绝由
+  `invoke::tests::version_and_state_use_the_fixed_response_envelope`、
+  `invoke::tests::initialize_is_idempotent_only_for_the_same_data_directory` 和
+  `invoke::tests::envelope_and_payload_are_strict` 的精确纯内存过滤器覆盖。
+  `invoke::tests::start_accepts_only_config_yaml_and_removed_prepare_is_unknown` 覆盖唯一
+  `start(configYaml)` payload 与已删除方法/字段的拒绝。
+  `invoke::tests::validate_config_does_not_change_instance_state`、
+  `invoke::tests::validate_config_allows_referenced_geodata_assets_to_be_missing` 和
+  `invoke::tests::concurrent_validate_config_calls_return_the_same_result` 覆盖无初始化、
+  无状态改变与可并发校验；`invoke::tests::engine_completion_notifies_after_panic_and_join_reports_failure`
+  覆盖完成通知和真实 join 错误。整个 `invoke::tests::` 含历史监听器 fixture，不能作为宿主
+  执行过滤器；按上述精确名称选择纯内存测试。
 - 混合入站：`cargo test --locked --lib inbound::mixed::tests::` 在纯内存中覆盖
   HTTP/SOCKS5 分流、首字节与流水业务保留、LAN 免认证、认证拒绝、共同握手期限和
   取消后的双向释放；`inbound::socks5::association::tests::` 覆盖 UDP 来源、代次和
@@ -101,6 +122,13 @@ Rust 依赖缓存区分检查种类、工具链、锁文件和 runner 镜像/SDK
   旧 dense DFA 输入实验不能替代当前实现的回归与压力结果，单次特定输入的 RSS
   也不能扩展为任意输入的内存保证。
   不把少量选路见证当作逐条规则语义证明，Linux RSS 不替代 Apple 真机 footprint。
+- TUN 配置：`config::tests::tun_config_` 覆盖六个 Mihomo 同名字段、MTU 0/省略=9000、
+  UDP timeout 0/省略=300 秒、DNS 精确/通配目标与空列表，以及未知字段拒绝。
+  `tun_runtime::tests::configured_` 和 `routing::dispatcher::tests::configured_` 纯内存覆盖
+  配置 MTU 真正进入平台读写/UDP 返回预算、DNS 匹配进入 TCP/UDP 分流、association 与逐目的
+  流的实际 idle 清理。netstack 的 `configured_jumbo_mtu_preserves_full_udp_packets_for_both_families`
+  与 `configured_jumbo_mtu_reaches_tcp_mss_for_both_ip_families` 覆盖双族完整 9000 字节包、
+  超限拒绝及 TCP MSS；Linux 配置 MTU 元数据比对用纯消息回归验证，真实设备仍在容器中验证。
 - TUN UDP：reader 直接分流、慢关联隔离、TCP ingress Full 不阻塞 UDP/DNS；唯一 writer
   三通道公平/关闭/非法包隔离、平台接受前 DNS permit 生命周期、取消及关联/DNS 任务
   同步回收。纯 codec 的 MTU/族边界、TCP-only 与通用 endpoint 回归在 netstack 内。
@@ -108,6 +136,14 @@ Rust 依赖缓存区分检查种类、工具链、锁文件和 runner 镜像/SDK
   非法包邻居保留、EOF/取消前缀与不重放；Windows 队列/唤醒纯内存回归不替代设备验证。
   netstack 入站维护按有界批次摊薄，TCP 仍逐包 ingress；同目标端口 SYN 的流绑定、
   相邻 ICMP、输出满时未消费后缀及取消/关闭保持独立回归。
+- Windows Wintun：`platform::windows_wintun_io::tests::` 用内存设备替身覆盖 256 包
+  入站队列、非法包邻居、脱敏读写错误、reader 中断与 join、部分写前缀、ring 暂满
+  只重试未接受包，以及取消后无后台写入。Invoke 的
+  `invoke::tests::start_accepts_only_config_yaml_and_removed_prepare_is_unknown` 覆盖
+  `start(configYaml)` 和旧 `tunFd`/`tunFraming` 字段拒绝，不创建真实设备。动态 MTU 及
+  UWP 1400 上限分别由平台内存回归覆盖。Windows 目标编译与这些内存
+  回归分别记录；外置 DLL、权限、实际适配器收发、宿主地址/DNS/路由及 Stop 后原生
+  句柄释放仍需 Windows 设备验证。已有 WinRT VPN 包验收不能代替 Wintun 设备结果。
 - 独立 ClientHello golden、Encryption 密码向量与 limits 输入保留，
   不能用待测实现生成期望或以声明清单替代行为。
 

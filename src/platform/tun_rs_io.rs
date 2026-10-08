@@ -6,9 +6,8 @@ use crate::{IpVersion, Result, TunFraming, VCoreError};
 
 use super::{TUN_PACKET_BATCH_SIZE, TunFd};
 
-// The current config protocol accepts only MTU 1500. Caller-owned buffers
-// expose raw IP; tun-rs handles the separate Apple packet-information header.
-pub(super) const TUN_MTU: usize = 1_500;
+#[cfg(test)]
+const TUN_MTU: usize = 1_500;
 
 /// Non-blocking raw-IP packet I/O backed by tun-rs.
 ///
@@ -20,6 +19,7 @@ pub(super) const TUN_MTU: usize = 1_500;
 pub struct TunRsIo {
     device: AsyncFd<tun_rs::SyncDevice>,
     framing: TunFraming,
+    mtu: usize,
 }
 
 impl fmt::Debug for TunRsIo {
@@ -33,6 +33,11 @@ impl fmt::Debug for TunRsIo {
 
 impl TunRsIo {
     pub fn new(fd: TunFd, framing: TunFraming) -> Result<Self> {
+        Self::new_with_mtu(fd, framing, 1500)
+    }
+
+    pub fn new_with_mtu(fd: TunFd, framing: TunFraming, mtu: u16) -> Result<Self> {
+        validate_mtu(mtu)?;
         #[cfg(target_os = "linux")]
         if framing != TunFraming::RawIp {
             return Err(io::Error::new(
@@ -49,7 +54,50 @@ impl TunRsIo {
         Ok(Self {
             device: AsyncFd::new(device)?,
             framing,
+            mtu: usize::from(mtu),
         })
+    }
+
+    /// Open a core-owned local TUN without configuring addresses or routes.
+    /// Owned descriptors may be made nonblocking; borrowed ones are never changed.
+    pub fn open(name: &str, mtu: u16) -> Result<Self> {
+        validate_mtu(mtu)?;
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        {
+            let mut builder = tun_rs::DeviceBuilder::new().mtu(mtu);
+            #[cfg(target_os = "linux")]
+            {
+                builder = builder.name(if name.is_empty() { "VCore" } else { name });
+            }
+            #[cfg(target_os = "macos")]
+            {
+                if !name.is_empty() {
+                    builder = builder.name(name);
+                }
+                builder = builder.associate_route(false).packet_information(true);
+            }
+            let device = builder.build_sync()?;
+            device.set_nonblocking(true)?;
+            #[cfg(target_os = "macos")]
+            let framing = TunFraming::Utun;
+            #[cfg(target_os = "linux")]
+            let framing = TunFraming::RawIp;
+            configure_platform_framing(&device, framing);
+            Ok(Self {
+                device: AsyncFd::new(device)?,
+                framing,
+                mtu: usize::from(mtu),
+            })
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        {
+            let _ = name;
+            Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "platform requires a host TUN file descriptor",
+            )
+            .into())
+        }
     }
 
     #[must_use]
@@ -61,7 +109,7 @@ impl TunRsIo {
     /// exposes raw IP on every supported fd platform.
     pub async fn read_packet(&self, packet: &mut Vec<u8>) -> Result<IpVersion> {
         packet.clear();
-        packet.resize(TUN_MTU, 0);
+        packet.resize(self.mtu, 0);
         let size = loop {
             let mut ready = self.device.readable().await?;
             match ready.try_io(|inner| inner.get_ref().recv(packet)) {
@@ -95,7 +143,7 @@ impl TunRsIo {
             loop {
                 let packet = &mut packets[outcomes.len()];
                 packet.clear();
-                packet.resize(TUN_MTU, 0);
+                packet.resize(self.mtu, 0);
                 match ready.try_io(|inner| inner.get_ref().recv(packet)) {
                     Ok(Ok(0)) => {
                         return Err(
@@ -130,7 +178,7 @@ impl TunRsIo {
         outcomes.clear();
         let mut readiness = None;
         for packet in packets {
-            let version = match validate_write_packet(packet) {
+            let version = match validate_write_packet(packet, self.mtu) {
                 Ok(version) => version,
                 Err(error) => {
                     outcomes.push(Err(error));
@@ -168,7 +216,7 @@ impl TunRsIo {
     /// Writes one complete packet. Partial writes are rejected because retrying
     /// a suffix would create a second malformed TUN packet.
     pub async fn write_packet(&self, packet: &[u8]) -> Result<IpVersion> {
-        let version = validate_write_packet(packet)?;
+        let version = validate_write_packet(packet, self.mtu)?;
         let written = loop {
             let mut ready = self.device.writable().await?;
             match ready.try_io(|inner| inner.get_ref().send(packet)) {
@@ -195,8 +243,15 @@ impl TunRsIo {
     }
 }
 
-fn validate_write_packet(packet: &[u8]) -> Result<IpVersion> {
-    if packet.len() > TUN_MTU {
+fn validate_mtu(mtu: u16) -> Result<()> {
+    if mtu < 1280 {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid TUN MTU").into());
+    }
+    Ok(())
+}
+
+fn validate_write_packet(packet: &[u8], mtu: usize) -> Result<IpVersion> {
+    if packet.len() > mtu {
         return Err(VCoreError::InvalidPacket(
             "TUN packet exceeds configured MTU",
         ));

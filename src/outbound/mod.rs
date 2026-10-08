@@ -23,7 +23,7 @@ mod vless;
 
 #[cfg(feature = "outbound-anytls")]
 pub use anytls::{AnyTlsLifecycle, AnyTlsOutbound, AnyTlsStream, AnyTlsTlsConnector};
-#[cfg(any(feature = "ffi", test))]
+#[cfg(any(feature = "invoke", test))]
 pub(crate) use connector::SelectUpstreamMember;
 pub use connector::{
     ConnectedStream, ConnectorDispatcher, DEFAULT_ESTABLISH_TIMEOUT, DatagramRequest,

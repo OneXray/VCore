@@ -11,8 +11,9 @@
 
 独立 benchmark 的 `stress` 面向指定 VCore 的原生 Linux TUN，默认 2 Gbps /
 60 秒 / 1,000 QPS DNS，与 `compare` 一样固定只加载增强 DAT 中完整的
-`geosite:cn` / `geoip:cn`。原件下载和更新不裁剪、不扩展匹配器分类范围；
-`--geodata-update` 叠加真实更新，不改变规则选择。
+`geosite:cn` / `geoip:cn`。原件下载和更新不裁剪、不扩展匹配器分类范围。
+当前 VCore CLI 压力入口尚无运行中的 GeoData 状态采样，显式拒绝
+`--geodata-update`，不以旧 C ABI 采样或离线 probe 替代运行中更新的证据。
 `compare` 执行 VCore/Mihomo 1/1.5/2 Gbps 对比。两者分别记录混合 TCP/UDP 与 DNS 负载
 及指定内核 PID 的内存峰值，实际输入和门槛以 benchmark README 为准。
 50,000,000 bytes 为宿主工程目标；报告实际吞吐、丢包/错误、CPU、RSS 和 DNS 完成数。
@@ -30,6 +31,30 @@ GeoData 属性/反选、真实 Regex 编译、合成 Plain 和双快照重叠由
 没有的类型明确报告为零，不把合成记录计入真实压力规模。最新完整 CN 结果与历史
 128 万无 Regex 基线分别见 benchmark README；均不代表任意输入内存保证或
 iOS/tvOS 实机验收。
+
+2026-10-08 CLI / Invoke 重写后执行
+`stress --source vcore=PATH --rates 2000 --seconds 60`：生产 CLI 通过
+`-d data -f config` 启动，从 `tun.file-descriptor` 借用原生 Linux TUN。
+Rust 1.99.0、GNU ARM64 Release、Ubuntu 26.04.1 LTS、NAT、5 CPU / 8 GiB，
+TUN 与 eth0 队列为 4096；builder 在施压前停止。
+完整 CN DAT 为 GeoSite 111,400 / GeoIP 9,648 条，64 条混合 TCP/UDP 流、
+1,000 QPS DNS。实际吞吐 1,991.176 Mbps，CPU 141.662%，RSS 峰值
+26,075,136 bytes（24.867 MiB）；负载、DNS 和内存门槛通过，case 为 PASS。
+UDP 上行零丢包，下行丢失 197 包，合计 197 / 6,249,984（0.003152%）；
+16 条下行接收超时，`driver_complete=false`，没有内容损坏。
+DNS 成功 60,000 / 60,000。真实 TUN 就绪、拒绝见证、fd/MTU 保持和测量有效；
+CLI 响应 SIGINT 正常退出，容器、采样器和 scratch 均已清理。
+源码在本轮构建与压力期间未变；完整源码、锁文件、二进制和输入身份见独立
+benchmark 的 `conclusions/20261008T090052384923Z-run-3qibok_7.md`。
+该结果不等于全部流完成、零丢包、运行中 GeoData 更新或物理设备验收。
+
+本轮 macOS 离线检查执行了 `cargo fmt --all -- --check`、
+`cargo test --locked --all-features --all-targets --no-run` 和
+`cargo clippy --locked --all-features --lib --bins -- -D warnings`；
+CLI、配置、共享 Invoke、路由、平台适配器、TUN 和 netstack 的显式纯内存回归通过。
+Windows x64/ARM64 的 backend 依赖图及内存设备替身已检查；原生 Windows 构建、
+外置 Wintun DLL / 真实设备、UWP 设备和六平台正式 tag 发布本轮均为 NOT RUN。
+相关 CI 门禁已配置，不将配置存在计为执行通过。
 
 2026-10-06 切换常规 `regex::bytes::Regex` 后，执行两轮完整 CN 原生 Linux TUN
 复测：`compare --core vcore --rates 2000 --seconds 60 --source vcore=PATH`，

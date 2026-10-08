@@ -3,8 +3,9 @@
 # 配置只接受本文列出的结构；未知或已移除的字段、anchor、alias 和自定义 tag 都会失败。
 # 顶层 port、socks-port、udp 和 listeners 都不接受；代理节点的 port / udp 仍有效。
 #
-# 宿主先通过 Invoke API 调用 initialize({dataDir})，再通过 configYaml 内联
-# 传入配置。GeoData 固定由 VCore 管理在 dataDir/geodata 中。
+# 库宿主先通过 Invoke API 调用 initialize({dataDir})，再通过 configYaml 内联
+# 传入配置；CLI 使用 -f 指定文件，-d 指定数据目录，省略时读取数据目录下的 config.yaml。
+# GeoData 固定由 VCore 管理在 dataDir/geodata 中；CLI 的 -t 只校验，不创建目录或联网。
 # 所有平台均不设 GeoData 条数上限，不按数量截断，也不设总内存预算；
 # 仅加载当前业务规则和 DNS policy 引用的分类/属性交集，详见 docs/geodata.md。
 
@@ -50,11 +51,31 @@ authentication:
 external-controller: 127.0.0.1:9090
 secret: "vcore-runtime-secret"
 
-# TUN 文件描述符、帧格式和 Android protect 由 Invoke 提供，不进入 YAML。
-# 配置必须启用 mixed-port 或 TUN；MTU 默认为 1500，当前只接受该值。
+# TUN 使用 Mihomo 同名字段；未实现的 auto-route、auto-redirect、
+# auto-detect-interface、地址/路由、stack、offload 等字段仍严格拒绝。
+# file-descriptor 缺省或 0 时由 core 打开本机平台 TUN；正数为当前进程已有 fd。
+# Unix 借用 fd 必须已 nonblocking，核心仅复制并关闭副本；帧格式由平台固定处理。
+# Linux / macOS 支持原生打开；Android / iOS / tvOS 仍要求宿主提供 fd。
+# device 缺省为空：Linux / Wintun 使用 VCore，macOS 自动选择 utun；
+# 借用 fd 时以真实接口为准，device 不重命名已有接口。
+# mtu 缺省或 0 为 9000，范围 1280–65535，贯通设备、netstack 和 UDP 回包预算。
+# 借用 Linux fd 的真实 MTU 必须匹配；其他宿主也须保持接口 MTU 与配置一致。
+# Windows windows-wintun / windows-uwp feature 互斥；普通 Invoke 按编译后端启动。
+# Wintun 仅加载进程可执行文件同目录的外置 wintun.dll，不下载或随包发布；
+# 接口地址、DNS、路由与物理出口隔离由宿主配置。
+# UWP 上限 1400，须显式配置可支持 MTU，不把默认 9000 静默截断。
+# dns-hijack 缺省 [0.0.0.0:53]；[] 关闭。只在 dns.enable:true 的 TUN TCP/UDP 上生效。
+# 精确 IP:port 匹配指定目标；any/未指定地址匹配任何地址族的 53 端口。
+# udp-timeout 单位秒，缺省或 0 为 300；控制源关联及各目的流的空闲失效。
+# 配置必须启用 mixed-port 或 TUN。
 tun:
   enable: true
-  mtu: 1500
+  device: ""
+  file-descriptor: 0
+  mtu: 9000
+  dns-hijack:
+    - any:53
+  udp-timeout: 300
 
 # 可选的 TUN TCP/UDP 嗅探器。省略或 enable: false 表示关闭。启用时至少配置
 # HTTP、TLS、QUIC 之一；协议值为空或省略 ports 时分别使用 80/443/443。每种协议
