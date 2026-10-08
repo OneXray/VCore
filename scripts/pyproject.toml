@@ -1,7 +1,7 @@
 [project]
 name = "vole-scripts"
 version = "0.1.0"
-description = "Vole build, validation, and interoperability commands"
+description = "Vole native builds and release packaging"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []

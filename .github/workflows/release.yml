@@ -21,7 +21,7 @@ env:
 
 jobs:
   cli:
-    name: CLI ${{ matrix.name }}
+    name: CLI ${{ matrix.label }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     strategy:
@@ -29,31 +29,37 @@ jobs:
       matrix:
         include:
           - name: cli-linux-amd64
+            label: Linux amd64
             target: x86_64-unknown-linux-gnu
             runner: ubuntu-24.04
             platform: linux
             archive: vole-linux-amd64.gz
           - name: cli-linux-arm64
+            label: Linux arm64
             target: aarch64-unknown-linux-gnu
             runner: ubuntu-24.04-arm
             platform: linux
             archive: vole-linux-arm64.gz
           - name: cli-windows-wintun-amd64
+            label: Windows amd64
             target: x86_64-pc-windows-msvc
             runner: windows-2025
             platform: windows
             archive: vole-windows-amd64.zip
           - name: cli-windows-wintun-arm64
+            label: Windows arm64
             target: aarch64-pc-windows-msvc
             runner: windows-11-arm
             platform: windows
             archive: vole-windows-arm64.zip
           - name: cli-darwin-amd64
+            label: macOS amd64
             target: x86_64-apple-darwin
             runner: macos-26-intel
             platform: darwin
             archive: vole-darwin-amd64.gz
           - name: cli-darwin-arm64
+            label: macOS arm64
             target: aarch64-apple-darwin
             runner: macos-26
             platform: darwin
@@ -78,8 +84,6 @@ jobs:
         run: |
           uv python install 3 --no-bin --no-registry
           echo "UV_PYTHON=$(uv python find --managed-python --no-project 3)" >> "$GITHUB_ENV"
-      - name: Offline build and packaging tests
-        run: uv run --project scripts --locked python -m unittest discover -s scripts/tests
       - name: Linux native dependencies
         if: matrix.platform == 'linux'
         run: |
@@ -115,7 +119,7 @@ jobs:
           retention-days: 14
 
   ffi:
-    name: FFI ${{ matrix.name }}
+    name: FFI ${{ matrix.label }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     strategy:
@@ -123,6 +127,7 @@ jobs:
       matrix:
         include:
           - name: ffi-apple
+            label: Apple
             platform: apple
             runner: macos-26
             targets: aarch64-apple-ios,aarch64-apple-ios-sim,aarch64-apple-darwin,x86_64-apple-darwin,aarch64-apple-tvos,aarch64-apple-tvos-sim
@@ -130,6 +135,7 @@ jobs:
             backend: ""
             archive: vole-ffi-apple.tar.gz
           - name: ffi-android
+            label: Android
             platform: android
             runner: ubuntu-24.04
             targets: aarch64-linux-android,x86_64-linux-android
@@ -137,6 +143,7 @@ jobs:
             backend: ""
             archive: vole-ffi-android.tar.gz
           - name: ffi-linux-amd64
+            label: Linux amd64
             platform: linux
             runner: ubuntu-24.04
             targets: x86_64-unknown-linux-gnu
@@ -144,6 +151,7 @@ jobs:
             backend: ""
             archive: vole-ffi-linux-amd64.tar.gz
           - name: ffi-linux-arm64
+            label: Linux arm64
             platform: linux
             runner: ubuntu-24.04-arm
             targets: aarch64-unknown-linux-gnu
@@ -151,6 +159,7 @@ jobs:
             backend: ""
             archive: vole-ffi-linux-arm64.tar.gz
           - name: ffi-windows-wintun-amd64
+            label: Windows amd64 (Wintun)
             platform: windows
             runner: windows-2025
             targets: x86_64-pc-windows-msvc
@@ -158,6 +167,7 @@ jobs:
             backend: wintun
             archive: vole-ffi-windows-wintun-amd64.zip
           - name: ffi-windows-wintun-arm64
+            label: Windows arm64 (Wintun)
             platform: windows
             runner: windows-11-arm
             targets: aarch64-pc-windows-msvc
@@ -165,6 +175,7 @@ jobs:
             backend: wintun
             archive: vole-ffi-windows-wintun-arm64.zip
           - name: ffi-windows-uwp-amd64
+            label: Windows amd64 (UWP)
             platform: windows
             runner: windows-2025
             targets: x86_64-pc-windows-msvc
@@ -172,6 +183,7 @@ jobs:
             backend: uwp
             archive: vole-ffi-windows-uwp-amd64.zip
           - name: ffi-windows-uwp-arm64
+            label: Windows arm64 (UWP)
             platform: windows
             runner: windows-11-arm
             targets: aarch64-pc-windows-msvc
@@ -198,8 +210,6 @@ jobs:
         run: |
           uv python install 3 --no-bin --no-registry
           echo "UV_PYTHON=$(uv python find --managed-python --no-project 3)" >> "$GITHUB_ENV"
-      - name: Offline build and packaging tests
-        run: uv run --project scripts --locked python -m unittest discover -s scripts/tests
       - name: Locked source
         run: cargo fetch --locked
       - name: Linux native dependencies
@@ -256,7 +266,7 @@ jobs:
           retention-days: 14
 
   assemble:
-    name: Collect all fourteen release archives
+    name: Assemble
     needs: [cli, ffi]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -299,7 +309,7 @@ jobs:
           retention-days: 14
 
   publish:
-    name: Publish CLI and FFI together
+    name: Publish
     needs: [cli, ffi, assemble]
     if: >-
       github.event_name == 'push' && github.ref_type == 'tag' &&

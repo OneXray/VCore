@@ -119,9 +119,8 @@ One public instance follows `initialize → createInstance → start(configYaml)
 
 The benchmark project also owns protocol interoperability (`interop`) and memory-pressure runs (`stress`), with an explicit `--source vole=PATH` checkout. Vole's own scripts only compile core and platform artifacts.
 
-It measures **1 / 1.5 / 2 Gbps** mixed TCP/UDP traffic with **1,000 DNS queries/s** and enhanced `geosite:cn` / `geoip:cn` rules, reporting actual throughput, CPU, observed peak Linux RSS, UDP packet loss and successful DNS queries. It evaluates the TUN/DNS/routing path with DIRECT egress, not encrypted proxy throughput; Linux RSS is not Apple Network Extension footprint.
-
-The separate `stress` command uses the same complete enhanced `geosite:cn` / `geoip:cn` selection with a 2 Gbps / 60-second / 1,000 DNS QPS workload. Original DAT files are downloaded without trimming; only CN categories are loaded. Optional `--geodata-update` adds real downloading and reloading during traffic. The benchmark README records actual input types, measurements and failures. No observation is a 50,000,000-byte guarantee for arbitrary input or a substitute for Apple device validation.
+Workloads, input assets and measured results are maintained in the benchmark project.
+See [acceptance boundaries](docs/acceptance.md) for the scope of build, network and device validation.
 
 ## Documentation
 

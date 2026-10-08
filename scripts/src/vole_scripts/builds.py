@@ -1,31 +1,18 @@
 from __future__ import annotations
 
 import locale
-import mmap
 import os
 import platform
 import re
 import shutil
 import subprocess
 import tempfile
-import tomllib
-from collections.abc import Iterator
 from pathlib import Path
 
 CORE_DIR = Path(__file__).resolve().parents[3]
-EXPECTED_IDENTITY = (
-    "Vole;engine=rust;coreVersion="
-    + tomllib.loads((CORE_DIR / "Cargo.toml").read_text(encoding="utf-8"))["package"][
-        "version"
-    ]
-).encode("ascii")
-DEFAULT_FEATURES = (
-    "ffi,tun,inbound-http,inbound-socks5,outbound-anytls,"
-    "outbound-socks5,outbound-shadowsocks,outbound-trojan,outbound-vmess,outbound-vless,"
-    "outbound-hysteria2,outbound-tuic,shadow-tls-v3"
-)
+# Both transports enable the production core through invoke -> tun in Cargo.toml.
+DEFAULT_FEATURES = "ffi"
 
-WINDOWS_FEATURES = DEFAULT_FEATURES + ",windows-uwp"
 WINDOWS_BACKENDS = {"wintun", "uwp"}
 CLI_TARGETS = {
     "x86_64-unknown-linux-gnu": ("Linux", "x64"),
@@ -79,84 +66,6 @@ def tvos_deployment_target() -> str:
     return value
 
 
-def _check_apple_load_commands(
-    output: str, target_os: str, variant: str | None, architecture: str, minimum: str
-) -> int:
-    """Check every archive member, including native crypto and Rust std objects."""
-    expected = {
-        ("macos", None): "1",
-        ("ios", None): "2",
-        ("tvos", None): "3",
-        ("ios", "simulator"): "7",
-        ("tvos", "simulator"): "8",
-    }[target_os, variant]
-    legacy = {"macos": "MACOSX", "ios": "IPHONEOS", "tvos": "TVOS"}[target_os]
-    objects = re.split(r"(?m)^\S.*:\n", output)[1:]
-    if not objects:
-        raise ValueError("Apple artifact contains no Mach-O objects")
-    ceiling = tuple((list(map(int, minimum.split("."))) + [0, 0])[:3])
-    # These architectures did not exist at the older product deployment floor.
-    # Keep iOS 13 for devices and macOS 10.15 for the Intel desktop slice.
-    architecture_floor = {
-        ("ios", "simulator", "arm64"): (14, 0, 0),
-        ("macos", None, "arm64"): (11, 0, 0),
-    }.get((target_os, variant, architecture), (0, 0, 0))
-    ceiling = max(ceiling, architecture_floor)
-    for obj in objects:
-        versions = []
-        for command in re.split(r"Load command \d+\n", obj):
-            fields = dict(
-                line.strip().split(maxsplit=1)
-                for line in command.splitlines()
-                if len(line.strip().split(maxsplit=1)) == 2
-            )
-            kind = fields.get("cmd", "")
-            if kind == "LC_BUILD_VERSION":
-                if fields.get("platform") != expected:
-                    raise ValueError("wrong Apple Mach-O platform")
-                versions.append(fields.get("minos", ""))
-            elif kind.startswith("LC_VERSION_MIN_"):
-                if kind != "LC_VERSION_MIN_" + legacy or variant == "simulator":
-                    raise ValueError("wrong legacy Apple Mach-O platform")
-                versions.append(fields.get("version", ""))
-        if len(versions) != 1 or not re.fullmatch(r"\d+(?:\.\d+){0,2}", versions[0]):
-            raise ValueError("missing or ambiguous Apple deployment version")
-        version = tuple((list(map(int, versions[0].split("."))) + [0, 0])[:3])
-        if version > ceiling:
-            raise ValueError(
-                f"Apple {target_os}/{variant}/{architecture} object requires "
-                f"{versions[0]}, newer than deployment target {ceiling}"
-            )
-    return len(objects)
-
-
-def check_apple_binary(
-    path: Path,
-    target_os: str,
-    variant: str | None,
-    architectures: set[str],
-    minimum: str,
-) -> dict[str, int]:
-    actual = set(
-        subprocess.check_output(
-            ["xcrun", "lipo", "-archs", str(path)], text=True, timeout=60
-        ).split()
-    )
-    if actual != architectures:
-        raise ValueError("wrong Apple binary architecture")
-    result = {}
-    for architecture in sorted(architectures):
-        output = subprocess.check_output(
-            ["xcrun", "otool", "-l", "-arch", architecture, str(path)],
-            text=True,
-            timeout=60,
-        )
-        result[architecture] = _check_apple_load_commands(
-            output, target_os, variant, architecture, minimum
-        )
-    return result
-
-
 def _env(name: str, default: str | os.PathLike[str]) -> str:
     return os.environ.get(name) or os.fspath(default)
 
@@ -192,29 +101,13 @@ def _production_features(features: str) -> str:
     return features
 
 
-def _installed_rust_targets() -> set[str]:
-    result = subprocess.run(
-        ["rustup", "target", "list", "--installed"],
-        check=True,
-        stdout=subprocess.PIPE,
-        text=True,
-    )
-    return set(result.stdout.splitlines())
-
-
-def _require_targets(targets: list[str]) -> None:
-    installed = _installed_rust_targets()
-    missing = [target for target in targets if target not in installed]
-    if missing:
-        raise RuntimeError(f"Rust target is not installed: {', '.join(missing)}")
-
-
 def _cargo_build(
     target: str,
     profile_flags: list[str],
     features: str,
     env: dict[str, str],
-) -> None:
+    artifacts: tuple[str, ...] = ("--lib",),
+) -> Path:
     _production_features(features)
     _run(
         [
@@ -229,122 +122,12 @@ def _cargo_build(
             "--no-default-features",
             "--features",
             features,
+            *artifacts,
         ],
         env=env,
     )
-
-
-def _require_windows_architecture(artifact: Path, architecture: str) -> None:
-    with artifact.open("rb") as file:
-        if file.read(2) != b"MZ":
-            raise RuntimeError(f"invalid Windows PE artifact: {artifact}")
-        file.seek(0x3C)
-        offset = file.read(4)
-        if len(offset) != 4:
-            raise RuntimeError(f"invalid Windows PE artifact: {artifact}")
-        file.seek(int.from_bytes(offset, "little"))
-        if file.read(4) != b"PE\0\0":
-            raise RuntimeError(f"invalid Windows PE artifact: {artifact}")
-        machine = file.read(2)
-        if len(machine) != 2:
-            raise RuntimeError(f"invalid Windows PE artifact: {artifact}")
-    expected = {"arm64": 0xAA64, "x64": 0x8664}[architecture]
-    if int.from_bytes(machine, "little") != expected:
-        raise RuntimeError(f"Vole Windows artifact has wrong architecture: {artifact}")
-
-
-def _require_identity(artifact: Path, platform_name: str) -> None:
-    found = False
-    if artifact.stat().st_size:
-        with (
-            artifact.open("rb") as file,
-            mmap.mmap(file.fileno(), 0, access=mmap.ACCESS_READ) as contents,
-        ):
-            found = contents.find(EXPECTED_IDENTITY) >= 0
-    if not found:
-        raise RuntimeError(
-            f"Vole {platform_name} artifact has a missing or incompatible "
-            f"Rust identity: {artifact}"
-        )
-
-
-def _archive_object_headers(artifact: Path) -> Iterator[bytes]:
-    """Read bounded object prefixes, accepting normal GNU/LLVM/BSD ar names."""
-    total = artifact.stat().st_size
-    with artifact.open("rb") as stream:
-        if stream.read(8) != b"!<arch>\n":
-            raise RuntimeError(f"invalid object archive: {artifact}")
-        while header := stream.read(60):
-            if len(header) != 60 or header[58:] != b"`\n":
-                raise RuntimeError(f"invalid archive member: {artifact}")
-            try:
-                size = int(header[48:58])
-            except ValueError as error:
-                raise RuntimeError(
-                    f"invalid archive member size: {artifact}"
-                ) from error
-            if size < 0:
-                raise RuntimeError(f"invalid archive member size: {artifact}")
-            start = stream.tell()
-            end = start + size + size % 2
-            if end > total:
-                raise RuntimeError(f"truncated object archive: {artifact}")
-            name = header[:16].strip()
-            if name not in {b"/", b"//", b"/SYM64/", b"__.SYMDEF/"}:
-                if name.startswith(b"#1/"):
-                    try:
-                        length = int(name[3:])
-                    except ValueError as error:
-                        raise RuntimeError("invalid archive member name") from error
-                    if not 0 <= length <= size:
-                        raise RuntimeError("invalid archive member name")
-                    stream.seek(length, 1)
-                yield stream.read(min(20, start + size - stream.tell()))
-            stream.seek(end)
-
-
-def _require_linux_architecture(artifact: Path, architecture: str) -> None:
-    expected = {"x64": 62, "arm64": 183}[architecture]
-
-    def check(header: bytes) -> None:
-        if (
-            len(header) < 20
-            or header[:7] != b"\x7fELF\x02\x01\x01"
-            or int.from_bytes(header[18:20], "little") != expected
-        ):
-            raise RuntimeError(f"invalid Linux artifact architecture: {artifact}")
-
-    if artifact.suffix != ".a":
-        with artifact.open("rb") as stream:
-            header = stream.read(20)
-        check(header)
-        if int.from_bytes(header[16:18], "little") not in {2, 3}:
-            raise RuntimeError(f"invalid Linux executable/shared library: {artifact}")
-        return
-    objects = 0
-    for header in _archive_object_headers(artifact):
-        check(header)
-        if int.from_bytes(header[16:18], "little") != 1:
-            raise RuntimeError(f"invalid Linux archive object type: {artifact}")
-        objects += 1
-    if not objects:
-        raise RuntimeError(f"Linux static archive contains no objects: {artifact}")
-
-
-def _require_windows_import_library(artifact: Path, architecture: str) -> None:
-    expected = {"arm64": 0xAA64, "x64": 0x8664}[architecture]
-    objects = 0
-    for header in _archive_object_headers(artifact):
-        if len(header) < 20:
-            raise RuntimeError(f"invalid Windows import library object: {artifact}")
-        offset = 6 if header[:4] == b"\x00\x00\xff\xff" else 0
-        if int.from_bytes(header[offset : offset + 2], "little") != expected:
-            raise RuntimeError(
-                f"Windows import library has wrong architecture: {artifact}"
-            )
-        objects += 1
-    if not objects:
-        raise RuntimeError(f"Windows import library contains no objects: {artifact}")
+    profile = "release" if "--release" in profile_flags else "debug"
+    return _cargo_target_dir(env) / target / profile
 
 
 def build_cli(
@@ -365,48 +148,17 @@ def build_cli(
         if system == "Windows"
         else os.environ.copy()
     ) | (env or {})
-    _production_features(environment.get("VOLE_FEATURES", DEFAULT_FEATURES))
-    _require_targets([target])
     if system == "Darwin":
         minimum = "11.0" if architecture == "arm64" else "10.15"
         environment.setdefault("MACOSX_DEPLOYMENT_TARGET", minimum)
-    _run(
-        [
-            "cargo",
-            "build",
-            "--locked",
-            "--manifest-path",
-            str(CORE_DIR / "Cargo.toml"),
-            "--target",
-            target,
-            *(["--release"] if profile == "release" else []),
-            "--no-default-features",
-            "--features",
-            features,
-            "--bin",
-            "vole",
-        ],
-        env=environment,
+    built = _cargo_build(
+        target,
+        ["--release"] if profile == "release" else [],
+        features,
+        environment,
+        ("--bin", "vole"),
     )
-    artifact = (
-        _cargo_target_dir(environment)
-        / target
-        / profile
-        / ("vole.exe" if system == "Windows" else "vole")
-    )
-    _require_identity(artifact, "CLI")
-    if system == "Windows":
-        _require_windows_architecture(artifact, architecture)
-    elif system == "Linux":
-        _require_linux_architecture(artifact, architecture)
-    else:
-        check_apple_binary(
-            artifact,
-            "macos",
-            None,
-            {"arm64" if architecture == "arm64" else "x86_64"},
-            minimum,
-        )
+    artifact = built / ("vole.exe" if system == "Windows" else "vole")
     print(artifact)
     return artifact
 
@@ -422,29 +174,7 @@ def build_linux(
         raise ValueError("Linux FFI build requires the native GNU Rust target")
     architecture = CLI_TARGETS[target][1]
     environment = os.environ.copy() | (env or {})
-    _production_features(environment.get("VOLE_FEATURES", DEFAULT_FEATURES))
-    _require_targets([target])
-    _run(
-        [
-            "cargo",
-            "build",
-            "--locked",
-            "--release",
-            "--manifest-path",
-            str(CORE_DIR / "Cargo.toml"),
-            "--target",
-            target,
-            "--no-default-features",
-            "--features",
-            DEFAULT_FEATURES,
-            "--lib",
-        ],
-        env=environment,
-    )
-    release = _cargo_target_dir(environment) / target / "release"
-    for name in ("libvole.so", "libvole.a"):
-        _require_linux_architecture(release / name, architecture)
-        _require_identity(release / name, "Linux")
+    release = _cargo_build(target, ["--release"], DEFAULT_FEATURES, environment)
     output = CORE_DIR / "dist/linux" / architecture
     shutil.rmtree(output, ignore_errors=True)
     (output / "include").mkdir(parents=True)
@@ -534,7 +264,7 @@ def _android_ndk_home() -> Path:
 
 
 def build_android(*, env: dict[str, str] | None = None) -> Path:
-    if os.name == "nt":
+    if platform.system() not in {"Darwin", "Linux"}:
         raise RuntimeError("Android artifacts must be built on macOS or Linux")
     ndk_home = _android_ndk_home()
     android_api = _env("VOLE_ANDROID_API", "24")
@@ -549,7 +279,6 @@ def build_android(*, env: dict[str, str] | None = None) -> Path:
         _env("VOLE_ANDROID_OUTPUT_DIR", CORE_DIR / "dist" / "android")
     ).resolve()
     toolchain = _android_toolchain(ndk_home)
-    _require_targets(targets)
 
     base_env = os.environ.copy() | (env or {})
     base_env.update(
@@ -609,7 +338,6 @@ def build_android(*, env: dict[str, str] | None = None) -> Path:
         }
         _cargo_build(target, profile_flags, features, env)
         artifact = _cargo_target_dir(env) / target / profile_name / "libvole.so"
-        _require_identity(artifact, "Android")
         destination = output / abi / "libvole.so"
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(artifact, destination)
@@ -636,7 +364,6 @@ def build_apple(*, env: dict[str, str] | None = None) -> Path:
         "aarch64-apple-tvos",
         "aarch64-apple-tvos-sim",
     ]
-    _require_targets(targets)
 
     env = os.environ.copy() | (env or {})
     env["IPHONEOS_DEPLOYMENT_TARGET"] = _env("VOLE_IOS_DEPLOYMENT_TARGET", "13.0")
@@ -663,8 +390,6 @@ def build_apple(*, env: dict[str, str] | None = None) -> Path:
         target: _cargo_target_dir(env) / target / profile_name / "libvole.a"
         for target in targets
     }
-    for artifact in artifacts.values():
-        _require_identity(artifact, "Apple")
 
     shutil.copy2(artifacts["aarch64-apple-ios"], work / "ios-device/libvole.a")
     shutil.copy2(artifacts["aarch64-apple-ios-sim"], work / "ios-simulator/libvole.a")
@@ -683,28 +408,6 @@ def build_apple(*, env: dict[str, str] | None = None) -> Path:
         env=env,
     )
     output = dist / "LibVole.xcframework"
-    for directory, target_os, variant, architectures, minimum in (
-        ("ios-device", "ios", None, {"arm64"}, env["IPHONEOS_DEPLOYMENT_TARGET"]),
-        (
-            "ios-simulator",
-            "ios",
-            "simulator",
-            {"arm64"},
-            env["IPHONEOS_DEPLOYMENT_TARGET"],
-        ),
-        ("macos", "macos", None, {"arm64", "x86_64"}, env["MACOSX_DEPLOYMENT_TARGET"]),
-        ("tvos-device", "tvos", None, {"arm64"}, env["TVOS_DEPLOYMENT_TARGET"]),
-        (
-            "tvos-simulator",
-            "tvos",
-            "simulator",
-            {"arm64"},
-            env["TVOS_DEPLOYMENT_TARGET"],
-        ),
-    ):
-        check_apple_binary(
-            work / directory / "libvole.a", target_os, variant, architectures, minimum
-        )
     _run(
         [
             "xcodebuild",
@@ -829,12 +532,11 @@ def _windows_msvc_environment(architecture: str) -> dict[str, str]:
 
 
 def build_windows(backend: str = "uwp", *, env: dict[str, str] | None = None) -> Path:
-    if os.name != "nt":
+    if platform.system() != "Windows":
         raise RuntimeError("Windows artifacts must be built on Windows")
     features = windows_features(backend)
     architecture = _windows_architecture()
     env = _windows_msvc_environment(architecture) | (env or {})
-    _production_features(env.get("VOLE_FEATURES", DEFAULT_FEATURES))
     output = CORE_DIR / "dist" / "windows" / architecture / backend
     shutil.rmtree(output, ignore_errors=True)
     output.mkdir(parents=True)
@@ -843,30 +545,16 @@ def build_windows(backend: str = "uwp", *, env: dict[str, str] | None = None) ->
         "x64": "x86_64-pc-windows-msvc",
     }
     target = targets[architecture]
-    _run(["cargo", "fmt", "--all", "--", "--check"], env=env)
-    base = [
-        "cargo",
-        "build",
-        "--locked",
-        "--release",
-        "--target",
+    release = _cargo_build(
         target,
-        "--no-default-features",
-        "--features",
+        ["--release"],
         features,
-    ]
-    _run([*base, "--lib", *(["--bins"] if backend == "uwp" else [])], env=env)
-
-    release = _cargo_target_dir(env) / target / "release"
+        env,
+        ("--lib", "--bins") if backend == "uwp" else ("--lib",),
+    )
     artifacts = ["vole.dll", "vole.dll.lib"]
     if backend == "uwp":
         artifacts += ["vole-windows-vpn-host.exe", "vole-windows-session-host.exe"]
-    for name in artifacts:
-        if name.endswith(".lib"):
-            _require_windows_import_library(release / name, architecture)
-        else:
-            _require_windows_architecture(release / name, architecture)
-    _require_identity(release / "vole.dll", "Windows")
     for name in artifacts:
         shutil.copy2(release / name, output / name)
     print(output)

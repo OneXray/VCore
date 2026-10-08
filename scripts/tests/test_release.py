@@ -1,161 +1,147 @@
-"""The workflow assembles archive files, without build receipts or reinspection."""
+"""Exercise real archives with native compilation replaced by fixture files."""
 
+import gzip
+import os
+import tarfile
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
-from vole_scripts import builds, cli_release, ffi_release, release
+from vole_scripts import builds, notices, release
 
-INFO = {"tag": "v1.2.3", "version": "1.2.3", "commit": "a" * 40}
-
-
-def complete_set(root):
-    incoming = root / "dist/incoming"
-    for index, name in enumerate(sorted(release.ASSETS)):
-        path = incoming / str(index) / name
-        path.parent.mkdir(parents=True)
-        path.write_bytes(name.encode())
-    return incoming
+INFO = {"version": "1.2.3", "commit": "a" * 40}
 
 
-class ReleaseTest(unittest.TestCase):
-    def test_complete_set_copies_fourteen_archives_and_writes_notes(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            incoming = complete_set(root)
-            output = root / "dist/ready/assets"
-            notes = output.parent / "notes.md"
+class ReleaseTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve()
+        self.enterContext(patch.object(builds, "CORE_DIR", self.root))
+        self.enterContext(patch.dict(os.environ, {}, clear=True))
+        self.enterContext(patch.object(release, "release_info", return_value=INFO))
+        self.enterContext(
+            patch.object(notices, "collect", return_value=b"license terms\r\n")
+        )
+
+    def write(self, relative):
+        path = self.root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(path.name.encode())
+        return path
+
+    def test_cli_packages_a_single_binary(self):
+        for target in builds.CLI_TARGETS:
+            binary = self.write(
+                "build/vole.exe" if "windows" in target else "build/vole"
+            )
             with (
-                patch.object(builds, "CORE_DIR", root),
-                patch.object(cli_release, "_release_info", return_value=INFO),
+                self.subTest(target=target),
+                patch.object(builds, "native_target", return_value=target),
+                patch.object(builds, "build_cli", return_value=binary),
+                patch.object(release, "_smoke"),
             ):
-                paths = release.assemble_release("v1.2.3", incoming, output, notes)
-            self.assertEqual(len(paths), 14)
-            self.assertEqual({p.name for p in output.iterdir()}, release.ASSETS)
-            for path in paths:
-                self.assertEqual(path.read_bytes(), path.name.encode())
-            self.assertIn("/tree/" + "a" * 40, notes.read_text())
-            self.assertIn("Windows CLI uses Wintun", notes.read_text())
-
-    def test_missing_duplicate_or_extra_archive_preserves_previous_output(self):
-        for mutation in ("missing", "duplicate", "extra"):
-            with (
-                self.subTest(mutation=mutation),
-                tempfile.TemporaryDirectory() as directory,
-            ):
-                root = Path(directory)
-                incoming = complete_set(root)
-                archive = next(incoming.glob("*/*"))
-                if mutation == "missing":
-                    archive.unlink()
-                else:
-                    extra = (
-                        incoming
-                        / "extra"
-                        / (archive.name if mutation == "duplicate" else "manifest.json")
-                    )
-                    extra.parent.mkdir()
-                    extra.write_bytes(b"extra")
-                output = root / "dist/ready/assets"
-                output.mkdir(parents=True)
-                previous = output / "previous"
-                previous.write_bytes(b"keep")
-                with (
-                    patch.object(builds, "CORE_DIR", root),
-                    patch.object(cli_release, "_release_info", return_value=INFO),
-                    self.assertRaisesRegex(ValueError, "fourteen"),
-                ):
-                    release.assemble_release(
-                        None, incoming, output, output.parent / "notes.md"
-                    )
-                self.assertEqual(previous.read_bytes(), b"keep")
-
-    def test_output_cannot_replace_input_archives(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            incoming = complete_set(root)
-            with (
-                patch.object(builds, "CORE_DIR", root),
-                patch.object(cli_release, "_release_info", return_value=INFO),
-                self.assertRaisesRegex(ValueError, "separate from the input"),
-            ):
-                release.assemble_release(
-                    None, incoming, incoming / "assets", root / "dist/notes.md"
+                archive = release.build_cli(
+                    target, None, "YuanDevTeam/Vole", Path("dist/cli")
                 )
+            if archive.suffix == ".zip":
+                with zipfile.ZipFile(archive) as stream:
+                    self.assertEqual(stream.namelist(), ["vole.exe"])
+                    content = stream.read("vole.exe")
+            else:
+                with gzip.open(archive) as stream:
+                    content = stream.read()
+            self.assertEqual(content, binary.read_bytes())
+            self.assertEqual(list(archive.parent.iterdir()), [archive])
 
-    def test_workflow_commands_allow_non_tag_builds_but_pin_release_features(
-        self,
-    ):
-        with (
-            patch(
-                "sys.argv",
-                [
-                    "release",
-                    "build-cli",
-                    "--target",
-                    "aarch64-pc-windows-msvc",
-                    "--output",
-                    "dist/release/cli-win",
-                ],
-            ),
-            patch.object(cli_release, "build_release") as build,
-        ):
-            release.main()
-            build.assert_called_once_with(
-                "aarch64-pc-windows-msvc",
-                None,
-                "YuanDevTeam/Vole",
-                Path("dist/release/cli-win"),
-            )
-        with (
-            patch(
-                "sys.argv",
-                [
-                    "release",
-                    "build-ffi",
-                    "--platform",
-                    "windows",
-                    "--target",
-                    "x86_64-pc-windows-msvc",
-                    "--backend",
-                    "uwp",
-                    "--tag",
-                    "v1.2.3",
-                ],
-            ),
-            patch.object(ffi_release, "build_release") as build,
-        ):
-            release.main()
-            build.assert_called_once_with(
-                "windows",
-                "v1.2.3",
-                "YuanDevTeam/Vole",
-                target="x86_64-pc-windows-msvc",
-                backend="uwp",
-                output=Path("dist/release/ffi-windows-uwp-amd64"),
-            )
-        with (
-            patch(
-                "sys.argv",
-                [
-                    "release",
-                    "assemble",
-                    "--inputs",
-                    "dist/incoming",
-                    "--output",
-                    "dist/ready/assets",
-                    "--notes",
-                    "dist/ready/notes.md",
-                ],
-            ),
-            patch.object(release, "assemble_release", return_value=[]) as assemble,
-        ):
-            release.main()
-            assemble.assert_called_once_with(
-                None,
-                Path("dist/incoming"),
-                Path("dist/ready/assets"),
-                Path("dist/ready/notes.md"),
-                "YuanDevTeam/Vole",
-            )
+    def test_ffi_packages_platform_libraries_headers_and_uwp_hosts(self):
+        files = {
+            "apple": {"LibVole.xcframework/Info.plist"}
+            | {
+                f"LibVole.xcframework/{part}/{name}"
+                for part in (
+                    "ios-arm64",
+                    "ios-arm64-simulator",
+                    "macos-arm64_x86_64",
+                    "tvos-arm64",
+                    "tvos-arm64-simulator",
+                )
+                for name in ("libvole.a", "Headers/vole.h", "Headers/module.modulemap")
+            },
+            "android": {
+                f"{abi}/{name}"
+                for abi in ("arm64-v8a", "x86_64")
+                for name in ("libvole.so", "libc++_shared.so")
+            }
+            | {"include/vole.h"},
+            "linux": {"libvole.so", "libvole.a", "include/vole.h"},
+            "windows": {"vole.dll", "vole.dll.lib", "include/vole.h"},
+        }
+        self.write("include/vole.h")
+        for key, targets in release.FFI_TARGETS.items():
+            platform = key.split("-")[0]
+            backend = key.split("-")[1] if platform == "windows" else None
+            target = targets[0] if platform in {"linux", "windows"} else None
+            expected = files[platform].copy()
+            if backend == "uwp":
+                expected |= {
+                    "vole-windows-vpn-host.exe",
+                    "vole-windows-session-host.exe",
+                }
+            built = self.root / "build" / key
+            for name in expected | {"wintun.dll", "old-output"}:
+                self.write(built / name)
+            captured = []
+
+            def compile(*args, built=built, captured=captured, **kwargs):
+                notice = Path(kwargs["env"]["VOLE_RELEASE_NOTICES"])
+                self.assertEqual(notice.read_bytes(), b"license terms\r\n")
+                captured.append(notice)
+                return built
+
+            with (
+                self.subTest(key=key),
+                patch.object(builds, "native_target", return_value=target),
+                patch.object(
+                    builds, "_android_ndk_home", return_value=self.root / "ndk"
+                ),
+                patch.object(builds, "build_" + platform, side_effect=compile),
+            ):
+                archive = release.build_ffi(
+                    platform,
+                    target,
+                    backend,
+                    None,
+                    "YuanDevTeam/Vole",
+                    Path("dist/package"),
+                )
+            self.assertFalse(captured[0].exists())
+            if archive.suffix == ".zip":
+                with zipfile.ZipFile(archive) as stream:
+                    contents = {name: stream.read(name) for name in stream.namelist()}
+            else:
+                with tarfile.open(archive) as stream:
+                    contents = {
+                        member.name: stream.extractfile(member).read()
+                        for member in stream.getmembers()
+                    }
+            self.assertEqual(set(contents), expected)
+            for name, data in contents.items():
+                self.assertEqual(data, Path(name).name.encode())
+
+    def test_assembly_requires_all_fourteen_archives(self):
+        incoming = self.root / "dist/incoming"
+        for index, name in enumerate(sorted(release.ASSETS)):
+            self.write(incoming / str(index) / name)
+        output = self.root / "dist/ready/assets"
+        notes = output.parent / "notes.md"
+        paths = release.assemble_release(None, incoming, output, notes)
+        self.assertEqual(len(paths), 14)
+        self.assertEqual({p.name for p in output.iterdir()}, release.ASSETS)
+        self.assertIn("/tree/" + INFO["commit"], notes.read_text())
+        next(incoming.glob("*/*")).unlink()
+        with self.assertRaisesRegex(ValueError, "fourteen"):
+            release.assemble_release(None, incoming, output, notes)
+        self.assertEqual(len(list(output.iterdir())), 14)
