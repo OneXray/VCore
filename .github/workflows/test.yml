@@ -64,7 +64,7 @@ jobs:
         run: |
           clang -x c -std=c11 -Wall -Wextra -Werror -fsyntax-only -include vcore.h -I include - <<'C'
           int main(void) {
-            char *response = VCoreInvoke("{\"apiVersion\":5,\"method\":\"version\",\"payload\":{}}");
+            char *response = VCoreInvoke("{\"method\":\"version\",\"payload\":{}}");
             VCoreFree(response);
             VCoreFree((char *)0);
             return 0;
@@ -72,7 +72,7 @@ jobs:
           C
           clang++ -x c++ -std=c++17 -Wall -Wextra -Werror -fsyntax-only -include vcore.h -I include - <<'CPP'
           int main() {
-            char *response = VCoreInvoke("{\"apiVersion\":5,\"method\":\"version\",\"payload\":{}}");
+            char *response = VCoreInvoke("{\"method\":\"version\",\"payload\":{}}");
             VCoreFree(response);
             VCoreFree(nullptr);
             return 0;
@@ -196,6 +196,9 @@ jobs:
             dialer::tests::socket_initialization_shared_pool_contention_reclaims_cancelled_work
             outbound::connector::tests::authenticated_continuation_keeps_group_choice_but_has_a_new_io_deadline
             runtime::tests::integration_feature_admission_is_explicit_without_opening_sockets
+            ffi::tests::version_and_state_use_the_fixed_response_envelope
+            ffi::tests::initialize_is_idempotent_only_for_the_same_data_directory
+            ffi::tests::envelope_and_payload_are_strict
             ffi::tests::runtime_thread_cannot_reenter_invoke
             ffi::tests::engine_workers_preserve_invoke_admission_and_shutdown
             dns::runtime::tests::concurrent_redir_host_hint_reads_and_dns_updates_complete

@@ -55,7 +55,7 @@ cargo build --locked --release --lib --features ffi
 ## 交付边界
 
 `--delivery` 在标准输出目录生成 `vcore-delivery.json`，绑定 VCore commit/tree、
-lockfile、API/schema、完整 features、工具链/SDK/NDK 和全部产物的大小/hash。
+lockfile、核心软件版本与构建身份、完整 features、工具链/SDK/NDK 和全部产物的大小/hash。
 本地 boring path 开发态要求 fork 同样干净并记录 commit/tree；PR/发布仍须切回
 Git release 依赖，按 [TLS 来源契约](../docs/tls-dependencies.md) 审查。
 

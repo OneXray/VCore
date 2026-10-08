@@ -90,7 +90,7 @@ The host passes YAML inline through `configYaml`; TUN descriptors and platform c
 
 VCore is a library, not a standalone VPN application. Unix hosts own the original TUN descriptor; VCore uses and closes its own duplicate. Apple's public packetFlow API does not guarantee raw-fd access, so actual Network Extension integration and device validation remain host responsibilities. See [TUN integration](docs/tun-platform.md) and [platform acceptance boundaries](docs/acceptance.md).
 
-The cross-platform C ABI accepts JSON requests through Invoke API v5:
+The cross-platform C ABI accepts JSON requests through Invoke API:
 
 ```c
 char *VCoreInvoke(const char *request_json);

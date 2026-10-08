@@ -29,8 +29,7 @@ use serde_json::{Value, json};
 use tokio::sync::oneshot;
 
 use crate::{
-    BUILD_IDENTITY, CONFIG_VERSION, ENGINE, INVOKE_API_VERSION, Lifecycle, LifecycleState,
-    ResourceLimits, TunFraming, VCoreError,
+    BUILD_IDENTITY, ENGINE, Lifecycle, LifecycleState, ResourceLimits, TunFraming, VCoreError,
     config::Config,
     data_dir::DataDirectory,
     dialer::{Dialer, SocketProtector, SystemResolver},
@@ -347,8 +346,6 @@ impl From<io::Error> for InvokeFailure {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RequestEnvelope {
-    #[serde(rename = "apiVersion")]
-    api_version: u32,
     method: String,
     payload: Value,
     #[serde(
@@ -726,12 +723,6 @@ fn dispatch_bytes(request: &[u8]) -> Result<InvokeResponse, InvokeFailure> {
         .map_err(|_| InvokeFailure::invalid_request("request is not valid UTF-8"))?;
     let envelope: RequestEnvelope =
         serde_json::from_str(request).map_err(InvokeFailure::invalid_request)?;
-    if envelope.api_version != INVOKE_API_VERSION {
-        return Err(InvokeFailure::invalid_request(format!(
-            "unsupported apiVersion {}; expected {INVOKE_API_VERSION}",
-            envelope.api_version
-        )));
-    }
     if !envelope.payload.is_object() {
         return Err(InvokeFailure::invalid_request("payload must be an object"));
     }
@@ -810,9 +801,7 @@ fn dispatch_bytes(request: &[u8]) -> Result<InvokeResponse, InvokeFailure> {
             require_instance_omitted(&envelope)?;
             let _: EmptyPayload = decode_payload(envelope.payload)?;
             json!({
-                "apiVersion": INVOKE_API_VERSION,
                 "buildIdentity": BUILD_IDENTITY,
-                "configVersion": CONFIG_VERSION,
                 "engine": ENGINE,
                 "version": env!("CARGO_PKG_VERSION"),
             })
@@ -1695,7 +1684,6 @@ mod tests {
 
     fn request(method: &str, instance_id: Option<&str>, payload: Value) -> Value {
         let mut envelope = json!({
-            "apiVersion": INVOKE_API_VERSION,
             "method": method,
             "payload": payload,
         });
@@ -1852,14 +1840,19 @@ rules:
     fn version_and_state_use_the_fixed_response_envelope() {
         let _guard = TEST_LOCK.lock().unwrap();
         reset_registry();
-        let version = request("version", None, json!({}));
-        assert_eq!(version["success"], true);
-        assert_eq!(version["error"], "");
-        assert_eq!(version["data"]["apiVersion"], INVOKE_API_VERSION);
-        assert_eq!(version["data"]["buildIdentity"], BUILD_IDENTITY);
-        assert_eq!(version["data"]["configVersion"], CONFIG_VERSION);
-        assert_eq!(version["data"]["engine"], ENGINE);
-        assert_eq!(version["data"]["version"], env!("CARGO_PKG_VERSION"));
+        let version = invoke(r#"{"method":"version","payload":{}}"#);
+        assert_eq!(
+            version,
+            json!({
+                "success": true,
+                "data": {
+                    "buildIdentity": BUILD_IDENTITY,
+                    "engine": ENGINE,
+                    "version": env!("CARGO_PKG_VERSION"),
+                },
+                "error": "",
+            })
+        );
 
         let instance_id = create_instance();
         let instance_state = state(&instance_id);
@@ -1927,39 +1920,47 @@ rules:
         let _guard = TEST_LOCK.lock().unwrap();
         reset_registry();
         for request in [
-            r#"{"method":"version","payload":{}}"#,
-            r#"{"apiVersion":0,"method":"version","payload":{}}"#,
-            r#"{"apiVersion":2,"method":"version","payload":{}}"#,
-            r#"{"apiVersion":3,"method":"version","payload":{}}"#,
-            r#"{"apiVersion":4,"method":"version","payload":{}}"#,
-            r#"{"apiVersion":5,"method":"version","payload":{},"extra":true}"#,
-            r#"{"apiVersion":5,"method":"version","payload":{"extra":true}}"#,
-            r#"{"apiVersion":5,"method":"version","payload":null}"#,
-            r#"{"apiVersion":5,"method":"version","payload":{},"instanceId":"1"}"#,
-            r#"{"apiVersion":5,"method":"createInstance","payload":{},"instanceId":"1"}"#,
-            r#"{"apiVersion":5,"method":"getGeoDataState","payload":{},"instanceId":"1"}"#,
-            r#"{"apiVersion":5,"method":"validateConfig","payload":{"configYaml":"x"},"instanceId":"1"}"#,
-            r#"{"apiVersion":5,"method":"validateConfig","payload":{"configPath":"x"}}"#,
-            r#"{"apiVersion":5,"method":"measureDelay","payload":{"configYamls":["x"],"timeout":5,"url":"https://example.com/"},"instanceId":"1"}"#,
-            r#"{"apiVersion":5,"method":"measureDelay","payload":{"configYamls":["x"],"timeout":5,"url":"https://example.com/","extra":true}}"#,
-            r#"{"apiVersion":5,"method":"measureDelay","payload":{"configYamls":[],"timeout":5,"url":"https://example.com/"}}"#,
-            r#"{"apiVersion":5,"method":"measureDelay","payload":{"configYamls":[""],"timeout":5,"url":"https://example.com/"}}"#,
-            r#"{"apiVersion":5,"method":"measureDelay","payload":{"configYamls":["x"],"timeout":0,"url":"https://example.com/"}}"#,
-            r#"{"apiVersion":5,"method":"measureDelay","payload":{"configYamls":["x"],"timeout":31,"url":"https://example.com/"}}"#,
-            r#"{"apiVersion":5,"method":"measureDelay","payload":{"configYamls":["x"],"timeout":5,"url":"ftp://example.com/"}}"#,
-            r#"{"apiVersion":5,"method":"measureDelay","payload":{"configYaml":"x","timeout":5,"url":"https://example.com/","proxy":"http://127.0.0.1:18080"}}"#,
-            r#"{"apiVersion":5,"method":"getState","payload":{}}"#,
-            r#"{"apiVersion":5,"method":"getState","payload":{},"instanceId":null}"#,
-            r#"{"apiVersion":5,"method":"getState","payload":{},"instanceId":1}"#,
-            r#"{"apiVersion":5,"method":"getState","payload":{},"instanceId":"0"}"#,
-            r#"{"apiVersion":5,"method":"getState","payload":{},"instanceId":"01"}"#,
-            r#"{"apiVersion":5,"method":"getState","payload":{},"instanceId":"999999"}"#,
-            r#"{"apiVersion":5,"method":"missing","payload":{}}"#,
+            r#"{"method":"version","payload":{},"extra":true}"#,
+            r#"{"method":"version","payload":{"extra":true}}"#,
+        ] {
+            let response = invoke(request);
+            assert_failure(&response);
+            assert!(
+                response["error"]
+                    .as_str()
+                    .unwrap()
+                    .contains("unknown field `extra`")
+            );
+        }
+        for request in [
+            r#"{"method":"version"}"#,
+            r#"{"payload":{}}"#,
+            r#"{"method":"version","payload":null}"#,
+            r#"{"method":"version","payload":{},"instanceId":"1"}"#,
+            r#"{"method":"createInstance","payload":{},"instanceId":"1"}"#,
+            r#"{"method":"getGeoDataState","payload":{},"instanceId":"1"}"#,
+            r#"{"method":"validateConfig","payload":{"configYaml":"x"},"instanceId":"1"}"#,
+            r#"{"method":"validateConfig","payload":{"configPath":"x"}}"#,
+            r#"{"method":"measureDelay","payload":{"configYamls":["x"],"timeout":5,"url":"https://example.com/"},"instanceId":"1"}"#,
+            r#"{"method":"measureDelay","payload":{"configYamls":["x"],"timeout":5,"url":"https://example.com/","extra":true}}"#,
+            r#"{"method":"measureDelay","payload":{"configYamls":[],"timeout":5,"url":"https://example.com/"}}"#,
+            r#"{"method":"measureDelay","payload":{"configYamls":[""],"timeout":5,"url":"https://example.com/"}}"#,
+            r#"{"method":"measureDelay","payload":{"configYamls":["x"],"timeout":0,"url":"https://example.com/"}}"#,
+            r#"{"method":"measureDelay","payload":{"configYamls":["x"],"timeout":31,"url":"https://example.com/"}}"#,
+            r#"{"method":"measureDelay","payload":{"configYamls":["x"],"timeout":5,"url":"ftp://example.com/"}}"#,
+            r#"{"method":"measureDelay","payload":{"configYaml":"x","timeout":5,"url":"https://example.com/","proxy":"http://127.0.0.1:18080"}}"#,
+            r#"{"method":"getState","payload":{}}"#,
+            r#"{"method":"getState","payload":{},"instanceId":null}"#,
+            r#"{"method":"getState","payload":{},"instanceId":1}"#,
+            r#"{"method":"getState","payload":{},"instanceId":"0"}"#,
+            r#"{"method":"getState","payload":{},"instanceId":"01"}"#,
+            r#"{"method":"getState","payload":{},"instanceId":"999999"}"#,
+            r#"{"method":"missing","payload":{}}"#,
         ] {
             assert_failure(&invoke(request));
         }
         let legacy_concurrency = invoke(
-            r#"{"apiVersion":5,"method":"measureDelay","payload":{"configYamls":["x"],"timeout":5,"url":"https://example.com/","concurrency":1}}"#,
+            r#"{"method":"measureDelay","payload":{"configYamls":["x"],"timeout":5,"url":"https://example.com/","concurrency":1}}"#,
         );
         assert_failure(&legacy_concurrency);
         assert!(
@@ -2000,9 +2001,8 @@ rules:
     fn byte_dispatch_preserves_utf8_for_chinese_and_emoji_requests() {
         let _guard = TEST_LOCK.lock().unwrap();
         reset_registry();
-        let response = invoke_bytes(
-            r#"{"apiVersion":5,"method":"version","payload":{"备注":"你好😀"}}"#.as_bytes(),
-        );
+        let response =
+            invoke_bytes(r#"{"method":"version","payload":{"备注":"你好😀"}}"#.as_bytes());
         let text = str::from_utf8(&response).unwrap();
         let json: Value = serde_json::from_str(text).unwrap();
         assert_failure(&json);
@@ -2016,7 +2016,7 @@ rules:
             .name("arbitrary-runtime-name".to_owned())
             .spawn(|| {
                 let _runtime_thread = RuntimeThreadGuard::enter();
-                invoke_bytes(r#"{"apiVersion":5,"method":"version","payload":{}}"#.as_bytes())
+                invoke_bytes(r#"{"method":"version","payload":{}}"#.as_bytes())
             })
             .unwrap()
             .join()
@@ -2051,7 +2051,7 @@ rules:
                 let rejected = || {
                     assert!(is_runtime_thread());
                     let response: Value = serde_json::from_slice(&invoke_bytes(
-                        br#"{"apiVersion":5,"method":"version","payload":{}}"#,
+                        br#"{"method":"version","payload":{}}"#,
                     ))
                     .unwrap();
                     assert_failure(&response);
@@ -2309,7 +2309,6 @@ rules:
         let _directory = initialize_test_data_directory();
         let config_yaml = "\\".repeat(crate::config::MAX_CONFIG_BYTES);
         let request = serde_json::to_vec(&json!({
-            "apiVersion": INVOKE_API_VERSION,
             "method": "measureDelay",
             "payload": {
                 "configYamls": vec![config_yaml; measure_delay::MAX_MEASURE_CONFIGS],
@@ -2336,7 +2335,6 @@ rules:
         let instance_id = create_instance();
         let _directory = initialize_test_data_directory();
         let request = json!({
-            "apiVersion": INVOKE_API_VERSION,
             "method": "validateConfig",
             "payload": {"configYaml": "not: [valid"},
         });
@@ -2368,7 +2366,6 @@ rules:
         let config_yaml = mixed_config(free_ports(1)[0]);
         let request = Arc::new(
             json!({
-                "apiVersion": INVOKE_API_VERSION,
                 "method": "validateConfig",
                 "payload": {"configYaml": config_yaml},
             })
@@ -2506,7 +2503,6 @@ rules:
         let _directory = initialize_test_data_directory();
         let config_yaml = tun_config();
         let validate = json!({
-            "apiVersion": INVOKE_API_VERSION,
             "method": "validateConfig",
             "payload": {"configYaml": &config_yaml},
         });
@@ -2514,7 +2510,6 @@ rules:
         assert_eq!(response["success"], true, "{response}");
         assert_eq!(state(&instance_id)["data"]["state"], "stopped");
         let prepare = json!({
-            "apiVersion": INVOKE_API_VERSION,
             "method": "prepare",
             "instanceId": instance_id,
             "payload": {"configYaml": &config_yaml},
@@ -2539,7 +2534,6 @@ rules:
             "rawIp"
         };
         let start = json!({
-            "apiVersion": INVOKE_API_VERSION,
             "method": "start",
             "instanceId": instance_id,
             "payload": {

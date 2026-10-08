@@ -168,7 +168,6 @@ proxies:
             "dns: { enable: false }",
             "rules: [MATCH,PROXY]",
             "geo-auto-update: false",
-            "configVersion: 9",
             "default-proxy: proxy",
             "proxy-groups: []",
         ] {
@@ -215,14 +214,7 @@ proxies:
     }
 
     #[test]
-    fn rejects_removed_selectors_and_non_json_yaml() {
-        assert!(
-            MeasureConfig::parse_yaml(
-                NODE.replacen("proxies:", "configVersion: 9\nproxies:", 1)
-                    .as_bytes()
-            )
-            .is_err()
-        );
+    fn rejects_non_json_yaml() {
         assert!(
             MeasureConfig::parse_yaml(NODE.replace("name: proxy", "name: &tag proxy").as_bytes())
                 .is_err()

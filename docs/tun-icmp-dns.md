@@ -177,7 +177,7 @@ DNS/53 劫持仍先于普通关联，每个查询独立执行 nameserver-policy�
 
 ## IP-only协议与独立测速接点
 
-公共`ResolutionContext`仅在协议必须取得IP地址的边界解析业务目标或逻辑上游；原始`Destination`保持不变，HTTP Host、TLS SNI和路由仍使用逻辑名称。代理endpoint的prepare bootstrap与该运行期解析分离，不递归使用尚未建立的同一出口。当前静态ECH不查询DNS；动态ECH及其可选宿主bootstrap入口尚未实现，不属于当前Invoke v5。
+公共`ResolutionContext`仅在协议必须取得IP地址的边界解析业务目标或逻辑上游；原始`Destination`保持不变，HTTP Host、TLS SNI和路由仍使用逻辑名称。代理endpoint的prepare bootstrap与该运行期解析分离，不递归使用尚未建立的同一出口。当前静态ECH不查询DNS；动态ECH及其可选宿主bootstrap入口尚未实现，不属于当前Invoke接口。
 
 Running Session上下文仅弱引用本session的RuntimeDns，使用上文nameserver/policy与出口；未绑定、DNS关闭、上游不可达或session已停止时明确失败，不调用系统resolver兜底。IP字面量仍执行端口/地址族政策。解析共享同一次建链期限，Stop取消当前及后续查询；在进入可能等待自身的singleflight之前拒绝同名递归依赖，嵌套依赖深度最多32层。不会因为DNS经代理出口就无条件禁止整个图。
 

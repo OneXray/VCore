@@ -13,9 +13,7 @@ import tempfile
 from pathlib import Path
 
 CORE_DIR = Path(__file__).resolve().parents[3]
-EXPECTED_IDENTITY = (
-    b"VCore;engine=rust;coreVersion=0.1.0;invokeApiVersion=5;configVersion=32"
-)
+EXPECTED_IDENTITY = b"VCore;engine=rust;coreVersion=0.1.0"
 DEFAULT_FEATURES = (
     "ffi,tun,inbound-http,inbound-socks5,outbound-anytls,"
     "outbound-socks5,outbound-shadowsocks,outbound-trojan,outbound-vmess,outbound-vless,"

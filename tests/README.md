@@ -41,6 +41,10 @@ Rust 依赖缓存区分检查种类、工具链、锁文件和 runner 镜像/SDK
 
 ## 必要回归与独立输入
 
+- Invoke：无版本字段的请求可查询核心身份和 stopped 实例；精确响应对象、初始化幂等、
+  缺失 method/payload 与未知字段拒绝由 `ffi::tests::version_and_state_use_the_fixed_response_envelope`、
+  `initialize_is_idempotent_only_for_the_same_data_directory` 和 `envelope_and_payload_are_strict`
+  的精确纯内存过滤器覆盖。
 - 混合入站：`cargo test --locked --lib inbound::mixed::tests::` 在纯内存中覆盖
   HTTP/SOCKS5 分流、首字节与流水业务保留、LAN 免认证、认证拒绝、共同握手期限和
   取消后的双向释放；`inbound::socks5::association::tests::` 覆盖 UDP 来源、代次和

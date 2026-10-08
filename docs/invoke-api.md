@@ -1,6 +1,6 @@
 # VCore Invoke API
 
-业务接口版本为 5，配置结构修订版为 32。配置只通过内联的 `configYaml` 或 `configYamls` 传入；每份已加载的 VCore 运行时最多拥有一个公共实例。业务代理入口仅通过 `mixed-port` 配置，HTTP/SOCKS5 TCP 与 SOCKS5 UDP 共用端口；顶层 `port`、`socks-port`、`udp` 和 `listeners` 都会失败。代理组实时选择沿用 Controller，不增加 Invoke method 或版本协商。静态 ECH 只使用节点内联配置，不新增 bootstrap DNS 入参。
+配置只通过内联的 `configYaml` 或 `configYamls` 传入；每份已加载的 VCore 运行时最多拥有一个公共实例。业务代理入口仅通过 `mixed-port` 配置，HTTP/SOCKS5 TCP 与 SOCKS5 UDP 共用端口；顶层 `port`、`socks-port`、`udp` 和 `listeners` 都会失败。代理组实时选择沿用 Controller。静态 ECH 只使用节点内联配置，不新增 bootstrap DNS 入参。
 
 ## C ABI
 
@@ -17,7 +17,7 @@ void VCoreFree(char *response);
 - 非法输入、未知方法、状态错误和 panic 返回合法失败 JSON；只有灾难性分配失败可以返回 `NULL`。
 - 业务运行时线程不能重入 Invoke；Debug 和 Release 构建都立即返回失败 JSON，包括 `version` 等只读请求。
 - 请求正文、响应正文、完整配置、UUID、密钥、short ID 和凭据不得写入日志。
-- `VCoreWindowsVpnInvoke` 是 Windows 安装包桥接接口，不属于业务 API v5。
+- `VCoreWindowsVpnInvoke` 是独立的 Windows 安装包桥接接口。
 - `VCoreWindowsVpnInvoke` 当前在调用线程上初始化 MTA；调用线程必须尚未初始化 COM，或已经是 MTA。STA/ASTA 调用不受支持。
 
 ## 请求与响应
@@ -26,7 +26,6 @@ void VCoreFree(char *response);
 
 ```json
 {
-  "apiVersion": 5,
   "method": "getState",
   "instanceId": "1",
   "payload": {}
@@ -47,11 +46,11 @@ void VCoreFree(char *response);
 
 约束：
 
-- `apiVersion` 必填且只能为 `5`。
+- 请求 envelope 只接受 `method`、`instanceId` 和 `payload`。
 - `method` 必须来自本文列出的白名单。
 - `payload` 必须是对象；无参数时传 `{}`。
 - 运行时级方法必须省略 `instanceId`；实例级方法必须携带 VCore 返回的非空 ID。
-- 未知 envelope 字段和未知 payload 字段都会失败。
+- 未知或已移除的 envelope 字段和 payload 字段都会失败，不静默忽略。
 - 无业务数据的方法成功时返回空对象，不返回 `null`。
 - Invoke envelope 最大 3 MiB，单份 YAML 最大 256 KiB。
 
@@ -61,7 +60,6 @@ void VCoreFree(char *response);
 
 ```json
 {
-  "apiVersion": 5,
   "method": "initialize",
   "payload": {"dataDir": "/absolute/path"}
 }
@@ -100,22 +98,20 @@ stopped -> preparing -> prepared -> starting -> running
 运行时级方法：
 
 ```json
-{"apiVersion":5,"method":"version","payload":{}}
+{"method":"version","payload":{}}
 ```
 
 返回：
 
 ```json
 {
-  "apiVersion": 5,
-  "buildIdentity": "VCore;engine=rust;coreVersion=0.1.0;invokeApiVersion=5;configVersion=32",
-  "configVersion": 32,
+  "buildIdentity": "VCore;engine=rust;coreVersion=0.1.0",
   "engine": "rust",
   "version": "0.1.0"
 }
 ```
 
-`configVersion` 是二进制报告的结构修订号，不是 YAML 字段。源码 revision 和产物 hash 由发布系统记录。
+`version` 和 `buildIdentity` 中的 `coreVersion` 取自 Cargo package version。源码 commit、lockfile 和产物 hash 由发布系统记录。
 
 ### `initialize`
 
@@ -126,7 +122,7 @@ stopped -> preparing -> prepared -> starting -> running
 运行时级只读方法，要求已经初始化：
 
 ```json
-{"apiVersion":5,"method":"getGeoDataState","payload":{}}
+{"method":"getGeoDataState","payload":{}}
 ```
 
 返回 `geosite` 和 `geoip` 两项：
@@ -161,7 +157,7 @@ stopped -> preparing -> prepared -> starting -> running
 ### `createInstance`
 
 ```json
-{"apiVersion":5,"method":"createInstance","payload":{}}
+{"method":"createInstance","payload":{}}
 ```
 
 返回：
@@ -177,7 +173,7 @@ stopped -> preparing -> prepared -> starting -> running
 实例级方法：
 
 ```json
-{"apiVersion":5,"method":"destroyInstance","instanceId":"1","payload":{}}
+{"method":"destroyInstance","instanceId":"1","payload":{}}
 ```
 
 实例仍处于 prepared、running 或 failed 时，先执行与 `stop` 等价的清理。取得命令锁后，无论清理成功、失败或 panic，ID 都会永久失效；只有因 busy 在取得命令锁前被拒绝时，实例才保留。
@@ -188,7 +184,6 @@ stopped -> preparing -> prepared -> starting -> running
 
 ```json
 {
-  "apiVersion": 5,
   "method": "validateConfig",
   "payload": {"configYaml": "proxies:\n  - name: edge\n    ...\n"}
 }
@@ -202,7 +197,6 @@ stopped -> preparing -> prepared -> starting -> running
 
 ```json
 {
-  "apiVersion": 5,
   "method": "prepare",
   "instanceId": "1",
   "payload": {"configYaml": "proxies:\n  - name: edge\n    ...\n"}
@@ -222,7 +216,6 @@ Apple、Android 和 Linux 的 TUN 启动参数：
 
 ```json
 {
-  "apiVersion": 5,
   "method": "start",
   "instanceId": "1",
   "payload": {"tunFd":23,"tunFraming":"utun"}
@@ -247,7 +240,7 @@ Android 和 Linux 使用 `rawIp`。非 TUN 配置必须省略 `tunFd` 和 `tunFr
 ### `stop`
 
 ```json
-{"apiVersion":5,"method":"stop","instanceId":"1","payload":{}}
+{"method":"stop","instanceId":"1","payload":{}}
 ```
 
 同步取消并等待监听器、Controller、TUN、netstack、DNS、会话、出站和更新任务，关闭 VCore 持有的文件描述符副本并释放平台回调租约。返回后不得继续产生数据包或调用 protect callback；本次 session 的代理组选择随之销毁。
@@ -255,7 +248,7 @@ Android 和 Linux 使用 `rawIp`。非 TUN 配置必须省略 `tunFd` 和 `tunFr
 ### `getState`
 
 ```json
-{"apiVersion":5,"method":"getState","instanceId":"1","payload":{}}
+{"method":"getState","instanceId":"1","payload":{}}
 ```
 
 返回：
@@ -272,7 +265,6 @@ Android 和 Linux 使用 `rawIp`。非 TUN 配置必须省略 `tunFd` 和 `tunFr
 
 ```json
 {
-  "apiVersion": 5,
   "method": "measureDelay",
   "payload": {
     "configYamls": ["proxies:\n  - name: edge\n    ...\n"],

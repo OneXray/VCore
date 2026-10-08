@@ -86,23 +86,12 @@ pub use lifecycle::{Lifecycle, LifecycleState};
 pub use limits::ResourceLimits;
 pub use packet::{IpVersion, TunFraming};
 
-/// Strict version carried by every current Invoke request and version response.
-pub const INVOKE_API_VERSION: u32 = 5;
-
-/// Internal configuration schema revision reported through Invoke.
-///
-/// The strict Mihomo YAML subset deliberately carries no version field.
-pub const CONFIG_VERSION: u8 = 32;
-
 /// Stable implementation identifier returned by the version Invoke method.
 pub const ENGINE: &str = "rust";
 
-/// Stable compatibility identity embedded in every native artifact.
+/// Implementation identity embedded in every native artifact.
 ///
 /// This is deliberately independent from a source revision. Release tooling
 /// records the immutable Git revision and artifact hash separately.
-pub const BUILD_IDENTITY: &str = concat!(
-    "VCore;engine=rust;coreVersion=",
-    env!("CARGO_PKG_VERSION"),
-    ";invokeApiVersion=5;configVersion=32"
-);
+pub const BUILD_IDENTITY: &str =
+    concat!("VCore;engine=rust;coreVersion=", env!("CARGO_PKG_VERSION"));

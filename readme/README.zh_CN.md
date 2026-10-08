@@ -90,7 +90,7 @@ rules:
 
 VCore 是库，不是独立的 VPN 应用。Unix 宿主持有原始 TUN 描述符；VCore 使用并关闭自己复制的描述符。Apple 公开的 packetFlow API 不保证可获取 raw fd，因此实际 Network Extension 集成和设备验证仍由宿主负责。详见 [TUN 集成](../docs/tun-platform.md)与[平台验收边界](../docs/acceptance.md)。
 
-跨平台 C ABI 通过 Invoke API v5 接受 JSON 请求：
+跨平台 C ABI 通过 Invoke API 接受 JSON 请求：
 
 ```c
 char *VCoreInvoke(const char *request_json);

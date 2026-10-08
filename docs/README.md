@@ -5,7 +5,7 @@
 ## 配置与接口
 
 - [配置协议](config.yaml)：严格 YAML、节点、静态 select 组、DNS 与规则。
-- [Invoke API](invoke-api.md)：请求格式、生命周期、平台回调与内联配置。
+- [Invoke API](invoke-api.md)：严格请求格式、核心软件版本与构建身份、生命周期、平台回调及内联配置。
 - [Controller](controller-api.md)：认证、运行中组选择和 TUN 流量。
 - [混合入站](inbounds.md)：同端口 HTTP 转发/隧道、SOCKS5 TCP/授权 UDP、监听及认证。
 - [出站](outbounds.md)：SOCKS5、AnyTLS、Trojan、VMess AEAD、Hysteria2、SS 2022。

@@ -317,10 +317,7 @@ class PlatformDeliveryTest(unittest.TestCase):
 
             output = root / "android"
             artifacts = []
-            identity = (
-                "VCore;engine=rust;coreVersion=0.1.0;"
-                "invokeApiVersion=5;configVersion=32"
-            )
+            identity = "VCore;engine=rust;coreVersion=0.1.0"
             for abi, machine in [("arm64-v8a", 183), ("x86_64", 62)]:
                 for name in ("libvcore.so", "libc++_shared.so"):
                     # Minimal ELF header, independent of the production reader.
@@ -400,7 +397,7 @@ class PlatformDeliveryTest(unittest.TestCase):
                     elif mutation == "features":
                         bad["features"].append("interop-test")
                     elif mutation == "identity":
-                        bad["buildIdentity"] = "schema14"
+                        bad["buildIdentity"] = "VCore;engine=rust;coreVersion=0.0.0"
                     elif mutation == "source":
                         bad["source"]["commit"] = "0" * 40
                     elif mutation == "toolchain":

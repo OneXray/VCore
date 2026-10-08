@@ -4076,21 +4076,13 @@ geo-update-interval: 24"#,
     }
 
     #[test]
-    fn rejects_removed_version_and_default_proxy_fields() {
-        for yaml in [
-            CURRENT_TLS.replacen(
-                "mixed-port: 1080\n",
-                "configVersion: 9\nmixed-port: 1080\n",
-                1,
-            ),
-            CURRENT_TLS.replacen(
-                "mixed-port: 1080\n",
-                "default-proxy: proxy\nmixed-port: 1080\n",
-                1,
-            ),
-        ] {
-            assert!(Config::parse_yaml(yaml.as_bytes()).is_err());
-        }
+    fn rejects_removed_default_proxy_and_inbound_outbound_fields() {
+        let yaml = CURRENT_TLS.replacen(
+            "mixed-port: 1080\n",
+            "default-proxy: proxy\nmixed-port: 1080\n",
+            1,
+        );
+        assert!(Config::parse_yaml(yaml.as_bytes()).is_err());
 
         let old = r#"inbounds: []
 outbounds: []

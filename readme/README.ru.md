@@ -90,7 +90,7 @@ rules:
 
 VCore — библиотека, а не самостоятельное VPN-приложение. На Unix исходный дескриптор TUN принадлежит хосту; VCore использует и закрывает собственную копию. Публичный API packetFlow от Apple не гарантирует доступ к raw fd, поэтому интеграция с Network Extension и проверка на устройствах остаются ответственностью хоста. См. [интеграцию TUN](../docs/tun-platform.md) и [границы приёмки платформ](../docs/acceptance.md).
 
-Кроссплатформенный C ABI принимает JSON-запросы через Invoke API v5:
+Кроссплатформенный C ABI принимает JSON-запросы через Invoke API:
 
 ```c
 char *VCoreInvoke(const char *request_json);
