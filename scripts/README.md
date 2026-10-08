@@ -22,7 +22,7 @@ CLI 默认构建当前宿主的 Release，Windows 固定 Wintun；Windows FFI �
 | Apple FFI | macOS/Xcode；`dist/apple/LibVole.xcframework`，iOS/tvOS ARM64 真机及模拟器、macOS universal 共五切片 |
 | Android FFI | macOS/Linux + NDK 30；`dist/android/<abi>`，ARM64、x86_64 的 `libvole.so` 与匹配的 `libc++_shared.so` |
 | Linux FFI | 原生 GNU 工具链；`dist/linux/<architecture>` 的静态库、动态库和头文件 |
-| Windows FFI | 原生 Visual Studio C++；`dist/windows/<architecture>/<backend>` 的 DLL/import library；UWP 另含两个 host 程序 |
+| Windows FFI | 原生 Visual Studio C++；`dist/windows/<architecture>/<backend>` 的 DLL/import library 和头文件；UWP 另含两个 host 程序 |
 
 Apple 最低版本为 iOS 13、macOS 10.15、tvOS 17；ARM64 iOS 模拟器/macOS 分别至少
 14/11。原生消费者需链接 libc++，module map 已声明。Windows ARM64 还需要 LLVM 与 Ninja。
@@ -46,6 +46,7 @@ CI 的依赖来源检查见 [TLS 依赖](../docs/tls-dependencies.md)。
 | `vole-ffi-linux-{amd64,arm64}.tar.gz` | `libvole.so`、`libvole.a` 和 C 头文件 |
 | `vole-ffi-windows-{wintun,uwp}-{amd64,arm64}.zip` | `vole.dll`、`vole.dll.lib` 和 C 头文件；UWP 另含 Provider Host、Session Host |
 
+公共 C 接口由 `vole.h` 提供；UWP 另附 `vole_windows_uwp.h`，声明 Windows 安装包桥接接口。
 文件名不带版本号，不附带独立 license、checksums 或 `wintun.dll`。
 发布入口为 `python -m vole_scripts.release build-cli|build-ffi|assemble`，参数见 `--help`；
 省略 `--tag` 可在本地验证打包。`builds.py` 负责平台编译，`release.py` 负责打包与汇总，

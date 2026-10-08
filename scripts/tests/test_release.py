@@ -87,6 +87,7 @@ class ReleaseTests(unittest.TestCase):
             expected = files[platform].copy()
             if backend == "uwp":
                 expected |= {
+                    "include/vole_windows_uwp.h",
                     "vole-windows-vpn-host.exe",
                     "vole-windows-session-host.exe",
                 }

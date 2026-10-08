@@ -230,7 +230,11 @@ def ffi_files(platform: str, backend: str | None) -> set[str]:
     if platform == "linux":
         return {"libvole.so", "libvole.a", "include/vole.h"}
     return {"vole.dll", "vole.dll.lib", "include/vole.h"} | (
-        {"vole-windows-vpn-host.exe", "vole-windows-session-host.exe"}
+        {
+            "vole-windows-vpn-host.exe",
+            "vole-windows-session-host.exe",
+            "include/vole_windows_uwp.h",
+        }
         if backend == "uwp"
         else set()
     )
@@ -302,7 +306,7 @@ def build_ffi(
         for name in sorted(ffi_files(platform, backend)):
             origin = (
                 root / name
-                if name == "include/vole.h" and platform in {"android", "windows"}
+                if name == "include/vole.h" and platform == "android"
                 else built / name
             )
             destination = staging / name

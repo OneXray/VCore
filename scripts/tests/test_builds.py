@@ -14,6 +14,11 @@ class BuildTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
+        for name in ("vole.h", "vole_windows_uwp.h", "module.modulemap"):
+            self.write(
+                Path("include") / name,
+                (builds.CORE_DIR / "include" / name).read_bytes(),
+            )
         self.enterContext(patch.object(builds, "CORE_DIR", self.root))
         self.enterContext(
             patch.dict(os.environ, {"CARGO_TARGET_DIR": "cache"}, clear=True)
@@ -61,17 +66,30 @@ class BuildTests(unittest.TestCase):
             wintun = builds.build_windows("wintun")
             uwp = builds.build_windows("uwp")
         self.assertEqual(
-            {p.name for p in wintun.iterdir()}, {"vole.dll", "vole.dll.lib"}
+            {
+                p.relative_to(wintun).as_posix()
+                for p in wintun.rglob("*")
+                if p.is_file()
+            },
+            {"vole.dll", "vole.dll.lib", "include/vole.h"},
         )
         self.assertEqual(
-            {p.name for p in uwp.iterdir()},
+            {p.relative_to(uwp).as_posix() for p in uwp.rglob("*") if p.is_file()},
             {
                 "vole.dll",
                 "vole.dll.lib",
+                "include/vole.h",
+                "include/vole_windows_uwp.h",
                 "vole-windows-vpn-host.exe",
                 "vole-windows-session-host.exe",
             },
         )
+        for output in (wintun, uwp):
+            for header in (output / "include").iterdir():
+                self.assertEqual(
+                    header.read_bytes(),
+                    (self.root / "include" / header.name).read_bytes(),
+                )
         for (command, _), backend in zip(
             self.commands[1:], ("wintun", "uwp"), strict=True
         ):
@@ -120,6 +138,7 @@ class BuildTests(unittest.TestCase):
         self.assertEqual(
             {p.name for p in work.iterdir()},
             {
+                "include",
                 "ios-device",
                 "ios-simulator",
                 "macos",
@@ -129,6 +148,10 @@ class BuildTests(unittest.TestCase):
         )
         self.assertEqual((work / "macos/libvole.a").read_bytes(), b"universal library")
         self.assertEqual((work / "ios-simulator/libvole.a").read_bytes(), b"library")
+        self.assertEqual(
+            {p.name for p in (work / "include").iterdir()},
+            {"vole.h", "module.modulemap"},
+        )
         self.assertEqual(
             sum(command[:2] == ["cargo", "build"] for command, _ in self.commands), 6
         )

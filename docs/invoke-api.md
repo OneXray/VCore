@@ -6,11 +6,10 @@
 
 ## C ABI
 
+公共接口由 `vole.h` 声明：
+
 ```c
 char *VoleInvoke(const char *request_json);
-#ifdef _WIN32
-char *VoleWindowsVpnInvoke(const char *request_json);
-#endif
 void VoleFree(char *response);
 ```
 
@@ -19,7 +18,7 @@ void VoleFree(char *response);
 - 非法输入、未知方法、状态错误和 panic 返回合法失败 JSON；只有灾难性分配失败可以返回 `NULL`。
 - 业务运行时线程不能重入 Invoke；Debug 和 Release 构建都立即返回失败 JSON，包括 `version` 等只读请求。
 - 请求正文、响应正文、完整配置、UUID、密钥、short ID 和凭据不得写入日志。
-- `VoleWindowsVpnInvoke` 只在 `windows-uwp` 构建中提供，是独立的 Windows 安装包桥接接口。
+- UWP 宿主包含 `vole_windows_uwp.h`（同时引入 `vole.h`），其中声明 `VoleWindowsVpnInvoke`。该头文件和独立的 Windows 安装包桥接接口仅由 `windows-uwp` 构建提供。
 - `VoleWindowsVpnInvoke` 当前在调用线程上初始化 MTA；调用线程必须尚未初始化 COM，或已经是 MTA。STA/ASTA 调用不受支持。
 
 ## 请求与响应

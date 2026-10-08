@@ -382,6 +382,10 @@ def build_apple(*, env: dict[str, str] | None = None) -> Path:
         "tvos-simulator",
     ):
         (work / directory).mkdir(parents=True)
+    headers = work / "include"
+    headers.mkdir()
+    for name in ("vole.h", "module.modulemap"):
+        shutil.copy2(CORE_DIR / "include" / name, headers / name)
     dist.mkdir(parents=True, exist_ok=True)
 
     for target in targets:
@@ -415,23 +419,23 @@ def build_apple(*, env: dict[str, str] | None = None) -> Path:
             "-library",
             work / "ios-device/libvole.a",
             "-headers",
-            CORE_DIR / "include",
+            headers,
             "-library",
             work / "ios-simulator/libvole.a",
             "-headers",
-            CORE_DIR / "include",
+            headers,
             "-library",
             work / "macos/libvole.a",
             "-headers",
-            CORE_DIR / "include",
+            headers,
             "-library",
             work / "tvos-device/libvole.a",
             "-headers",
-            CORE_DIR / "include",
+            headers,
             "-library",
             work / "tvos-simulator/libvole.a",
             "-headers",
-            CORE_DIR / "include",
+            headers,
             "-output",
             output,
         ],
@@ -553,10 +557,15 @@ def build_windows(backend: str = "uwp", *, env: dict[str, str] | None = None) ->
         ("--lib", "--bins") if backend == "uwp" else ("--lib",),
     )
     artifacts = ["vole.dll", "vole.dll.lib"]
+    headers = ["vole.h"]
     if backend == "uwp":
         artifacts += ["vole-windows-vpn-host.exe", "vole-windows-session-host.exe"]
+        headers.append("vole_windows_uwp.h")
     for name in artifacts:
         shutil.copy2(release / name, output / name)
+    (output / "include").mkdir()
+    for name in headers:
+        shutil.copy2(CORE_DIR / "include" / name, output / "include" / name)
     print(output)
 
     return output

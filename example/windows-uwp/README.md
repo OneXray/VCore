@@ -102,7 +102,7 @@ vole-uwp-demo.exe stop
 `demo.cpp` 直接链接构建产物的 `vole.dll.lib`，运行时从同目录加载 `vole.dll`：
 
 ```cpp
-#include "vole.h"
+#include "vole_windows_uwp.h"
 
 char* response = VoleWindowsVpnInvoke(request_json);
 if (response != nullptr) {
