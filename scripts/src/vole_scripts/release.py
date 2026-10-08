@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import re
 import shutil
 import tempfile
@@ -25,7 +24,7 @@ def assemble_release(
     repository: str = "YuanDevTeam/Vole",
 ) -> list[Path]:
     root = builds.CORE_DIR
-    source = cli_release._source(root, tag)
+    source = cli_release._release_info(root, tag)
     _require(
         re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository) is not None,
         "invalid public repository identity",
@@ -36,54 +35,16 @@ def assemble_release(
     _require(
         not output.resolve().is_relative_to(incoming.resolve())
         and not incoming.resolve().is_relative_to(output.resolve()),
-        "release output must be separate from the input evidence",
+        "release output must be separate from the input archives",
     )
     _require(
         not (root / notes_path).resolve().is_relative_to(output.resolve()),
         "release notes must be outside the asset directory",
     )
-    files = ffi_release.tree_files(incoming)
-    manifests = sorted(incoming.glob("*/manifest.json"))
+    archives = sorted(path for path in incoming.glob("*/*") if path.is_file())
     _require(
-        len(manifests) == 14, "release requires all six CLI and eight FFI manifests"
-    )
-    seen_cli, seen_ffi, archives = set(), set(), []
-    expected_files = set(manifests)
-    for manifest in manifests:
-        ffi_release.regular_file(manifest)
-        record = json.loads(manifest.read_text(encoding="utf-8"))
-        if record.get("kind") == "ffi":
-            key = record.get("release")
-            _require(
-                key in ffi_release.RELEASES and key not in seen_ffi,
-                "release requires eight distinct FFI identities",
-            )
-            seen_ffi.add(key)
-            archive = ffi_release.inspect_release(manifest, source, root)
-        else:
-            target = record.get("target")
-            _require(
-                record.get("kind") in {None, "cli"}
-                and target in cli_release.TARGETS
-                and target not in seen_cli,
-                "release requires six distinct CLI identities",
-            )
-            seen_cli.add(target)
-            archive = cli_release.inspect_release(manifest, source, root)
-        expected_files.add(archive)
-        archives.append(archive)
-    _require(
-        seen_cli == set(cli_release.TARGETS) and seen_ffi == set(ffi_release.RELEASES),
-        "release requires the complete CLI/FFI matrix",
-    )
-    _require(files == expected_files, "release inputs contain unrecorded files")
-    _require(
-        {path.name for path in archives} == ASSETS,
-        "release requires exactly the fixed fourteen assets",
-    )
-    _require(
-        cli_release._source(root, tag) == source,
-        "source changed during release assembly",
+        len(archives) == len(ASSETS) and {path.name for path in archives} == ASSETS,
+        "release requires exactly the fourteen CLI/FFI archives",
     )
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(
@@ -94,10 +55,6 @@ def assemble_release(
         for archive in archives:
             destination = staged / archive.name
             shutil.copy2(archive, destination)
-            _require(
-                cli_release._sha(destination) == cli_release._sha(archive),
-                "release asset changed while assembling",
-            )
         if output.exists():
             shutil.rmtree(output)
         staged.rename(output)
@@ -111,8 +68,8 @@ def assemble_release(
         "(Wintun/UWP; amd64/arm64). Windows UWP includes both package hosts.\n\n"
         "Complete linked licenses and native notices are embedded in the Vole binaries "
         "between VOLE_RELEASE_NOTICES_BEGIN and VOLE_RELEASE_NOTICES_END. "
-        "Archives include the public native headers where applicable; internal build "
-        "manifests, standalone license files and checksum files "
+        "Archives include the public native headers where applicable; "
+        "standalone license files and checksum files "
         "are not release assets.\n\n"
         f"[Vole source and license]({commit}) · "
         f"[Locked dependency sources]({commit}/Cargo.lock)\n\n"
@@ -122,8 +79,6 @@ def assemble_release(
         "acceptance remain separate from these build checks.\n"
     )
     notes_path = root / notes_path
-    if notes_path.exists():
-        ffi_release.regular_file(notes_path)
     notes_path.parent.mkdir(parents=True, exist_ok=True)
     notes_path.write_text(notes, encoding="utf-8")
     return sorted(output / name for name in ASSETS)

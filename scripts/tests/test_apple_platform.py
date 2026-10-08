@@ -1,16 +1,12 @@
 """Offline regressions for Apple artifact identity; no simulator or network."""
 
-import copy
-import hashlib
-import json
 import os
-import plistlib
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from vole_scripts import builds, platform_delivery
+from vole_scripts import builds
 
 
 class ApplePlatformTest(unittest.TestCase):
@@ -170,121 +166,6 @@ class ApplePlatformTest(unittest.TestCase):
             self.assertRaisesRegex(ValueError, "17.0"),
         ):
             builds.tvos_deployment_target()
-
-    def test_five_slice_manifest_rejects_missing_tvos_or_mislabelled_ios(self):
-        slices = {
-            "ios-arm64": ("ios", None, ["arm64"]),
-            "ios-arm64-simulator": ("ios", "simulator", ["arm64"]),
-            "macos-arm64_x86_64": ("macos", None, ["arm64", "x86_64"]),
-            "tvos-arm64": ("tvos", None, ["arm64"]),
-            "tvos-arm64-simulator": ("tvos", "simulator", ["arm64"]),
-        }
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            framework = root / "LibVole.xcframework"
-            libraries = []
-            for identifier, (platform, variant, architectures) in slices.items():
-                folder = framework / identifier
-                (folder / "Headers").mkdir(parents=True)
-                (folder / "libvole.a").write_bytes(builds.EXPECTED_IDENTITY)
-                (folder / "Headers/vole.h").write_text("header fixture")
-                (folder / "Headers/module.modulemap").write_text("module fixture")
-                library = dict(
-                    LibraryIdentifier=identifier,
-                    SupportedPlatform=platform,
-                    SupportedArchitectures=architectures,
-                    LibraryPath="libvole.a",
-                    HeadersPath="Headers",
-                )
-                if variant:
-                    library["SupportedPlatformVariant"] = variant
-                libraries.append(library)
-            manifest = root / "vole-delivery.json"
-
-            def write(rows):
-                (framework / "Info.plist").write_bytes(
-                    plistlib.dumps({"AvailableLibraries": rows})
-                )
-                record = dict(
-                    formatVersion=1,
-                    profile="release",
-                    group="apple",
-                    source={"fixture": True},
-                    features=builds.DEFAULT_FEATURES.split(","),
-                    buildIdentity=builds.EXPECTED_IDENTITY.decode(),
-                    toolchain={
-                        key: "fixture"
-                        for key in (
-                            "rustc",
-                            "cargo",
-                            "xcode",
-                            "iphoneos",
-                            "iphonesimulator",
-                            "macosx",
-                            "appletvos",
-                            "appletvsimulator",
-                        )
-                    },
-                )
-                record["toolchain"].update(
-                    iosDeploymentTarget="13.0",
-                    macosDeploymentTarget="10.15",
-                    tvosDeploymentTarget="17.0",
-                )
-                record["artifacts"] = [
-                    dict(
-                        path=p.relative_to(root).as_posix(),
-                        size=p.stat().st_size,
-                        sha256=hashlib.sha256(p.read_bytes()).hexdigest(),
-                    )
-                    for p in sorted(framework.rglob("*"))
-                    if p.is_file()
-                ]
-                manifest.write_text(json.dumps(record))
-
-            with (
-                patch.object(
-                    platform_delivery, "_source", return_value={"fixture": True}
-                ),
-                patch.object(builds, "check_apple_binary") as check,
-            ):
-                write(libraries)
-                platform_delivery._check_delivery([manifest])
-                self.assertEqual(check.call_count, 5)
-                self.assertEqual(
-                    check.call_args_list[1].args[1:],
-                    ("ios", "simulator", {"arm64"}, "13.0"),
-                )
-                self.assertEqual(
-                    check.call_args.args[1:], ("tvos", "simulator", {"arm64"}, "17.0")
-                )
-                for mutation in (
-                    "missing",
-                    "platform",
-                    "variant",
-                    "architecture",
-                    "ios-intel",
-                    "ios-universal",
-                    "ios-old-identifier",
-                ):
-                    rows = copy.deepcopy(libraries)
-                    if mutation == "missing":
-                        rows.pop()
-                    elif mutation == "platform":
-                        rows[-1]["SupportedPlatform"] = "ios"
-                    elif mutation == "variant":
-                        del rows[-1]["SupportedPlatformVariant"]
-                    elif mutation == "architecture":
-                        rows[-1]["SupportedArchitectures"] = ["x86_64"]
-                    elif mutation == "ios-intel":
-                        rows[1]["SupportedArchitectures"] = ["x86_64"]
-                    elif mutation == "ios-universal":
-                        rows[1]["SupportedArchitectures"].append("x86_64")
-                    else:
-                        rows[1]["LibraryIdentifier"] = "ios-arm64_x86_64-simulator"
-                    write(rows)
-                    with self.subTest(mutation=mutation), self.assertRaises(ValueError):
-                        platform_delivery._check_delivery([manifest])
 
 
 if __name__ == "__main__":

@@ -78,7 +78,7 @@ jobs:
         run: |
           uv python install 3 --no-bin --no-registry
           echo "UV_PYTHON=$(uv python find --managed-python --no-project 3)" >> "$GITHUB_ENV"
-      - name: Offline release helper contracts
+      - name: Offline build and packaging tests
         run: uv run --project scripts --locked python -m unittest discover -s scripts/tests
       - name: Linux native dependencies
         if: matrix.platform == 'linux'
@@ -92,7 +92,7 @@ jobs:
           workspaces: ". -> target"
           env-vars: ImageOS ImageVersion SDKROOT DEVELOPER_DIR BORING AWS_LC LIBCLANG BINDGEN
           cache-bin: "false"
-      - name: Build production CLI and verify binary, notices and offline flags
+      - name: Build and package production CLI
         shell: bash
         env:
           VOLE_TARGET: ${{ matrix.target }}
@@ -106,11 +106,11 @@ jobs:
           # The CLI helper selects windows-wintun on MSVC, never UWP or FFI.
           uv run --project scripts --locked python -m vole_scripts.release "${args[@]}"
           test -f "dist/release/$VOLE_GROUP/$VOLE_ARCHIVE"
-      - name: Preserve archive and internal build evidence
+      - name: Upload release archive
         uses: actions/upload-artifact@v7
         with:
           name: vole-release-build-${{ matrix.name }}-${{ github.sha }}
-          path: dist/release/${{ matrix.name }}/
+          path: dist/release/${{ matrix.name }}/${{ matrix.archive }}
           if-no-files-found: error
           retention-days: 14
 
@@ -198,7 +198,7 @@ jobs:
         run: |
           uv python install 3 --no-bin --no-registry
           echo "UV_PYTHON=$(uv python find --managed-python --no-project 3)" >> "$GITHUB_ENV"
-      - name: Offline release and platform delivery contracts
+      - name: Offline build and packaging tests
         run: uv run --project scripts --locked python -m unittest discover -s scripts/tests
       - name: Locked source
         run: cargo fetch --locked
@@ -230,7 +230,7 @@ jobs:
           workspaces: ". -> target"
           env-vars: ImageOS ImageVersion SDKROOT DEVELOPER_DIR ANDROID_NDK_HOME VOLE BORING AWS_LC LIBCLANG BINDGEN
           cache-bin: "false"
-      - name: Build production FFI and validate platform delivery identity
+      - name: Build and package production FFI
         shell: bash
         env:
           VOLE_PLATFORM: ${{ matrix.platform }}
@@ -247,16 +247,16 @@ jobs:
           if [[ -n "$VOLE_RELEASE_TAG" ]]; then args+=(--tag "$VOLE_RELEASE_TAG"); fi
           uv run --project scripts --locked python -m vole_scripts.release "${args[@]}"
           test -f "dist/release/$VOLE_GROUP/$VOLE_ARCHIVE"
-      - name: Preserve archive and internal build evidence
+      - name: Upload release archive
         uses: actions/upload-artifact@v7
         with:
           name: vole-release-build-${{ matrix.name }}-${{ github.sha }}
-          path: dist/release/${{ matrix.name }}/
+          path: dist/release/${{ matrix.name }}/${{ matrix.archive }}
           if-no-files-found: error
           retention-days: 14
 
   assemble:
-    name: Verify all fourteen release archives
+    name: Collect all fourteen release archives
     needs: [cli, ffi]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -279,7 +279,7 @@ jobs:
         with:
           pattern: vole-release-build-*-${{ github.sha }}
           path: dist/release-incoming
-      - name: Verify complete source, platform, binary and embedded notice identities
+      - name: Collect archives and write release notes
         shell: bash
         run: |
           set -euo pipefail
@@ -287,7 +287,7 @@ jobs:
             --notes dist/release-ready/notes.md --repository "$VOLE_RELEASE_REPOSITORY")
           if [[ -n "$VOLE_RELEASE_TAG" ]]; then args+=(--tag "$VOLE_RELEASE_TAG"); fi
           uv run --project scripts --locked python -m vole_scripts.release "${args[@]}"
-      - name: Preserve only validated release archives and release body
+      - name: Upload release archives and notes
         uses: actions/upload-artifact@v7
         with:
           name: vole-release-ready-${{ github.sha }}

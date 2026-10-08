@@ -109,10 +109,8 @@ Linux 使用 GNU/glibc 目标，Windows 使用 MSVC，macOS 分别构建两个�
 
 Linux/macOS 仅 gzip 压缩 `vole` 可执行文件，Windows zip 包含 `vole.exe`。
 CI 从实际锁定的目标依赖图收集许可证及原生第三方通知，并收集 Rust 标准库的原始通知，
-将完整文本嵌入可执行文件；
-打包前逐字节验证保留，Release 描述保留来源说明。不增加通知归档、CLI 参数或额外发布资产。
-不生成或发布独立 checksums 文件。版本由 release tag 与核心 `coreVersion` 标识，
-构建仍在 CI 内记录 commit、Cargo.lock、目标架构、feature 集、工具链和 artifact hash。
+将完整文本嵌入可执行文件，Release 描述保留来源说明。
+不生成或发布独立 checksums 文件。版本由 release tag 与核心 `coreVersion` 标识。
 构建身份保持 `Vole;engine=rust;coreVersion=<Cargo package version>`，不增加 API
 或配置 revision 字段，也不把版本号写进可执行文件名或归档文件名。
 
@@ -126,12 +124,12 @@ CI 从实际锁定的目标依赖图收集许可证及原生第三方通知，�
 以 `v<major>.<minor>.<patch>` 正式版本 tag 的 push 触发，先检查 tag 与 Cargo
 package version 一致，再并行完成 CLI 与 FFI 构建。全部构建和检查成功后才创建对应
 GitHub Release 并上传十四个归档；某项失败则不发布残缺的 release。
-发布身份来自同一 tag 的 commit 与 lockfile，不从工作目录或旧产物推断。
+各任务从同一 tag checkout 执行 locked 构建，汇总任务直接收集固定名称的归档。
 
 五个参数、请求转换和输出由 `cli::tests::` 覆盖；路径、读取、纯校验与启动中退出由
 `invoke::foreground::tests::` 覆盖，配置语义复用现有测试。
 `-t` 对有效 TUN 配置只做内核校验，`-v`/`-h` 在没有配置文件时仍可工作。
-每个发布目标检查程序格式、架构与构建身份；可执行的本机目标再运行帮助、版本和纯配置校验。
+每个 CLI 发布目标在对应原生宿主构建，并运行帮助、版本和纯配置校验。
 这些检查与真实 TUN、Windows 驱动安装、权限、路由和设备数据面验收分别记录。
 macOS 编译或内存测试不能证明 Windows Wintun 设备成功。
 

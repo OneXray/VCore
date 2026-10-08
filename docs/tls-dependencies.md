@@ -69,16 +69,14 @@ Apple 最终链接需要 libc++（module map 已声明，直接 C 链接需 -lc+
 Android 必须随库打包同 ABI/同 NDK 的 libc++_shared.so；只生成 libvole.so 不证明可加载。
 测试用 boring-sys/foreign-types 仅服务纯内存 peer，不新增生产后端。
 
-发布记录绑定 Vole/boring revision、lockfile hash、registry 校验值、BoringSSL 子模块/
-补丁 hash、toolchain、架构、产物 hash 和签名。许可证审核覆盖实际 release graph、
-boring MIT/Apache-2.0、BoringSSL 随源通知及 Android C++ runtime，不能只看 crate license。
+发布使用 Cargo.lock 固定依赖，许可证审核覆盖实际 release graph、boring MIT/Apache-2.0、
+BoringSSL 随源通知及 Android C++ runtime，不能只看 crate license。
 
 统一 [Release 工作流](../.github/workflows/release.yml) 对 CLI 与 FFI 的实际目标依赖图
 执行上述审计。完整许可证与原生通知嵌入可执行程序和核心库，UWP 配套进程同样保留；
 还收集实际 Rust 工具链的标准库通知，Android 同时收集随包 C++ runtime 所属 NDK
-的通知。汇总时核对各包与同一源码、锁文件
-和嵌入文本的身份，不以旧库产物或另一后端的依赖图代替。发布包不附带独立 license
-文件，构建内部记录不作为 Release 资产。打包入口与范围见 [编译脚本](../scripts/README.md)。
+的通知。各平台在编译前收集通知，编译成功后直接打包；汇总任务收集同一次工作流生成的
+归档。发布包不附带独立 license 文件。打包入口与范围见 [编译脚本](../scripts/README.md)。
 
 ## 升级与回退
 
@@ -88,7 +86,7 @@ boring MIT/Apache-2.0、BoringSSL 随源通知及 Android C++ runtime，不能�
 3. 重跑确定性向量、ClientHello/share/证书/签名、恢复/取消/期限及受影响容器数据面；
    分别验证 AnyTLS 标准 TLS 和 REALITY/JLS，不能互相抵扣。
 4. 在没有相邻 fork 目录的干净 checkout 执行 locked fetch、离线测试、相关平台构建和
-   原生消费者；平台脚本及 delivery 完整性检查不执行该消费者。
+   原生消费者；平台编译与打包脚本不执行该消费者。
    全目标 --no-run 只是编译，网络 peer 由独立 benchmark 按[隔离规则](testing-isolation.md)执行。
 5. 按[验收边界](acceptance.md)完成对应设备/安装门禁并保存当次证据。
 

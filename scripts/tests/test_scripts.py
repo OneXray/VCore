@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import contextlib
-import hashlib
 import io
-import json
 import os
 import shlex
 import tempfile
@@ -145,15 +143,6 @@ class ScriptTest(unittest.TestCase):
                     build.assert_called_once_with("uwp")
                 else:
                     build.assert_called_once_with()
-            with (
-                self.subTest(platform=platform_name, delivery=True),
-                patch("vole_scripts.platform_delivery.build_delivery") as delivery,
-            ):
-                self.assertEqual(cli.main(["build", platform_name, "--delivery"]), 0)
-                if platform_name == "windows":
-                    delivery.assert_called_once_with(platform_name, backend="uwp")
-                else:
-                    delivery.assert_called_once_with(platform_name)
 
     def test_cli_rejects_removed_validation_and_demo_commands_before_building(self):
         for arguments in (
@@ -162,6 +151,8 @@ class ScriptTest(unittest.TestCase):
             ["check", "platform-artifacts"],
             ["check", "platform-abi"],
             ["demo", "windows-tun2socks"],
+            ["build", "linux", "--delivery"],
+            ["build", "windows", "--backend", "wintun", "--delivery"],
         ):
             with (
                 self.subTest(arguments=arguments),
@@ -200,11 +191,6 @@ class ScriptTest(unittest.TestCase):
         with patch("vole_scripts.cli.build_windows") as build:
             self.assertEqual(cli.main(["build", "windows", "--backend", "wintun"]), 0)
             build.assert_called_once_with("wintun")
-        with patch("vole_scripts.platform_delivery.build_delivery") as delivery:
-            self.assertEqual(
-                cli.main(["build", "windows", "--backend", "wintun", "--delivery"]), 0
-            )
-            delivery.assert_called_once_with("windows", backend="wintun")
 
     def test_cli_backend_option_is_rejected_before_building(self):
         for target in (
@@ -507,12 +493,8 @@ class ScriptTest(unittest.TestCase):
             self.assertEqual(wintun, root / "dist/windows/x64/wintun")
             self.assertEqual(
                 set(file.name for file in wintun.iterdir()),
-                {"vole.dll", "vole.dll.lib", "vole-windows-artifacts.json"},
+                {"vole.dll", "vole.dll.lib"},
             )
-            metadata = json.loads((wintun / "vole-windows-artifacts.json").read_text())
-            self.assertEqual(metadata["backend"], "wintun")
-            self.assertNotIn("windowsPackageIntegrationRevision", metadata)
-            self.assertEqual(set(metadata["artifacts"]), {"vole.dll", "vole.dll.lib"})
 
     def test_windows_architecture_uses_native_processor_registry(self):
         key = object()
@@ -636,6 +618,13 @@ class ScriptTest(unittest.TestCase):
                         clear=True,
                     ),
                     patch.object(builds, "CORE_DIR", root),
+                    patch.object(
+                        builds,
+                        "os",
+                        SimpleNamespace(
+                            name="posix", environ=os.environ, fspath=os.fspath
+                        ),
+                    ),
                     patch.object(builds, "_android_toolchain", return_value=toolchain),
                     patch.object(builds, "_require_targets"),
                     patch.object(builds, "_cargo_build") as cargo,
@@ -684,75 +673,6 @@ class ScriptTest(unittest.TestCase):
             artifact.write_bytes(b"wrong")
             with self.assertRaisesRegex(RuntimeError, "incompatible Rust identity"):
                 _require_identity(artifact, "test")
-
-    def test_native_windows_wintun_check_preserves_packaged_delivery_outputs(self):
-        for architecture, target in (
-            ("x64", "x86_64-pc-windows-msvc"),
-            ("arm64", "aarch64-pc-windows-msvc"),
-        ):
-            with (
-                self.subTest(architecture=architecture),
-                tempfile.TemporaryDirectory() as directory,
-            ):
-                root = Path(directory)
-                output = root / "dist/windows" / architecture / "uwp"
-                output.mkdir(parents=True)
-                files = {
-                    name: name.encode()
-                    for name in (
-                        "vole.dll",
-                        "vole-windows-artifacts.json",
-                        "vole-delivery.json",
-                    )
-                }
-                for name, data in files.items():
-                    (output / name).write_bytes(data)
-                env = {"VOLE_NATIVE_CHECK": architecture}
-                with (
-                    patch.object(builds, "CORE_DIR", root),
-                    patch.object(builds, "os", SimpleNamespace(name="nt")),
-                    patch.object(
-                        builds, "_windows_architecture", return_value=architecture
-                    ),
-                    patch.object(
-                        builds, "_windows_msvc_environment", return_value=env
-                    ) as native,
-                    patch.object(builds, "_run") as run,
-                ):
-                    builds.check_windows_wintun_cli()
-                    native.assert_called_once_with(architecture)
-                    run.assert_called_once_with(
-                        [
-                            "cargo",
-                            "check",
-                            "--locked",
-                            "--release",
-                            "--target",
-                            target,
-                            "--no-default-features",
-                            "--features",
-                            "cli,windows-wintun",
-                            "--lib",
-                            "--bin",
-                            "vole",
-                        ],
-                        env=env,
-                    )
-                    self.assertEqual(
-                        {path.name: path.read_bytes() for path in output.iterdir()},
-                        files,
-                    )
-
-    def test_wintun_check_rejects_non_windows_before_toolchain_or_compiler(self):
-        with (
-            patch.object(builds, "os", SimpleNamespace(name="posix")),
-            patch.object(builds, "_windows_msvc_environment") as native,
-            patch.object(builds, "_run") as run,
-        ):
-            with self.assertRaisesRegex(RuntimeError, "on Windows"):
-                builds.check_windows_wintun_cli()
-            native.assert_not_called()
-            run.assert_not_called()
 
     def test_windows_release_build_uses_production_features_and_checks_identity(self):
         for configured in (False, True):
@@ -807,28 +727,13 @@ class ScriptTest(unittest.TestCase):
                             "--bins",
                         ],
                     )
-                    manifest = json.loads(
-                        (
-                            root / "dist/windows/arm64/uwp/vole-windows-artifacts.json"
-                        ).read_text()
-                    )
-                    expected_digest = hashlib.sha256(_windows_pe(0xAA64)).hexdigest()
                     self.assertEqual(
-                        manifest,
+                        {p.name for p in (root / "dist/windows/arm64/uwp").iterdir()},
                         {
-                            "architecture": "arm64",
-                            "artifacts": {
-                                "vole-windows-session-host.exe": expected_digest,
-                                "vole-windows-vpn-host.exe": expected_digest,
-                                "vole.dll": expected_digest,
-                                "vole.dll.lib": hashlib.sha256(
-                                    _windows_import(0xAA64)
-                                ).hexdigest(),
-                            },
-                            "buildIdentity": EXPECTED_IDENTITY.decode("ascii"),
-                            "formatVersion": 1,
-                            "backend": "uwp",
-                            "windowsPackageIntegrationRevision": 3,
+                            "vole.dll",
+                            "vole.dll.lib",
+                            "vole-windows-vpn-host.exe",
+                            "vole-windows-session-host.exe",
                         },
                     )
 
@@ -836,10 +741,8 @@ class ScriptTest(unittest.TestCase):
                     provider.write_bytes(_windows_pe(0x8664))
                     with self.assertRaisesRegex(RuntimeError, "wrong architecture"):
                         builds.build_windows()
-                    self.assertFalse(
-                        (
-                            root / "dist/windows/arm64/uwp/vole-windows-artifacts.json"
-                        ).exists()
+                    self.assertEqual(
+                        list((root / "dist/windows/arm64/uwp").iterdir()), []
                     )
 
                     provider.write_bytes(_windows_pe(0xAA64))

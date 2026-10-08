@@ -22,7 +22,7 @@ Read the relevant document completely before changing that area:
 - TUN fields, resource acquisition, fd ownership, packet I/O, MTU, or UDP idle policy: `docs/config.yaml`, `docs/tun-platform.md`, and `docs/tun-icmp-dns.md`.
 - Windows VPN/TUN, outbound binding, AppContainer packet buffers, or package lifecycle: `docs/windows-vpn.md` and `docs/tun-platform.md`.
 - CLI, foreground file/environment/path/signal behavior, or tag releases: `docs/cli.md`, `docs/invoke-api.md`, `scripts/README.md`, `src/cli.rs`, `src/invoke/foreground.rs`, and `.github/workflows/release.yml`; distinguish configured workflows from executed release validation.
-- Builds: `scripts/README.md`; `vole-scripts build` is compile-only, including delivery artifact-integrity checks.
+- Builds: `scripts/README.md`; `vole-scripts build` compiles platform outputs, and `vole_scripts.release` packages them for CI.
 - Offline regressions: `tests/README.md`. Rust memory/configuration tests remain in Vole; run explicit pure-memory filters, with all-target coverage limited to `--no-run`.
 - Protocol interoperability or pressure: the public [container-benchmark](https://github.com/YuanDevTeam/container-benchmark) owns all container orchestration and fixtures. Supply the checkout explicitly with `--source vole=PATH`; Vole builds do not import it or infer workspace paths.
 - Server-side tests: `docs/testing-isolation.md`. Use isolated benchmark containers for every server peer and network origin; container failure is not permission for a host fallback.
@@ -74,7 +74,7 @@ uv run --project scripts --locked ruff format --check scripts
 git diff --check
 ```
 
-Changes to FFI, shared runtime, TUN, socket creation, TLS, or packaging also require affected target builds and scoped regressions. Delivery checks artifact integrity, not native-consumer execution or device behavior. External interop and physical-device results remain `NOT RUN` unless executed in the current validation run.
+Changes to FFI, shared runtime, TUN, socket creation, TLS, or packaging also require affected target builds and scoped regressions. Validate native consumers and device behavior separately from compilation and packaging. External interop and physical-device results remain `NOT RUN` unless executed in the current validation run.
 
 ## Agent skills
 

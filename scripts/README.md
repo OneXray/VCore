@@ -1,7 +1,7 @@
 # 平台与 CLI 编译
 
 `vole-scripts` 负责编译 CLI 与 Apple、Android、Linux、Windows FFI 库产物；
-`vole_scripts.release` 统一构建发布归档、检查内部记录并汇总同一次 Release。
+`vole_scripts.release` 调用平台编译入口、打包并汇总同一次 Release。
 命令从 Vole 根目录运行，或通过 `--project` 显式指定本仓库 scripts；Python 工程由
 uv / uv.lock 管理，不推断外部工程。Rust 的定向离线回归见 [tests](../tests/README.md)。
 
@@ -18,13 +18,6 @@ uv run --project scripts --locked vole-scripts build windows --backend wintun
 uv run --project scripts --locked vole-scripts build cli
 uv run --project scripts --locked vole-scripts build cli --profile debug
 uv run --project scripts --locked vole-scripts build cli --target aarch64-apple-darwin
-
-# 交付记录要求干净、已提交的 checkout；在对应构建宿主执行。
-uv run --project scripts --locked vole-scripts build apple --delivery
-uv run --project scripts --locked vole-scripts build android --delivery
-uv run --project scripts --locked vole-scripts build linux --delivery
-uv run --project scripts --locked vole-scripts build windows --backend uwp --delivery
-uv run --project scripts --locked vole-scripts build windows --backend wintun --delivery
 ```
 
 原生依赖需要 C/C++、CMake、Perl 和 libclang；Rust 目标须预先安装。
@@ -56,7 +49,7 @@ Android 的 C/C++、CMake 与 bindgen 使用同一 API level（默认 24）；�
 普通 Apple/Android 构建可通过 `VOLE_BUILD_PROFILE`、`VOLE_FEATURES` 和各平台
 输出/部署目标/NDK/API/ABI 环境变量定制，具体默认值以 `builds.py` 为准。
 `CARGO_TARGET_DIR` 改变普通构建的中间产物位置，相对路径从本 Vole checkout 解析；
-交付模式禁用这些隐藏输出、编译选项和 feature 覆盖。
+发布入口固定生产 profile、features 和输出布局。
 
 Linux FFI 使用原生 GNU/glibc 工具链；交付矩阵分别在 x64、ARM64 宿主构建。
 本地 CLI 的 `--target` 允许同一 OS 的受支持目标，所需 Rust target 和原生工具链须已安装。
@@ -64,26 +57,10 @@ Windows CLI 固定使用 Wintun，不提供后端选择参数。Windows FFI 的 
 Cargo features，不增加 CLI 运行参数或修改 TUN 配置。
 Wintun 与 UWP 的输出分目录保存，切换后端不会覆盖另一后端产物。
 
-## 交付边界
-
-`--delivery` 在标准输出目录生成 `vole-delivery.json`，绑定 Vole commit/tree、
-lockfile、核心软件版本与构建身份、完整 features、工具链/SDK/NDK 和全部产物的大小/hash。
-本地 boring path 开发态要求 fork 同样干净并记录 commit/tree；PR/发布仍须切回
-Git release 依赖，按 [TLS 来源契约](../docs/tls-dependencies.md) 审查。
-
-交付前拒绝输出路径中的符号链接/reparse point，清除旧记录；Android 同时清空标准
-输出以隔离旧 ABI。构建后的内部完整性检查核对文件集合、源码身份、架构与平台元数据，
-包括 Android C++ runtime、Apple 全部切片、Linux ELF 和 Windows 配套进程。Windows
-使用指定后端与完整生产协议；`windows-uwp` 和 `windows-wintun` 在 Windows 编译时互斥，
-UWP 依赖图不包含 tun-rs 的 Windows Wintun 后端。原生 Windows x64 / ARM64
-矩阵分别实际编译 CLI Wintun、FFI Wintun 和 FFI UWP。
-检查失败不保留交付 manifest。交付检查不执行原生 C/Swift 消费者，不证明设备 VPN、
-签名安装、许可证审核或正式发布；这些按 [验收边界](../docs/acceptance.md) 独立取证。
-
 ## CLI 与 FFI 统一发布
 
 [Release 工作流](../.github/workflows/release.yml) 在正式 `vX.Y.Z` tag 上
-统一构建、汇总并发布；要求版本匹配且 checkout 干净、已提交并位于该 tag。
+统一构建、汇总并发布；要求 tag 与 Cargo 版本匹配，且指向当前 checkout 的提交。
 每个目标在对应 OS/架构的原生宿主构建，完整生产协议通过 `cli` / `invoke` feature 启用。
 Windows CLI 显式选择 `cli,windows-wintun`，不启用 FFI、UWP 或 WinRT 宿主程序。
 Wintun interruptible I/O 的间接 Windows Win32 bindings 允许存在，门禁拒绝直接
@@ -100,17 +77,16 @@ uv run --project scripts --locked python -m vole_scripts.release assemble \
   --inputs dist/release-incoming --output dist/release --notes /path/to/release.md
 ```
 
-构建入口可省略 `--tag`，供 PR、可复用工作流或手工触发进行同样的 Release 构建检查；
-仍要求干净、已提交的 checkout，只有正式 tag push 才发布 GitHub Release。
-`build-cli` 使用固定的 CLI production features，校验实际依赖图、二进制格式、架构与
-构建身份，并运行 `-h/-v/-t` 离线检查。`build-ffi` 复用平台交付检查，审查每个
-目标的依赖图并打包 FFI。两者保留源码、锁文件、工具链、二进制与归档的内部身份记录。
+构建入口可省略 `--tag`，供本地、PR、可复用工作流或手工触发进行 Release 构建；
+只有正式 tag push 才发布 GitHub Release。
+`build-cli` 复用 CLI 编译入口，并运行 `-h/-v/-t` 离线检查；`build-ffi` 复用对应平台
+编译入口。两者从实际目标依赖图收集许可证和原生通知，嵌入 CLI、FFI 核心库与 UWP
+配套进程，再按固定文件清单直接打包。同时收集 Rust 标准库通知，Android 另收集所带
+NDK C++ runtime 的通知。CI 安装 `rust-docs` 以读取原始标准库版权报告。
 
-完整已链接依赖许可证和原生通知嵌入 CLI、FFI 核心库与 UWP 配套进程，打包前验证
-文本保留；同时收集构建工具链的 Rust 标准库通知，Android 另收集所带 NDK C++ runtime
-的通知。CI 安装 `rust-docs` 以读取原始标准库版权报告。`assemble` 要求全部十四项
-源代码和锁文件身份一致，解压检查归档文件集合、二进制与通知，生成 Release 描述。
-所有构建和汇总成功后，工作流才一次性上传下列固定名称归档。模块本身不发布。
+每个构建任务只上传归档。`assemble` 收齐六项 CLI 和八项 FFI 归档，检查名称与数量，
+生成 Release 描述；全部构建和汇总成功后，工作流一次性发布十四个归档。
+编译与打包不执行原生 C/Swift 消费者，设备与安装验收见 [验收边界](../docs/acceptance.md)。
 
 | FFI 归档 | 内容 |
 | --- | --- |
@@ -124,9 +100,8 @@ uv run --project scripts --locked python -m vole_scripts.release assemble \
 | `vole-ffi-windows-uwp-arm64.zip` | 同上，ARM64 |
 
 另有六个 CLI 归档，名称、配置路径和参数语义见 [CLI](../docs/cli.md)。
-所有文件名不带版本号；不发布内部 manifest/交付摘要、checksums、独立 license 文件或
-`wintun.dll`。只有 FFI UWP 包包含 WinRT hosts。工作流工件中的内部记录用于汇总验证，
-不作为 GitHub Release 资产。
+所有文件名不带版本号；不附带 checksums、独立 license 文件或 `wintun.dll`。
+只有 FFI UWP 包包含 WinRT hosts。
 
 ## 独立容器验证
 

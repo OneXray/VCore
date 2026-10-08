@@ -9,7 +9,7 @@
 | --- | --- | --- |
 | 核心回归 | 严格配置、协议/TLS 内存 IO、局部上限、取消、Invoke/原生传输边界和确定性回归 | 定向 cargo test |
 | 编译 | 精简 feature、生产 feature、平台架构与全目标编译 | Vole scripts build |
-| 编译工具回归 | 平台构建、产物身份与构建参数回归 | scripts/tests |
+| 编译工具回归 | 平台构建参数、归档内容与发布矩阵 | scripts/tests |
 | 协议互通 | 官方 listener、生产 ABI 消费者、TCP/UDP 内容与代理路径 | 独立 container-benchmark interop |
 | 性能评估 | Linux 原生 TUN、完整 CN 分流、吞吐/CPU/RSS/UDP 丢包/DNS | 独立 container-benchmark compare |
 | 内存压力 | 完整真实 CN GeoData、加载与联合流量下的进程峰值 | 独立 container-benchmark stress |
@@ -32,7 +32,7 @@ container-benchmark stress --source vole=PATH
 CI 同时运行 Debug 和 Release 语义的纯内存用例，测试目标与明确的过滤清单保持相同。
 后者使用 `cargo test --profile ci-release`：继承 Release 的 `opt-level=3` 等设置，
 仅关闭 LTO 并使用 16 个 codegen units，避免为每个测试二进制重复昂贵的优化链接。
-它不等同于运行正式发布产物；平台交付仍使用未修改的 `release` 配置和身份检查。
+它不等同于运行正式发布产物；发布矩阵使用未修改的 `release` 配置。
 
 Quality 保留生产 Clippy、精简 feature 的编译/实际准入测试和全部目标的编译检查，
 完整生产 Release 构建由必跑的平台矩阵覆盖，不在 Quality 中重复执行。
@@ -51,7 +51,8 @@ Rust 依赖缓存区分检查种类、工具链、锁文件和 runner 镜像/SDK
   Linux 执行，其他 Unix 仍校验元数据往返。`runtime::shutdown_tests::` 覆盖取消后任务
   join 和核心错误保留，不启动宿主监听器。CLI 的完整生产 feature 通过独立 `cli` 编译，
   不能以 `ffi` 的隐式激活代替。CLI / FFI 发布 helper 与统一工作流的离线回归由
-  `scripts/tests` 执行；六项 CLI、八项 FFI 的 tag 工作流配置不等于已运行通过。
+  `scripts/tests` 执行，覆盖六项 CLI、八项 FFI 的归档内容及汇总完整性；Windows 相关
+  夹具按源文件实际字节断言，并显式设置待测平台。离线回归不代替原生平台编译。
 
 - Invoke：共享入口位于 `src/invoke/`，C ABI/JNI 只是传输层。无版本字段的请求可查询核心
   身份和 stopped 实例；精确响应对象、初始化幂等、缺失 method/payload 与未知字段拒绝由

@@ -31,6 +31,13 @@ FFI Wintun/UWP 六个实际 locked/offline 依赖图通过准入和 TLS 来源�
 篡改拒绝；这些夹具不代表原生平台构建。十四项完整 CI 构建、正式 tag 发布、
 Windows DLL / 设备和容器压力本轮均未执行。
 
+2026-10-08 编译脚本清理后，在 macOS ARM64 执行全部 56 项脚本回归、Ruff 检查与
+格式检查，通过；模拟 Windows CRLF、平台判断与系统探测的 58 项回归通过。
+`python -m vole_scripts.release build-cli --target aarch64-apple-darwin`
+实际完成 Release 编译、`-h/-v/-t`、文件与标准输入配置校验及单归档打包。
+本次删除内部构建 manifest、hash 校验和重复解包检查，六项 CLI / 八项 FFI 的
+打包与汇总由离线回归覆盖；原生 Windows 编译和 tag 发布本轮未执行。
+
 ## 核心压力测试
 
 独立 benchmark 的 `stress` 面向指定 Vole 的原生 Linux TUN，默认 2 Gbps /
@@ -109,7 +116,7 @@ probe，Linux RSS 不替代 Apple 实机 footprint，也不是任意输入的内
 | 离线 / 纯内存 | 严格配置与 feature、DAG/组快照、协议向量、TLS 身份/签名/pin、取消与局部上限、FFI 所有权 | 网络互通、设备 |
 | 容器互通 | 公开配置和消费者、真实认证及负例、传输关闭、UDP 来源与边界、受控 DNS/上游 | 任意字段组合或公网服务 |
 | 集成 / 压力 | 八出站 64 有序两跳、SS v3/UoT/TUIC 强耦合链、运行时切组、Stop/回滚/测速、混合重建与长测 | 无扰动吞吐基准或整机内存保证 |
-| 平台构建 / ABI | 同一锁文件、产物架构/身份/hash、打包依赖；原生 C/Swift 消费者另行验证 | 物理 TUN、签名安装；delivery 不执行原生消费者 |
+| 平台构建 / ABI | locked 构建、产物架构、打包依赖；原生 C/Swift 消费者另行验证 | 物理 TUN、签名安装；编译与打包不执行原生消费者 |
 | Apple 模拟器 | 生产库的 C ABI、生命周期、容器原站 SOCKS5 TCP/UDP、合成 utun TCP/UDP、fd 借用和错误路径 | 真机 Packet Tunnel、完整协议矩阵、整进程 50M / 1 Gbps 验收 |
 | 设备 / 发布 | 真机网络、protect/物理绑定、正式宿主生命周期、签名安装及商店门禁 | 其他平台或后续 revision |
 

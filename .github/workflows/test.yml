@@ -251,7 +251,7 @@ jobs:
         run: cargo test --locked --manifest-path crates/vole-netstack/Cargo.toml --all-targets
 
   release-build:
-    name: CLI and FFI release builds and artifact identity
+    name: CLI and FFI release builds
     # Reusable-workflow permissions are statically bounded by the caller, even
     # for skipped jobs. Build/assemble jobs downgrade to read; only a direct
     # release.yml tag push can execute the callee's write-permission publish job.

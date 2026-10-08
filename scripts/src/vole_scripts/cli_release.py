@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import argparse
 import gzip
-import hashlib
 import json
-import mmap
 import os
 import platform
 import re
@@ -38,8 +35,6 @@ BORING_SOURCE = (
     "git+https://github.com/YuanDevTeam/boring?branch=release#"
     "43c1c1d5b9464b3f2d5204be8664778fada7dbaf"
 )
-NOTICES_BEGIN = b"VOLE_RELEASE_NOTICES_BEGIN\n"
-NOTICES_END = b"\nVOLE_RELEASE_NOTICES_END\n"
 MAX_NOTICES_BYTES = 16 * 1024 * 1024
 # Standard MIT terms (https://spdx.org/licenses/MIT.html). The original API
 # header supplies the copyright attribution; no Wintun driver is distributed.
@@ -79,18 +74,13 @@ def _require(condition: bool, message: str) -> None:
         raise ValueError(message)
 
 
-def _sha(path: Path) -> str:
-    with path.open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
-
-
 def _output(arguments: list[str], root: Path, env: dict | None = None) -> str:
     return subprocess.check_output(
         arguments, cwd=root, env=env, text=True, timeout=60
     ).strip()
 
 
-def _source(root: Path, tag: str | None) -> dict:
+def _release_info(root: Path, tag: str | None) -> dict:
     version = tomllib.loads((root / "Cargo.toml").read_text())["package"]["version"]
     if tag is not None:
         _require(
@@ -98,10 +88,6 @@ def _source(root: Path, tag: str | None) -> dict:
             and tag == "v" + version,
             "release tag must be vX.Y.Z and match Cargo package version",
         )
-    _require(
-        not _output(["git", "status", "--porcelain", "--untracked-files=normal"], root),
-        "CLI release requires a clean committed checkout",
-    )
     commit = _output(["git", "rev-parse", "HEAD"], root)
     if tag is not None:
         _require(
@@ -109,14 +95,7 @@ def _source(root: Path, tag: str | None) -> dict:
             == commit,
             "release tag must identify the checked-out commit",
         )
-    return {
-        "tag": tag,
-        "version": version,
-        "commit": commit,
-        "tree": _output(["git", "rev-parse", "HEAD^{tree}"], root),
-        "lockSha256": _sha(root / "Cargo.lock"),
-        "manifestSha256": _sha(root / "Cargo.toml"),
-    }
+    return {"tag": tag, "version": version, "commit": commit}
 
 
 def archive_name(target: str) -> str:
@@ -459,7 +438,7 @@ def _upstream_notices(item: dict, base: Path) -> list[tuple[str, bytes]]:
 
 def collect_notices(
     packages: dict, linked: set, root: Path, source: dict, repository: str, target: str
-) -> tuple[bytes, list[dict]]:
+) -> bytes:
     _require(
         re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository) is not None,
         "invalid public repository identity",
@@ -468,7 +447,6 @@ def collect_notices(
         f"Vole {source['version']} linked dependency licenses and notices\n"
         f"Source commit: {source['commit']}\n"
     ]
-    records = []
     linked_names = {packages[identifier]["name"] for identifier in linked}
     for item in sorted(
         (packages[identifier] for identifier in linked),
@@ -564,7 +542,6 @@ def collect_notices(
             f"License: {item.get('license') or 'see license files'}\n"
             f"Source: {url}\n"
         )
-        rows = []
         for label, content in notices:
             _require(
                 bool(content) and b"\0" not in content,
@@ -572,25 +549,15 @@ def collect_notices(
             )
             text = content.decode("utf-8")
             sections.append(f"\n--- {label} ---\n{text}\n")
-            rows.append({"path": label, "sha256": hashlib.sha256(content).hexdigest()})
-        records.append(
-            {
-                "name": item["name"],
-                "version": item["version"],
-                "license": item.get("license"),
-                "sourceUrl": url,
-                "notices": rows,
-            }
-        )
     content = "".join(sections).encode("utf-8")
     _require(
         0 < len(content) <= MAX_NOTICES_BYTES,
         "linked notices must contain at most 16 MiB of text",
     )
-    return content, records
+    return content
 
 
-def collect_rust_notices(root: Path) -> tuple[bytes, dict]:
+def collect_rust_notices(root: Path) -> bytes:
     """Cargo omits the linked standard library; retain its official report."""
     rustc = _output(["rustc", "-Vv"], root)
     revision = re.search(r"(?m)^commit-hash: ([0-9a-f]{40})$", rustc)
@@ -615,7 +582,6 @@ def collect_rust_notices(root: Path) -> tuple[bytes, dict]:
         f"\n===== Rust standard library {version[1]} =====\n"
         f"Source: https://github.com/rust-lang/rust/tree/{revision[1]}/library\n".encode()
     ]
-    rows = []
     for path in paths:
         _require(
             path.is_file() and not path.is_symlink(),
@@ -629,81 +595,12 @@ def collect_rust_notices(root: Path) -> tuple[bytes, dict]:
         content.decode("utf-8")
         label = path.relative_to(documentation).as_posix()
         sections.append(f"\n--- {label} ---\n".encode() + content + b"\n")
-        rows.append({"path": label, "sha256": hashlib.sha256(content).hexdigest()})
     content = b"".join(sections)
     _require(
         len(content) <= MAX_NOTICES_BYTES,
         "Rust library notices exceed the embedded text limit",
     )
-    return content, {
-        "name": "Rust standard library",
-        "version": version[1],
-        "rustc": rustc,
-        "sourceUrl": f"https://github.com/rust-lang/rust/tree/{revision[1]}/library",
-        "notices": rows,
-    }
-
-
-def verify_binary(
-    path: Path, target: str, version: str, notices: bytes | None = None
-) -> bytes:
-    _require(
-        path.is_file() and not path.is_symlink(), "CLI binary must be a regular file"
-    )
-    system, architecture = TARGETS[target]
-    with path.open("rb") as stream:
-        header = stream.read(64)
-        if system == "linux":
-            _require(
-                header[:7] == b"\x7fELF\x02\x01\x01"
-                and len(header) == 64
-                and int.from_bytes(header[16:18], "little") in {2, 3}
-                and int.from_bytes(header[18:20], "little")
-                == {"amd64": 62, "arm64": 183}[architecture],
-                "wrong CLI ELF executable architecture",
-            )
-        elif system == "darwin":
-            _require(
-                header[:4] == b"\xcf\xfa\xed\xfe"
-                and int.from_bytes(header[4:8], "little")
-                == {"amd64": 0x1000007, "arm64": 0x100000C}[architecture]
-                and int.from_bytes(header[12:16], "little") == 2,
-                "wrong CLI Mach-O executable architecture",
-            )
-        else:
-            builds._require_windows_architecture(
-                path, "x64" if architecture == "amd64" else "arm64"
-            )
-            stream.seek(int.from_bytes(header[0x3C:0x40], "little") + 22)
-            characteristics = int.from_bytes(stream.read(2), "little")
-            _require(
-                characteristics & 2 != 0 and characteristics & 0x2000 == 0,
-                "CLI PE must be an executable, not a DLL",
-            )
-        with mmap.mmap(stream.fileno(), 0, access=mmap.ACCESS_READ) as contents:
-            identity = f"Vole;engine=rust;coreVersion={version}".encode()
-            position = contents.find(identity)
-            _require(
-                position >= 0, "CLI binary is missing the current Rust build identity"
-            )
-            beginning = contents.find(NOTICES_BEGIN)
-            ending = contents.find(NOTICES_END, beginning + len(NOTICES_BEGIN))
-            _require(
-                beginning >= 0 and ending > beginning + len(NOTICES_BEGIN),
-                "CLI binary is missing embedded license notices",
-            )
-            embedded = contents[beginning + len(NOTICES_BEGIN) : ending]
-            _require(
-                len(embedded) <= MAX_NOTICES_BYTES and b"\0" not in embedded,
-                "invalid embedded notice text",
-            )
-            embedded.decode("utf-8")
-            if notices is not None:
-                _require(
-                    contents.find(NOTICES_BEGIN + notices + NOTICES_END) >= 0,
-                    "CLI binary did not retain the exact linked notice text",
-                )
-    return embedded
+    return content
 
 
 def _smoke(binary: Path, identity: str, env: dict) -> None:
@@ -785,7 +682,7 @@ def _guard_output(root: Path, output: Path) -> None:
             not stat.S_ISLNK(metadata.st_mode)
             and not getattr(metadata, "st_file_attributes", 0)
             & stat.FILE_ATTRIBUTE_REPARSE_POINT,
-            "CLI output must not contain symlinks or reparse points",
+            "release output must not contain symlinks or reparse points",
         )
 
 
@@ -819,9 +716,9 @@ def build_release(
     overrides = _release_overrides()
     _require(
         not overrides,
-        "unsupported CLI release build overrides: " + ", ".join(sorted(overrides)),
+        "unsupported CLI release build overrides: " + ", ".join(overrides),
     )
-    source = _source(root, tag)
+    info = _release_info(root, tag)
     env = _native_environment(target)
     metadata = json.loads(
         _output(
@@ -843,12 +740,8 @@ def build_release(
     )
     packages, nodes, resolved, linked = _graph(metadata, root, target)
     _audit_graph(packages, nodes, resolved, root)
-    notices, dependencies = collect_notices(
-        packages, linked, root, source, repository, target
-    )
-    runtime_text, runtime_record = collect_rust_notices(root)
-    notices += runtime_text
-    dependencies.append(runtime_record)
+    notices = collect_notices(packages, linked, root, info, repository, target)
+    notices += collect_rust_notices(root)
     _require(
         len(notices) <= MAX_NOTICES_BYTES,
         "complete CLI notices exceed the embedded text limit",
@@ -862,280 +755,22 @@ def build_release(
         notice_file = Path(directory).resolve() / "notices.txt"
         notice_file.write_bytes(notices)
         env["VOLE_RELEASE_NOTICES"] = str(notice_file)
-        command = [
-            "cargo",
-            "build",
-            "--locked",
-            "--release",
-            "--target",
-            target,
-            "--no-default-features",
-            "--features",
-            requested_features(target),
-            "--bin",
-            "vole",
-        ]
-        subprocess.run(command, cwd=root, env=env, check=True)
-        binary_name = "vole.exe" if TARGETS[target][0] == "windows" else "vole"
-        binary = root / "target" / target / "release" / binary_name
-        verify_binary(binary, target, source["version"], notices)
-        identity = f"Vole;engine=rust;coreVersion={source['version']}"
-        _smoke(binary, identity, env)
-        _require(
-            _source(root, tag) == source, "source changed during CLI release build"
-        )
+        binary = builds.build_cli(target, env=env)
+        _smoke(binary, f"Vole;engine=rust;coreVersion={info['version']}", env)
         archive = output / archive_name(target)
         if archive.suffix == ".zip":
             with zipfile.ZipFile(
                 archive, "w", compression=zipfile.ZIP_DEFLATED
             ) as stream:
-                stream.write(binary, arcname=binary_name)
+                stream.write(binary, arcname="vole.exe")
         else:
             with (
                 archive.open("wb") as file,
                 gzip.GzipFile(
-                    filename=binary_name, mode="wb", fileobj=file, mtime=0
+                    filename="vole", mode="wb", fileobj=file, mtime=0
                 ) as stream,
                 binary.open("rb") as payload,
             ):
                 shutil.copyfileobj(payload, stream)
-        record = {
-            "formatVersion": 1,
-            "target": target,
-            "profile": "release",
-            "buildIdentity": identity,
-            "source": source,
-            "features": sorted(
-                nodes[
-                    next(
-                        identifier
-                        for identifier in linked
-                        if packages[identifier]["name"] == "vole"
-                    )
-                ]["features"]
-            ),
-            "command": command,
-            "toolchain": {
-                "rustc": _output(["rustc", "-Vv"], root, env),
-                "cargo": _output(["cargo", "--version"], root, env),
-            },
-            "host": {
-                "os": platform.system(),
-                "architecture": TARGETS[target][1],
-                "osVersion": platform.release(),
-            },
-            "binary": {
-                "name": binary_name,
-                "sha256": _sha(binary),
-                "size": binary.stat().st_size,
-            },
-            "archive": {
-                "name": archive.name,
-                "sha256": _sha(archive),
-                "size": archive.stat().st_size,
-            },
-            "noticesSha256": hashlib.sha256(notices).hexdigest(),
-            "noticesSize": len(notices),
-            "dependencies": dependencies,
-            "offlineSmoke": ["-h", "-v", "-t"],
-        }
-        (output / "manifest.json").write_text(
-            json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-        )
     print(archive)
-    return output / "manifest.json"
-
-
-def inspect_release(manifest: Path, source: dict, root: Path) -> Path:
-    record = json.loads(manifest.read_text(encoding="utf-8"))
-    target = record.get("target")
-    _require(target in TARGETS, "unsupported CLI release target")
-    identity = f"Vole;engine=rust;coreVersion={source['version']}"
-    production = set(
-        tomllib.loads((root / "Cargo.toml").read_text())["features"]["default"]
-    )
-    expected_command = [
-        "cargo",
-        "build",
-        "--locked",
-        "--release",
-        "--target",
-        target,
-        "--no-default-features",
-        "--features",
-        requested_features(target),
-        "--bin",
-        "vole",
-    ]
-    _require(
-        record.get("formatVersion") == 1
-        and record.get("profile") == "release"
-        and record.get("source") == source
-        and record.get("buildIdentity") == identity
-        and record.get("offlineSmoke") == ["-h", "-v", "-t"]
-        and not set(record.get("features", []))
-        & {"ffi", "windows-uwp", "interop-test", "benchmark-geodata-http"}
-        and production | {"cli", "invoke", "tun"} <= set(record.get("features", []))
-        and _backend_matches(set(record.get("features", [])), target)
-        and record.get("command") == expected_command
-        and record.get("host", {}).get("architecture") == TARGETS[target][1]
-        and record.get("host", {}).get("os")
-        == {"linux": "Linux", "darwin": "Darwin", "windows": "Windows"}[
-            TARGETS[target][0]
-        ]
-        and all(record.get("toolchain", {}).get(key) for key in ("rustc", "cargo"))
-        and record.get("dependencies"),
-        "incompatible CLI release evidence",
-    )
-    runtime = [
-        row
-        for row in record["dependencies"]
-        if row.get("name") == "Rust standard library"
-    ]
-    _require(
-        len(runtime) == 1
-        and runtime[0].get("rustc") == record["toolchain"]["rustc"]
-        and runtime[0].get("notices"),
-        "CLI release requires matching Rust standard-library notices",
-    )
-    archive = manifest.parent / archive_name(target)
-    _require(
-        manifest.is_file()
-        and not manifest.is_symlink()
-        and archive.is_file()
-        and not archive.is_symlink(),
-        "CLI release input must be a regular file",
-    )
-    _require(
-        set(manifest.parent.iterdir()) == {manifest, archive},
-        "release artifacts may contain only archive and internal manifest",
-    )
-    _require(
-        record["archive"]
-        == {
-            "name": archive.name,
-            "sha256": _sha(archive),
-            "size": archive.stat().st_size,
-        },
-        "CLI archive identity mismatch",
-    )
-    binary_name = "vole.exe" if TARGETS[target][0] == "windows" else "vole"
-    binary_size = record.get("binary", {}).get("size")
-    _require(
-        type(binary_size) is int and 0 < binary_size <= 1024**3,
-        "invalid CLI executable size",
-    )
-
-    def copy_payload(payload, destination) -> None:
-        copied = 0
-        while chunk := payload.read(min(64 * 1024, binary_size + 1 - copied)):
-            copied += len(chunk)
-            _require(
-                copied <= binary_size,
-                "CLI archive exceeds its recorded executable size",
-            )
-            destination.write(chunk)
-        _require(copied == binary_size, "CLI archive has a truncated executable")
-
-    with tempfile.TemporaryDirectory(prefix="vole-cli-inspect-") as directory:
-        binary = Path(directory) / binary_name
-        with binary.open("wb") as destination:
-            if archive.suffix == ".zip":
-                with zipfile.ZipFile(archive) as compressed:
-                    _require(
-                        compressed.namelist() == [binary_name],
-                        "Windows CLI zip must contain only vole.exe",
-                    )
-                    member = compressed.infolist()[0]
-                    _require(
-                        stat.S_IFMT(member.external_attr >> 16) in {0, stat.S_IFREG}
-                        and not member.flag_bits & 1
-                        and member.file_size == binary_size,
-                        "Windows CLI zip payload must be a regular executable",
-                    )
-                    with compressed.open(binary_name) as payload:
-                        copy_payload(payload, destination)
-            else:
-                with gzip.open(archive, "rb") as payload:
-                    copy_payload(payload, destination)
-        _require(
-            record["binary"]
-            == {
-                "name": binary_name,
-                "sha256": _sha(binary),
-                "size": binary.stat().st_size,
-            },
-            "CLI executable hash/size mismatch",
-        )
-        notices = verify_binary(binary, target, source["version"])
-        _require(
-            hashlib.sha256(notices).hexdigest() == record.get("noticesSha256")
-            and len(notices) == record.get("noticesSize"),
-            "embedded linked notices identity mismatch",
-        )
     return archive
-
-
-def assemble_release(
-    tag: str | None, incoming: Path, repository: str, notes_path: Path
-) -> list[Path]:
-    root = builds.CORE_DIR
-    source = _source(root, tag)
-    manifests = sorted(incoming.glob("*/manifest.json"))
-    _require(
-        len(manifests) == len(TARGETS), "release requires all six CLI target manifests"
-    )
-    seen = set()
-    archives = []
-    for manifest in manifests:
-        record = json.loads(manifest.read_text(encoding="utf-8"))
-        target = record.get("target")
-        _require(
-            target in TARGETS and target not in seen,
-            "release requires six distinct supported targets",
-        )
-        seen.add(target)
-        archives.append(inspect_release(manifest, source, root))
-    _require(seen == set(TARGETS), "release requires the complete target matrix")
-    _require(
-        re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository) is not None,
-        "invalid public repository identity",
-    )
-    commit_url = f"https://github.com/{repository}/tree/{source['commit']}"
-    notes = (
-        f"Vole {source['version']} CLI for Linux, macOS and Windows (amd64/arm64).\n\n"
-        "Archives contain only the executable. Complete linked licenses and notices "
-        "are retained inside each executable between the "
-        "VOLE_RELEASE_NOTICES_BEGIN and VOLE_RELEASE_NOTICES_END "
-        "text markers.\n\n"
-        f"[Vole source and license]({commit_url}) · "
-        f"[Locked dependency sources]({commit_url}/Cargo.lock)\n\n"
-        "Windows Wintun requires a host-provided wintun.dll beside the executable; "
-        "the host configures addresses, DNS, routes and physical egress. "
-        "The DLL and WinRT package hosts are not included.\n"
-    )
-    notes_path.write_text(notes, encoding="utf-8")
-    return archives
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    commands = parser.add_subparsers(dest="command", required=True)
-    build = commands.add_parser("build")
-    build.add_argument("--target", choices=TARGETS, required=True)
-    for command in (build, commands.add_parser("assemble")):
-        command.add_argument("--tag", required=True)
-        command.add_argument("--repository", required=True)
-        if command is not build:
-            command.add_argument("--input", type=Path, required=True)
-            command.add_argument("--notes", type=Path, required=True)
-    args = parser.parse_args()
-    if args.command == "build":
-        build_release(args.target, args.tag, args.repository)
-    else:
-        for path in assemble_release(args.tag, args.input, args.repository, args.notes):
-            print(path)
-
-
-if __name__ == "__main__":
-    main()

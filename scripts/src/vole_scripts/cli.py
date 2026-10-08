@@ -24,12 +24,6 @@ def _parser() -> argparse.ArgumentParser:
         ("linux", "build native Linux FFI artifacts"),
     ):
         command = platforms.add_parser(name, help=description)
-        command.add_argument(
-            "--delivery",
-            action="store_true",
-            help="record production artifact identity",
-        )
-
         if name == "windows":
             command.add_argument("--backend", choices=("wintun", "uwp"), default="uwp")
     command = platforms.add_parser("cli", help="build the foreground executable")
@@ -44,13 +38,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.platform == "cli":
             build_cli(args.target, args.profile)
-        elif args.delivery:
-            from .platform_delivery import build_delivery
-
-            if args.platform == "windows":
-                build_delivery(args.platform, backend=args.backend)
-            else:
-                build_delivery(args.platform)
         elif args.platform == "apple":
             build_apple()
         elif args.platform == "android":

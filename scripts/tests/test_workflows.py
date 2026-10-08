@@ -189,13 +189,15 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertTrue(all(not row["backend"] for row in rows if row not in windows))
         self.assertIn('args+=(--backend "$VOLE_BACKEND")', _job(self.release, "ffi"))
 
-    def test_build_and_assemble_keep_full_evidence_without_publishing_it(self):
+    def test_build_jobs_upload_only_archives_and_assemble_waits_for_both(self):
         for name, operation in (("cli", "build-cli"), ("ffi", "build-ffi")):
             job = _job(self.release, name)
             self.assertIn(f"args=({operation}", job)
             self.assertIn('args+=(--tag "$VOLE_RELEASE_TAG")', job)
             self.assertIn('python -m vole_scripts.release "${args[@]}"', job)
-            self.assertIn("path: dist/release/${{ matrix.name }}/", job)
+            self.assertIn(
+                "path: dist/release/${{ matrix.name }}/${{ matrix.archive }}", job
+            )
             self.assertIn("if-no-files-found: error", job)
             self.assertIn("fail-fast: false", job)
             self.assertIn("persist-credentials: false", job)

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-import json
 import locale
 import mmap
 import os
@@ -421,7 +419,7 @@ def build_linux(
     native = native_target()
     target = native if target is None else target
     if target != native:
-        raise ValueError("Linux FFI delivery requires the native GNU Rust target")
+        raise ValueError("Linux FFI build requires the native GNU Rust target")
     architecture = CLI_TARGETS[target][1]
     environment = os.environ.copy() | (env or {})
     _production_features(environment.get("VOLE_FEATURES", DEFAULT_FEATURES))
@@ -535,7 +533,7 @@ def _android_ndk_home() -> Path:
     return max(candidates, key=lambda candidate: candidate[0])[1].resolve()
 
 
-def build_android(*, env: dict[str, str] | None = None) -> None:
+def build_android(*, env: dict[str, str] | None = None) -> Path:
     if os.name == "nt":
         raise RuntimeError("Android artifacts must be built on macOS or Linux")
     ndk_home = _android_ndk_home()
@@ -620,9 +618,10 @@ def build_android(*, env: dict[str, str] | None = None) -> None:
         shutil.copy2(cpp_runtime, destination.parent / cpp_runtime.name)
 
     print(output)
+    return output
 
 
-def build_apple(*, env: dict[str, str] | None = None) -> None:
+def build_apple(*, env: dict[str, str] | None = None) -> Path:
     if platform.system() != "Darwin":
         raise RuntimeError("Apple artifacts must be built on macOS")
     dist = Path(_env("VOLE_APPLE_DIST_DIR", CORE_DIR / "dist" / "apple")).resolve()
@@ -736,6 +735,7 @@ def build_apple(*, env: dict[str, str] | None = None) -> None:
         env=env,
     )
     print(output)
+    return dist
 
 
 def _windows_architecture() -> str:
@@ -828,35 +828,6 @@ def _windows_msvc_environment(architecture: str) -> dict[str, str]:
     return env
 
 
-def check_windows_wintun_cli() -> None:
-    """Typecheck the other native Windows backend without staging artifacts."""
-    if os.name != "nt":
-        raise RuntimeError("Windows Wintun CLI must be checked on Windows")
-    architecture = _windows_architecture()
-    target = {
-        "arm64": "aarch64-pc-windows-msvc",
-        "x64": "x86_64-pc-windows-msvc",
-    }[architecture]
-    env = _windows_msvc_environment(architecture)
-    _run(
-        [
-            "cargo",
-            "check",
-            "--locked",
-            "--release",
-            "--target",
-            target,
-            "--no-default-features",
-            "--features",
-            "cli,windows-wintun",
-            "--lib",
-            "--bin",
-            "vole",
-        ],
-        env=env,
-    )
-
-
 def build_windows(backend: str = "uwp", *, env: dict[str, str] | None = None) -> Path:
     if os.name != "nt":
         raise RuntimeError("Windows artifacts must be built on Windows")
@@ -898,29 +869,6 @@ def build_windows(backend: str = "uwp", *, env: dict[str, str] | None = None) ->
     _require_identity(release / "vole.dll", "Windows")
     for name in artifacts:
         shutil.copy2(release / name, output / name)
-    digests = {}
-    for name in artifacts:
-        artifact = output / name
-        with artifact.open("rb") as file:
-            digests[name] = hashlib.file_digest(file, "sha256").hexdigest()
-        print(f"{digests[name]}  {artifact}")
-    (output / "vole-windows-artifacts.json").write_text(
-        json.dumps(
-            {
-                "formatVersion": 1,
-                **(
-                    {"windowsPackageIntegrationRevision": 3} if backend == "uwp" else {}
-                ),
-                "backend": backend,
-                "architecture": architecture,
-                "buildIdentity": EXPECTED_IDENTITY.decode("ascii"),
-                "artifacts": digests,
-            },
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
+    print(output)
 
     return output
