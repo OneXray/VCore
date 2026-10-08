@@ -1,12 +1,12 @@
 #![cfg(feature = "outbound-vless")]
 use base64::Engine as _;
 use serde_json::json;
-use vcore::config::{Config, ProxyProtocol, VlessEncryption};
+use vole::config::{Config, ProxyProtocol, VlessEncryption};
 
 #[test]
 fn public_encryption_accepts_all_six_modes_without_exposing_key_material() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "SECURITY-CONFIG-TLS",
         "public_encryption_accepts_all_six_modes_without_exposing_key_material",
     );
@@ -33,7 +33,7 @@ fn public_encryption_accepts_all_six_modes_without_exposing_key_material() {
 #[test]
 fn vision_encryption_is_independent_of_outer_tls_but_keeps_transport_and_udp_limits() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "SECURITY-CONFIG-TLS",
         "vision_encryption_is_independent_of_outer_tls_but_keeps_transport_and_udp_limits",
     );

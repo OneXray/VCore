@@ -1,4 +1,4 @@
-module vcore-blake3-vectors
+module vole-blake3-vectors
 
 go 1.27.0
 

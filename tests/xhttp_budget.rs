@@ -6,7 +6,7 @@ use std::{
         atomic::{AtomicUsize, Ordering},
     },
 };
-use vcore::{
+use vole::{
     config::{Config, ProxyProtocol},
     dispatch::{DatagramBudget, DatagramTransport, DispatchError},
     outbound::{
@@ -68,7 +68,7 @@ impl OutboundConnector for Upstream {
 #[tokio::test]
 async fn h3_rejects_incapable_or_small_budget_upstreams_before_any_datagram() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "h3_rejects_incapable_or_small_budget_upstreams_before_any_datagram",
     );

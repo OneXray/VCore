@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from vcore_scripts import builds, platform_delivery
+from vole_scripts import builds, platform_delivery
 
 
 class ApplePlatformTest(unittest.TestCase):
@@ -27,7 +27,7 @@ class ApplePlatformTest(unittest.TestCase):
                 "aarch64-apple-tvos-sim",
             )
             for triple in targets:
-                library = target / triple / "release/libvcore.a"
+                library = target / triple / "release/libvole.a"
                 library.parent.mkdir(parents=True)
                 library.write_bytes(builds.EXPECTED_IDENTITY + triple.encode())
 
@@ -41,7 +41,7 @@ class ApplePlatformTest(unittest.TestCase):
                     builds.os.environ,
                     {
                         "CARGO_TARGET_DIR": str(target),
-                        "VCORE_APPLE_DIST_DIR": str(root / "package"),
+                        "VOLE_APPLE_DIST_DIR": str(root / "package"),
                     },
                     clear=True,
                 ),
@@ -58,7 +58,7 @@ class ApplePlatformTest(unittest.TestCase):
                 list(targets),
             )
             self.assertEqual(
-                (target / "vcore-apple/ios-simulator/libvcore.a").read_bytes(),
+                (target / "vole-apple/ios-simulator/libvole.a").read_bytes(),
                 builds.EXPECTED_IDENTITY + b"aarch64-apple-ios-sim",
             )
             lipo = [
@@ -73,10 +73,10 @@ class ApplePlatformTest(unittest.TestCase):
                         "xcrun",
                         "lipo",
                         "-create",
-                        target / "aarch64-apple-darwin/release/libvcore.a",
-                        target / "x86_64-apple-darwin/release/libvcore.a",
+                        target / "aarch64-apple-darwin/release/libvole.a",
+                        target / "x86_64-apple-darwin/release/libvole.a",
                         "-output",
-                        target / "vcore-apple/macos/libvcore.a",
+                        target / "vole-apple/macos/libvole.a",
                     ]
                 ],
             )
@@ -140,7 +140,7 @@ class ApplePlatformTest(unittest.TestCase):
                 self.assertRaisesRegex(ValueError, "architecture"),
             ):
                 builds.check_apple_binary(
-                    Path("ios-simulator/libvcore.a"),
+                    Path("ios-simulator/libvole.a"),
                     "ios",
                     "simulator",
                     {"arm64"},
@@ -166,7 +166,7 @@ class ApplePlatformTest(unittest.TestCase):
                 1,
             )
         with (
-            patch.dict(os.environ, {"VCORE_TVOS_DEPLOYMENT_TARGET": "16.0"}),
+            patch.dict(os.environ, {"VOLE_TVOS_DEPLOYMENT_TARGET": "16.0"}),
             self.assertRaisesRegex(ValueError, "17.0"),
         ):
             builds.tvos_deployment_target()
@@ -181,25 +181,25 @@ class ApplePlatformTest(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            framework = root / "LibVCore.xcframework"
+            framework = root / "LibVole.xcframework"
             libraries = []
             for identifier, (platform, variant, architectures) in slices.items():
                 folder = framework / identifier
                 (folder / "Headers").mkdir(parents=True)
-                (folder / "libvcore.a").write_bytes(builds.EXPECTED_IDENTITY)
-                (folder / "Headers/vcore.h").write_text("header fixture")
+                (folder / "libvole.a").write_bytes(builds.EXPECTED_IDENTITY)
+                (folder / "Headers/vole.h").write_text("header fixture")
                 (folder / "Headers/module.modulemap").write_text("module fixture")
                 library = dict(
                     LibraryIdentifier=identifier,
                     SupportedPlatform=platform,
                     SupportedArchitectures=architectures,
-                    LibraryPath="libvcore.a",
+                    LibraryPath="libvole.a",
                     HeadersPath="Headers",
                 )
                 if variant:
                     library["SupportedPlatformVariant"] = variant
                 libraries.append(library)
-            manifest = root / "vcore-delivery.json"
+            manifest = root / "vole-delivery.json"
 
             def write(rows):
                 (framework / "Info.plist").write_bytes(

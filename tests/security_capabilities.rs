@@ -63,7 +63,7 @@ fn key_shares(records: &[u8]) -> Vec<(u16, usize)> {
 #[tokio::test]
 async fn public_hybrid_reality_emits_required_shares_on_both_transport_legs() {
     use serde_json::json;
-    use vcore::{
+    use vole::{
         config::{Config, ProxyProtocol},
         security::SecurityClient,
     };

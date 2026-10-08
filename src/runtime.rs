@@ -1366,7 +1366,7 @@ fn component_completion_error(result: Result<io::Result<()>, tokio::task::JoinEr
     match result {
         Ok(Ok(())) => io::Error::new(
             io::ErrorKind::UnexpectedEof,
-            "VCore runtime component stopped unexpectedly",
+            "Vole runtime component stopped unexpectedly",
         ),
         Ok(Err(error)) => error,
         Err(error) => io::Error::other(error),

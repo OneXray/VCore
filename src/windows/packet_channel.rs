@@ -35,9 +35,9 @@ use super::snapshot::SessionReference;
 use crate::platform::TunIo;
 
 pub(crate) const PROTOCOL_VERSION: u32 = 1;
-pub(crate) const CONTROL_LEAF: &str = "VCore.Vpn.Control.v1";
-pub(crate) const DATA_LEAF: &str = "VCore.Vpn.Data.v1";
-pub(crate) const RENDEZVOUS_FILE: &str = "vcore/windows/rendezvous.json";
+pub(crate) const CONTROL_LEAF: &str = "Vole.Vpn.Control.v1";
+pub(crate) const DATA_LEAF: &str = "Vole.Vpn.Data.v1";
+pub(crate) const RENDEZVOUS_FILE: &str = "vole/windows/rendezvous.json";
 const MAX_CONTROL_BYTES: usize = 16 * 1024;
 const MAX_RENDEZVOUS_BYTES: usize = 4 * 1024;
 const MAX_ERROR_BYTES: usize = 4 * 1024;
@@ -261,7 +261,7 @@ impl ProviderPacketSession {
         let thread_stop_requested = Arc::clone(&stop_requested);
         let unexpected_exit = Arc::new(unexpected_exit);
         let thread = thread::Builder::new()
-            .name("vcore-windows-packet-channel".to_owned())
+            .name("vole-windows-packet-channel".to_owned())
             .stack_size(512 * 1024)
             .spawn(move || {
                 let runtime = tokio::runtime::Builder::new_current_thread()
@@ -512,10 +512,7 @@ fn publish_rendezvous(local_folder: &Path, rendezvous: &Rendezvous) -> io::Resul
         .parent()
         .ok_or_else(|| invalid_data("Windows rendezvous directory is missing"))?;
     fs::create_dir_all(directory)?;
-    for path in [
-        local_folder.join("vcore"),
-        local_folder.join("vcore/windows"),
-    ] {
+    for path in [local_folder.join("vole"), local_folder.join("vole/windows")] {
         let metadata = fs::symlink_metadata(path)?;
         if !metadata.is_dir() || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
             return Err(invalid_data("invalid Windows rendezvous directory"));
@@ -673,7 +670,7 @@ mod tests {
     use super::*;
 
     const TOKEN: &str =
-        "vcore-session-v2:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        "vole-session-v2:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     const OBJECT_PATH: &str = "AppContainerNamedObjects\\S-1-15-2-3625493040-1926059196-1414268811-1331793124-1328616665-2242015017-1330142422";
 
     #[derive(Default)]
@@ -888,7 +885,7 @@ mod tests {
         }
         let invalid_token = String::from_utf8(json)
             .unwrap()
-            .replace(TOKEN, "vcore-session-v2:not-a-digest");
+            .replace(TOKEN, "vole-session-v2:not-a-digest");
         assert!(Rendezvous::from_json(invalid_token.as_bytes()).is_err());
     }
 
@@ -901,10 +898,10 @@ mod tests {
             vec![b' '; MAX_RENDEZVOUS_BYTES + 1],
             json.replace("\"protocolVersion\":1", "\"protocolVersion\":2")
                 .into_bytes(),
-            json.replace(CONTROL_LEAF, "VCore.Vpn.Control.v2")
+            json.replace(CONTROL_LEAF, "Vole.Vpn.Control.v2")
                 .into_bytes(),
-            json.replace(DATA_LEAF, "VCore.Vpn.Data.v2").into_bytes(),
-            json.replace(TOKEN, "vcore-session-v2:not-a-digest")
+            json.replace(DATA_LEAF, "Vole.Vpn.Data.v2").into_bytes(),
+            json.replace(TOKEN, "vole-session-v2:not-a-digest")
                 .into_bytes(),
             serde_json::to_vec(&Rendezvous {
                 object_path: "AppContainerNamedObjects\\invalid".to_owned(),

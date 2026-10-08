@@ -14,11 +14,11 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
-from vcore_scripts import builds
-from vcore_scripts import cli_release as release
+from vole_scripts import builds
+from vole_scripts import cli_release as release
 
 VERSION = "1.2.3"
-IDENTITY = b"VCore;engine=rust;coreVersion=1.2.3"
+IDENTITY = b"Vole;engine=rust;coreVersion=1.2.3"
 NOTICES = b"Fixture copyright and full license terms.\n"
 FEATURES = ["cli", "invoke", "tun", "inbound-http", "outbound-socks5"]
 
@@ -59,7 +59,7 @@ def executable(
 def project(root: Path) -> None:
     root.mkdir()
     (root / "Cargo.toml").write_text(
-        '[package]\nname = "vcore"\nversion = "1.2.3"\n'
+        '[package]\nname = "vole"\nversion = "1.2.3"\n'
         '[features]\ndefault = ["inbound-http", "outbound-socks5"]\n'
     )
     (root / "Cargo.lock").write_text("fixture lock\n")
@@ -67,7 +67,7 @@ def project(root: Path) -> None:
 
 
 def record(source: dict, target: str, payload: bytes, archive: Path) -> dict:
-    binary_name = "vcore.exe" if release.TARGETS[target][0] == "windows" else "vcore"
+    binary_name = "vole.exe" if release.TARGETS[target][0] == "windows" else "vole"
     return {
         "formatVersion": 1,
         "target": target,
@@ -87,7 +87,7 @@ def record(source: dict, target: str, payload: bytes, archive: Path) -> dict:
             "--features",
             release.requested_features(target),
             "--bin",
-            "vcore",
+            "vole",
         ],
         "host": {
             "os": {"linux": "Linux", "darwin": "Darwin", "windows": "Windows"}[
@@ -122,7 +122,7 @@ def archive_set(incoming: Path, source: dict) -> list[Path]:
         payload = executable(target)
         if archive.suffix == ".zip":
             with zipfile.ZipFile(archive, "w") as stream:
-                stream.writestr("vcore.exe", payload)
+                stream.writestr("vole.exe", payload)
         else:
             archive.write_bytes(gzip.compress(payload, mtime=0))
         manifest = directory / "manifest.json"
@@ -211,17 +211,17 @@ class CliReleaseTest(unittest.TestCase):
                 patch.object(release, "_source", return_value=source),
             ):
                 archives = release.assemble_release(
-                    "v1.2.3", incoming, "Example/VCore", notes
+                    "v1.2.3", incoming, "Example/Vole", notes
                 )
                 self.assertEqual(
                     {archive.name for archive in archives},
                     {
-                        "vcore-linux-amd64.gz",
-                        "vcore-linux-arm64.gz",
-                        "vcore-darwin-amd64.gz",
-                        "vcore-darwin-arm64.gz",
-                        "vcore-windows-amd64.zip",
-                        "vcore-windows-arm64.zip",
+                        "vole-linux-amd64.gz",
+                        "vole-linux-arm64.gz",
+                        "vole-darwin-amd64.gz",
+                        "vole-darwin-arm64.gz",
+                        "vole-windows-amd64.zip",
+                        "vole-windows-arm64.zip",
                     },
                 )
                 self.assertIn("/tree/" + "a" * 40, notes.read_text())
@@ -251,17 +251,17 @@ class CliReleaseTest(unittest.TestCase):
                     manifests[0].write_text(json.dumps(altered))
                     with self.subTest(mutation=mutation), self.assertRaises(ValueError):
                         release.assemble_release(
-                            "v1.2.3", incoming, "Example/VCore", notes
+                            "v1.2.3", incoming, "Example/Vole", notes
                         )
                 manifests[0].write_text(json.dumps(original))
                 extra = manifests[0].parent / "checksums.txt"
                 extra.write_text("not a release asset")
                 with self.assertRaisesRegex(ValueError, "only archive"):
-                    release.assemble_release("v1.2.3", incoming, "Example/VCore", notes)
+                    release.assemble_release("v1.2.3", incoming, "Example/Vole", notes)
                 extra.unlink()
                 manifests[0].unlink()
                 with self.assertRaisesRegex(ValueError, "all six"):
-                    release.assemble_release("v1.2.3", incoming, "Example/VCore", notes)
+                    release.assemble_release("v1.2.3", incoming, "Example/Vole", notes)
 
     def test_assembly_rejects_wrong_backend_even_when_archives_match(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -297,7 +297,7 @@ class CliReleaseTest(unittest.TestCase):
                             release.assemble_release(
                                 "v1.2.3",
                                 incoming,
-                                "Example/VCore",
+                                "Example/Vole",
                                 fixture / "release.md",
                             )
                     finally:
@@ -325,10 +325,10 @@ class CliReleaseTest(unittest.TestCase):
             with (
                 patch.object(builds, "CORE_DIR", root),
                 patch.object(release, "_source", return_value=source),
-                self.assertRaisesRegex(ValueError, "only vcore.exe"),
+                self.assertRaisesRegex(ValueError, "only vole.exe"),
             ):
                 release.assemble_release(
-                    "v1.2.3", incoming, "Example/VCore", fixture / "release.md"
+                    "v1.2.3", incoming, "Example/Vole", fixture / "release.md"
                 )
 
     def test_linked_graph_excludes_dev_build_and_proc_macro_notices(self):
@@ -337,14 +337,14 @@ class CliReleaseTest(unittest.TestCase):
             project(root)
             packages = []
             nodes = []
-            for name in ("vcore", "linked", "builder", "peer", "derive", "syn"):
+            for name in ("vole", "linked", "builder", "peer", "derive", "syn"):
                 packages.append(
                     {
                         "id": name,
                         "name": name,
                         "manifest_path": str(
                             root / "Cargo.toml"
-                            if name == "vcore"
+                            if name == "vole"
                             else root / name / "Cargo.toml"
                         ),
                         "targets": [
@@ -355,7 +355,7 @@ class CliReleaseTest(unittest.TestCase):
                 nodes.append(
                     {
                         "id": name,
-                        "features": FEATURES if name == "vcore" else [],
+                        "features": FEATURES if name == "vole" else [],
                         "deps": [],
                     }
                 )
@@ -371,8 +371,8 @@ class CliReleaseTest(unittest.TestCase):
             nodes[4]["deps"] = [{"pkg": "syn", "dep_kinds": [{"kind": None}]}]
             metadata = {"packages": packages, "resolve": {"nodes": nodes}}
             _, _, resolved, linked = release._graph(metadata, root)
-            self.assertEqual(resolved, {"vcore", "linked", "builder", "derive", "syn"})
-            self.assertEqual(linked, {"vcore", "linked"})
+            self.assertEqual(resolved, {"vole", "linked", "builder", "derive", "syn"})
+            self.assertEqual(linked, {"vole", "linked"})
             windows = "aarch64-pc-windows-msvc"
             with self.assertRaisesRegex(ValueError, "Windows backend"):
                 release._graph(metadata, root, windows)
@@ -429,8 +429,8 @@ class CliReleaseTest(unittest.TestCase):
             native_license.write_text("Actual native BoringSSL terms.\n")
             (native / "LICENSE-MIT").write_text("Binding copyright.\n")
             packages = {
-                "vcore": {
-                    "name": "vcore",
+                "vole": {
+                    "name": "vole",
                     "version": VERSION,
                     "manifest_path": str(root / "Cargo.toml"),
                     "source": None,
@@ -455,17 +455,17 @@ class CliReleaseTest(unittest.TestCase):
             ):
                 content, records = release.collect_notices(
                     packages,
-                    {"vcore", "native"},
+                    {"vole", "native"},
                     root,
                     {"version": VERSION, "commit": "a" * 40},
-                    "Example/VCore",
+                    "Example/Vole",
                     "aarch64-apple-darwin",
                 )
             self.assertIn(b"Actual native BoringSSL terms.\n", content)
             self.assertIn(b"Binding copyright.\n", content)
             self.assertNotIn(b"stale ignored notice", content)
             self.assertNotIn(b"unlinked", content)
-            self.assertEqual({row["name"] for row in records}, {"vcore", "boring-sys"})
+            self.assertEqual({row["name"] for row in records}, {"vole", "boring-sys"})
 
     def test_windows_api_notice_retains_original_attribution_and_mit_alternative(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -486,12 +486,12 @@ class CliReleaseTest(unittest.TestCase):
             packages = {
                 name: {
                     "name": name,
-                    "version": VERSION if name == "vcore" else "2.8.11",
+                    "version": VERSION if name == "vole" else "2.8.11",
                     "manifest_path": str(base / "Cargo.toml"),
-                    "source": None if name == "vcore" else next(iter(release.REGISTRY)),
-                    "license": "MIT" if name == "vcore" else "Apache-2.0",
+                    "source": None if name == "vole" else next(iter(release.REGISTRY)),
+                    "license": "MIT" if name == "vole" else "Apache-2.0",
                 }
-                for name, base in (("vcore", root), ("tun-rs", tun))
+                for name, base in (("vole", root), ("tun-rs", tun))
             }
 
             def collect(target, linked):
@@ -500,11 +500,11 @@ class CliReleaseTest(unittest.TestCase):
                     linked,
                     root,
                     {"version": VERSION, "commit": "a" * 40},
-                    "Example/VCore",
+                    "Example/Vole",
                     target,
                 )
 
-            content, records = collect("aarch64-pc-windows-msvc", {"vcore", "tun-rs"})
+            content, records = collect("aarch64-pc-windows-msvc", {"vole", "tun-rs"})
             self.assertIn(attribution, content)
             self.assertIn(b"The linked API bindings use the MIT alternative.", content)
             self.assertIn(b"The Wintun driver DLL is host-provided", content)
@@ -514,14 +514,14 @@ class CliReleaseTest(unittest.TestCase):
             self.assertNotIn(b"#pragma once", content)
             paths = {row["path"] for package in records for row in package["notices"]}
             self.assertIn("src/platform/windows/tun/wintun.h", paths)
-            mac, _ = collect("aarch64-apple-darwin", {"vcore", "tun-rs"})
+            mac, _ = collect("aarch64-apple-darwin", {"vole", "tun-rs"})
             self.assertIn(b"Apache License Version 2.0", mac)
             self.assertNotIn(attribution, mac)
-            unlinked, _ = collect("aarch64-pc-windows-msvc", {"vcore"})
+            unlinked, _ = collect("aarch64-pc-windows-msvc", {"vole"})
             self.assertNotIn(attribution, unlinked)
             header.write_text("/* missing upstream attribution */\n")
             with self.assertRaisesRegex(ValueError, "dual-license attribution"):
-                collect("aarch64-pc-windows-msvc", {"vcore", "tun-rs"})
+                collect("aarch64-pc-windows-msvc", {"vole", "tun-rs"})
 
     def test_derived_replay_notice_preserves_entire_source_preamble_when_linked(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -548,10 +548,10 @@ class CliReleaseTest(unittest.TestCase):
                     "name": name,
                     "version": VERSION,
                     "manifest_path": str(base / "Cargo.toml"),
-                    "source": None if name == "vcore" else next(iter(release.REGISTRY)),
+                    "source": None if name == "vole" else next(iter(release.REGISTRY)),
                     "license": "MIT",
                 }
-                for name, base in (("vcore", root), ("shadowsocks", dependency))
+                for name, base in (("vole", root), ("shadowsocks", dependency))
             }
 
             def collect(linked):
@@ -560,22 +560,22 @@ class CliReleaseTest(unittest.TestCase):
                     linked,
                     root,
                     {"version": VERSION, "commit": "a" * 40},
-                    "Example/VCore",
+                    "Example/Vole",
                     "aarch64-apple-darwin",
                 )
 
-            content, records = collect({"vcore", "shadowsocks"})
+            content, records = collect({"vole", "shadowsocks"})
             self.assertIn(preamble, content)
             self.assertNotIn(b"const CODE", content)
             paths = {row["path"] for package in records for row in package["notices"]}
             self.assertIn("src/outbound/shadowsocks/packet_window.rs", paths)
-            unlinked, _ = collect({"vcore"})
+            unlinked, _ = collect({"vole"})
             self.assertNotIn(preamble, unlinked)
             replay.write_text(
                 "// missing original permission text\n//! Packet window\n"
             )
             with self.assertRaisesRegex(ValueError, "replay-window notices"):
-                collect({"vcore", "shadowsocks"})
+                collect({"vole", "shadowsocks"})
 
     def test_missing_packaged_license_uses_exact_registry_vcs_commit(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -616,7 +616,7 @@ class CliReleaseTest(unittest.TestCase):
             "RUSTFLAGS",
             "CARGO_PROFILE_RELEASE_LTO",
             "BORING_BSSL_PATH",
-            "VCORE_CLI_RELEASE_NOTICES",
+            "VOLE_CLI_RELEASE_NOTICES",
         ):
             with (
                 self.subTest(override=override),
@@ -626,7 +626,7 @@ class CliReleaseTest(unittest.TestCase):
             ):
                 with self.assertRaisesRegex(ValueError, "unsupported CLI release"):
                     release.build_release(
-                        "aarch64-apple-darwin", "v1.2.3", "Example/VCore"
+                        "aarch64-apple-darwin", "v1.2.3", "Example/Vole"
                     )
                 source.assert_not_called()
                 run.assert_not_called()
@@ -640,7 +640,7 @@ class CliReleaseTest(unittest.TestCase):
                 root = Path(directory) / "checkout"
                 project(root)
                 source = {"version": VERSION, "commit": "a" * 40}
-                binary_name = "vcore.exe" if "windows" in target else "vcore"
+                binary_name = "vole.exe" if "windows" in target else "vole"
                 owned_inputs = []
                 expected = [
                     "cargo",
@@ -653,7 +653,7 @@ class CliReleaseTest(unittest.TestCase):
                     "--features",
                     release.requested_features(target),
                     "--bin",
-                    "vcore",
+                    "vole",
                 ]
 
                 def compiler(
@@ -671,7 +671,7 @@ class CliReleaseTest(unittest.TestCase):
                     self.assertEqual(command, expected)
                     self.assertEqual(cwd, root)
                     self.assertTrue(check)
-                    notices = Path(env["VCORE_CLI_RELEASE_NOTICES"])
+                    notices = Path(env["VOLE_CLI_RELEASE_NOTICES"])
                     self.assertTrue(notices.is_absolute())
                     self.assertEqual(notices.read_bytes(), NOTICES)
                     owned_inputs.append(notices)
@@ -679,11 +679,11 @@ class CliReleaseTest(unittest.TestCase):
                     binary.parent.mkdir(parents=True)
                     binary.write_bytes(executable(target))
                     (binary.parent / "wintun.dll").write_bytes(b"never packaged")
-                    (binary.parent / "vcore-windows-session-host.exe").write_bytes(
+                    (binary.parent / "vole-windows-session-host.exe").write_bytes(
                         b"never packaged"
                     )
 
-                packages = {"core": {"name": "vcore"}}
+                packages = {"core": {"name": "vole"}}
                 nodes = {"core": {"features": FEATURES}}
                 with (
                     patch.dict(os.environ, {}, clear=True),
@@ -705,7 +705,7 @@ class CliReleaseTest(unittest.TestCase):
                     patch.object(release, "_smoke") as smoke,
                     patch.object(subprocess, "run", side_effect=compiler),
                 ):
-                    release.build_release(target, "v1.2.3", "Example/VCore")
+                    release.build_release(target, "v1.2.3", "Example/Vole")
                     smoke.assert_called_once()
                 self.assertEqual(len(owned_inputs), 1)
                 self.assertFalse(owned_inputs[0].exists())
@@ -717,8 +717,8 @@ class CliReleaseTest(unittest.TestCase):
                 )
                 if archive.suffix == ".zip":
                     with zipfile.ZipFile(archive) as stream:
-                        self.assertEqual(stream.namelist(), ["vcore.exe"])
-                        self.assertEqual(stream.read("vcore.exe"), executable(target))
+                        self.assertEqual(stream.namelist(), ["vole.exe"])
+                        self.assertEqual(stream.read("vole.exe"), executable(target))
                 else:
                     self.assertEqual(
                         gzip.decompress(archive.read_bytes()), executable(target)
@@ -743,7 +743,7 @@ class CliReleaseTest(unittest.TestCase):
             patch.object(subprocess, "check_output", return_value=identity + "\n"),
             patch.object(subprocess, "run", side_effect=validation),
         ):
-            release._smoke(Path("/fixture/vcore"), identity, {})
+            release._smoke(Path("/fixture/vole"), identity, {})
         with (
             patch.object(
                 subprocess,
@@ -753,7 +753,7 @@ class CliReleaseTest(unittest.TestCase):
             patch.object(subprocess, "run", side_effect=validation),
             self.assertRaisesRegex(ValueError, "version output"),
         ):
-            release._smoke(Path("/fixture/vcore"), identity, {})
+            release._smoke(Path("/fixture/vole"), identity, {})
         with (
             patch.object(subprocess, "check_output", return_value=identity + "\n"),
             patch.object(
@@ -767,7 +767,7 @@ class CliReleaseTest(unittest.TestCase):
             ),
             self.assertRaisesRegex(ValueError, "validation must not"),
         ):
-            release._smoke(Path("/fixture/vcore"), identity, {})
+            release._smoke(Path("/fixture/vole"), identity, {})
 
     def test_source_audit_rejects_unapproved_git_and_external_path_dependencies(self):
         root = Path("/fixture/core")

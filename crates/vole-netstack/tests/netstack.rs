@@ -5,7 +5,7 @@ use std::{
 
 use bytes::Bytes;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use vcore_netstack::{NetStack, NetStackConfig, NetStackError, Packet, UdpDatagram};
+use vole_netstack::{NetStack, NetStackConfig, NetStackError, Packet, UdpDatagram};
 
 const WAIT: Duration = Duration::from_secs(2);
 
@@ -346,7 +346,7 @@ async fn dropping_the_only_output_consumer_stops_active_tcp_and_other_endpoints(
                 b"stopped".as_slice(),
             ))
             .await,
-        Err(vcore_netstack::UdpError::Stopped)
+        Err(vole_netstack::UdpError::Stopped)
     );
 }
 
@@ -921,7 +921,7 @@ impl TcpFlags {
     const ACK: u8 = 0x10;
 }
 
-async fn timeout_packet(stream: &mut vcore_netstack::PacketStream) -> Packet {
+async fn timeout_packet(stream: &mut vole_netstack::PacketStream) -> Packet {
     tokio::time::timeout(WAIT, stream.recv())
         .await
         .expect("raw output timed out")

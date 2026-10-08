@@ -13,8 +13,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from vcore_scripts import builds, platform_delivery
-from vcore_scripts.cli import main
+from vole_scripts import builds, platform_delivery
+from vole_scripts.cli import main
 
 
 class PlatformDeliveryTest(unittest.TestCase):
@@ -24,7 +24,7 @@ class PlatformDeliveryTest(unittest.TestCase):
         with (
             patch.dict(
                 os.environ,
-                {"VCORE_FEATURES": builds.DEFAULT_FEATURES + ",benchmark-geodata-http"},
+                {"VOLE_FEATURES": builds.DEFAULT_FEATURES + ",benchmark-geodata-http"},
                 clear=True,
             ),
             patch.object(platform_delivery, "_source") as source,
@@ -63,7 +63,7 @@ class PlatformDeliveryTest(unittest.TestCase):
                         link.symlink_to(external, target_is_directory=True)
                     output = external.joinpath(*relative.parts[depth:])
                     output.mkdir(parents=True, exist_ok=True)
-                    manifest = output / "vcore-delivery.json"
+                    manifest = output / "vole-delivery.json"
                     manifest.write_text("original manifest")
                     sentinel = output / "keep"
                     sentinel.write_bytes(b"original artifact")
@@ -144,20 +144,20 @@ class PlatformDeliveryTest(unittest.TestCase):
                     + machine.to_bytes(2, "little")
                 )
             output = root / "dist/android"
-            stale = output / "armeabi-v7a/libvcore.so"
+            stale = output / "armeabi-v7a/libvole.so"
             stale.parent.mkdir(parents=True)
             stale.write_bytes(b"stale")
-            (output / "vcore-delivery.json").write_text("old manifest")
+            (output / "vole-delivery.json").write_text("old manifest")
             unrelated = root / "dist/apple/keep"
             unrelated.parent.mkdir(parents=True)
             unrelated.write_bytes(b"keep")
 
             def build(target, _profile, _features, environment):
                 self.assertFalse(stale.exists())
-                self.assertFalse((output / "vcore-delivery.json").exists())
+                self.assertFalse((output / "vole-delivery.json").exists())
                 self.assertEqual(environment["ANDROID_NDK_HOME"], str(ndk))
-                self.assertEqual(environment["VCORE_CMAKE_ANDROID_API"], "24")
-                path = root / "target" / target / "release/libvcore.so"
+                self.assertEqual(environment["VOLE_CMAKE_ANDROID_API"], "24")
+                path = root / "target" / target / "release/libvole.so"
                 path.parent.mkdir(parents=True)
                 path.write_bytes(
                     (ndk / "sysroot/usr/lib" / target / "libc++_shared.so").read_bytes()
@@ -186,14 +186,14 @@ class PlatformDeliveryTest(unittest.TestCase):
                 patch.object(platform_delivery, "_output", return_value="fixture"),
             ):
                 platform_delivery.build_delivery("android")
-                platform_delivery._check_delivery([output / "vcore-delivery.json"])
+                platform_delivery._check_delivery([output / "vole-delivery.json"])
                 require.assert_called_once_with(
                     ["aarch64-linux-android", "x86_64-linux-android"]
                 )
                 self.assertEqual(toolchain.call_count, 2)
                 for invocation in toolchain.call_args_list:
                     self.assertEqual(invocation.args, (ndk,))
-            record = json.loads((output / "vcore-delivery.json").read_text())
+            record = json.loads((output / "vole-delivery.json").read_text())
             self.assertEqual(record["toolchain"]["androidApi"], "24")
             self.assertEqual(record["toolchain"]["ndk"], "Pkg.Revision = 30.0.16248370")
             self.assertEqual(unrelated.read_bytes(), b"keep")
@@ -221,13 +221,13 @@ class PlatformDeliveryTest(unittest.TestCase):
                     )
             for overrides, expected in (
                 ({}, installed / "30.10.1"),
-                ({"VCORE_ANDROID_NDK_VERSION": "30"}, installed / "30.10.1"),
-                ({"VCORE_ANDROID_NDK_VERSION": "31"}, installed / "31.1.1"),
-                ({"VCORE_ANDROID_NDK_VERSION": "30.2.9"}, installed / "30.2.9"),
+                ({"VOLE_ANDROID_NDK_VERSION": "30"}, installed / "30.10.1"),
+                ({"VOLE_ANDROID_NDK_VERSION": "31"}, installed / "31.1.1"),
+                ({"VOLE_ANDROID_NDK_VERSION": "30.2.9"}, installed / "30.2.9"),
                 (
                     {
                         "ANDROID_NDK_HOME": str(root / "explicit-ndk"),
-                        "VCORE_ANDROID_NDK_VERSION": "32",
+                        "VOLE_ANDROID_NDK_VERSION": "32",
                     },
                     root / "explicit-ndk",
                 ),
@@ -252,7 +252,7 @@ class PlatformDeliveryTest(unittest.TestCase):
                     os.environ,
                     {
                         "ANDROID_HOME": str(root / "sdk"),
-                        "VCORE_ANDROID_NDK_VERSION": "32",
+                        "VOLE_ANDROID_NDK_VERSION": "32",
                     },
                     clear=True,
                 ),
@@ -281,7 +281,7 @@ class PlatformDeliveryTest(unittest.TestCase):
                     home.assert_called_once_with()
 
     def test_delivery_rejects_debug_before_starting_a_build(self):
-        with patch.dict(os.environ, {"VCORE_BUILD_PROFILE": "debug"}):
+        with patch.dict(os.environ, {"VOLE_BUILD_PROFILE": "debug"}):
             self.assertEqual(main(["build", "android", "--delivery"]), 1)
 
     def test_android_build_self_check_rejects_wrong_artifacts_and_identity(self):
@@ -317,9 +317,9 @@ class PlatformDeliveryTest(unittest.TestCase):
 
             output = root / "android"
             artifacts = []
-            identity = "VCore;engine=rust;coreVersion=0.1.0"
+            identity = "Vole;engine=rust;coreVersion=0.1.0"
             for abi, machine in [("arm64-v8a", 183), ("x86_64", 62)]:
-                for name in ("libvcore.so", "libc++_shared.so"):
+                for name in ("libvole.so", "libc++_shared.so"):
                     # Minimal ELF header, independent of the production reader.
                     contents = (
                         b"\x7fELF\x02\x01\x01"
@@ -339,7 +339,7 @@ class PlatformDeliveryTest(unittest.TestCase):
                             "sha256": hashlib.sha256(contents).hexdigest(),
                         }
                     )
-            manifest = output / "vcore-delivery.json"
+            manifest = output / "vole-delivery.json"
             record = {
                 "formatVersion": 1,
                 "group": "android",
@@ -397,7 +397,7 @@ class PlatformDeliveryTest(unittest.TestCase):
                     elif mutation == "features":
                         bad["features"].append("interop-test")
                     elif mutation == "identity":
-                        bad["buildIdentity"] = "VCore;engine=rust;coreVersion=0.0.0"
+                        bad["buildIdentity"] = "Vole;engine=rust;coreVersion=0.0.0"
                     elif mutation == "source":
                         bad["source"]["commit"] = "0" * 40
                     elif mutation == "toolchain":
@@ -409,9 +409,9 @@ class PlatformDeliveryTest(unittest.TestCase):
                     elif mutation == "duplicate":
                         bad["artifacts"].append(bad["artifacts"][0])
                     elif mutation == "traversal":
-                        bad["artifacts"][0]["path"] = "../android/arm64-v8a/libvcore.so"
+                        bad["artifacts"][0]["path"] = "../android/arm64-v8a/libvole.so"
                     elif mutation == "architecture":
-                        file = output / "arm64-v8a/libvcore.so"
+                        file = output / "arm64-v8a/libvole.so"
                         original = file.read_bytes()
                         wrong = original[:18] + b"\x3e\x00" + original[20:]
                         file.write_bytes(wrong)

@@ -1,7 +1,7 @@
 #![cfg(feature = "outbound-trojan")]
 
 use serde_json::{Value, json};
-use vcore::config::{Config, ProxyProtocol};
+use vole::config::{Config, ProxyProtocol};
 
 fn document(extra: Value) -> Vec<u8> {
     let mut node = json!({"name":"edge", "type":"trojan", "server":"localhost", "port":443, "password":" 密码 "});
@@ -14,7 +14,7 @@ fn document(extra: Value) -> Vec<u8> {
 #[test]
 fn trojan_tcp_configuration_and_node_graph_accept_the_approved_fields() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "TROJAN-CFG",
         "trojan_tcp_configuration_and_node_graph_accept_the_approved_fields",
     );
@@ -29,7 +29,7 @@ fn trojan_tcp_configuration_and_node_graph_accept_the_approved_fields() {
 #[test]
 fn trojan_tcp_defaults_preserve_credentials_and_address_policy() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "TROJAN-CFG",
         "trojan_tcp_defaults_preserve_credentials_and_address_policy",
     );
@@ -58,7 +58,7 @@ fn trojan_tcp_defaults_preserve_credentials_and_address_policy() {
 #[test]
 fn trojan_invalid_configuration_is_rejected_without_exposing_credentials() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "TROJAN-CFG",
         "trojan_invalid_configuration_is_rejected_without_exposing_credentials",
     );
@@ -130,7 +130,7 @@ fn trojan_invalid_configuration_is_rejected_without_exposing_credentials() {
 #[test]
 fn trojan_ws_and_grpc_configuration_applies_transport_specific_defaults() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "TROJAN-CFG",
         "trojan_ws_and_grpc_configuration_applies_transport_specific_defaults",
     );
@@ -169,7 +169,7 @@ fn trojan_ws_and_grpc_configuration_applies_transport_specific_defaults() {
 #[test]
 fn trojan_transport_boundaries_fail_before_runtime_io() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "TROJAN-CFG",
         "trojan_transport_boundaries_fail_before_runtime_io",
     );
@@ -225,7 +225,7 @@ fn trojan_transport_boundaries_fail_before_runtime_io() {
         );
     }
     for max in [0, 1, 2048] {
-        for header in [None, Some("x-vcore-ed"), Some("")] {
+        for header in [None, Some("x-vole-ed"), Some("")] {
             if max == 0 && header.is_some() {
                 continue;
             }

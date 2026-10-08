@@ -1,4 +1,4 @@
-//! VCore's platform-neutral Rust core.
+//! Vole's platform-neutral Rust core.
 //!
 //! The `invoke` feature exposes the common JSON API and its runtime lifecycle.
 //! Native ABI/JNI wrappers (`ffi`) and the command-line entry (`cli`) call the
@@ -92,7 +92,7 @@ pub mod windows;
 #[cfg(any(feature = "outbound-vless", feature = "outbound-vmess"))]
 pub mod xudp;
 
-pub use error::{Result, VCoreError};
+pub use error::{Result, VoleError};
 pub use lifecycle::{Lifecycle, LifecycleState};
 pub use limits::ResourceLimits;
 pub use packet::{IpVersion, TunFraming};
@@ -105,4 +105,4 @@ pub const ENGINE: &str = "rust";
 /// This is deliberately independent from a source revision. Release tooling
 /// records the immutable Git revision and artifact hash separately.
 pub const BUILD_IDENTITY: &str =
-    concat!("VCore;engine=rust;coreVersion=", env!("CARGO_PKG_VERSION"));
+    concat!("Vole;engine=rust;coreVersion=", env!("CARGO_PKG_VERSION"));

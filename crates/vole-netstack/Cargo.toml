@@ -1,10 +1,10 @@
 [package]
-name = "vcore-netstack"
+name = "vole-netstack"
 version = "0.1.0"
 edition = "2024"
 publish = false
 license = "MIT"
-description = "Bounded userspace IPv4/IPv6 TCP and UDP netstack for VCore"
+description = "Bounded userspace IPv4/IPv6 TCP and UDP netstack for Vole"
 
 [dependencies]
 bytes = "1"

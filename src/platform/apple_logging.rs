@@ -1,8 +1,8 @@
-//! Bounded Apple Unified Logging sink for VCore tracing events.
+//! Bounded Apple Unified Logging sink for Vole tracing events.
 //!
-//! VCore is a library embedded in both the app and Packet Tunnel Extension, so
+//! Vole is a library embedded in both the app and Packet Tunnel Extension, so
 //! it must not install a process-global tracing subscriber. Each public Invoke
-//! scope and each VCore runtime thread enters the shared dispatcher instead.
+//! scope and each Vole runtime thread enters the shared dispatcher instead.
 
 use std::{
     fmt::{self, Write as _},
@@ -22,8 +22,8 @@ use tracing::{
     subscriber::Interest,
 };
 
-const SUBSYSTEM: &str = "io.github.onexray.vcore";
-const CATEGORY: &str = "vcore";
+const SUBSYSTEM: &str = "io.github.onexray.vole";
+const CATEGORY: &str = "vole";
 const MAX_EVENT_BYTES: usize = 2 * 1024;
 const TRUNCATION_MARKER: &str = "...";
 const DEBUG_EVENT_WINDOW: Duration = Duration::from_secs(1);
@@ -39,7 +39,7 @@ pub(crate) fn enter() -> tracing::dispatcher::DefaultGuard {
     let dispatch = DISPATCH.get_or_init(|| Dispatch::new(AppleLogSubscriber::new()));
     let guard = tracing::dispatcher::set_default(dispatch);
     ANNOUNCED.call_once(|| {
-        tracing::info!(target: "vcore", "Apple Unified Logging enabled");
+        tracing::info!(target: "vole", "Apple Unified Logging enabled");
     });
     guard
 }
@@ -60,7 +60,7 @@ impl AppleLogSubscriber {
     }
 
     fn accepts(metadata: &Metadata<'_>) -> bool {
-        metadata.is_event() && is_vcore_target(metadata.target())
+        metadata.is_event() && is_vole_target(metadata.target())
     }
 }
 
@@ -111,7 +111,7 @@ impl Subscriber for AppleLogSubscriber {
                         let mut summary = FixedBuffer::new();
                         let _ = write!(
                             summary,
-                            "[DEBUG] vcore: suppressed_debug_events={suppressed}"
+                            "[DEBUG] vole: suppressed_debug_events={suppressed}"
                         );
                         self.log
                             .with_level(os_log_level(&Level::DEBUG), summary.as_str());
@@ -183,11 +183,11 @@ impl DebugRateLimiter {
     }
 }
 
-fn is_vcore_target(target: &str) -> bool {
-    target == "vcore"
-        || target.starts_with("vcore::")
-        || target == "vcore_netstack"
-        || target.starts_with("vcore_netstack::")
+fn is_vole_target(target: &str) -> bool {
+    target == "vole"
+        || target.starts_with("vole::")
+        || target == "vole_netstack"
+        || target.starts_with("vole_netstack::")
 }
 
 fn os_log_level(level: &Level) -> OsLogLevel {
@@ -204,7 +204,7 @@ fn os_log_level(level: &Level) -> OsLogLevel {
     #[cfg(target_os = "macos")]
     match *level {
         Level::TRACE => OsLogLevel::Debug,
-        // VCore's existing diagnostic events use tracing DEBUG. Apple INFO is
+        // Vole's existing diagnostic events use tracing DEBUG. Apple INFO is
         // still low-priority, but remains visible in a normal Console stream.
         Level::DEBUG => OsLogLevel::Info,
         Level::INFO => OsLogLevel::Default,
@@ -331,10 +331,10 @@ mod tests {
 
     #[test]
     fn target_filter_excludes_host_and_dependency_events() {
-        assert!(is_vcore_target("vcore::tun_runtime"));
-        assert!(is_vcore_target("vcore_netstack::tcp"));
-        assert!(!is_vcore_target("host-application"));
-        assert!(!is_vcore_target("h2"));
+        assert!(is_vole_target("vole::tun_runtime"));
+        assert!(is_vole_target("vole_netstack::tcp"));
+        assert!(!is_vole_target("host-application"));
+        assert!(!is_vole_target("h2"));
     }
 
     #[test]

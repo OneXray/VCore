@@ -1,4 +1,4 @@
-//! Bounded userspace raw-IP netstack used by `VCore`.
+//! Bounded userspace raw-IP netstack used by `Vole`.
 //!
 //! The crate intentionally has no TUN file-descriptor dependency. Platform
 //! code feeds raw IP packets through [`PacketSink`] and drains generated raw IP

@@ -135,7 +135,7 @@ pub fn attach(
 }
 
 /// Keep one logical QUIC peer while this transport owns exactly one physical
-/// endpoint. Each hop uses a fresh VCore transport; no direct socket creation.
+/// endpoint. Each hop uses a fresh Vole transport; no direct socket creation.
 pub fn attach_mapped(
     mut transport: Box<dyn DatagramTransport>,
     logical_peer: SocketAddr,
@@ -338,7 +338,7 @@ impl AsyncUdpSocket for DatagramSocket {
     }
 
     fn local_addr(&self) -> io::Result<SocketAddr> {
-        // Logical socket metadata only. VCore's public datagram transport owns
+        // Logical socket metadata only. Vole's public datagram transport owns
         // physical sockets and intentionally does not expose their bound ports.
         Ok(if self.peer.is_ipv4() {
             "0.0.0.0:0"

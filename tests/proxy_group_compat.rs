@@ -1,4 +1,4 @@
-use vcore::config::{
+use vole::config::{
     Config, DnsRoute, ProxyGroupId, ProxyGroupMemberTarget, RouteTargetId, RuleAction,
 };
 
@@ -68,7 +68,7 @@ rules:
 }
 
 #[test]
-fn keeps_vcore_stricter_than_mihomo_at_the_documented_boundaries() {
+fn keeps_vole_stricter_than_mihomo_at_the_documented_boundaries() {
     for groups in [
         r#"
 proxy-groups:

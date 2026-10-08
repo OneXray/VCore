@@ -38,9 +38,9 @@ fn main() {
         "blake3_compress_xof_portable",
         "blake3_hash_many_portable",
     ] {
-        build.define(symbol, format!("vcore_raw_{symbol}").as_str());
+        build.define(symbol, format!("vole_raw_{symbol}").as_str());
     }
-    build.compile("vcore_blake3_raw");
+    build.compile("vole_blake3_raw");
     println!("cargo:rerun-if-changed=src/derive.c");
     println!("cargo:rerun-if-changed=vendor");
 }

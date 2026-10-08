@@ -60,12 +60,12 @@ jobs:
       - name: Validate release tag and checked-out source before compilation
         shell: bash
         env:
-          VCORE_RELEASE_TAG: ${{ github.ref_name }}
+          VOLE_RELEASE_TAG: ${{ github.ref_name }}
         run: |
           uv run --project scripts --locked python - <<'PY'
           import os
-          from vcore_scripts import builds, cli_release
-          cli_release._source(builds.CORE_DIR, os.environ["VCORE_RELEASE_TAG"])
+          from vole_scripts import builds, cli_release
+          cli_release._source(builds.CORE_DIR, os.environ["VOLE_RELEASE_TAG"])
           PY
       - name: CLI release helper regressions
         run: uv run --project scripts --locked python -m unittest discover -s scripts/tests -p test_cli_release.py
@@ -77,24 +77,24 @@ jobs:
       - name: Cache native Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          key: cli-release-${{ matrix.target }}-${{ hashFiles('scripts/src/vcore_scripts/cli_release.py', 'scripts/cmake/**', 'build.rs') }}
+          key: cli-release-${{ matrix.target }}-${{ hashFiles('scripts/src/vole_scripts/cli_release.py', 'scripts/cmake/**', 'build.rs') }}
           workspaces: ". -> target"
           env-vars: ImageOS ImageVersion SDKROOT DEVELOPER_DIR BORING AWS_LC LIBCLANG BINDGEN
           cache-bin: "false"
       - name: Build locked production CLI, inspect binary and run offline flags
         env:
-          VCORE_RELEASE_TAG: ${{ github.ref_name }}
-          VCORE_RELEASE_REPOSITORY: ${{ github.repository }}
+          VOLE_RELEASE_TAG: ${{ github.ref_name }}
+          VOLE_RELEASE_REPOSITORY: ${{ github.repository }}
         run: >-
-          uv run --project scripts --locked python -m vcore_scripts.cli_release build
+          uv run --project scripts --locked python -m vole_scripts.cli_release build
           --target ${{ matrix.target }}
-          --tag "$VCORE_RELEASE_TAG"
-          --repository "$VCORE_RELEASE_REPOSITORY"
+          --tag "$VOLE_RELEASE_TAG"
+          --repository "$VOLE_RELEASE_REPOSITORY"
         shell: bash
       - name: Preserve archive and internal build evidence
         uses: actions/upload-artifact@v7
         with:
-          name: vcore-cli-${{ matrix.target }}-${{ github.sha }}
+          name: vole-cli-${{ matrix.target }}-${{ github.sha }}
           path: dist/cli/${{ matrix.target }}/
           if-no-files-found: error
           retention-days: 14
@@ -123,27 +123,27 @@ jobs:
           echo "UV_PYTHON=$(uv python find --managed-python --no-project 3)" >> "$GITHUB_ENV"
       - uses: actions/download-artifact@v8
         with:
-          pattern: vcore-cli-*-${{ github.sha }}
+          pattern: vole-cli-*-${{ github.sha }}
           path: dist/cli-incoming
       - name: Verify complete source, archive, binary and embedded notice identities
         shell: bash
         env:
-          VCORE_RELEASE_TAG: ${{ github.ref_name }}
-          VCORE_RELEASE_REPOSITORY: ${{ github.repository }}
+          VOLE_RELEASE_TAG: ${{ github.ref_name }}
+          VOLE_RELEASE_REPOSITORY: ${{ github.repository }}
         run: |
-          uv run --project scripts --locked python -m vcore_scripts.cli_release assemble \
-            --tag "$VCORE_RELEASE_TAG" --repository "$VCORE_RELEASE_REPOSITORY" \
-            --input dist/cli-incoming --notes "$RUNNER_TEMP/vcore-release.md"
+          uv run --project scripts --locked python -m vole_scripts.cli_release assemble \
+            --tag "$VOLE_RELEASE_TAG" --repository "$VOLE_RELEASE_REPOSITORY" \
+            --input dist/cli-incoming --notes "$RUNNER_TEMP/vole-release.md"
       - name: Create release with six binary archives
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          VCORE_RELEASE_TAG: ${{ github.ref_name }}
+          VOLE_RELEASE_TAG: ${{ github.ref_name }}
         run: |
           shopt -s nullglob
-          archives=(dist/cli-incoming/*/vcore-*.gz dist/cli-incoming/*/vcore-*.zip)
+          archives=(dist/cli-incoming/*/vole-*.gz dist/cli-incoming/*/vole-*.zip)
           test "${#archives[@]}" -eq 6
-          gh release create "$VCORE_RELEASE_TAG" "${archives[@]}" \
-            --verify-tag --title "VCore $VCORE_RELEASE_TAG" \
-            --notes-file "$RUNNER_TEMP/vcore-release.md"
+          gh release create "$VOLE_RELEASE_TAG" "${archives[@]}" \
+            --verify-tag --title "Vole $VOLE_RELEASE_TAG" \
+            --notes-file "$RUNNER_TEMP/vole-release.md"

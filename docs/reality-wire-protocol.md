@@ -1,6 +1,6 @@
 # REALITY V1 客户端协议
 
-本文定义 VCore 的 REALITY V1 客户端线上行为。它不是通用 REALITY 规范。经典模式为默认，可显式要求混合密钥交换。可选的四套 ClientHello 模板及混合兼容边界见 [TLS 指纹](tls-client-fingerprint.md)。
+本文定义 Vole 的 REALITY V1 客户端线上行为。它不是通用 REALITY 规范。经典模式为默认，可显式要求混合密钥交换。可选的四套 ClientHello 模板及混合兼容边界见 [TLS 指纹](tls-client-fingerprint.md)。
 
 ## 版本边界
 
@@ -24,7 +24,7 @@ V1 只支持：
 1. TLS 1.3 ClientHello 的实际 X25519 share，或混合 share 中的 X25519 分量；
 2. 与配置中的服务端静态 X25519 公钥执行 ECDH。
 
-VCore 不能读取该私钥，也不能为两个用途生成不同密钥。
+Vole 不能读取该私钥，也不能为两个用途生成不同密钥。
 
 原生封装按实际 GroupID 找到唯一 X25519 share，不依赖 share 下标。Firefox 可保留
 额外 P-256 share，但认证始终绑定同一 X25519 临时私钥。Chrome133 的普通 TLS
@@ -81,7 +81,7 @@ session_id  = AES-256-GCM-Seal(auth_key, nonce,
 4. 使用该公钥验证 TLS 1.3 `CertificateVerify`，签名算法必须为 Ed25519；
 5. 无论成功或失败都立即消费认证状态，禁止再次使用。
 
-真实站点证书、中间证书、错误 HMAC、错误 DER/SPKI、错误 `CertificateVerify` 和缺失状态全部失败。VCore 不提供 WebPKI 或 spider fallback。
+真实站点证书、中间证书、错误 HMAC、错误 DER/SPKI、错误 `CertificateVerify` 和缺失状态全部失败。Vole 不提供 WebPKI 或 spider fallback。
 
 ## 状态与资源
 
@@ -99,4 +99,4 @@ boring fork 的测试固定：
 - 截断或非规范 DER、错误 HMAC、错误签名、缺失状态、低阶公钥和 HRR 负例；
 - 多配置并发和连接状态隔离。
 
-VCore 的互操作测试还覆盖 XHTTP 模式、取消重连、错误 key/short ID 和普通 TLS 回归。实际执行范围见 [验收矩阵](acceptance.md)，依赖发布要求见 [TLS 依赖](tls-dependencies.md)。
+Vole 的互操作测试还覆盖 XHTTP 模式、取消重连、错误 key/short ID 和普通 TLS 回归。实际执行范围见 [验收矩阵](acceptance.md)，依赖发布要求见 [TLS 依赖](tls-dependencies.md)。

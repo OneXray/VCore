@@ -1,9 +1,9 @@
 //! Public YAML admission for the SS2022 ShadowTLS v3 wrapper; no network IO.
-use vcore::config::Config;
+use vole::config::Config;
 #[cfg(feature = "shadow-tls-v3")]
 use {
     serde_json::{Value, json},
-    vcore::config::{ClientFingerprint, ProxyProtocol, ShadowTlsConfig},
+    vole::config::{ClientFingerprint, ProxyProtocol, ShadowTlsConfig},
 };
 
 fn yaml(extra: &str) -> String {
@@ -21,7 +21,7 @@ fn node() -> Value {
 }
 
 #[cfg(feature = "shadow-tls-v3")]
-fn parse(node: Value) -> vcore::Result<Config> {
+fn parse(node: Value) -> vole::Result<Config> {
     Config::parse_yaml(
         &serde_json::to_vec(&json!({"mixed-port":1080,
         "proxies":[node], "rules":["MATCH,ss"]}))
@@ -42,7 +42,7 @@ fn policy(node: Value) -> ShadowTlsConfig {
 #[test]
 fn shadowtls_preserves_policy_values_and_shared_profile_aliases() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new("SHADOWTLS-CFG", "policy");
+    let _case = vole::resources::case_events::Case::new("SHADOWTLS-CFG", "policy");
     let config = policy(node());
     assert_eq!(config.password, " synthetic-private-marker ");
     assert_eq!(config.alpn, [b"h2".to_vec(), b"http/1.1".to_vec()]);
@@ -105,7 +105,7 @@ fn shadowtls_preserves_policy_values_and_shared_profile_aliases() {
 #[test]
 fn shadowtls_rejects_invalid_types_bounds_unknown_fields_and_nulls_without_secrets() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new("SHADOWTLS-CFG", "reject");
+    let _case = vole::resources::case_events::Case::new("SHADOWTLS-CFG", "reject");
     let assert_rejected = |n| {
         let error = parse(n).expect_err("must reject before IO").to_string();
         assert!(!error.contains("synthetic-private-marker"), "{error}");
@@ -196,7 +196,7 @@ fn shadowtls_rejects_invalid_types_bounds_unknown_fields_and_nulls_without_secre
 #[test]
 fn shadowtls_requires_explicit_v3_and_a_complete_plugin_policy() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new("SHADOWTLS-CFG", "feature");
+    let _case = vole::resources::case_events::Case::new("SHADOWTLS-CFG", "feature");
     let fields = "    plugin: shadow-tls\n    plugin-opts: {version: 3, host: cover.invalid, password: ' secret '}";
     let result = Config::parse_yaml(yaml(fields).as_bytes());
     // This protocol is independently removable even when boring is present.

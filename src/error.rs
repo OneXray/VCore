@@ -1,9 +1,9 @@
 use thiserror::Error;
 
-pub type Result<T> = std::result::Result<T, VCoreError>;
+pub type Result<T> = std::result::Result<T, VoleError>;
 
 #[derive(Debug, Error)]
-pub enum VCoreError {
+pub enum VoleError {
     #[error("invalid lifecycle transition from {from} to {to}")]
     InvalidLifecycleTransition {
         from: &'static str,

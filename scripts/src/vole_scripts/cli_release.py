@@ -38,8 +38,8 @@ BORING_SOURCE = (
     "git+https://github.com/YuanDevTeam/boring?branch=release#"
     "43c1c1d5b9464b3f2d5204be8664778fada7dbaf"
 )
-NOTICES_BEGIN = b"VCORE_CLI_RELEASE_NOTICES_BEGIN\n"
-NOTICES_END = b"\nVCORE_CLI_RELEASE_NOTICES_END\n"
+NOTICES_BEGIN = b"VOLE_CLI_RELEASE_NOTICES_BEGIN\n"
+NOTICES_END = b"\nVOLE_CLI_RELEASE_NOTICES_END\n"
 MAX_NOTICES_BYTES = 16 * 1024 * 1024
 # Standard MIT terms (https://spdx.org/licenses/MIT.html). The original API
 # header supplies the copyright attribution; no Wintun driver is distributed.
@@ -119,7 +119,7 @@ def _source(root: Path, tag: str) -> dict:
 def archive_name(target: str) -> str:
     system, architecture = TARGETS[target]
     suffix = "zip" if system == "windows" else "gz"
-    return f"vcore-{system}-{architecture}.{suffix}"
+    return f"vole-{system}-{architecture}.{suffix}"
 
 
 def _native_environment(target: str) -> dict[str, str]:
@@ -171,7 +171,7 @@ def _graph(
         for item in packages.values()
         if Path(item["manifest_path"]).resolve() == (root / "Cargo.toml").resolve()
     ]
-    _require(len(roots) == 1, "expected one VCore root package")
+    _require(len(roots) == 1, "expected one Vole root package")
     core = roots[0]
     features = set(nodes[core["id"]]["features"])
     production = set(
@@ -418,7 +418,7 @@ def collect_notices(
         "invalid public repository identity",
     )
     sections = [
-        f"VCore {source['version']} linked dependency licenses and notices\n"
+        f"Vole {source['version']} linked dependency licenses and notices\n"
         f"Source commit: {source['commit']}\n"
     ]
     records = []
@@ -469,12 +469,12 @@ def collect_notices(
             label = (
                 path.relative_to(base).as_posix()
                 if path.is_relative_to(base)
-                else "VCore/LICENSE"
+                else "Vole/LICENSE"
             )
             notices.append((label, path.read_bytes()))
-        if item["name"] == "vcore" and "shadowsocks" in linked_names:
+        if item["name"] == "vole" and "shadowsocks" in linked_names:
             # This derived source carries its own applicable MIT attribution;
-            # the VCore project license cannot substitute for the upstream text.
+            # the Vole project license cannot substitute for the upstream text.
             path = root / "src/outbound/shadowsocks/packet_window.rs"
             preamble = []
             for line in path.read_bytes().splitlines(keepends=True):
@@ -580,7 +580,7 @@ def verify_binary(
                 "CLI PE must be an executable, not a DLL",
             )
         with mmap.mmap(stream.fileno(), 0, access=mmap.ACCESS_READ) as contents:
-            identity = f"VCore;engine=rust;coreVersion={version}".encode()
+            identity = f"Vole;engine=rust;coreVersion={version}".encode()
             position = contents.find(identity)
             _require(
                 position >= 0, "CLI binary is missing the current Rust build identity"
@@ -606,7 +606,7 @@ def verify_binary(
 
 
 def _smoke(binary: Path, identity: str, env: dict) -> None:
-    with tempfile.TemporaryDirectory(prefix="vcore-cli-smoke-") as directory:
+    with tempfile.TemporaryDirectory(prefix="vole-cli-smoke-") as directory:
         cwd = Path(directory)
         for option in ("-h", "-v"):
             if option == "-h":
@@ -693,8 +693,8 @@ def build_release(target: str, tag: str, repository: str) -> None:
                 "RUSTFLAGS",
                 "CARGO_ENCODED_RUSTFLAGS",
                 "CARGO_TARGET_DIR",
-                "VCORE_FEATURES",
-                "VCORE_CLI_RELEASE_NOTICES",
+                "VOLE_FEATURES",
+                "VOLE_CLI_RELEASE_NOTICES",
             }
             or name.startswith(("CARGO_PROFILE_", "BORING_BSSL_", "AWS_LC_"))
         )
@@ -733,10 +733,10 @@ def build_release(target: str, tag: str, repository: str) -> None:
     if output.exists():
         shutil.rmtree(output)
     output.mkdir(parents=True)
-    with tempfile.TemporaryDirectory(prefix="vcore-cli-notices-") as directory:
+    with tempfile.TemporaryDirectory(prefix="vole-cli-notices-") as directory:
         notice_file = Path(directory).resolve() / "notices.txt"
         notice_file.write_bytes(notices)
-        env["VCORE_CLI_RELEASE_NOTICES"] = str(notice_file)
+        env["VOLE_CLI_RELEASE_NOTICES"] = str(notice_file)
         command = [
             "cargo",
             "build",
@@ -748,13 +748,13 @@ def build_release(target: str, tag: str, repository: str) -> None:
             "--features",
             requested_features(target),
             "--bin",
-            "vcore",
+            "vole",
         ]
         subprocess.run(command, cwd=root, env=env, check=True)
-        binary_name = "vcore.exe" if TARGETS[target][0] == "windows" else "vcore"
+        binary_name = "vole.exe" if TARGETS[target][0] == "windows" else "vole"
         binary = root / "target" / target / "release" / binary_name
         verify_binary(binary, target, source["version"], notices)
-        identity = f"VCore;engine=rust;coreVersion={source['version']}"
+        identity = f"Vole;engine=rust;coreVersion={source['version']}"
         _smoke(binary, identity, env)
         _require(
             _source(root, tag) == source, "source changed during CLI release build"
@@ -785,7 +785,7 @@ def build_release(target: str, tag: str, repository: str) -> None:
                     next(
                         identifier
                         for identifier in linked
-                        if packages[identifier]["name"] == "vcore"
+                        if packages[identifier]["name"] == "vole"
                     )
                 ]["features"]
             ),
@@ -839,7 +839,7 @@ def assemble_release(
             "release requires six distinct supported targets",
         )
         seen.add(target)
-        identity = f"VCore;engine=rust;coreVersion={source['version']}"
+        identity = f"Vole;engine=rust;coreVersion={source['version']}"
         production = set(
             tomllib.loads((root / "Cargo.toml").read_text())["features"]["default"]
         )
@@ -854,7 +854,7 @@ def assemble_release(
             "--features",
             requested_features(target),
             "--bin",
-            "vcore",
+            "vole",
         ]
         _require(
             record.get("formatVersion") == 1
@@ -890,15 +890,15 @@ def assemble_release(
             },
             "CLI archive identity mismatch",
         )
-        binary_name = "vcore.exe" if TARGETS[target][0] == "windows" else "vcore"
-        with tempfile.TemporaryDirectory(prefix="vcore-cli-inspect-") as directory:
+        binary_name = "vole.exe" if TARGETS[target][0] == "windows" else "vole"
+        with tempfile.TemporaryDirectory(prefix="vole-cli-inspect-") as directory:
             binary = Path(directory) / binary_name
             with binary.open("wb") as destination:
                 if archive.suffix == ".zip":
                     with zipfile.ZipFile(archive) as compressed:
                         _require(
                             compressed.namelist() == [binary_name],
-                            "Windows CLI zip must contain only vcore.exe",
+                            "Windows CLI zip must contain only vole.exe",
                         )
                         with compressed.open(binary_name) as payload:
                             shutil.copyfileobj(payload, destination)
@@ -928,12 +928,12 @@ def assemble_release(
     )
     commit_url = f"https://github.com/{repository}/tree/{source['commit']}"
     notes = (
-        f"VCore {source['version']} CLI for Linux, macOS and Windows (amd64/arm64).\n\n"
+        f"Vole {source['version']} CLI for Linux, macOS and Windows (amd64/arm64).\n\n"
         "Archives contain only the executable. Complete linked licenses and notices "
         "are retained inside each executable between the "
-        "VCORE_CLI_RELEASE_NOTICES_BEGIN and VCORE_CLI_RELEASE_NOTICES_END "
+        "VOLE_CLI_RELEASE_NOTICES_BEGIN and VOLE_CLI_RELEASE_NOTICES_END "
         "text markers.\n\n"
-        f"[VCore source and license]({commit_url}) · "
+        f"[Vole source and license]({commit_url}) · "
         f"[Locked dependency sources]({commit_url}/Cargo.lock)\n\n"
         "Windows Wintun requires a host-provided wintun.dll beside the executable; "
         "the host configures addresses, DNS, routes and physical egress. "

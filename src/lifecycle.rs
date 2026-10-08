@@ -1,4 +1,4 @@
-use crate::{Result, VCoreError};
+use crate::{Result, VoleError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LifecycleState {
@@ -73,7 +73,7 @@ impl Lifecycle {
         );
 
         if !valid {
-            return Err(VCoreError::InvalidLifecycleTransition {
+            return Err(VoleError::InvalidLifecycleTransition {
                 from: self.state.as_str(),
                 to: next.as_str(),
             });
@@ -110,7 +110,7 @@ mod tests {
         let error = lifecycle.transition(LifecycleState::Preparing).unwrap_err();
         assert!(matches!(
             error,
-            VCoreError::InvalidLifecycleTransition { .. }
+            VoleError::InvalidLifecycleTransition { .. }
         ));
     }
 

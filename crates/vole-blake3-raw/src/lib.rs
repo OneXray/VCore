@@ -9,7 +9,7 @@ pub fn derive_key(context: &[u8], key_material: &[u8]) -> [u8; 32] {
     // including empty slices. The disjoint output holds exactly 32 bytes. The
     // synchronous C wrapper retains no pointers and exposes no private layout.
     unsafe {
-        vcore_blake3_raw_derive(
+        vole_blake3_raw_derive(
             context.as_ptr(),
             context.len(),
             key_material.as_ptr(),
@@ -21,7 +21,7 @@ pub fn derive_key(context: &[u8], key_material: &[u8]) -> [u8; 32] {
 }
 
 unsafe extern "C" {
-    fn vcore_blake3_raw_derive(
+    fn vole_blake3_raw_derive(
         context: *const u8,
         context_len: usize,
         material: *const u8,

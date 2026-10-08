@@ -1,7 +1,7 @@
-/* VCore-owned one-shot adapter. The BLAKE3 implementation is unmodified. */
+/* Vole-owned one-shot adapter. The BLAKE3 implementation is unmodified. */
 #include "blake3.h"
 
-void vcore_blake3_raw_derive(const unsigned char *context, size_t context_len,
+void vole_blake3_raw_derive(const unsigned char *context, size_t context_len,
                             const unsigned char *material, size_t material_len,
                             unsigned char output[32]) {
   blake3_hasher hasher;

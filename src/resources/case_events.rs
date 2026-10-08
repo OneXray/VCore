@@ -19,7 +19,7 @@ impl Case {
             suite,
             assertion,
             started: Instant::now(),
-            path: std::env::var_os("VCORE_CASE_EVENTS").map(PathBuf::from),
+            path: std::env::var_os("VOLE_CASE_EVENTS").map(PathBuf::from),
             resources: None,
             checkpoints: Vec::new(),
         };

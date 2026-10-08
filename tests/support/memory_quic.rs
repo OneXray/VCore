@@ -9,7 +9,7 @@ use std::{
     task::{Context, Poll, ready},
 };
 use tokio::sync::mpsc;
-use vcore::{
+use vole::{
     dispatch::{DatagramBudget, DatagramTransport, DispatchError},
     outbound::{ConnectedStream, DatagramRequest, EstablishContext, OutboundConnector},
     session::{Datagram, Destination, StreamSession},
@@ -63,7 +63,7 @@ impl<T: DatagramTransport + 'static> OutboundConnector for MemoryUpstream<T> {
     }
 }
 
-// The passive fixture uses Quinn's socket seam, not VCore's client-only
+// The passive fixture uses Quinn's socket seam, not Vole's client-only
 // adapter (which intentionally waits for its first authorized outbound send).
 #[derive(Debug)]
 pub struct PeerSocket {

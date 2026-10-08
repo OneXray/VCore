@@ -10,15 +10,15 @@ use std::{
 };
 #[cfg(target_os = "android")]
 mod android;
-/// Executes one VCore request and returns an independently allocated UTF-8 JSON
-/// response. The caller must release the returned pointer with `VCoreFree`.
+/// Executes one Vole request and returns an independently allocated UTF-8 JSON
+/// response. The caller must release the returned pointer with `VoleFree`.
 ///
 /// # Safety
 /// `request_json` must be either null or point to readable storage containing a
 /// NUL terminator within `MAX_INVOKE_BYTES + 1` bytes.
 #[unsafe(no_mangle)]
 #[allow(non_snake_case)]
-pub unsafe extern "C" fn VCoreInvoke(request_json: *const c_char) -> *mut c_char {
+pub unsafe extern "C" fn VoleInvoke(request_json: *const c_char) -> *mut c_char {
     if is_runtime_thread() {
         return allocate_response(runtime_thread_response());
     }
@@ -30,13 +30,13 @@ pub unsafe extern "C" fn VCoreInvoke(request_json: *const c_char) -> *mut c_char
         Ok(Ok(request)) => invoke_bytes(request),
         Ok(Err(error)) => serialize_response(InvokeResponse::failure(error.message)),
         Err(_) => serialize_response(InvokeResponse::failure(
-            "internal error: panic caught at the VCore Invoke boundary",
+            "internal error: panic caught at the Vole Invoke boundary",
         )),
     };
     allocate_response(response)
 }
 
-/// Releases a response returned by `VCoreInvoke` or `VCoreWindowsVpnInvoke`.
+/// Releases a response returned by `VoleInvoke` or `VoleWindowsVpnInvoke`.
 /// A null pointer is ignored.
 ///
 /// # Safety
@@ -44,7 +44,7 @@ pub unsafe extern "C" fn VCoreInvoke(request_json: *const c_char) -> *mut c_char
 /// been freed already, and must not be used after this call.
 #[unsafe(no_mangle)]
 #[allow(non_snake_case)]
-pub unsafe extern "C" fn VCoreFree(response: *mut c_char) {
+pub unsafe extern "C" fn VoleFree(response: *mut c_char) {
     if !response.is_null() {
         // SAFETY: ownership is returned by the caller under the contract above.
         drop(unsafe { CString::from_raw(response) });

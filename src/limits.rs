@@ -1,4 +1,4 @@
-use crate::{Result, VCoreError};
+use crate::{Result, VoleError};
 
 /// Fairness bound for control/discard work in one poll or receive iteration.
 pub const IO_POLL_BUDGET: usize = 32;
@@ -164,7 +164,7 @@ impl ResourceLimits {
             ("xhttp_upload_chunk_size", self.xhttp_upload_chunk_size),
         ] {
             if value == 0 {
-                return Err(VCoreError::ResourceLimit {
+                return Err(VoleError::ResourceLimit {
                     resource: name,
                     limit: value,
                 });

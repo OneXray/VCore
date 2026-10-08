@@ -406,7 +406,7 @@ fn validate_etag(etag: Option<&str>) -> Result<(), GeoDataDownloadError> {
 fn build_request(endpoint: &DownloadEndpoint, etag: Option<&str>) -> Vec<u8> {
     let conditional = etag.map_or_else(String::new, |etag| format!("If-None-Match: {etag}\r\n"));
     format!(
-        "GET {} HTTP/1.1\r\nHost: {}\r\nAccept: application/octet-stream\r\nAccept-Encoding: identity\r\nUser-Agent: VCore/0.1\r\nConnection: close\r\n{}\r\n",
+        "GET {} HTTP/1.1\r\nHost: {}\r\nAccept: application/octet-stream\r\nAccept-Encoding: identity\r\nUser-Agent: Vole/0.1\r\nConnection: close\r\n{}\r\n",
         endpoint.origin_form, endpoint.authority, conditional
     )
     .into_bytes()

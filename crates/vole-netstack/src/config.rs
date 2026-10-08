@@ -33,7 +33,7 @@ pub struct NetStackConfig {
     pub max_poll_interval: Duration,
     /// Locally answer ICMPv4/ICMPv6 echo requests received from TUN.
     ///
-    /// This is disabled by default for generic netstack users. The `VCore` TUN
+    /// This is disabled by default for generic netstack users. The `Vole` TUN
     /// runtime enables it explicitly.
     pub fake_icmp_echo: bool,
 }

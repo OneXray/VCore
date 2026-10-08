@@ -1,4 +1,4 @@
-//! Batched, node-only latency measurement owned entirely by VCore.
+//! Batched, node-only latency measurement owned entirely by Vole.
 
 use std::{
     future::Future,
@@ -354,7 +354,7 @@ fn outbound_connect_error(
 ) -> io::Error {
     let diagnostic = diagnostic.map_or_else(String::new, |diagnostic| {
         format!(
-            " (VCore outbound stage={} kind={} error={:?})",
+            " (Vole outbound stage={} kind={} error={:?})",
             diagnostic.stage(),
             diagnostic.kind(),
             diagnostic.message()
@@ -385,7 +385,7 @@ async fn send_head_and_read_response(
     stream
         .write_all(
             format!(
-                "HEAD {request_target} HTTP/1.1\r\nHost: {authority}\r\nAccept: */*\r\nUser-Agent: VCore/{}\r\nConnection: close\r\n\r\n",
+                "HEAD {request_target} HTTP/1.1\r\nHost: {authority}\r\nAccept: */*\r\nUser-Agent: Vole/{}\r\nConnection: close\r\n\r\n",
                 env!("CARGO_PKG_VERSION")
             )
             .as_bytes(),

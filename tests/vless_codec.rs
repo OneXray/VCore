@@ -4,7 +4,7 @@ use std::{
     time::Duration,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use vcore::{
+use vole::{
     config::{Config, ProxyProtocol},
     dispatch::{BoxStream, DatagramTransport, DispatchError},
     outbound::{
@@ -60,7 +60,7 @@ fn packet() -> Datagram {
 #[tokio::test]
 async fn stopping_before_first_udp_send_wakes_receive_and_releases_io() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "VLESS-UNIT",
         "stopping_before_first_udp_send_wakes_receive_and_releases_io",
     );
@@ -89,7 +89,7 @@ async fn stopping_before_first_udp_send_wakes_receive_and_releases_io() {
 #[tokio::test]
 async fn raw_and_packetaddr_consume_wire_and_keep_cancelled_receive_progress() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "VLESS-UNIT",
         "raw_and_packetaddr_consume_wire_and_keep_cancelled_receive_progress",
     );
@@ -110,9 +110,9 @@ async fn raw_and_packetaddr_consume_wire_and_keep_cancelled_receive_progress() {
         } else {
             Destination::domain("sp.packet-addr.v2fly.arpa", 443).unwrap()
         };
-        let header = vcore::outbound::encode_request_header(
+        let header = vole::outbound::encode_request_header(
             uuid::Uuid::from_bytes([7; 16]),
-            vcore::outbound::VlessCommand::Udp,
+            vole::outbound::VlessCommand::Udp,
             Some(&target),
         )
         .unwrap();
@@ -124,7 +124,7 @@ async fn raw_and_packetaddr_consume_wire_and_keep_cancelled_receive_progress() {
         peer.read_exact(&mut frame).await.unwrap();
         let mut expected = bytes::BytesMut::new();
         if encoding != "none" {
-            vcore::outbound::address::encode_packet_addr(&datagram.remote, &mut expected).unwrap();
+            vole::outbound::address::encode_packet_addr(&datagram.remote, &mut expected).unwrap();
         }
         expected.extend_from_slice(&datagram.payload);
         assert_eq!(frame, expected);
@@ -158,7 +158,7 @@ async fn raw_and_packetaddr_consume_wire_and_keep_cancelled_receive_progress() {
 #[tokio::test]
 async fn udp_cancelled_send_and_bad_response_header_close_owned_io() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "VLESS-UNIT",
         "udp_cancelled_send_and_bad_response_header_close_owned_io",
     );
@@ -213,7 +213,7 @@ async fn udp_cancelled_send_and_bad_response_header_close_owned_io() {
 #[tokio::test]
 async fn tcp_bad_response_header_poisoning_and_absolute_response_deadline() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "VLESS-UNIT",
         "tcp_bad_response_header_poisoning_and_absolute_response_deadline",
     );

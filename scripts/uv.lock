@@ -28,7 +28,7 @@ wheels = [
 ]
 
 [[package]]
-name = "vcore-scripts"
+name = "vole-scripts"
 version = "0.1.0"
 source = { editable = "." }
 

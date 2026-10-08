@@ -9,7 +9,7 @@ use std::{
     time::Duration,
 };
 use tokio::sync::mpsc;
-use vcore::{
+use vole::{
     config::{Config, ProxyProtocol},
     outbound::{
         DatagramRequest, EstablishContext, OutboundConnector, UpstreamPath,
@@ -67,7 +67,7 @@ fn memory_udp_peer_shutdown_is_not_a_local_socket_failure() {
 #[tokio::test]
 async fn completed_fragment_id_can_be_reused_without_losing_the_next_datagram() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "INTEGRATION-ADAPTER",
         "hysteria2_fragment_id_reuse",
     );
@@ -140,7 +140,7 @@ async fn completed_fragment_id_can_be_reused_without_losing_the_next_datagram() 
                 break;
             };
             assert_eq!(&request[6..], &[0, 1, 3, b'x', b':', b'1', sequence as u8]);
-            // Literal protocol fixtures, independent of VCore's wire encoder.
+            // Literal protocol fixtures, independent of Vole's wire encoder.
             // Out of order plus a duplicate within the unfinished assembly.
             for index in [1, 1, 0] {
                 let mut frame = request[..4].to_vec();

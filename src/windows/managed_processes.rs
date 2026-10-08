@@ -426,7 +426,7 @@ mod tests {
 
     #[test]
     fn windows_command_line_round_trips_logical_arguments() {
-        let executable = Path::new(r"C:\Program Files\VCore\proxy.exe");
+        let executable = Path::new(r"C:\Program Files\Vole\proxy.exe");
         let arguments = vec![
             String::new(),
             "plain".to_owned(),

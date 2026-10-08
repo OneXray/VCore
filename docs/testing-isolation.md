@@ -7,16 +7,16 @@
 - 协议服务端（Mihomo、Xray、V2Ray、Hysteria、Shadowsocks 等）、UDP echo / TCP / HTTP / DNS 测试原站，以及故障注入中的服务端角色，全部容器化。
 - 对照客户端若提供 SOCKS/HTTP 等测试入口，该入口也放在容器中。宿主只运行待测客户端、测试驱动和只读观察工具。
 - 纯内存、编解码、离线配置或 mock 单元测试不属于外部服务端互通测试。不能把宿主网络服务改称 mock 来规避隔离。
-- 尚未完成容器化、容器不可用或平台不支持的服务端用例记为 `BLOCKED` / `NOT RUN`，不得回退到宿主启动。Linux 测试对端不代表 VCore 新增 Linux 产品支持。
+- 尚未完成容器化、容器不可用或平台不支持的服务端用例记为 `BLOCKED` / `NOT RUN`，不得回退到宿主启动。Linux 测试对端不代表 Vole 新增 Linux 产品支持。
 
 ## 工程边界与结果保留
 
 协议互通的容器编排、对端下载、网络消费者和压力测试统一由公开的
 [container-benchmark](https://github.com/YuanDevTeam/container-benchmark) 管理。
-互通入口为 `container-benchmark interop --source vcore=PATH`，压力入口为
-`container-benchmark stress --source vcore=PATH`；真实执行必须显式指定 checkout，
-不推断父项目或相邻路径。VCore 的 `vcore-scripts` 仅编译平台产物，Rust 的
-离线/纯内存回归仍保留在内核；独立工程不存在不影响 VCore 编译。
+互通入口为 `container-benchmark interop --source vole=PATH`，压力入口为
+`container-benchmark stress --source vole=PATH`；真实执行必须显式指定 checkout，
+不推断父项目或相邻路径。Vole 的 `vole-scripts` 仅编译平台产物，Rust 的
+离线/纯内存回归仍保留在内核；独立工程不存在不影响 Vole 编译。
 优先 Mihomo listener；不支持的代表场景由官方 Xray-core、Hysteria2、V2Ray 或
 Caddy/Xray 分层拓扑补验。`--backend` / `--protocol` 筛选，`--list` 只作离线列举。
 当前入口在 Apple Silicon 的 Apple Container 上，每轮独立构建一次，再顺序运行

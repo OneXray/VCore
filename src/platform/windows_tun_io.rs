@@ -13,7 +13,7 @@ use std::{
 
 use tokio::sync::{Mutex as AsyncMutex, mpsc};
 
-use crate::{IpVersion, Result, TunFraming, VCoreError};
+use crate::{IpVersion, Result, TunFraming, VoleError};
 
 use super::TUN_PACKET_BATCH_SIZE;
 
@@ -161,7 +161,7 @@ impl WindowsTunIo {
         let wake = {
             let mut egress =
                 self.shared.egress.lock().map_err(|_| {
-                    VCoreError::Platform("Windows packet queue lock poisoned".into())
+                    VoleError::Platform("Windows packet queue lock poisoned".into())
                 })?;
             let mut wake = false;
             for packet in packets {
@@ -194,7 +194,7 @@ impl WindowsTunIo {
         let wake = {
             let mut egress =
                 self.shared.egress.lock().map_err(|_| {
-                    VCoreError::Platform("Windows packet queue lock poisoned".into())
+                    VoleError::Platform("Windows packet queue lock poisoned".into())
                 })?;
             if egress.len() == self.shared.capacity {
                 saturating_increment(&self.shared.egress_dropped);
@@ -210,7 +210,7 @@ impl WindowsTunIo {
         Ok(version)
     }
 
-    fn closed(&self) -> VCoreError {
+    fn closed(&self) -> VoleError {
         if let Some(error) = self
             .shared
             .ingress_failure
@@ -218,7 +218,7 @@ impl WindowsTunIo {
             .ok()
             .and_then(|mut failure| failure.take())
         {
-            return VCoreError::Io(error);
+            return VoleError::Io(error);
         }
         closed()
     }
@@ -281,7 +281,7 @@ impl WindowsPacketAdapter {
 
 pub(super) fn packet_version(packet: &[u8], mtu: usize) -> Result<IpVersion> {
     if packet.len() > mtu {
-        return Err(VCoreError::InvalidPacket(
+        return Err(VoleError::InvalidPacket(
             "TUN packet exceeds configured MTU",
         ));
     }
@@ -290,7 +290,7 @@ pub(super) fn packet_version(packet: &[u8], mtu: usize) -> Result<IpVersion> {
 
 pub(super) fn validate_batch_size(size: usize) -> Result<()> {
     if !(1..=TUN_PACKET_BATCH_SIZE).contains(&size) {
-        return Err(VCoreError::Platform(
+        return Err(VoleError::Platform(
             "invalid Windows TUN packet batch size".into(),
         ));
     }
@@ -300,14 +300,14 @@ pub(super) fn validate_batch_size(size: usize) -> Result<()> {
 #[cfg(any(feature = "windows-uwp", test))]
 fn push_valid_frame(packets: &mut Vec<Vec<u8>>, packet: Vec<u8>, mtu: usize) -> Result<()> {
     if packet.is_empty() || packet.len() > mtu {
-        return Err(VCoreError::Io(io::Error::new(
+        return Err(VoleError::Io(io::Error::new(
             io::ErrorKind::InvalidData,
             "invalid Windows packet frame size",
         )));
     }
     match packet_version(&packet, mtu) {
         Ok(_) => packets.push(packet),
-        Err(VCoreError::InvalidPacket(_)) => {}
+        Err(VoleError::InvalidPacket(_)) => {}
         Err(error) => return Err(error),
     }
     Ok(())
@@ -324,8 +324,8 @@ pub(super) fn validate_packet_channel_mtu(mtu: u16) -> io::Result<()> {
     Ok(())
 }
 
-fn closed() -> VCoreError {
-    VCoreError::Io(io::Error::new(
+fn closed() -> VoleError {
+    VoleError::Io(io::Error::new(
         io::ErrorKind::UnexpectedEof,
         "Windows packet ingress closed",
     ))
@@ -376,10 +376,10 @@ mod tests {
         io.read_packets(&mut packets, &mut outcomes).await.unwrap();
         assert_eq!(outcomes.len(), 2);
         assert!(outcomes[0].is_ok());
-        assert!(matches!(outcomes[1], Err(VCoreError::InvalidPacket(_))));
+        assert!(matches!(outcomes[1], Err(VoleError::InvalidPacket(_))));
         assert!(matches!(
             io.write_packet(&vec![0x45; 41]).await,
-            Err(VCoreError::InvalidPacket(_))
+            Err(VoleError::InvalidPacket(_))
         ));
         assert!(adapter.pop_egress().is_none());
     }
@@ -432,7 +432,7 @@ mod tests {
         io.read_packets(&mut packets, &mut outcomes).await.unwrap();
         assert_eq!(outcomes.len(), TUN_PACKET_BATCH_SIZE);
         assert!(matches!(outcomes[0], Ok(IpVersion::V4)));
-        assert!(matches!(outcomes[1], Err(VCoreError::InvalidPacket(_))));
+        assert!(matches!(outcomes[1], Err(VoleError::InvalidPacket(_))));
         assert!(matches!(outcomes[2], Ok(IpVersion::V6)));
         assert_eq!(packets[0], IPV4);
         assert_eq!(packets[1], [0xff]);
@@ -464,7 +464,7 @@ mod tests {
         assert!(matches!(outcomes[1], Ok(IpVersion::V6)));
         assert!(matches!(
             io.read_packets(&mut packets, &mut outcomes).await,
-            Err(VCoreError::Io(error)) if error.kind() == io::ErrorKind::UnexpectedEof
+            Err(VoleError::Io(error)) if error.kind() == io::ErrorKind::UnexpectedEof
         ));
         assert!(outcomes.is_empty());
     }
@@ -483,7 +483,7 @@ mod tests {
             .unwrap();
         assert_eq!(outcomes.len(), 4);
         assert!(matches!(outcomes[0], Ok(IpVersion::V4)));
-        assert!(matches!(outcomes[1], Err(VCoreError::InvalidPacket(_))));
+        assert!(matches!(outcomes[1], Err(VoleError::InvalidPacket(_))));
         assert!(matches!(outcomes[2], Ok(IpVersion::V6)));
         assert!(matches!(outcomes[3], Ok(IpVersion::V4)));
         assert_eq!(wakes.load(Ordering::Relaxed), 1);
@@ -507,11 +507,11 @@ mod tests {
         let mut outcomes = Vec::new();
         assert!(matches!(
             io.write_packets(&[IPV4, &[0xff], IPV6], &mut outcomes).await,
-            Err(VCoreError::Io(error)) if error.kind() == io::ErrorKind::BrokenPipe
+            Err(VoleError::Io(error)) if error.kind() == io::ErrorKind::BrokenPipe
         ));
         assert_eq!(outcomes.len(), 3);
         assert!(matches!(outcomes[0], Ok(IpVersion::V4)));
-        assert!(matches!(outcomes[1], Err(VCoreError::InvalidPacket(_))));
+        assert!(matches!(outcomes[1], Err(VoleError::InvalidPacket(_))));
         assert!(matches!(outcomes[2], Ok(IpVersion::V6)));
         assert_eq!(adapter.pop_egress().as_deref(), Some(IPV4));
         assert_eq!(adapter.pop_egress().as_deref(), Some(IPV6));
@@ -546,7 +546,7 @@ mod tests {
             assert!(adapter.try_send(packet));
             assert!(matches!(
                 io.read_packet_batch(&mut Vec::new(), TUN_PACKET_BATCH_SIZE).await,
-                Err(VCoreError::Io(error)) if error.kind() == io::ErrorKind::InvalidData
+                Err(VoleError::Io(error)) if error.kind() == io::ErrorKind::InvalidData
             ));
         }
     }
@@ -558,23 +558,23 @@ mod tests {
         let mut outcomes = vec![Ok(IpVersion::V4)];
         assert!(matches!(
             io.read_packets(&mut [], &mut outcomes).await,
-            Err(VCoreError::Platform(_))
+            Err(VoleError::Platform(_))
         ));
         assert!(outcomes.is_empty());
         let mut packets = vec![Vec::new(); TUN_PACKET_BATCH_SIZE + 1];
         assert!(matches!(
             io.read_packets(&mut packets, &mut outcomes).await,
-            Err(VCoreError::Platform(_))
+            Err(VoleError::Platform(_))
         ));
         assert!(outcomes.is_empty());
         assert!(matches!(
             io.write_packets(&[], &mut outcomes).await,
-            Err(VCoreError::Platform(_))
+            Err(VoleError::Platform(_))
         ));
         assert!(matches!(
             io.write_packets(&[IPV4; TUN_PACKET_BATCH_SIZE + 1], &mut outcomes)
                 .await,
-            Err(VCoreError::Platform(_))
+            Err(VoleError::Platform(_))
         ));
         assert!(outcomes.is_empty());
         assert!(adapter.pop_egress().is_none());

@@ -1,14 +1,14 @@
-# VCore
+# Vole
 
 <p align="center">
   English · <a href="./readme/README.zh_CN.md">简体中文</a> · <a href="./readme/README.ru.md">Русский</a>
 </p>
 
-VCore is a Rust proxy core for VPN clients and local proxies, available as native libraries and a foreground CLI. It routes TCP/UDP traffic through direct connections, proxy nodes, groups, and chains, with integrated DNS, GeoData, and a cross-platform TUN data plane.
+Vole is a Rust proxy core for VPN clients and local proxies, available as native libraries and a foreground CLI. It routes TCP/UDP traffic through direct connections, proxy nodes, groups, and chains, with integrated DNS, GeoData, and a cross-platform TUN data plane.
 
-Configuration uses **Mihomo-compatible YAML for the supported feature set**. VCore focuses on client-side capabilities rather than implementing every Mihomo field or its complete Dashboard API.
+Configuration uses **Mihomo-compatible YAML for the supported feature set**. Vole focuses on client-side capabilities rather than implementing every Mihomo field or its complete Dashboard API.
 
-## What VCore can do
+## What Vole can do
 
 - **Accept application and VPN traffic:** HTTP forwarding, CONNECT and Upgrade; SOCKS5 CONNECT and UDP ASSOCIATE; host-provided IPv4/IPv6 TUN packets.
 - **Route by destination:** domain, domain suffix/keyword, IP CIDR, destination port, TCP/UDP, GeoSite and GeoIP rules, with explicit DIRECT and REJECT actions.
@@ -74,21 +74,21 @@ Replace the example endpoint and credentials. GeoSite/GeoIP rules require the co
 
 `mixed-port` shares one TCP port between HTTP and SOCKS5 and enables SOCKS5 UDP on the same port. `allow-lan` controls binding independently of `authentication`: omitting `authentication` or using `[]` allows unauthenticated access on either loopback or wildcard addresses; configured credentials are checked by both HTTP and SOCKS5. Top-level `port`, `socks-port`, `udp` and `listeners` are rejected; proxy-node `port` and `udp` keep their outbound meanings.
 
-Compatibility is scoped to documented fields and behavior, not arbitrary Mihomo configurations. Groups currently support static `select`; DNS nameservers use literal IPs over UDP/TCP. Providers, automatic group selection, encrypted DNS and fake-IP are outside the current feature set. Unknown fields and invalid combinations are rejected rather than silently ignored; VCore-specific semantics are called out in the relevant contracts.
+Compatibility is scoped to documented fields and behavior, not arbitrary Mihomo configurations. Groups currently support static `select`; DNS nameservers use literal IPs over UDP/TCP. Providers, automatic group selection, encrypted DNS and fake-IP are outside the current feature set. Unknown fields and invalid combinations are rejected rather than silently ignored; Vole-specific semantics are called out in the relevant contracts.
 
-Library hosts start an instance with inline `configYaml`; TUN device, file descriptor, MTU, DNS interception and UDP timeout belong to the `tun` configuration. Platform callbacks remain runtime-local. The CLI sends options through the same Invoke API, whose foreground operation reads the file selected by `-f`. VCore leaves interface addresses, DNS and system routes to the host.
+Library hosts start an instance with inline `configYaml`; TUN device, file descriptor, MTU, DNS interception and UDP timeout belong to the `tun` configuration. Platform callbacks remain runtime-local. The CLI sends options through the same Invoke API, whose foreground operation reads the file selected by `-f`. Vole leaves interface addresses, DNS and system routes to the host.
 
 ## CLI
 
-Build the foreground executable with `cargo build --locked --release --no-default-features --features cli --bin vcore`; add `windows-wintun` to the feature list for desktop Windows TUN support.
+Build the foreground executable with `cargo build --locked --release --no-default-features --features cli --bin vole`; add `windows-wintun` to the feature list for desktop Windows TUN support.
 
 ```sh
-vcore -f /path/to/config.yaml
-vcore -d /path/to/data -f ./config.yaml
-vcore -t -f ./config.yaml
+vole -f /path/to/config.yaml
+vole -d /path/to/data -f ./config.yaml
+vole -t -f ./config.yaml
 ```
 
-`-d` selects the configuration/data directory; `-f` selects the configuration file independently. Relative paths use the launch working directory. Without `-f`, VCore reads `<data-dir>/config.yaml`; the directory defaults to the user's `.config/vcore`, with Mihomo-style `XDG_CONFIG_HOME` fallback. `-f -` reads standard input. `VCORE_HOME_DIR` / `VCORE_CONFIG_FILE` provide environment defaults; explicit flags override them. `-t` only validates configuration, `-v` prints version/build identity, and `-h` prints help. See [CLI and tag releases](docs/cli.md).
+`-d` selects the configuration/data directory; `-f` selects the configuration file independently. Relative paths use the launch working directory. Without `-f`, Vole reads `<data-dir>/config.yaml`; the directory defaults to the user's `.config/vole`, with Mihomo-style `XDG_CONFIG_HOME` fallback. `-f -` reads standard input. `VOLE_HOME_DIR` / `VOLE_CONFIG_FILE` provide environment defaults; explicit flags override them. `-t` only validates configuration, `-v` prints version/build identity, and `-h` prints help. See [CLI and tag releases](docs/cli.md).
 
 ## Platforms and integration
 
@@ -100,24 +100,24 @@ vcore -t -f ./config.yaml
 | Linux | Real single-queue raw-IP TUN from a borrowed fd or a core-opened device; the host owns system network configuration |
 | Windows | Mutually exclusive `windows-wintun` desktop and `windows-uwp` packaged Provider/Session Host builds sharing the core |
 
-VCore provides native libraries and a foreground CLI; platform hosts still own system network configuration. Unix hosts own the original TUN descriptor; VCore uses and closes its own duplicate. Apple's public packetFlow API does not guarantee raw-fd access, so actual Network Extension integration and device validation remain host responsibilities. See [TUN integration](docs/tun-platform.md) and [platform acceptance boundaries](docs/acceptance.md).
+Vole provides native libraries and a foreground CLI; platform hosts still own system network configuration. Unix hosts own the original TUN descriptor; Vole uses and closes its own duplicate. Apple's public packetFlow API does not guarantee raw-fd access, so actual Network Extension integration and device validation remain host responsibilities. See [TUN integration](docs/tun-platform.md) and [platform acceptance boundaries](docs/acceptance.md).
 
 Desktop Wintun loads a host-provided `wintun.dll` from the process executable's directory. The host configures interface addresses, DNS, routes and physical egress; Windows Wintun device validation is separate from the existing packaged VPN results. See [CLI usage and tag releases](docs/cli.md) for command-line delivery.
 
 The cross-platform C ABI accepts JSON requests through Invoke API:
 
 ```c
-char *VCoreInvoke(const char *request_json);
-void VCoreFree(char *response);
+char *VoleInvoke(const char *request_json);
+void VoleFree(char *response);
 ```
 
 One public instance follows `initialize → createInstance → start(configYaml) → stop → destroyInstance`; preparation is internal to `start`. `validateConfig` requires no initialization. The CLI uses the explicit foreground Invoke operation for files, environment defaults, signals and cleanup. The API also provides state queries, GeoData status and delay measurement. See [Invoke API](docs/invoke-api.md), [Controller API](docs/controller-api.md) and the [Windows integration example](example/windows-uwp/README.md).
 
 ## Benchmark
 
-[**VCore / Mihomo TUN benchmark**](https://github.com/YuanDevTeam/container-benchmark) contains the reproducible setup, measured results and comparison charts for both cores under the same native Linux TUN environment.
+[**Vole / Mihomo TUN benchmark**](https://github.com/YuanDevTeam/container-benchmark) contains the reproducible setup, measured results and comparison charts for both cores under the same native Linux TUN environment.
 
-The benchmark project also owns protocol interoperability (`interop`) and memory-pressure runs (`stress`), with an explicit `--source vcore=PATH` checkout. VCore's own scripts only compile core and platform artifacts.
+The benchmark project also owns protocol interoperability (`interop`) and memory-pressure runs (`stress`), with an explicit `--source vole=PATH` checkout. Vole's own scripts only compile core and platform artifacts.
 
 It measures **1 / 1.5 / 2 Gbps** mixed TCP/UDP traffic with **1,000 DNS queries/s** and enhanced `geosite:cn` / `geoip:cn` rules, reporting actual throughput, CPU, observed peak Linux RSS, UDP packet loss and successful DNS queries. It evaluates the TUN/DNS/routing path with DIRECT egress, not encrypted proxy throughput; Linux RSS is not Apple Network Extension footprint.
 
@@ -135,9 +135,9 @@ The separate `stress` command uses the same complete enhanced `geosite:cn` / `ge
 
 ## Credits
 
-VCore builds on and learns from public dependencies, protocol implementations and platform references:
+Vole builds on and learns from public dependencies, protocol implementations and platform references:
 
-- TUN dependencies: the local [`vcore-netstack`](crates/vcore-netstack/README.md) uses [smoltcp](https://github.com/smoltcp-rs/smoltcp); Unix and Windows Wintun packet I/O use [tun-rs](https://github.com/tun-rs/tun-rs) (Apache-2.0).
+- TUN dependencies: the local [`vole-netstack`](crates/vole-netstack/README.md) uses [smoltcp](https://github.com/smoltcp-rs/smoltcp); Unix and Windows Wintun packet I/O use [tun-rs](https://github.com/tun-rs/tun-rs) (Apache-2.0).
 - [Wintun](https://www.wintun.net/): the runtime DLL is supplied by the host, not bundled. The upstream [API header](https://github.com/tun-rs/tun-rs/blob/2.8.11/src/platform/windows/tun/wintun.h) included by tun-rs is copyright 2018–2021 WireGuard LLC, licensed `GPL-2.0 OR MIT`; distribution of the linked API bindings must retain its copyright and MIT alternative license notice.
 - Networking and routing references: [clash-rs](https://github.com/Watfaq/clash-rs), [netstack-smoltcp](https://github.com/cavivie/netstack-smoltcp), [Mihomo](https://github.com/MetaCubeX/mihomo), [Xray-core](https://github.com/XTLS/Xray-core) and [Leaf](https://github.com/eycorsican/leaf). These reference projects are not netstack dependencies.
 - TLS and Shadowsocks: [rustls](https://github.com/rustls/rustls), [boring](https://github.com/cloudflare/boring), [BoringSSL](https://boringssl.googlesource.com/boringssl/) and [shadowsocks-rust](https://github.com/shadowsocks/shadowsocks-rust). Derived replay-window code retains its [MIT notices](src/outbound/shadowsocks/packet_window.rs).

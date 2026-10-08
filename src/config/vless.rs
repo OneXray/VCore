@@ -232,7 +232,7 @@ impl RawVless {
         } else {
             #[cfg(feature = "outbound-vless")]
             crate::outbound::validate_vless_encryption(&self.encryption).map_err(|_| {
-                VCoreError::InvalidConfig("invalid VLESS Encryption configuration".into())
+                VoleError::InvalidConfig("invalid VLESS Encryption configuration".into())
             })?;
             VlessEncryption::MlKem768X25519Plus(self.encryption)
         };
@@ -499,7 +499,7 @@ impl RawVless {
 pub(super) fn validate_client_identity(certificate: &str, private_key: &str) -> Result<()> {
     crate::security::TlsClientIdentity::from_pem(certificate, private_key)
         .map(|_| ())
-        .map_err(|_| VCoreError::InvalidConfig("invalid VLESS client identity".into()))
+        .map_err(|_| VoleError::InvalidConfig("invalid VLESS client identity".into()))
 }
 
 #[cfg(not(feature = "outbound-vless"))]

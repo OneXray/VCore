@@ -1,5 +1,5 @@
 param(
-    [string] $IdentityName = 'VCore.UwpDemo.Dev',
+    [string] $IdentityName = 'Vole.UwpDemo.Dev',
     [Parameter(Mandatory = $true)]
     [string] $Publisher,
     [string] $Version = '1.0.0.0',
@@ -7,7 +7,7 @@ param(
     [string] $PfxPath,
     [Parameter(Mandatory = $true)]
     [string] $PfxPassword,
-    [switch] $SkipVCoreBuild,
+    [switch] $SkipVoleBuild,
     [switch] $Install
 )
 
@@ -33,8 +33,8 @@ if (-not (Test-Path $PfxPath -PathType Leaf)) {
 $PfxPath = (Resolve-Path $PfxPath).Path
 
 $target = if ($Architecture -eq 'arm64') { 'aarch64-pc-windows-msvc' } else { 'x86_64-pc-windows-msvc' }
-$vcoreDist = Join-Path $root "dist\windows\$Architecture"
-$importLibrary = Join-Path $root "target\$target\release\vcore.dll.lib"
+$voleDist = Join-Path $root "dist\windows\$Architecture"
+$importLibrary = Join-Path $root "target\$target\release\vole.dll.lib"
 $build = Join-Path $root "target\windows-uwp-demo\$Architecture"
 $stage = Join-Path $build 'stage'
 $packageDir = Join-Path $root 'dist\windows-uwp-demo'
@@ -47,30 +47,30 @@ try {
     if (-not $vcvars) { throw 'Visual Studio C++ tools were not found' }
     $vcTarget = if ($Architecture -eq 'arm64') { 'amd64_arm64' } else { 'amd64' }
 
-    if (-not $SkipVCoreBuild) {
-        & uv run --project (Join-Path $root 'scripts') --locked vcore-scripts build windows
-        if ($LASTEXITCODE) { throw "VCore build failed: $LASTEXITCODE" }
+    if (-not $SkipVoleBuild) {
+        & uv run --project (Join-Path $root 'scripts') --locked vole-scripts build windows
+        if ($LASTEXITCODE) { throw "Vole build failed: $LASTEXITCODE" }
     }
-    foreach ($artifact in @('vcore.dll', 'vcore-windows-vpn-host.exe', 'vcore-windows-session-host.exe')) {
-        if (-not (Test-Path (Join-Path $vcoreDist $artifact) -PathType Leaf)) {
-            throw "missing VCore artifact: $artifact"
+    foreach ($artifact in @('vole.dll', 'vole-windows-vpn-host.exe', 'vole-windows-session-host.exe')) {
+        if (-not (Test-Path (Join-Path $voleDist $artifact) -PathType Leaf)) {
+            throw "missing Vole artifact: $artifact"
         }
     }
     if (-not (Test-Path $importLibrary -PathType Leaf)) {
-        throw "missing VCore import library: $importLibrary"
+        throw "missing Vole import library: $importLibrary"
     }
 
     Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
     New-Item $stage, (Join-Path $stage 'Assets'), $packageDir -ItemType Directory -Force | Out-Null
-    $demoExe = Join-Path $stage 'VCoreUwpDemo.exe'
+    $demoExe = Join-Path $stage 'VoleUwpDemo.exe'
     $compile = 'call "{0}" {1} >nul && cl.exe /nologo /std:c++20 /EHsc /O2 /MT /utf-8 /Fo"{2}" "{3}" /I"{4}" /link /out:"{5}" "{6}"' -f `
         $vcvars, $vcTarget, (Join-Path $build 'demo.obj'), (Join-Path $example 'demo.cpp'), (Join-Path $root 'include'), $demoExe, $importLibrary
     & $env:ComSpec /d /s /c $compile
     if ($LASTEXITCODE) { throw "demo compile failed: $LASTEXITCODE" }
 
-    Copy-Item (Join-Path $vcoreDist 'vcore.dll'), `
-        (Join-Path $vcoreDist 'vcore-windows-vpn-host.exe'), `
-        (Join-Path $vcoreDist 'vcore-windows-session-host.exe') $stage
+    Copy-Item (Join-Path $voleDist 'vole.dll'), `
+        (Join-Path $voleDist 'vole-windows-vpn-host.exe'), `
+        (Join-Path $voleDist 'vole-windows-session-host.exe') $stage
 
     $logo = 'iVBORw0KGgoAAAANSUhEUgAAAJYAAACWCAYAAAA8AXHiAAABIklEQVR42u3SMQ0AAAjAMAThDO1oAAOcnD1qYFlk9cC3EAFjYSwwFsbCWGAsjIWxwFgYC2OBsTAWxgJjYSyMBcbCWBgLjIWxMBYYC2NhLDAWxsJYYCyMhbHAWBgLY4GxMBbGAmNhLIwFxsJYGAuMhbEwFhgLY2EsMBbGwlhgLIyFscBYGAtjgbEwFsYCY2EsjAXGwlgYC4yFsTAWGAtjYSwwFsbCWBhLBIyFsTAWGAtjYSwwFsbCWGAsjIWxwFgYC2OBsTAWxgJjYSyMBcbCWBgLjIWxMBYYC2NhLDAWxsJYYCyMhbHAWBgLY4GxMBbGAmNhLIwFxsJYGAuMhbEwFhgLY2EsMBbGwlhgLIyFseC2BofOkWDAMyEAAAAASUVORK5CYII='
     [IO.File]::WriteAllBytes((Join-Path $stage 'Assets\Logo.png'), [Convert]::FromBase64String($logo))

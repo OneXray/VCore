@@ -1,6 +1,6 @@
 #![cfg(feature = "outbound-vmess")]
 use serde_json::{Value, json};
-use vcore::config::Config;
+use vole::config::Config;
 
 fn document(extra: Value) -> Vec<u8> {
     let mut node = json!({"name":"edge","type":"vmess","server":"example.com","port":443,"uuid":"07070707-0707-0707-0707-070707070707"});
@@ -13,7 +13,7 @@ fn document(extra: Value) -> Vec<u8> {
 #[test]
 fn vmess_default_node_and_explicit_cipher_aliases_are_accepted_without_io() {
     #[cfg(feature = "interop-test")]
-    let _evidence = vcore::resources::case_events::Case::new(
+    let _evidence = vole::resources::case_events::Case::new(
         "VMESS-CFG",
         "vmess_default_node_and_explicit_cipher_aliases_are_accepted_without_io",
     );
@@ -32,7 +32,7 @@ fn vmess_default_node_and_explicit_cipher_aliases_are_accepted_without_io() {
 #[test]
 fn vmess_transport_and_security_combinations_are_strict() {
     #[cfg(feature = "interop-test")]
-    let _evidence = vcore::resources::case_events::Case::new(
+    let _evidence = vole::resources::case_events::Case::new(
         "VMESS-CFG",
         "vmess_transport_and_security_combinations_are_strict",
     );
@@ -125,11 +125,11 @@ fn vmess_transport_and_security_combinations_are_strict() {
 #[tokio::test]
 async fn vmess_field_boundaries_and_normalized_transport_values() {
     #[cfg(feature = "interop-test")]
-    let _evidence = vcore::resources::case_events::Case::new(
+    let _evidence = vole::resources::case_events::Case::new(
         "VMESS-CFG",
         "vmess_field_boundaries_and_normalized_transport_values",
     );
-    use vcore::config::{ProxyProtocol, VmessTransport};
+    use vole::config::{ProxyProtocol, VmessTransport};
     for fields in [
         json!({"server":""}),
         json!({"port":0}),
@@ -206,7 +206,7 @@ async fn vmess_field_boundaries_and_normalized_transport_values() {
     let mut selected = std::collections::BTreeSet::new();
     for _ in 0..1024 {
         let (client, mut observer) = tokio::io::duplex(4096);
-        let _stream = vcore::transport::http_obfs(
+        let _stream = vole::transport::http_obfs(
             Box::new(client),
             &node.transport.http_options().unwrap().unwrap(),
             b"prefix-once",
@@ -230,7 +230,7 @@ async fn vmess_field_boundaries_and_normalized_transport_values() {
 #[tokio::test]
 async fn vmess_normalized_websocket_fields_preserve_headers_and_early_data_order() {
     #[cfg(feature = "interop-test")]
-    let _evidence = vcore::resources::case_events::Case::new(
+    let _evidence = vole::resources::case_events::Case::new(
         "VMESS-CFG",
         "vmess_normalized_websocket_fields_preserve_headers_and_early_data_order",
     );
@@ -249,7 +249,7 @@ async fn vmess_normalized_websocket_fields_preserve_headers_and_early_data_order
             fields["ws-opts"]["early-data-header-name"] = json!(header);
         }
         let parsed = Config::parse_yaml(&document(fields)).unwrap();
-        let vcore::config::ProxyProtocol::Vmess(node) = &parsed.proxies[0].protocol else {
+        let vole::config::ProxyProtocol::Vmess(node) = &parsed.proxies[0].protocol else {
             unreachable!()
         };
         let (client, peer) = tokio::io::duplex(65536);
@@ -298,7 +298,7 @@ async fn vmess_normalized_websocket_fields_preserve_headers_and_early_data_order
                 b"continuation"
             );
         });
-        let mut stream = vcore::transport::connect_websocket(
+        let mut stream = vole::transport::connect_websocket(
             Box::new(client),
             &node.transport.websocket_options().unwrap().unwrap(),
             &prefix,

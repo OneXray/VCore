@@ -12,7 +12,7 @@ use shadowsocks::{
     config::ServerType, context::Context, relay::tcprelay::proxy_stream::ProxyServerStream,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use vcore::{
+use vole::{
     config::{Config, ProxyProtocol},
     dispatch::{BoxStream, DatagramBudget, DatagramTransport, DispatchError},
     outbound::{
@@ -100,7 +100,7 @@ const CIPHERS: [&str; 3] = [
 #[tokio::test]
 async fn never_sent_close_drop_and_stop_release_io_without_an_empty_ss_write() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new("UOT-SS", "never_sent");
+    let _case = vole::resources::case_events::Case::new("UOT-SS", "never_sent");
     for cipher in CIPHERS {
         for ending in ["close", "drop", "stop"] {
             let (outbound, mut peer) = fixture(cipher, 64);
@@ -138,7 +138,7 @@ async fn never_sent_close_drop_and_stop_release_io_without_an_empty_ss_write() {
 #[tokio::test(start_paused = true)]
 async fn late_first_packet_uses_original_deadline_but_established_io_does_not() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new("UOT-SS", "deadline");
+    let _case = vole::resources::case_events::Case::new("UOT-SS", "deadline");
     let (outbound, mut peer) = fixture(CIPHERS[0], 4096);
     let context = EstablishContext::with_timeout(Duration::from_secs(2));
     let mut association = outbound.open_datagram(request(), &context).await.unwrap();
@@ -175,7 +175,7 @@ async fn late_first_packet_uses_original_deadline_but_established_io_does_not() 
 #[tokio::test]
 async fn cancelled_partial_send_poisoning_and_stop_release_a_blocked_writer() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new("UOT-SS", "cancel_write");
+    let _case = vole::resources::case_events::Case::new("UOT-SS", "cancel_write");
     for stop in [false, true] {
         let (outbound, mut peer) = fixture(CIPHERS[0], 64);
         let mut association = outbound
@@ -209,7 +209,7 @@ async fn cancelled_partial_send_poisoning_and_stop_release_a_blocked_writer() {
 #[tokio::test]
 async fn all_ciphers_preserve_budget_edges_and_fragmented_receive_cancellation() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new("UOT-SS", "budget_read_cancel");
+    let _case = vole::resources::case_events::Case::new("UOT-SS", "budget_read_cancel");
     for cipher in CIPHERS {
         let (outbound, peer) = fixture(cipher, 4096);
         let mut association = outbound
@@ -283,19 +283,19 @@ struct ControlledResolver {
 }
 
 #[async_trait]
-impl vcore::dialer::Resolver for ControlledResolver {
+impl vole::dialer::Resolver for ControlledResolver {
     async fn resolve(
         &self,
         host: &str,
         port: u16,
-    ) -> std::io::Result<vcore::dialer::ResolvedEndpoint> {
+    ) -> std::io::Result<vole::dialer::ResolvedEndpoint> {
         assert_eq!(host, "dns.test", "only the business name may be resolved");
         assert_eq!(port, 53);
         self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         if self.pending {
             std::future::pending::<()>().await;
         }
-        Ok(vcore::dialer::ResolvedEndpoint {
+        Ok(vole::dialer::ResolvedEndpoint {
             logical_host: host.into(),
             port,
             addresses: vec!["127.0.0.1:53".parse().unwrap()],
@@ -306,9 +306,9 @@ impl vcore::dialer::Resolver for ControlledResolver {
 #[tokio::test]
 async fn domains_use_only_the_supplied_resolver_and_stop_cancels_pending_dns() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new("UOT-SS", "dns");
+    let _case = vole::resources::case_events::Case::new("UOT-SS", "dns");
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use vcore::dns::resolution::ResolutionContext;
+    use vole::dns::resolution::ResolutionContext;
     let mut datagram = packet(0);
     datagram.remote = Destination::domain("dns.test", 53).unwrap();
     let (outbound, mut peer) = fixture(CIPHERS[0], 4096);
@@ -365,8 +365,8 @@ async fn domains_use_only_the_supplied_resolver_and_stop_cancels_pending_dns() {
 #[cfg(feature = "interop-test")]
 #[tokio::test]
 async fn stop_joins_a_full_receiver_and_releases_io_with_the_association_retained() {
-    let _case = vcore::resources::case_events::Case::new("UOT-SS", "stop_full_queue");
-    let probe = vcore::resources::observation::ResourceProbe::default();
+    let _case = vole::resources::case_events::Case::new("UOT-SS", "stop_full_queue");
+    let probe = vole::resources::observation::ResourceProbe::default();
     let (outbound, peer) = fixture(CIPHERS[0], 4096);
     let mut association = probe
         .scope(outbound.open_datagram(request(), &EstablishContext::default()))
@@ -405,7 +405,7 @@ async fn stop_joins_a_full_receiver_and_releases_io_with_the_association_retaine
         outbound.shutdown().await;
         // This caller intentionally retains the closed logical handle. Its
         // object guard is not a live read task or an owned physical stream.
-        use vcore::resources::observation::ResourceKind;
+        use vole::resources::observation::ResourceKind;
         assert_eq!(probe.snapshot().current(ResourceKind::Task), 0);
         assert_eq!(probe.snapshot().current(ResourceKind::Association), 1);
         assert!(association.receive().await.is_err());
@@ -421,7 +421,7 @@ async fn stop_joins_a_full_receiver_and_releases_io_with_the_association_retaine
 #[tokio::test]
 async fn zero_length_first_datagram_initializes_ss_once_without_an_empty_write() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new("UOT-SS", "first_packet");
+    let _case = vole::resources::case_events::Case::new("UOT-SS", "first_packet");
     let config = Config::parse_yaml(br#"
 mixed-port: 1080
 proxies:

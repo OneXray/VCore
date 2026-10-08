@@ -1,6 +1,6 @@
 //! Stable Core-owned filesystem layout.
 //!
-//! Platform hosts select one writable root. VCore owns the layout below that
+//! Platform hosts select one writable root. Vole owns the layout below that
 //! root and never infers a process role or platform-specific container.
 
 use std::{
@@ -19,7 +19,7 @@ pub struct DataDirectory {
 }
 
 impl DataDirectory {
-    /// Creates and canonicalizes the fixed VCore directory layout.
+    /// Creates and canonicalizes the fixed Vole directory layout.
     pub fn initialize(path: &Path) -> io::Result<Self> {
         if !path.is_absolute() {
             return Err(io::Error::new(
@@ -118,7 +118,7 @@ mod tests {
     #[test]
     fn initializes_fixed_layout_and_accepts_nested_config() {
         let temporary = tempdir().unwrap();
-        let root = temporary.path().join("vcore");
+        let root = temporary.path().join("vole");
         let data = DataDirectory::initialize(&root).unwrap();
         assert_eq!(data.root(), fs::canonicalize(root).unwrap());
         assert!(data.configs().is_dir());
@@ -126,7 +126,7 @@ mod tests {
 
         let generation = data.configs().join(".generation-1");
         fs::create_dir(&generation).unwrap();
-        let config = generation.join("vcore.yaml");
+        let config = generation.join("vole.yaml");
         fs::write(&config, "proxies: []\n").unwrap();
         assert_eq!(
             data.canonical_config(&config).unwrap(),
@@ -139,7 +139,7 @@ mod tests {
         assert!(DataDirectory::initialize(Path::new("relative")).is_err());
 
         let temporary = tempdir().unwrap();
-        let data = DataDirectory::initialize(&temporary.path().join("vcore")).unwrap();
+        let data = DataDirectory::initialize(&temporary.path().join("vole")).unwrap();
         let outside = temporary.path().join("outside.yaml");
         fs::write(&outside, "proxies: []\n").unwrap();
         let error = data.canonical_config(&outside).unwrap_err();
@@ -152,7 +152,7 @@ mod tests {
         use std::os::unix::fs::symlink;
 
         let temporary = tempdir().unwrap();
-        let data = DataDirectory::initialize(&temporary.path().join("vcore")).unwrap();
+        let data = DataDirectory::initialize(&temporary.path().join("vole")).unwrap();
         let outside = temporary.path().join("outside.yaml");
         fs::write(&outside, "proxies: []\n").unwrap();
         let link = data.configs().join("current.yaml");

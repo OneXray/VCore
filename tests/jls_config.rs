@@ -1,7 +1,7 @@
 #![cfg(feature = "outbound-vless")]
 
 use serde_json::json;
-use vcore::{
+use vole::{
     config::{Config, ProxyProtocol, SecurityConfig, VlessOutboundConfig},
     security::SecurityClient,
 };
@@ -9,7 +9,7 @@ use vcore::{
 #[test]
 fn public_jls_builds_an_authenticated_security_client_without_exposing_credentials() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "SECURITY-CONFIG-TLS",
         "public_jls_builds_an_authenticated_security_client_without_exposing_credentials",
     );
@@ -40,7 +40,7 @@ fn node() -> serde_json::Value {
         "jls-opts":{"username":"synthetic-jls-user", "password":"synthetic-jls-password"}})
 }
 
-fn parse(node: serde_json::Value) -> vcore::Result<VlessOutboundConfig> {
+fn parse(node: serde_json::Value) -> vole::Result<VlessOutboundConfig> {
     let config = Config::parse_yaml(
         &serde_json::to_vec(&json!({
             "mixed-port":1080, "proxies":[node], "rules":["MATCH,edge"]
@@ -56,7 +56,7 @@ fn parse(node: serde_json::Value) -> vcore::Result<VlessOutboundConfig> {
 #[test]
 fn independent_download_inherits_jls_identity_and_applies_its_own_tls_fields() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "SECURITY-CONFIG-TLS",
         "independent_download_inherits_jls_identity_and_applies_its_own_tls_fields",
     );
@@ -79,7 +79,7 @@ fn independent_download_inherits_jls_identity_and_applies_its_own_tls_fields() {
 #[test]
 fn download_jls_credentials_are_replaced_as_a_whole_or_explicitly_cleared() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "SECURITY-CONFIG-TLS",
         "download_jls_credentials_are_replaced_as_a_whole_or_explicitly_cleared",
     );
@@ -109,7 +109,7 @@ fn download_jls_credentials_are_replaced_as_a_whole_or_explicitly_cleared() {
 #[test]
 fn malformed_or_partial_credentials_never_inherit_a_missing_secret() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "SECURITY-CONFIG-TLS",
         "malformed_or_partial_credentials_never_inherit_a_missing_secret",
     );
@@ -156,7 +156,7 @@ fn malformed_or_partial_credentials_never_inherit_a_missing_secret() {
 #[test]
 fn invalid_jls_objects_do_not_echo_credentials_in_public_configuration_errors() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "SECURITY-CONFIG-TLS",
         "invalid_jls_objects_do_not_echo_credentials_in_public_configuration_errors",
     );
@@ -194,7 +194,7 @@ fn invalid_jls_objects_do_not_echo_credentials_in_public_configuration_errors() 
 #[test]
 fn jls_rejects_incompatible_security_at_configuration_time() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "SECURITY-CONFIG-TLS",
         "jls_rejects_incompatible_security_at_configuration_time",
     );
@@ -233,7 +233,7 @@ fn jls_rejects_incompatible_security_at_configuration_time() {
 #[test]
 fn download_security_switch_requires_explicit_clearing_of_inherited_identity() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "SECURITY-CONFIG-TLS",
         "download_security_switch_requires_explicit_clearing_of_inherited_identity",
     );
@@ -273,7 +273,7 @@ fn download_security_switch_requires_explicit_clearing_of_inherited_identity() {
 #[test]
 fn selected_profiles_build_jls_without_changing_its_identity() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "SECURITY-CONFIG-TLS",
         "selected_profiles_build_jls_without_changing_its_identity",
     );
@@ -313,7 +313,7 @@ fn selected_profiles_build_jls_without_changing_its_identity() {
 #[tokio::test]
 async fn cancelled_jls_handshakes_release_supplied_io_and_never_reuse_randoms() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "SECURITY-CONFIG-TLS",
         "cancelled_jls_handshakes_release_supplied_io_and_never_reuse_randoms",
     );
@@ -353,7 +353,7 @@ async fn cancelled_jls_handshakes_release_supplied_io_and_never_reuse_randoms() 
 #[tokio::test]
 async fn jls_security_client_rejects_ordinary_tls_before_application_data() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "SECURITY-CONFIG-TLS",
         "jls_security_client_rejects_ordinary_tls_before_application_data",
     );

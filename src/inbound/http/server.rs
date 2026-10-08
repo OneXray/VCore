@@ -35,7 +35,7 @@ use super::{
     parser::{RequestHead, parse_request_head},
 };
 
-pub(crate) const MEASURE_DIAGNOSTIC_HEADER: &str = "X-VCore-Measure-Diagnostic";
+pub(crate) const MEASURE_DIAGNOSTIC_HEADER: &str = "X-Vole-Measure-Diagnostic";
 pub(crate) const MEASURE_DIAGNOSTIC_REQUEST: &str = "v1";
 const MAX_MEASURE_DIAGNOSTIC_HEADER_BYTES: usize = 512;
 const MAX_INFORMATIONAL_RESPONSES: usize = 16;
@@ -498,7 +498,7 @@ async fn write_error<W: AsyncWrite + Unpin>(stream: &mut W, status: u16) -> io::
 }
 
 async fn write_auth_required<W: AsyncWrite + Unpin>(stream: &mut W) -> io::Result<()> {
-    write_timed(stream, b"HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"VCore\"\r\nConnection: close\r\nContent-Length: 0\r\n\r\n", Duration::from_secs(10)).await
+    write_timed(stream, b"HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"Vole\"\r\nConnection: close\r\nContent-Length: 0\r\n\r\n", Duration::from_secs(10)).await
 }
 
 async fn write_error_with_diagnostic<W: AsyncWrite + Unpin>(
@@ -726,7 +726,7 @@ mod tests {
             client.read_to_end(&mut response).await.unwrap();
             assert_eq!(
                 response,
-                b"HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"VCore\"\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"
+                b"HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"Vole\"\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"
             );
         }
 

@@ -8,7 +8,7 @@ use std::{
     },
     time::Duration,
 };
-use vcore::{
+use vole::{
     dialer::{ResolvedEndpoint, Resolver},
     dns::resolution::ResolutionContext,
     outbound::EstablishContext,
@@ -21,28 +21,28 @@ struct IpBoundary {
     seen: Arc<std::sync::Mutex<Vec<(Destination, SocketAddr)>>>,
 }
 #[async_trait]
-impl vcore::outbound::OutboundConnector for IpBoundary {
+impl vole::outbound::OutboundConnector for IpBoundary {
     async fn connect_stream(
         &self,
-        session: vcore::session::StreamSession,
+        session: vole::session::StreamSession,
         context: &EstablishContext,
-    ) -> Result<vcore::outbound::ConnectedStream, vcore::dispatch::DispatchError> {
+    ) -> Result<vole::outbound::ConnectedStream, vole::dispatch::DispatchError> {
         let effective = context.resolve_ip(&session.destination).await?;
         self.seen
             .lock()
             .unwrap()
             .push((session.destination, effective));
         let (stream, _) = tokio::io::duplex(1);
-        Ok(vcore::outbound::ConnectedStream {
+        Ok(vole::outbound::ConnectedStream {
             io: Box::new(stream),
             effective_peer: Destination::Ip(effective),
         })
     }
     async fn open_datagram(
         &self,
-        _: vcore::outbound::DatagramRequest,
+        _: vole::outbound::DatagramRequest,
         _: &EstablishContext,
-    ) -> Result<Box<dyn vcore::dispatch::DatagramTransport>, vcore::dispatch::DispatchError> {
+    ) -> Result<Box<dyn vole::dispatch::DatagramTransport>, vole::dispatch::DispatchError> {
         unreachable!()
     }
 }
@@ -50,11 +50,11 @@ impl vcore::outbound::OutboundConnector for IpBoundary {
 #[tokio::test]
 async fn measurement_domain_resolution_reaches_both_final_and_upstream_ip_boundaries() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "FOUNDATIONS-RESOLUTION",
         "measurement_domain_resolution_reaches_both_final_and_upstream_ip_boundaries",
     );
-    use vcore::{
+    use vole::{
         dispatch::Dispatcher,
         outbound::{ConnectorDispatcher, UpstreamPath},
         session::{InboundKind, StreamSession},
@@ -113,7 +113,7 @@ impl Resolver for ChainedBootstrap {
 #[tokio::test]
 async fn resolver_dependency_depth_is_bounded_independently_of_concurrent_lookups() {
     #[cfg(feature = "interop-test")]
-    let mut _case = vcore::resources::case_events::Case::new(
+    let mut _case = vole::resources::case_events::Case::new(
         "FOUNDATIONS-RESOLUTION",
         "resolver_dependency_depth_is_bounded_independently_of_concurrent_lookups",
     );
@@ -148,11 +148,11 @@ impl Resolver for Bootstrap {
 #[tokio::test]
 async fn runtime_uses_configured_dns_and_weak_binding_releases_owner() {
     #[cfg(feature = "interop-test")]
-    let mut _case = vcore::resources::case_events::Case::new(
+    let mut _case = vole::resources::case_events::Case::new(
         "FOUNDATIONS-RESOLUTION",
         "runtime_uses_configured_dns_and_weak_binding_releases_owner",
     );
-    use vcore::{
+    use vole::{
         config::{DnsConfig, DnsNameserver, DnsRoute, DnsTransport},
         dialer::Dialer,
         dns::runtime::RuntimeDns,
@@ -164,7 +164,7 @@ async fn runtime_uses_configured_dns_and_weak_binding_releases_owner() {
         let mut packet = [0; 4096];
         let (length, source) = peer.recv_from(&mut packet).await.unwrap();
         assert_eq!(
-            vcore::dns::parse_query(&packet[..length])
+            vole::dns::parse_query(&packet[..length])
                 .unwrap()
                 .question
                 .name,
@@ -219,17 +219,17 @@ struct RecursiveEgress {
     rejected: Arc<AtomicUsize>,
 }
 #[async_trait]
-impl vcore::dispatch::Dispatcher for RecursiveEgress {
+impl vole::dispatch::Dispatcher for RecursiveEgress {
     async fn connect_tcp(
         &self,
-        _: vcore::session::StreamSession,
-    ) -> Result<vcore::dispatch::BoxStream, vcore::dispatch::DispatchError> {
+        _: vole::session::StreamSession,
+    ) -> Result<vole::dispatch::BoxStream, vole::dispatch::DispatchError> {
         unreachable!()
     }
     async fn open_datagram(
         &self,
-        _: vcore::session::DatagramSession,
-    ) -> Result<Box<dyn vcore::dispatch::DatagramTransport>, vcore::dispatch::DispatchError> {
+        _: vole::session::DatagramSession,
+    ) -> Result<Box<dyn vole::dispatch::DatagramTransport>, vole::dispatch::DispatchError> {
         let context =
             EstablishContext::with_resolution(Duration::from_secs(10), self.resolution.clone());
         let error = context
@@ -245,11 +245,11 @@ impl vcore::dispatch::Dispatcher for RecursiveEgress {
 #[tokio::test]
 async fn recursive_dns_dependency_fails_before_connecting_or_joining_its_own_flight() {
     #[cfg(feature = "interop-test")]
-    let mut _case = vcore::resources::case_events::Case::new(
+    let mut _case = vole::resources::case_events::Case::new(
         "FOUNDATIONS-RESOLUTION",
         "recursive_dns_dependency_fails_before_connecting_or_joining_its_own_flight",
     );
-    use vcore::{
+    use vole::{
         config::{DnsConfig, DnsNameserver, DnsRoute, DnsTransport},
         dns::runtime::RuntimeDns,
     };
@@ -306,7 +306,7 @@ impl Resolver for PendingBootstrap {
 #[tokio::test]
 async fn lookup_deadline_and_stop_cancel_pending_resolver_without_retaining_waiters() {
     #[cfg(feature = "interop-test")]
-    let mut _case = vcore::resources::case_events::Case::new(
+    let mut _case = vole::resources::case_events::Case::new(
         "FOUNDATIONS-RESOLUTION",
         "lookup_deadline_and_stop_cancel_pending_resolver_without_retaining_waiters",
     );
@@ -323,7 +323,7 @@ async fn lookup_deadline_and_stop_cancel_pending_resolver_without_retaining_wait
     let context = EstablishContext::with_resolution(Duration::from_millis(10), resolution.clone());
     assert!(matches!(
         context.resolve_ip(&target).await,
-        Err(vcore::dispatch::DispatchError::TimedOut)
+        Err(vole::dispatch::DispatchError::TimedOut)
     ));
     assert_eq!(active.load(Ordering::Relaxed), 0);
     // Consume the first lookup's notification before observing the second.
@@ -340,7 +340,7 @@ async fn lookup_deadline_and_stop_cancel_pending_resolver_without_retaining_wait
 #[tokio::test]
 async fn standalone_measurement_resolves_only_at_ip_boundary_with_address_policy_and_stop() {
     #[cfg(feature = "interop-test")]
-    let mut _case = vcore::resources::case_events::Case::new(
+    let mut _case = vole::resources::case_events::Case::new(
         "FOUNDATIONS-RESOLUTION",
         "standalone_measurement_resolves_only_at_ip_boundary_with_address_policy_and_stop",
     );
@@ -366,7 +366,7 @@ async fn standalone_measurement_resolves_only_at_ip_boundary_with_address_policy
 #[tokio::test]
 async fn unbound_and_disabled_runtime_resolution_never_fall_back_to_system_dns() {
     #[cfg(feature = "interop-test")]
-    let mut _case = vcore::resources::case_events::Case::new(
+    let mut _case = vole::resources::case_events::Case::new(
         "FOUNDATIONS-RESOLUTION",
         "unbound_and_disabled_runtime_resolution_never_fall_back_to_system_dns",
     );

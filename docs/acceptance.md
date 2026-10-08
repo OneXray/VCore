@@ -3,18 +3,30 @@
 核心离线测试见 [tests](../tests/README.md)，平台编译入口见 [scripts](../scripts/README.md)。
 容器互通、压力与性能比较由公开的
 [container-benchmark](https://github.com/YuanDevTeam/container-benchmark) 的
-`interop` / `stress` / `compare` 分别执行，通过 `--source vcore=PATH`
-显式指定被测 checkout；VCore 编译入口不执行网络或压力验收。
+`interop` / `stress` / `compare` 分别执行，通过 `--source vole=PATH`
+显式指定被测 checkout；Vole 编译入口不执行网络或压力验收。
 本文定义证据边界，不是随源码自动续期的“全部通过”证明。
+文中统一使用当前工程名称；改名前的实验保留原始源码与产物身份，原始命令以独立
+benchmark 的历史记录为准，名称更新不构成重新验收。
+
+2026-10-08 工程更名验证在 macOS 执行：`cargo fmt --all -- --check`、
+`cargo test --locked --all-features --all-targets --no-run`、
+`cargo clippy --locked --all-features --lib --bins -- -D warnings`，以及
+`cargo build --locked --no-default-features --features cli,ffi --lib --bin vole` 均通过。
+CLI、共享 Invoke、配置、平台、TUN、路由、两个本地 crate 的纯内存回归通过；
+新 CLI 的文件、标准输入、环境默认和输出验证通过，实际加载 `libvole` 调用
+`VoleInvoke` / `VoleFree`，核对新构建身份与旧导出移除。构建脚本 41 项、benchmark
+146 项 Python 回归及离线 Go 分类回归通过；Windows 四个 backend 依赖图检查通过。
+本轮不重跑容器压力、原生 Windows 构建、设备或正式发布。
 
 ## 核心压力测试
 
-独立 benchmark 的 `stress` 面向指定 VCore 的原生 Linux TUN，默认 2 Gbps /
+独立 benchmark 的 `stress` 面向指定 Vole 的原生 Linux TUN，默认 2 Gbps /
 60 秒 / 1,000 QPS DNS，与 `compare` 一样固定只加载增强 DAT 中完整的
 `geosite:cn` / `geoip:cn`。原件下载和更新不裁剪、不扩展匹配器分类范围。
-当前 VCore CLI 压力入口尚无运行中的 GeoData 状态采样，显式拒绝
+当前 Vole CLI 压力入口尚无运行中的 GeoData 状态采样，显式拒绝
 `--geodata-update`，不以旧 C ABI 采样或离线 probe 替代运行中更新的证据。
-`compare` 执行 VCore/Mihomo 1/1.5/2 Gbps 对比。两者分别记录混合 TCP/UDP 与 DNS 负载
+`compare` 执行 Vole/Mihomo 1/1.5/2 Gbps 对比。两者分别记录混合 TCP/UDP 与 DNS 负载
 及指定内核 PID 的内存峰值，实际输入和门槛以 benchmark README 为准。
 50,000,000 bytes 为宿主工程目标；报告实际吞吐、丢包/错误、CPU、RSS 和 DNS 完成数。
 未达到目标负载不能宣称该档内存通过，数据损坏、崩溃、观测或清理失败不能隐藏。
@@ -32,8 +44,8 @@ GeoData 属性/反选、真实 Regex 编译、合成 Plain 和双快照重叠由
 128 万无 Regex 基线分别见 benchmark README；均不代表任意输入内存保证或
 iOS/tvOS 实机验收。
 
-2026-10-08 CLI / Invoke 重写后执行
-`stress --source vcore=PATH --rates 2000 --seconds 60`：生产 CLI 通过
+2026-10-08 CLI / Invoke 重写后，使用显式指定 checkout 的 `stress` 入口执行
+2 Gbps / 60 秒压力：生产 CLI 通过
 `-d data -f config` 启动，从 `tun.file-descriptor` 借用原生 Linux TUN。
 Rust 1.99.0、GNU ARM64 Release、Ubuntu 26.04.1 LTS、NAT、5 CPU / 8 GiB，
 TUN 与 eth0 队列为 4096；builder 在施压前停止。
@@ -57,7 +69,7 @@ Windows x64/ARM64 的 backend 依赖图及内存设备替身已检查；原生 W
 相关 CI 门禁已配置，不将配置存在计为执行通过。
 
 2026-10-06 切换常规 `regex::bytes::Regex` 后，执行两轮完整 CN 原生 Linux TUN
-复测：`compare --core vcore --rates 2000 --seconds 60 --source vcore=PATH`，
+复测：`compare` 单内核模式、显式指定 checkout、2 Gbps / 60 秒，
 仅加载 `geosite:cn` / `geoip:cn` 共 121,009 条，正常 Release + 生产 FFI，
 Ubuntu 26.04.1 LTS、NAT、5 CPU / 8 GiB、1,000 QPS DNS，线程/队列保持默认。
 RSS 峰值为 28,008,448 / 30,543,872 bytes，低于 50,000,000 bytes；分流与
@@ -72,7 +84,7 @@ probe，Linux RSS 不替代 Apple 实机 footprint，也不是任意输入的内
 以下全分类资产与双快照数据仅为 2026-10-06 旧 dense DFA 历史记录，不属于固定 CN 场景：
 完整增强资产共 1,572,166 条（GeoIP 1,054,987、GeoSite 517,179），
 未截断的 60 秒 / 2 Gbps / 1,000 QPS DNS 混合压力取得有效观测：实际吞吐
-1,993.88 Mbps、CPU 154.06%、指定 VCore 进程 RSS 峰值 53,542,912 bytes。
+1,993.88 Mbps、CPU 154.06%、指定 Vole 进程 RSS 峰值 53,542,912 bytes。
 50,000,000 bytes 内存目标 **未通过**；UDP 丢包 2,911 / 6,249,984，DNS 成功
 59,843 / 60,000 次计划查询。负载门槛通过不等于零丢包或全部查询完成。
 同轮离线双快照 probe 峰值 64,045,056 bytes，也超出该目标；它不是运行中更新
@@ -99,7 +111,7 @@ HY2 已完成分片 ID 重用等确定性回归。单纯复用实现生成期望
 Caddy/Xray H3/mTLS 3。具体配置由 benchmark 的 `interop --list` 和源码定义，
 可按 `--backend` / `--protocol` 筛选；命令存在或离线通过不等于当次互通通过。
 消费者统一使用生产 Invoke ABI；每轮构建一次，再顺序运行各组的三个 Linux
-隔离容器（NAT、5 CPU / 8 GiB）。编排已移至独立 benchmark，VCore 只提供被测源码；
+隔离容器（NAT、5 CPU / 8 GiB）。编排已移至独立 benchmark，Vole 只提供被测源码；
 原入口的历史通过不能作为迁移后本轮重新运行的证明。
 
 2026-10-06 迁移后仅重新执行 Mihomo SOCKS5 TCP/UDP 短测并通过：TCP 双向
@@ -135,7 +147,7 @@ Encryption、REALITY/JLS 等额外配置不在本入口覆盖内。这套代表�
 - XHTTP H3/mTLS 使用获准的 Caddy 网关；packetaddr/sing-mux 等分层拓扑明确标注
   网关、会话处理器和解码端，不能宣称单个原生服务端直接支持全部能力。
 - 官方 Hysteria 回包缓冲包含协议头；V2Ray 部分 VMess 返回路径也有更小缓冲。
-  原生夹具上限不改变 VCore 的协议预算。
+  原生夹具上限不改变 Vole 的协议预算。
 - SS 原样上游 padding 未初始化风险及空首包随机零 padding 被严格服务端拒绝的限制
   仍未修补。裸 SS、EIH 与 SS v3 TCP 的空首包/server-first 明确不在必过正例内，
   不计作互通成功；保留确定性拒绝负例。TCP 改验非空首段的 client-first，仍须三地址族、
@@ -147,7 +159,7 @@ Encryption、REALITY/JLS 等额外配置不在本入口覆盖内。这套代表�
   server-first 不代表官方 SS 空首包限制已解决，额外四字节记录特征仍存在。
 - SS UoT 仅 v2，裸流/v3 与三算法分别验证 TCP-only Mihomo listener，包含
   TCP-only SOCKS5 上游、切组、零长度包与 UDP 旁路观测。当前 Mihomo 的 UoT 接收
-  缓冲为 16 KiB；原样 ssserver 只作不支持 UoT 的负例。VCore u16 codec 边界、
+  缓冲为 16 KiB；原样 ssserver 只作不支持 UoT 的负例。Vole u16 codec 边界、
   调用方双向预算和该对端实际包上限分别取证，不相互替代。
 - 静态 ECH、JLS、Encryption 与混合 REALITY 是选定能力集；动态 ECH、Restls、
   ShadowTLS v1/v2、WireGuard 不在当前范围。
@@ -158,8 +170,8 @@ Encryption、REALITY/JLS 等额外配置不在本入口覆盖内。这套代表�
 
 ## 当前证据如何使用
 
-精简前的[冻结验收索引](https://github.com/YuanDevTeam/VCore/blob/b7c0100602e188bf28b9fa5370e11120069b54f7/docs/acceptance.md)
-保留各次运行、原始失败、环境和适用 revision；[完整阶段记录](https://github.com/YuanDevTeam/VCore/tree/b7c0100602e188bf28b9fa5370e11120069b54f7/docs/acceptance)
+精简前的[冻结验收索引](https://github.com/YuanDevTeam/Vole/blob/b7c0100602e188bf28b9fa5370e11120069b54f7/docs/acceptance.md)
+保留各次运行、原始失败、环境和适用 revision；[完整阶段记录](https://github.com/YuanDevTeam/Vole/tree/b7c0100602e188bf28b9fa5370e11120069b54f7/docs/acceptance)
 可在 Git 历史查阅。它们不再复制到当前文档。
 
 该基线记录过本地协议集成、持续压力与 Apple/Android 构建通过；随后 boring release /

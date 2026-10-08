@@ -31,7 +31,7 @@ SS 日志抑制与未修补风险见[出站](outbounds.md#shadowsocks-2022)。
 
 1. 本地开发将三个 crate 一起改为自有 fork checkout 的相对 `path` 依赖；保留版本和
    feature 约束，更新 Cargo.lock 后执行 locked 构建与相关测试，不混用本地和 Git 来源。
-2. 发起或更新 VCore PR 前，先将所需 fork 改动发布至 YuanDevTeam/boring 的 `release`，
+2. 发起或更新 Vole PR 前，先将所需 fork 改动发布至 YuanDevTeam/boring 的 `release`，
    再将三个 crate 一起切回 `git = "https://github.com/YuanDevTeam/boring", branch = "release"`。
    更新 Cargo.lock；若 revision 前移，对新的完整 revision 重新完成来源与能力审查。
 3. 在不依赖本地 fork 的 checkout 核对三个 crate 的 Git release 来源、完整锁定
@@ -41,7 +41,7 @@ SS 日志抑制与未修补风险见[出站](outbounds.md#shadowsocks-2022)。
 
 ## 身份与原生接口
 
-VCore 负责策略和受控 IO，BoringSSL 拥有握手字节、认证状态和临时秘密。
+Vole 负责策略和受控 IO，BoringSSL 拥有握手字节、认证状态和临时秘密。
 REALITY 使用同一 X25519 临时密钥生成 share、ECDH 和 session ID；连接级验证器
 检查临时证书和 CertificateVerify，失败清零并终止。普通 TLS 与 REALITY 使用不同
 不可变连接器，不热换身份、不保留第二个 REALITY 后端或降级开关。
@@ -49,11 +49,11 @@ REALITY 使用同一 X25519 临时密钥生成 share、ECDH 和 session ID；连
 
 JLS hook 认证真正的 hello，保留 TLS 签名/Finished/记录保护；不可重试失败前清零，
 非阻塞重试保留必要材料。ShadowTLS v3 复用原生 ClientHello hook 和完整 TLS1.3
-认证，VCore 只包装受控 IO 的 relay 记录；未命名 cover 同样由 boring 执行。
+认证，Vole 只包装受控 IO 的 relay 记录；未命名 cover 同样由 boring 执行。
 Restls 不支持。所有 fork 补丁由 feature 控制，原始 BoringSSL 子模块不直接改写。
 
 Encryption 的固定文本 context 使用官方 Rust blake3；二进制 context 使用
-[私有薄 FFI](../crates/vcore-blake3-raw/README.md)，包装未修改的官方 C portable 源，
+[私有薄 FFI](../crates/vole-blake3-raw/README.md)，包装未修改的官方 C portable 源，
 保留逐文件 hash、许可证及符号隔离，不在构建时下载。自有临时密钥使用 zeroize，
 不承诺擦除配置 String 或第三方全部内部副本。强制 ChaCha 测试入口只在 interop-test。
 
@@ -66,10 +66,10 @@ Brotli/Zlib 解压采用 fork 的受限实现和纯 Rust 依赖，不新增系�
 
 原生构建需要 C/C++、CMake、Perl、libclang，分别验证目标工具链。
 Apple 最终链接需要 libc++（module map 已声明，直接 C 链接需 -lc++）。
-Android 必须随库打包同 ABI/同 NDK 的 libc++_shared.so；只生成 libvcore.so 不证明可加载。
+Android 必须随库打包同 ABI/同 NDK 的 libc++_shared.so；只生成 libvole.so 不证明可加载。
 测试用 boring-sys/foreign-types 仅服务纯内存 peer，不新增生产后端。
 
-发布记录绑定 VCore/boring revision、lockfile hash、registry 校验值、BoringSSL 子模块/
+发布记录绑定 Vole/boring revision、lockfile hash、registry 校验值、BoringSSL 子模块/
 补丁 hash、toolchain、架构、产物 hash 和签名。许可证审核覆盖实际 release graph、
 boring MIT/Apache-2.0、BoringSSL 随源通知及 Android C++ runtime，不能只看 crate license。
 

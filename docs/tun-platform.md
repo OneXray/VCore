@@ -1,6 +1,6 @@
 # TUN 平台层
 
-VCore 的 netstack、DNS、规则和出站只处理完整的原始 IPv4/IPv6 数据包。平台差异集中在 `platform::TunIo`；Windows 通过互斥的 `windows-wintun` / `windows-uwp` feature 选择桌面 Wintun 或安装包 WinRT VPN，两者共用其后的运行时和代理图。
+Vole 的 netstack、DNS、规则和出站只处理完整的原始 IPv4/IPv6 数据包。平台差异集中在 `platform::TunIo`；Windows 通过互斥的 `windows-wintun` / `windows-uwp` feature 选择桌面 Wintun 或安装包 WinRT VPN，两者共用其后的运行时和代理图。
 
 ## Unix 借用 fd
 
@@ -11,18 +11,18 @@ TunRuntime -> TunRsIo -> 宿主持有的 TUN fd 副本
 - iOS/tvOS/macOS：宿主提供 utun 文件描述符，适配器处理四字节 packet-information 头。
 - Android：`VpnService` 提供 raw-IP 文件描述符。
 - Linux：真实单队列 TUN，使用 `IFF_TUN | IFF_NO_PI`、无 VNET header；接口实际 MTU
-  必须与 `tun.mtu` 一致。宿主负责地址、网络命名空间和路由，VCore 不自动接管系统网络。
+  必须与 `tun.mtu` 一致。宿主负责地址、网络命名空间和路由，Vole 不自动接管系统网络。
 
 `tun.file-descriptor` 缺省或 0 时，Linux / macOS 由 core 打开本机 TUN，Android / iOS /
-tvOS 仍需宿主提供 fd。`tun.device` 控制原生打开的接口名：空值在 Linux 使用 `VCore`，
+tvOS 仍需宿主提供 fd。`tun.device` 控制原生打开的接口名：空值在 Linux 使用 `Vole`，
 macOS 自动选择 utun。core 只设置自有接口的 MTU 和自有 fd 的 nonblocking，不配置地址、
 DNS 或路由；Stop 关闭自有句柄，不承诺删除宿主已有接口。创建失败没有备用数据面。
 正数 file-descriptor 选择下述借用路径；fd 数字必须对当前进程有效，CLI 不增加专用 fd 参数。
 
-宿主始终拥有原始文件描述符。VCore 启动时：
+宿主始终拥有原始文件描述符。Vole 启动时：
 
 1. 验证文件描述符有效且已设置 `O_NONBLOCK`；
-2. 通过 `F_DUPFD_CLOEXEC` 创建 VCore 持有的副本；
+2. 通过 `F_DUPFD_CLOEXEC` 创建 Vole 持有的副本；
 3. 把副本交给 `tun-rs::SyncDevice::from_fd`，并用 Tokio `AsyncFd` 驱动；
 4. 停止时只关闭副本。
 
@@ -34,7 +34,7 @@ raw IP；YAML 和 Invoke 不提供 framing 参数。借用 fd 时以真实接口
 Linux 启动前查询真实 TUN 及其所属网络命名空间，验证内核链接参数、实际 MTU 和
 raw-IP 格式；普通 socket/pipe、TAP、PI、VNET header 或多队列设备失败关闭。
 需要可读 procfs 和 TUN 所属 user namespace 的 `CAP_NET_ADMIN`，即使 fd 与
-VCore 在同一网络 namespace，也必须能执行 `TUNGETDEVNETNS`；借用一个有效 fd
+Vole 在同一网络 namespace，也必须能执行 `TUNGETDEVNETNS`；借用一个有效 fd
 不能绕过此权限检查。
 跨命名空间检查仅在专属短线程切换 namespace，完成并 join 后再启动运行时，
 不改变 Invoke 或业务工作线程的 namespace；宿主还需提供 `CAP_SYS_ADMIN` 等
@@ -42,8 +42,8 @@ VCore 在同一网络 namespace，也必须能执行 `TUNGETDEVNETNS`；借用�
 宿主原 fd 保持有效、非阻塞，运行期间不得改变接口格式或 MTU。
 
 Linux 压测可以把 TUN 创建在客户端 namespace，再把借用 fd 交给正常出口 namespace
-中的 VCore：客户端业务经 TUN，VCore 的普通 TCP/UDP socket 经正常物理出口。
-接口创建、路由隔离和清理由宿主完成；VCore 不隐式设置 default route 或保护标记。
+中的 Vole：客户端业务经 TUN，Vole 的普通 TCP/UDP socket 经正常物理出口。
+接口创建、路由隔离和清理由宿主完成；Vole 不隐式设置 default route 或保护标记。
 首轮验证为 GNU/glibc 原生构建与容器真实 TUN；musl、其他架构、安装交付和设备验收
 不由一次 Linux 容器压测推导。Linux RSS/VmHWM 与 Apple physical footprint 分开报告。
 
@@ -54,7 +54,7 @@ Apple Unified Logging、TASK_VM_INFO 当前/进程峰值观察及停止后的 al
 移动扩展周期采样。tvOS 事件使用 tvos_memory_*，iOS 保留 ios_memory_*。
 
 Apple 公开 NEPacketTunnelFlow API 是 packetFlow 的包读写，不承诺可取得 raw fd。
-VCore 的借用 fd 契约不能证明宿主 KVC 提取 fd 是稳定公开方案。模拟器 socketpair 只验证
+Vole 的借用 fd 契约不能证明宿主 KVC 提取 fd 是稳定公开方案。模拟器 socketpair 只验证
 合成 utun 数据面；真实宿主的 fd 获取/桥接、签名与 entitlement、系统路由、设备生命周期
 及物理内存须独立验收。当前没有新增 packetFlow 回调 ABI，也不暗中回退其他接入路径。
 
@@ -111,8 +111,8 @@ netstack 的 TCP 接收与发送缓冲可独立配置，各方向的容量包含
 的缓冲策略。该容量不包含代理 relay、包队列或 allocator 的内存。
 
 Linux 目前不启用 GRO/GSO：`tun-rs` 的 Linux offload 示例通过 builder 创建并
-配置带 VNET header 的设备，而 VCore 的原生和借用路径均不启用该模式。对现有 raw-IP
-设备调用 `recv_multiple` 不会自动合并读取或启用 offload。VCore 保留宿主
+配置带 VNET header 的设备，而 Vole 的原生和借用路径均不启用该模式。对现有 raw-IP
+设备调用 `recv_multiple` 不会自动合并读取或启用 offload。Vole 保留宿主
 MTU/格式与 fd 标志，原生 builder 只打开 raw-IP TUN，不暗中启用 offload 或改变借用接口。
 
 ## Windows Wintun
@@ -123,8 +123,8 @@ TunRuntime、netstack、DNS、规则和出站图。启用 TUN 的普通 Windows 
 实际启动调用见 [Invoke API](invoke-api.md#start)。
 
 宿主提供与程序架构一致的官方 `wintun.dll`。加载路径固定为进程可执行文件所在目录下的
-`wintun.dll`；适配器名由 `tun.device` 控制，空值为 `VCore`，启动可打开已有同名适配器或创建新适配器。
-VCore 不下载或打包该动态库，不搜索 PATH 或启动工作目录。
+`wintun.dll`；适配器名由 `tun.device` 控制，空值为 `Vole`，启动可打开已有同名适配器或创建新适配器。
+Vole 不下载或打包该动态库，不搜索 PATH 或启动工作目录。
 系统接口地址、DNS、路由与防递归出口配置由宿主完成；YAML 不提供 DLL 路径或路由字段。
 Wintun 使用配置的 MTU，共享原始包校验、IPv6 政策、局部队列预算和同步停止屏障。
 UWP 的 1400 MTU 上限只适用于该安装包路径；超过上限明确拒绝，不静默截断。
@@ -134,7 +134,7 @@ Windows 不接受 Unix file-descriptor 借用路径。
 非阻塞地提交到既有 `WindowsPacketAdapter` 的 256 包入站队列；队列满只丢当前包。
 写端直接提交到 2 MiB Wintun ring，ring 暂满时只保留当前尚未接受的包，异步退让
 1 ms 后重试；取消会释放待写包，不创建后台写任务或重放已成功提交的包。
-Stop 唤醒阻塞 reader 并等待线程结束，设备所有者随后关闭 VCore 持有的 session 和原生句柄。
+Stop 唤醒阻塞 reader 并等待线程结束，设备所有者随后关闭 Vole 持有的 session 和原生句柄。
 这不承诺移除宿主已有的接口，也不卸载系统驱动。
 
 驱动加载、权限、真实接口收发、物理出口与 Stop 后的设备资源释放须在 Windows 上
@@ -197,11 +197,11 @@ netstack 端点及纯 UDP codec，独立 crate 的通用 UDP endpoint 不在生�
 ## 物理出口
 
 - Linux：宿主负责网络命名空间或等效路由隔离，确保被捕获的客户端流量进入 TUN，
-  VCore 出站绕过 TUN；不能把仅绑定 source IP 当作绕路保证。没有自动路由配置或降级路径。
+  Vole 出站绕过 TUN；不能把仅绑定 source IP 当作绕路保证。没有自动路由配置或降级路径。
 - Android：每个出站 TCP/UDP socket 在 connect 前调用宿主 protect；失败则当前连接失败关闭。
 - Windows WinRT：Provider 为当前会话选择不可变的物理网络绑定；每个地址族只从非 link-local 地址中选择一个源 IP 和接口索引交给 Session Host，同时独立保留物理适配器全部去重的 on-link prefixes（包括 link-local）用于 VPN 路由。普通出站 socket 必须同时绑定源地址和 WinSock 接口索引。
 - Windows WinRT 只有配置中显式使用 `127.0.0.0/8` 范围内的 IPv4 字面量或 `::1` 的本地出站可以跳过物理绑定；物理代理服务器的域名解析到任何回环地址都会失败关闭。
-- Windows Wintun：普通出站复用默认 Dialer，不获取 Provider 的物理绑定或网络变化监控。宿主必须配置物理出口和路由隔离，确保 VCore 出站不重新进入 Wintun；VCore 不自动修改地址、DNS 或路由。
+- Windows Wintun：普通出站复用默认 Dialer，不获取 Provider 的物理绑定或网络变化监控。宿主必须配置物理出口和路由隔离，确保 Vole 出站不重新进入 Wintun；Vole 不自动修改地址、DNS 或路由。
 - WinRT 物理适配器、选定源地址、全部 on-link prefixes 或网络身份变化后，Provider 等待 2 秒消抖并停止会话，不迁移 socket 或自动回退。
 
 主机测试只能证明帧、所有权、队列和生命周期逻辑；平台实测范围见 [验收矩阵](acceptance.md)。

@@ -3,7 +3,7 @@
 
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWrite, AsyncWriteExt, BufWriter};
-use vcore::{
+use vole::{
     config::GrpcOptions,
     dispatch::BoxStream,
     transport::{GrpcPool, grpc, legacy_h2},
@@ -11,7 +11,7 @@ use vcore::{
 
 #[tokio::test]
 async fn xhttp_shutdown_flushes_the_last_upload_before_dropping_its_driver() {
-    use vcore::transport::xhttp::{XHttpClient, XHttpConfig, XHttpMode};
+    use vole::transport::xhttp::{XHttpClient, XHttpConfig, XHttpMode};
 
     for mode in [XHttpMode::StreamOne, XHttpMode::StreamUp] {
         for buffered in [false, true] {
@@ -76,7 +76,7 @@ async fn xhttp_shutdown_flushes_the_last_upload_before_dropping_its_driver() {
 #[tokio::test]
 async fn xhttp_http1_shutdown_flushes_the_last_chunk() {
     use tokio::io::{AsyncBufReadExt, BufReader};
-    use vcore::{
+    use vole::{
         config::XHttpVersion,
         transport::xhttp::{XHttpClient, XHttpConfig, XHttpMode},
     };
@@ -141,7 +141,7 @@ async fn xhttp_http1_shutdown_flushes_the_last_chunk() {
 #[tokio::test(start_paused = true)]
 async fn xhttp_stalled_upload_has_a_close_deadline_and_stop_cancels_it() {
     use std::{future::poll_fn, pin::Pin, task::Poll};
-    use vcore::{
+    use vole::{
         config::XHttpVersion,
         transport::xhttp::{XHttpClient, XHttpConfig, XHttpMode},
     };

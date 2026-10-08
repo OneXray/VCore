@@ -1,4 +1,4 @@
-#include "vcore.h"
+#include "vole.h"
 
 #include <windows.h>
 
@@ -16,7 +16,7 @@ class BridgeLock {
 public:
   BridgeLock()
       : handle_(
-            CreateMutexW(nullptr, FALSE, L"Local\\VCore.UwpDemo.Bridge.v1")) {
+            CreateMutexW(nullptr, FALSE, L"Local\\Vole.UwpDemo.Bridge.v1")) {
     if (handle_ == nullptr) {
       throw std::runtime_error("cannot create bridge lock");
     }
@@ -113,7 +113,7 @@ std::string request(int argc, wchar_t **argv) {
            R"(,"networkSettings":{"ipv4Address":"192.168.3.1","ipv6Address":"fd00::2","dnsIpv4Address":"223.5.5.5","dnsIpv6Address":"2400:3200::1"},"policy":{"alwaysOn":false,"allowLocalNetwork":true,"excludedCidrs":[]}}})";
   }
   throw std::runtime_error(
-      "usage: vcore-uwp-demo.exe environment|status|stop|start <config.yaml>");
+      "usage: vole-uwp-demo.exe environment|status|stop|start <config.yaml>");
 }
 
 } // namespace
@@ -123,13 +123,13 @@ int wmain(int argc, wchar_t **argv) {
   try {
     const std::string input = request(argc, argv);
     const BridgeLock lock;
-    char *raw = VCoreWindowsVpnInvoke(input.c_str());
+    char *raw = VoleWindowsVpnInvoke(input.c_str());
     if (raw == nullptr) {
-      std::cerr << "VCore returned no response\n";
+      std::cerr << "Vole returned no response\n";
       return 1;
     }
     const std::string response(raw);
-    VCoreFree(raw);
+    VoleFree(raw);
     std::cout << response << '\n';
     return response.find("\"success\":true") == std::string::npos ? 1 : 0;
   } catch (const std::exception &error) {

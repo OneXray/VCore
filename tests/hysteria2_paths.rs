@@ -12,7 +12,7 @@ use std::{
     },
     time::Duration,
 };
-use vcore::{
+use vole::{
     dispatch::{DatagramBudget, DatagramTransport, DispatchError},
     session::{Datagram, Destination},
 };
@@ -49,7 +49,7 @@ impl DatagramTransport for Packets {
 #[tokio::test]
 async fn controlled_path_maps_only_its_authorized_source_and_stops_without_replay() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "HYSTERIA2-UNIT",
         "controlled_path_maps_only_its_authorized_source_and_stops_without_replay",
     );
@@ -72,7 +72,7 @@ async fn controlled_path_maps_only_its_authorized_source_and_stops_without_repla
         sent,
         closed: closed.clone(),
     };
-    let (socket, driver) = vcore::transport::quic::attach_mapped(
+    let (socket, driver) = vole::transport::quic::attach_mapped(
         Box::new(raw),
         logical,
         physical,

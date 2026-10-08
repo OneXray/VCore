@@ -149,12 +149,12 @@ def _check_delivery(manifests: list[Path]) -> None:
             expected = {
                 f"{abi}/{name}"
                 for abi in ("arm64-v8a", "x86_64")
-                for name in ("libvcore.so", "libc++_shared.so")
+                for name in ("libvole.so", "libc++_shared.so")
             }
             if names != expected:
                 raise ValueError("Android delivery requires both ABIs and C++ runtimes")
             for abi, machine in (("arm64-v8a", 183), ("x86_64", 62)):
-                for name in ("libvcore.so", "libc++_shared.so"):
+                for name in ("libvole.so", "libc++_shared.so"):
                     path = manifest.parent / abi / name
                     with path.open("rb") as stream:
                         header = stream.read(20)
@@ -167,21 +167,21 @@ def _check_delivery(manifests: list[Path]) -> None:
                         raise ValueError(
                             f"wrong Android ELF architecture: {abi}/{name}"
                         )
-                    if name == "libvcore.so":
+                    if name == "libvole.so":
                         builds._require_identity(path, "Android")
         elif group == "apple":
-            expected = {"LibVCore.xcframework/Info.plist"} | {
-                f"LibVCore.xcframework/{identifier}/{name}"
+            expected = {"LibVole.xcframework/Info.plist"} | {
+                f"LibVole.xcframework/{identifier}/{name}"
                 for identifier in APPLE_LIBRARIES
                 for name in (
-                    "libvcore.a",
-                    "Headers/vcore.h",
+                    "libvole.a",
+                    "Headers/vole.h",
                     "Headers/module.modulemap",
                 )
             }
             if names != expected:
                 raise ValueError("incomplete Apple XCFramework")
-            with (manifest.parent / "LibVCore.xcframework/Info.plist").open(
+            with (manifest.parent / "LibVole.xcframework/Info.plist").open(
                 "rb"
             ) as stream:
                 libraries = plistlib.load(stream).get("AvailableLibraries", [])
@@ -198,12 +198,12 @@ def _check_delivery(manifests: list[Path]) -> None:
                     library.get("SupportedPlatform") != target_os
                     or library.get("SupportedPlatformVariant") != variant
                     or set(library.get("SupportedArchitectures", [])) != architectures
-                    or library.get("LibraryPath") != "libvcore.a"
+                    or library.get("LibraryPath") != "libvole.a"
                     or library.get("HeadersPath") != "Headers"
                 ):
                     raise ValueError("invalid Apple slice metadata")
                 path = (
-                    manifest.parent / "LibVCore.xcframework" / identifier / "libvcore.a"
+                    manifest.parent / "LibVole.xcframework" / identifier / "libvole.a"
                 )
                 minimum = toolchain[target_os + "DeploymentTarget"]
                 if target_os == "tvos" and tuple(map(int, minimum.split("."))) < (
@@ -218,11 +218,11 @@ def _check_delivery(manifests: list[Path]) -> None:
         else:
             arch = group.removeprefix("windows-")
             expected = {
-                "vcore.dll",
-                "vcore-windows-vpn-host.exe",
-                "vcore-windows-session-host.exe",
+                "vole.dll",
+                "vole-windows-vpn-host.exe",
+                "vole-windows-session-host.exe",
             }
-            if names != expected | {"vcore-windows-artifacts.json"}:
+            if names != expected | {"vole-windows-artifacts.json"}:
                 raise ValueError("incomplete Windows artifact set")
             if (
                 record.get("host", {}).get("os") != "Windows"
@@ -233,9 +233,9 @@ def _check_delivery(manifests: list[Path]) -> None:
                 )
             for name in expected:
                 builds._require_windows_architecture(manifest.parent / name, arch)
-            builds._require_identity(manifest.parent / "vcore.dll", "Windows")
+            builds._require_identity(manifest.parent / "vole.dll", "Windows")
             package = json.loads(
-                (manifest.parent / "vcore-windows-artifacts.json").read_text()
+                (manifest.parent / "vole-windows-artifacts.json").read_text()
             )
             if (
                 package.get("formatVersion") != 1
@@ -256,10 +256,10 @@ def _check_delivery(manifests: list[Path]) -> None:
 
 
 def build_delivery(platform_name: str) -> None:
-    if os.environ.get("VCORE_BUILD_PROFILE", "release") != "release":
+    if os.environ.get("VOLE_BUILD_PROFILE", "release") != "release":
         raise ValueError("delivery requires the release profile")
     if (
-        os.environ.get("VCORE_FEATURES", builds.DEFAULT_FEATURES)
+        os.environ.get("VOLE_FEATURES", builds.DEFAULT_FEATURES)
         != builds.DEFAULT_FEATURES
     ):
         raise ValueError("delivery requires the complete production feature set")
@@ -274,9 +274,9 @@ def build_delivery(platform_name: str) -> None:
                 "RUSTFLAGS",
                 "CARGO_ENCODED_RUSTFLAGS",
                 "CARGO_TARGET_DIR",
-                "VCORE_ANDROID_OUTPUT_DIR",
-                "VCORE_APPLE_DIST_DIR",
-                "VCORE_ANDROID_TARGETS",
+                "VOLE_ANDROID_OUTPUT_DIR",
+                "VOLE_APPLE_DIST_DIR",
+                "VOLE_ANDROID_TARGETS",
             }
             or name.startswith("CARGO_PROFILE_")
         )
@@ -308,7 +308,7 @@ def build_delivery(platform_name: str) -> None:
         toolchain["generator"] = "Ninja" if architecture == "arm64" else "Visual Studio"
         if architecture == "arm64":
             toolchain["clang"] = _output(
-                [normalized["VCORE_WINDOWS_ARM64_CLANG"], "--version"], builds.CORE_DIR
+                [normalized["VOLE_WINDOWS_ARM64_CLANG"], "--version"], builds.CORE_DIR
             )
             toolchain["assembly"] = "enabled"
     elif platform_name == "apple":
@@ -324,10 +324,10 @@ def build_delivery(platform_name: str) -> None:
                 ["xcrun", "--sdk", sdk, "--show-sdk-version"], builds.CORE_DIR
             )
         toolchain["iosDeploymentTarget"] = os.environ.get(
-            "VCORE_IOS_DEPLOYMENT_TARGET", "13.0"
+            "VOLE_IOS_DEPLOYMENT_TARGET", "13.0"
         )
         toolchain["macosDeploymentTarget"] = os.environ.get(
-            "VCORE_MACOS_DEPLOYMENT_TARGET", "10.15"
+            "VOLE_MACOS_DEPLOYMENT_TARGET", "10.15"
         )
         toolchain["tvosDeploymentTarget"] = builds.tvos_deployment_target()
     else:
@@ -337,7 +337,7 @@ def build_delivery(platform_name: str) -> None:
             [str(builds._android_toolchain(ndk) / "bin/clang"), "--version"],
             builds.CORE_DIR,
         )
-        toolchain["androidApi"] = os.environ.get("VCORE_ANDROID_API", "24")
+        toolchain["androidApi"] = os.environ.get("VOLE_ANDROID_API", "24")
     output = builds.CORE_DIR / "dist" / platform_name
     if platform_name == "windows":
         output /= architecture
@@ -358,7 +358,7 @@ def build_delivery(platform_name: str) -> None:
             raise ValueError(
                 "delivery output must not contain symlinks or reparse points"
             )
-    manifest = output / "vcore-delivery.json"
+    manifest = output / "vole-delivery.json"
     if platform_name == "android":
         # Development builds can leave additional ABIs in the same ignored
         # directory. Never mix those artifacts into a fresh delivery manifest.

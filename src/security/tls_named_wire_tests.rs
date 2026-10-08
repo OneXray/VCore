@@ -161,7 +161,7 @@ async fn selected_profiles_warm_wire_and_expired_tickets_use_real_handshakes() {
         );
         observations.push(serde_json::json!({"profile": name, "version": format!("{:?}", version.version), "phase": "after-hint", "resumed": resumed, "prior_ticket_bytes": prior_ticket_bytes, "records_b64": STANDARD.encode(bytes)}));
     }
-    if let Ok(path) = std::env::var("VCORE_FINGERPRINT_WARM_CAPTURE") {
+    if let Ok(path) = std::env::var("VOLE_FINGERPRINT_WARM_CAPTURE") {
         std::fs::write(path, serde_json::to_vec_pretty(&observations).unwrap()).unwrap();
     }
 }

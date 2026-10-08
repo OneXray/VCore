@@ -63,5 +63,5 @@ fn main() -> windows::core::Result<()> {
 
 #[cfg(not(windows))]
 fn main() {
-    eprintln!("vcore-windows-vpn-host is only available on Windows");
+    eprintln!("vole-windows-vpn-host is only available on Windows");
 }

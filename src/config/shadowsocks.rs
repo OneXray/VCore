@@ -113,7 +113,7 @@ pub(super) fn plugin(
                 .map(super::vless::parse_pin)
                 .transpose()
                 .map_err(|_| {
-                    crate::VCoreError::InvalidConfig("invalid ShadowTLS certificate pin".into())
+                    crate::VoleError::InvalidConfig("invalid ShadowTLS certificate pin".into())
                 })?,
         },
         client_fingerprint: super::parse_client_fingerprint(fingerprint.as_deref())?,

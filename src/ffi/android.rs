@@ -170,7 +170,7 @@ pub unsafe extern "system" fn JNI_OnUnload(_vm: JavaVm, _reserved: *mut c_void) 
 /// supplementary Unicode characters such as emoji.
 #[unsafe(no_mangle)]
 #[allow(non_snake_case)]
-pub unsafe extern "system" fn Java_io_github_onexray_vcore_NativeVCore_nativeInvoke(
+pub unsafe extern "system" fn Java_io_github_onexray_vole_NativeVole_nativeInvoke(
     env: JniEnv,
     _receiver: JObject,
     request: JByteArray,
@@ -195,11 +195,11 @@ pub unsafe extern "system" fn Java_io_github_onexray_vcore_NativeVCore_nativeInv
 
 /// Registers a runtime-local controller with method `boolean protect(int fd)`.
 ///
-/// `io.github.onexray.vcore` is VCore's stable Android namespace. The dispatcher
+/// `io.github.onexray.vole` is Vole's stable Android namespace. The dispatcher
 /// accepts replacement whenever no instance currently holds the Android TUN lease.
 #[unsafe(no_mangle)]
 #[allow(non_snake_case)]
-pub unsafe extern "system" fn Java_io_github_onexray_vcore_NativeVCore_nativeRegisterProtectController(
+pub unsafe extern "system" fn Java_io_github_onexray_vole_NativeVole_nativeRegisterProtectController(
     env: JniEnv,
     _receiver: JObject,
     controller: JObject,
@@ -217,7 +217,7 @@ pub unsafe extern "system" fn Java_io_github_onexray_vcore_NativeVCore_nativeReg
 /// Unregisters the Android controller while no TUN lease is held.
 #[unsafe(no_mangle)]
 #[allow(non_snake_case)]
-pub extern "system" fn Java_io_github_onexray_vcore_NativeVCore_nativeUnregisterProtectController(
+pub extern "system" fn Java_io_github_onexray_vole_NativeVole_nativeUnregisterProtectController(
     _env: JniEnv,
     _receiver: JObject,
 ) -> JBoolean {

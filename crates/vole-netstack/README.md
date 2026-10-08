@@ -1,11 +1,11 @@
-# vcore-netstack
+# vole-netstack
 
-`vcore-netstack` is VCore's bounded userspace raw-IP netstack. It accepts
+`vole-netstack` is Vole's bounded userspace raw-IP netstack. It accepts
 IPv4/IPv6 packets from a TUN device, exposes intercepted TCP streams and UDP
 datagrams to async Rust code, and returns generated raw-IP packets.
 
 The default local buffers are intentionally small for an iOS TUN runtime;
-VCore does not assume the host process role:
+Vole does not assume the host process role:
 
 - 32 KiB total buffering per TCP direction, independently configurable;
 - bounded raw-packet, TCP-accept and UDP-datagram queues;
@@ -31,22 +31,22 @@ datagram queue. The TUN runtime can own UDP association admission and use the
 pure codec without sending ordinary UDP through the TCP driver:
 
 ```rust,ignore
-let vcore_netstack::TcpNetStackParts {
+let vole_netstack::TcpNetStackParts {
     packet_sink,
     mut packet_stream,
     tcp_listener,
     control,
     stats,
-} = vcore_netstack::NetStack::start_tcp(config)?;
+} = vole_netstack::NetStack::start_tcp(config)?;
 
-if let Some(view) = vcore_netstack::parse_udp_packet_view(raw_ip_packet.data()) {
+if let Some(view) = vole_netstack::parse_udp_packet_view(raw_ip_packet.data()) {
     // Admit the association first; copy view.payload only for async ownership.
 } else {
     packet_sink.try_send(raw_ip_packet)?;
 }
 
 let mut frame = Vec::with_capacity(mtu);
-vcore_netstack::encode_udp_packet_into(&response_datagram, mtu, &mut frame)?;
+vole_netstack::encode_udp_packet_into(&response_datagram, mtu, &mut frame)?;
 // The platform's single writer can write this frame or a driver output packet.
 let raw = packet_stream.try_recv();
 control.stop().await;
@@ -61,8 +61,8 @@ UDP mistakenly sent into the TCP-only driver is ignored.
 ## Generic TCP and UDP API
 
 ```rust,ignore
-let stack = vcore_netstack::NetStack::start(config)?;
-let vcore_netstack::NetStackParts {
+let stack = vole_netstack::NetStack::start(config)?;
+let vole_netstack::NetStackParts {
     packet_sink,
     packet_stream,
     tcp_listener,

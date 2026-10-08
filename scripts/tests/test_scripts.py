@@ -14,8 +14,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from vcore_scripts import builds, cli
-from vcore_scripts.builds import EXPECTED_IDENTITY, _android_target, _require_identity
+from vole_scripts import builds, cli
+from vole_scripts.builds import EXPECTED_IDENTITY, _android_target, _require_identity
 
 
 def _windows_pe(machine: int) -> bytes:
@@ -53,14 +53,14 @@ class ScriptTest(unittest.TestCase):
         self.assertTrue(windows["tun-rs"]["optional"])
         self.assertEqual(windows["tun-rs"]["features"], ["interruptible"])
         for binary in manifest["bin"]:
-            if binary["name"].startswith("vcore-windows-"):
+            if binary["name"].startswith("vole-windows-"):
                 self.assertEqual(binary["required-features"], ["ffi", "windows-uwp"])
 
     def test_platform_cargo_build_rejects_test_features_before_spawn(self):
         for features in (
             "ffi,benchmark-geodata-http",
             "ffi interop-test",
-            "ffi vcore/benchmark-geodata-http",
+            "ffi vole/benchmark-geodata-http",
         ):
             with self.subTest(features=features), patch.object(builds, "_run") as run:
                 with self.assertRaisesRegex(RuntimeError, "test-only"):
@@ -92,13 +92,13 @@ class ScriptTest(unittest.TestCase):
         for platform_name in ("apple", "android", "windows"):
             with (
                 self.subTest(platform=platform_name),
-                patch(f"vcore_scripts.cli.build_{platform_name}") as build,
+                patch(f"vole_scripts.cli.build_{platform_name}") as build,
             ):
                 self.assertEqual(cli.main(["build", platform_name]), 0)
                 build.assert_called_once_with()
             with (
                 self.subTest(platform=platform_name, delivery=True),
-                patch("vcore_scripts.platform_delivery.build_delivery") as delivery,
+                patch("vole_scripts.platform_delivery.build_delivery") as delivery,
             ):
                 self.assertEqual(cli.main(["build", platform_name, "--delivery"]), 0)
                 delivery.assert_called_once_with(platform_name)
@@ -123,7 +123,7 @@ class ScriptTest(unittest.TestCase):
                 spawn.assert_not_called()
 
     def test_cli_dispatches_windows_build_without_architecture(self):
-        with patch("vcore_scripts.cli.build_windows") as build:
+        with patch("vole_scripts.cli.build_windows") as build:
             self.assertEqual(cli.main(["build", "windows"]), 0)
         build.assert_called_once_with()
 
@@ -166,9 +166,9 @@ class ScriptTest(unittest.TestCase):
             f"{{{foundation}}}Extension[@Category='windows.backgroundTasks']"
         )
         self.assertEqual(
-            full_trust.attrib["Executable"], "vcore-windows-session-host.exe"
+            full_trust.attrib["Executable"], "vole-windows-session-host.exe"
         )
-        self.assertEqual(provider.attrib["Executable"], "vcore-windows-vpn-host.exe")
+        self.assertEqual(provider.attrib["Executable"], "vole-windows-vpn-host.exe")
         self.assertEqual(provider.attrib[f"{{{uap10}}}RuntimeBehavior"], "windowsApp")
         self.assertEqual(provider.attrib[f"{{{uap10}}}TrustLevel"], "appContainer")
 
@@ -234,7 +234,7 @@ class ScriptTest(unittest.TestCase):
                     )
                     runtime.parent.mkdir(parents=True)
                     runtime.write_bytes(abi.encode())
-                    artifact = target_dir / target / "release/libvcore.so"
+                    artifact = target_dir / target / "release/libvole.so"
                     artifact.parent.mkdir(parents=True)
                     artifact.write_bytes(EXPECTED_IDENTITY)
                 with (
@@ -242,7 +242,7 @@ class ScriptTest(unittest.TestCase):
                         builds.os.environ,
                         {
                             "ANDROID_NDK_HOME": str(root / "ndk"),
-                            "VCORE_ANDROID_API": api,
+                            "VOLE_ANDROID_API": api,
                         }
                         | bindgen_overrides
                         | ({"CARGO_TARGET_DIR": str(target_dir)} if configured else {}),
@@ -260,8 +260,8 @@ class ScriptTest(unittest.TestCase):
                 ):
                     abi, clang, _ = _android_target(target, api)
                     env = invocation.args[3]
-                    self.assertEqual(env["VCORE_CMAKE_ANDROID_ABI"], abi)
-                    self.assertEqual(env["VCORE_CMAKE_ANDROID_API"], api)
+                    self.assertEqual(env["VOLE_CMAKE_ANDROID_ABI"], abi)
+                    self.assertEqual(env["VOLE_CMAKE_ANDROID_API"], api)
                     extra = (
                         expected_extra
                         if target == "aarch64-linux-android"
@@ -283,7 +283,7 @@ class ScriptTest(unittest.TestCase):
                     )
                     output = root / "dist/android" / abi
                     self.assertEqual(
-                        (output / "libvcore.so").read_bytes(), EXPECTED_IDENTITY
+                        (output / "libvole.so").read_bytes(), EXPECTED_IDENTITY
                     )
                     self.assertEqual(
                         (output / "libc++_shared.so").read_bytes(), abi.encode()
@@ -291,7 +291,7 @@ class ScriptTest(unittest.TestCase):
 
     def test_artifact_identity_check_reads_binary_directly(self):
         with tempfile.TemporaryDirectory() as directory:
-            artifact = Path(directory) / "libvcore.a"
+            artifact = Path(directory) / "libvole.a"
             artifact.write_bytes(b"prefix\0" + EXPECTED_IDENTITY + b"\0suffix")
             _require_identity(artifact, "test")
             artifact.write_bytes(b"wrong")
@@ -313,14 +313,14 @@ class ScriptTest(unittest.TestCase):
                 files = {
                     name: name.encode()
                     for name in (
-                        "vcore.dll",
-                        "vcore-windows-artifacts.json",
-                        "vcore-delivery.json",
+                        "vole.dll",
+                        "vole-windows-artifacts.json",
+                        "vole-delivery.json",
                     )
                 }
                 for name, data in files.items():
                     (output / name).write_bytes(data)
-                env = {"VCORE_NATIVE_CHECK": architecture}
+                env = {"VOLE_NATIVE_CHECK": architecture}
                 with (
                     patch.object(builds, "CORE_DIR", root),
                     patch.object(builds, "os", SimpleNamespace(name="nt")),
@@ -347,7 +347,7 @@ class ScriptTest(unittest.TestCase):
                             "cli,windows-wintun",
                             "--lib",
                             "--bin",
-                            "vcore",
+                            "vole",
                         ],
                         env=env,
                     )
@@ -378,9 +378,9 @@ class ScriptTest(unittest.TestCase):
                 release = target_dir / "aarch64-pc-windows-msvc/release"
                 release.mkdir(parents=True)
                 artifacts = (
-                    "vcore.dll",
-                    "vcore-windows-vpn-host.exe",
-                    "vcore-windows-session-host.exe",
+                    "vole.dll",
+                    "vole-windows-vpn-host.exe",
+                    "vole-windows-session-host.exe",
                 )
                 for name in artifacts:
                     (release / name).write_bytes(_windows_pe(0xAA64))
@@ -421,7 +421,7 @@ class ScriptTest(unittest.TestCase):
                     )
                     manifest = json.loads(
                         (
-                            root / "dist/windows/arm64/vcore-windows-artifacts.json"
+                            root / "dist/windows/arm64/vole-windows-artifacts.json"
                         ).read_text()
                     )
                     expected_digest = hashlib.sha256(_windows_pe(0xAA64)).hexdigest()
@@ -430,9 +430,9 @@ class ScriptTest(unittest.TestCase):
                         {
                             "architecture": "arm64",
                             "artifacts": {
-                                "vcore-windows-session-host.exe": expected_digest,
-                                "vcore-windows-vpn-host.exe": expected_digest,
-                                "vcore.dll": expected_digest,
+                                "vole-windows-session-host.exe": expected_digest,
+                                "vole-windows-vpn-host.exe": expected_digest,
+                                "vole.dll": expected_digest,
                             },
                             "buildIdentity": EXPECTED_IDENTITY.decode("ascii"),
                             "formatVersion": 1,
@@ -440,13 +440,13 @@ class ScriptTest(unittest.TestCase):
                         },
                     )
 
-                    provider = release / "vcore-windows-vpn-host.exe"
+                    provider = release / "vole-windows-vpn-host.exe"
                     provider.write_bytes(_windows_pe(0x8664))
                     with self.assertRaisesRegex(RuntimeError, "wrong architecture"):
                         builds.build_windows()
                     self.assertFalse(
                         (
-                            root / "dist/windows/arm64/vcore-windows-artifacts.json"
+                            root / "dist/windows/arm64/vole-windows-artifacts.json"
                         ).exists()
                     )
 
@@ -455,7 +455,7 @@ class ScriptTest(unittest.TestCase):
                     dll[0x100 : 0x100 + len(EXPECTED_IDENTITY)] = bytes(
                         len(EXPECTED_IDENTITY)
                     )
-                    (release / "vcore.dll").write_bytes(dll)
+                    (release / "vole.dll").write_bytes(dll)
                     with self.assertRaisesRegex(
                         RuntimeError, "incompatible Rust identity"
                     ):

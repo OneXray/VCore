@@ -24,7 +24,7 @@ The five `vendor/blake3*` files are byte-for-byte copies from official
 Archive SHA-256: `c6782a28842b1c0478524ac06a4f2ede784038ee298d6e2162c0b089c4306a3c`.
 Upstream offers CC0-1.0, Apache-2.0, or Apache-2.0 WITH LLVM-exception; all three
 license texts are preserved in `vendor/`. Vendored source is used under
-Apache-2.0 WITH LLVM-exception. VCore-owned adapter/build/Rust code is MIT.
+Apache-2.0 WITH LLVM-exception. Vole-owned adapter/build/Rust code is MIT.
 
 | File | SHA-256 |
 | --- | --- |
@@ -44,7 +44,7 @@ and rerunning vectors and target builds.
 ## Check
 
 ```sh
-cargo test --locked -p vcore-blake3-raw
+cargo test --locked -p vole-blake3-raw
 ```
 
 This checks a primitive, not the Encryption handshake, ticket authentication,

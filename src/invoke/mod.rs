@@ -23,7 +23,7 @@ use serde_json::{Value, json};
 use tokio::sync::oneshot;
 
 use crate::{
-    BUILD_IDENTITY, ENGINE, Lifecycle, LifecycleState, ResourceLimits, TunFraming, VCoreError,
+    BUILD_IDENTITY, ENGINE, Lifecycle, LifecycleState, ResourceLimits, TunFraming, VoleError,
     config::Config,
     data_dir::DataDirectory,
     dialer::{Dialer, SocketProtector, SystemResolver},
@@ -288,7 +288,7 @@ impl Engine {
         };
         match thread.join() {
             Ok(result) => result.map_err(InvokeFailure::from),
-            Err(_) => Err(InvokeFailure::internal("VCore runtime thread panicked")),
+            Err(_) => Err(InvokeFailure::internal("Vole runtime thread panicked")),
         }
     }
 
@@ -332,8 +332,8 @@ impl InvokeFailure {
     }
 }
 
-impl From<VCoreError> for InvokeFailure {
-    fn from(value: VCoreError) -> Self {
+impl From<VoleError> for InvokeFailure {
+    fn from(value: VoleError) -> Self {
         Self::new(value.to_string())
     }
 }
@@ -437,7 +437,7 @@ impl RuntimeRegistry {
                 return Ok(current.directory.clone());
             }
             return Err(InvokeFailure::invalid_state(
-                "VCore dataDir is already initialized to a different path",
+                "Vole dataDir is already initialized to a different path",
             ));
         }
         *current = Some(RuntimeData {
@@ -453,7 +453,7 @@ impl RuntimeRegistry {
             .map(|data| data.directory.clone())
             .ok_or_else(|| {
                 InvokeFailure::invalid_state(
-                    "VCore dataDir is not initialized; call initialize before configuration methods",
+                    "Vole dataDir is not initialized; call initialize before configuration methods",
                 )
             })
     }
@@ -464,7 +464,7 @@ impl RuntimeRegistry {
             .map(|data| data.geodata.clone())
             .ok_or_else(|| {
                 InvokeFailure::invalid_state(
-                    "VCore dataDir is not initialized; call initialize before configuration methods",
+                    "Vole dataDir is not initialized; call initialize before configuration methods",
                 )
             })
     }
@@ -617,7 +617,7 @@ pub(crate) fn is_runtime_thread() -> bool {
 }
 
 pub(crate) fn runtime_thread_response() -> Vec<u8> {
-    br#"{"success":false,"data":null,"error":"Invoke cannot be called from the VCore runtime thread"}"#
+    br#"{"success":false,"data":null,"error":"Invoke cannot be called from the Vole runtime thread"}"#
         .to_vec()
 }
 
@@ -626,7 +626,7 @@ fn invoke_guarded(operation: impl FnOnce() -> Result<InvokeResponse, InvokeFailu
         Ok(Ok(response)) => response,
         Ok(Err(error)) => InvokeResponse::failure(error.message),
         Err(_) => {
-            InvokeResponse::failure("internal error: panic caught at the VCore Invoke boundary")
+            InvokeResponse::failure("internal error: panic caught at the Vole Invoke boundary")
         }
     };
     serialize_response(response)
@@ -644,7 +644,7 @@ fn invoke_instance_guarded<T>(
                 registry().remove_instance(controller);
             }
             Err(InvokeFailure::internal(
-                "panic caught at the VCore Invoke boundary",
+                "panic caught at the Vole Invoke boundary",
             ))
         }
     }
@@ -939,7 +939,7 @@ impl CoreController {
         };
         let dispatch = tracing::dispatcher::get_default(Clone::clone);
         let spawned = thread::Builder::new()
-            .name(format!("vcore-runtime-{instance_id}"))
+            .name(format!("vole-runtime-{instance_id}"))
             .spawn(crate::resources::observation::inherit_thread(move || {
                 let _logging = tracing::dispatcher::set_default(&dispatch);
                 let _completion = EngineCompletion(completed_tx);
@@ -988,7 +988,7 @@ impl CoreController {
                 let mut inner = lock(&self.inner);
                 let outcome = stopped.and_then(|()| {
                     Err(InvokeFailure::internal(
-                        "VCore runtime exited before reporting startup",
+                        "Vole runtime exited before reporting startup",
                     ))
                 });
                 reset_failed_operation(&mut inner, "start-disconnected").and(outcome)
@@ -997,7 +997,7 @@ impl CoreController {
                 let _ = engine.stop();
                 let mut inner = lock(&self.inner);
                 reset_failed_operation(&mut inner, "start-timeout")
-                    .and(Err(InvokeFailure::new("VCore runtime startup timed out")))
+                    .and(Err(InvokeFailure::new("Vole runtime startup timed out")))
             }
         }
     }
@@ -1110,7 +1110,7 @@ impl CoreController {
             let had_tun = inner.tun_lease.is_some();
             inner.prepared = None;
             inner.last_error =
-                "internal error: panic caught at the VCore Invoke boundary".to_owned();
+                "internal error: panic caught at the Vole Invoke boundary".to_owned();
             match inner.lifecycle.state() {
                 LifecycleState::Running | LifecycleState::Failed => {
                     let _ = inner.lifecycle.transition(LifecycleState::Stopping);
@@ -1259,19 +1259,19 @@ fn run_engine(
         has_tun,
         allocator_relief,
     } = context;
-    tracing::info!(instance_id, has_tun, "VCore runtime engine starting");
+    tracing::info!(instance_id, has_tun, "Vole runtime engine starting");
     let result = run_engine_inner(instance_id, has_tun, prepared, tun, dialer, stop, startup);
     observe_apple_tun_memory(has_tun, "stop-complete");
     if let Some(relief) = allocator_relief {
         relief.relieve();
     }
     match &result {
-        Ok(()) => tracing::info!(instance_id, "VCore runtime engine stopped"),
+        Ok(()) => tracing::info!(instance_id, "Vole runtime engine stopped"),
         Err(error) => {
             tracing::error!(
                 instance_id,
                 error_kind = ?error.kind(),
-                "VCore runtime engine failed"
+                "Vole runtime engine failed"
             );
         }
     }
@@ -1347,7 +1347,7 @@ fn run_engine_inner(
                 return Err(io::Error::new(kind, message));
             }
         };
-        tracing::info!(instance_id, has_tun, "VCore runtime engine started");
+        tracing::info!(instance_id, has_tun, "Vole runtime engine started");
         if startup.send(Ok(())).is_err() {
             return running.stop().await;
         }
@@ -1387,14 +1387,14 @@ fn refresh_runtime_status(inner: &mut CoreInner) {
     let result = inner.engine.as_mut().map_or_else(
         || {
             Err(InvokeFailure::internal(
-                "VCore runtime disappeared unexpectedly",
+                "Vole runtime disappeared unexpectedly",
             ))
         },
         Engine::stop,
     );
     inner.engine = None;
     inner.last_error = match result {
-        Ok(()) => "VCore runtime stopped unexpectedly".to_owned(),
+        Ok(()) => "Vole runtime stopped unexpectedly".to_owned(),
         Err(error) => error.message,
     };
     let _ = inner.lifecycle.transition(LifecycleState::Failed);
@@ -1468,7 +1468,7 @@ mod tests {
 
     use super::*;
     #[cfg(feature = "ffi")]
-    use crate::ffi::{VCoreFree, VCoreInvoke};
+    use crate::ffi::{VoleFree, VoleInvoke};
     #[cfg(feature = "ffi")]
     use std::{ffi::CStr, ptr};
 
@@ -1551,7 +1551,7 @@ mod tests {
 
     fn initialize_test_data_directory() -> TestDataDirectory {
         let temporary = tempfile::tempdir().unwrap();
-        let root = temporary.path().join("vcore");
+        let root = temporary.path().join("vole");
         let response = request(
             "initialize",
             None,
@@ -1588,7 +1588,7 @@ authentication:
     alpn: [h2]
     xhttp-opts:
       host: example.com
-      path: /vcore
+      path: /vole
       mode: packet-up
 rules:
   - MATCH,proxy
@@ -1623,7 +1623,7 @@ proxies:
     alpn: [h2]
     xhttp-opts:
       host: example.com
-      path: /vcore
+      path: /vole
       mode: packet-up
 rules:
 {rules}
@@ -1696,7 +1696,7 @@ rules:
         assert_failure(&request("getGeoDataState", None, json!({})));
 
         let temporary = tempfile::tempdir().unwrap();
-        let root = temporary.path().join("vcore");
+        let root = temporary.path().join("vole");
         let first = request(
             "initialize",
             None,
@@ -1942,38 +1942,38 @@ rules:
         let _guard = TEST_LOCK.lock().unwrap();
         reset_registry();
         // SAFETY: null is explicitly accepted as an error case.
-        let null_response = unsafe { VCoreInvoke(ptr::null()) };
+        let null_response = unsafe { VoleInvoke(ptr::null()) };
         assert!(!null_response.is_null());
-        // SAFETY: response is a live VCore allocation.
+        // SAFETY: response is a live Vole allocation.
         let null_json: Value =
             serde_json::from_str(unsafe { CStr::from_ptr(null_response) }.to_str().unwrap())
                 .unwrap();
-        unsafe { VCoreFree(null_response) };
+        unsafe { VoleFree(null_response) };
         assert_failure(&null_json);
 
         let invalid = [0xff_u8, 0];
         // SAFETY: invalid has a NUL terminator and readable bounded storage.
-        let invalid_response = unsafe { VCoreInvoke(invalid.as_ptr().cast()) };
+        let invalid_response = unsafe { VoleInvoke(invalid.as_ptr().cast()) };
         let invalid_json: Value = serde_json::from_str(
             unsafe { CStr::from_ptr(invalid_response) }
                 .to_str()
                 .unwrap(),
         )
         .unwrap();
-        unsafe { VCoreFree(invalid_response) };
+        unsafe { VoleFree(invalid_response) };
         assert_failure(&invalid_json);
 
         let mut oversized = vec![b' '; MAX_INVOKE_BYTES + 2];
         *oversized.last_mut().unwrap() = 0;
         // SAFETY: oversized is NUL-terminated and readable for the bounded scan.
-        let oversized_response = unsafe { VCoreInvoke(oversized.as_ptr().cast()) };
+        let oversized_response = unsafe { VoleInvoke(oversized.as_ptr().cast()) };
         let oversized_json: Value = serde_json::from_str(
             unsafe { CStr::from_ptr(oversized_response) }
                 .to_str()
                 .unwrap(),
         )
         .unwrap();
-        unsafe { VCoreFree(oversized_response) };
+        unsafe { VoleFree(oversized_response) };
         assert_failure(&oversized_json);
     }
 

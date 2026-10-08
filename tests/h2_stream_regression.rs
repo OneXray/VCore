@@ -6,7 +6,7 @@
 use std::time::Duration;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use vcore::transport::xhttp::{XHttpClient, XHttpConfig, XHttpMode};
+use vole::transport::xhttp::{XHttpClient, XHttpConfig, XHttpMode};
 
 fn frame(kind: u8, flags: u8, stream: u32, payload: &[u8]) -> Vec<u8> {
     let mut output = (payload.len() as u32).to_be_bytes()[1..].to_vec();
@@ -71,7 +71,7 @@ async fn response_followed_by_reset(end_stream: bool) -> std::io::Result<Vec<u8>
 #[tokio::test]
 async fn xhttp_keeps_complete_response_when_peer_resets_after_end_stream() {
     #[cfg(feature = "interop-test")]
-    let _evidence = vcore::resources::case_events::Case::new(
+    let _evidence = vole::resources::case_events::Case::new(
         "VMESS-REGRESSION",
         "xhttp_keeps_complete_response_when_peer_resets_after_end_stream",
     );
@@ -84,7 +84,7 @@ async fn xhttp_keeps_complete_response_when_peer_resets_after_end_stream() {
 #[tokio::test]
 async fn xhttp_does_not_hide_reset_before_end_stream() {
     #[cfg(feature = "interop-test")]
-    let _evidence = vcore::resources::case_events::Case::new(
+    let _evidence = vole::resources::case_events::Case::new(
         "VMESS-REGRESSION",
         "xhttp_does_not_hide_reset_before_end_stream",
     );

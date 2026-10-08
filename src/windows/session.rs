@@ -122,7 +122,7 @@ async fn run_async(local_folder: &Path, installed_folder: &Path) -> io::Result<(
                 &ControlMessage::RuntimeFailed {
                     version: PROTOCOL_VERSION,
                     code: "runtime-start-failed".to_owned(),
-                    redacted_message: "VCore runtime failed to start".to_owned(),
+                    redacted_message: "Vole runtime failed to start".to_owned(),
                 },
             )
             .await;
@@ -195,7 +195,7 @@ async fn run_async(local_folder: &Path, installed_folder: &Path) -> io::Result<(
                 &ControlMessage::RuntimeFailed {
                     version: PROTOCOL_VERSION,
                     code: "runtime-failed".to_owned(),
-                    redacted_message: "VCore runtime stopped unexpectedly".to_owned(),
+                    redacted_message: "Vole runtime stopped unexpectedly".to_owned(),
                 },
             )
             .await;
@@ -246,7 +246,7 @@ async fn start_session(
         .session_backend()
         .map(|backend| ManagedProcessSet::start(installed_folder, backend))
         .transpose()?;
-    let started = start_vcore(local_folder, snapshot.config_yaml(), binding, data).await;
+    let started = start_vole(local_folder, snapshot.config_yaml(), binding, data).await;
     let (running, mut data_tasks) = match started {
         Ok(started) => started,
         Err(error) => {
@@ -270,7 +270,7 @@ async fn start_session(
     Ok((running, data_tasks, managed_processes))
 }
 
-async fn start_vcore(
+async fn start_vole(
     local_folder: &Path,
     config_yaml: &str,
     binding: PhysicalBinding,
@@ -280,7 +280,7 @@ async fn start_vcore(
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
     let mtu = packet_channel_mtu(&config)?;
     let geodata = GeoDataManager::open(
-        local_folder.join("vcore/geodata"),
+        local_folder.join("vole/geodata"),
         Duration::from_secs(24 * 60 * 60),
     )
     .map_err(io::Error::other)?;
@@ -430,7 +430,7 @@ mod tests {
     #[tokio::test]
     async fn provider_cannot_bind_a_candidate_to_another_snapshot() {
         let candidate =
-            "vcore-session-v2:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+            "vole-session-v2:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
         let mut provider = Vec::new();
         write_control_async(
             &mut provider,

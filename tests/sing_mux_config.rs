@@ -1,6 +1,6 @@
 #![cfg(feature = "outbound-vless")]
 use serde_json::json;
-use vcore::config::Config;
+use vole::config::Config;
 
 fn parse(options: serde_json::Value, vision: bool) -> bool {
     Config::parse_yaml(
@@ -19,7 +19,7 @@ fn parse(options: serde_json::Value, vision: bool) -> bool {
 #[test]
 fn sing_mux_accepts_three_protocols_and_rejects_invalid_or_ignored_options() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "sing_mux_accepts_three_protocols_and_rejects_invalid_or_ignored_options",
     );

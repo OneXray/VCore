@@ -32,7 +32,7 @@ impl StaticEchConfig {
             }
         }
         let selected = selected.ok_or_else(|| {
-            VCoreError::InvalidConfig("ECH has no compatible configuration".into())
+            VoleError::InvalidConfig("ECH has no compatible configuration".into())
         })?;
         let mut wire = (selected.len() as u16).to_be_bytes().to_vec();
         wire.extend_from_slice(selected);
@@ -149,14 +149,14 @@ impl RawEch {
             return Ok(None);
         }
         let encoded = self.config.ok_or_else(|| {
-            VCoreError::InvalidConfig("static ECH requires an explicit config".into())
+            VoleError::InvalidConfig("static ECH requires an explicit config".into())
         })?;
         if encoded.len() > 87_384 {
             return invalid("ECH config exceeds the wire bound");
         }
         let wire = base64::engine::general_purpose::STANDARD
             .decode(encoded)
-            .map_err(|_| VCoreError::InvalidConfig("invalid ECH Base64 config".into()))?;
+            .map_err(|_| VoleError::InvalidConfig("invalid ECH Base64 config".into()))?;
         StaticEchConfig::from_config_list(&wire).map(Some)
     }
 }

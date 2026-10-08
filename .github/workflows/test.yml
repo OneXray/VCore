@@ -62,19 +62,19 @@ jobs:
         if: matrix.profile == 'features'
         shell: bash
         run: |
-          clang -x c -std=c11 -Wall -Wextra -Werror -fsyntax-only -include vcore.h -I include - <<'C'
+          clang -x c -std=c11 -Wall -Wextra -Werror -fsyntax-only -include vole.h -I include - <<'C'
           int main(void) {
-            char *response = VCoreInvoke("{\"method\":\"version\",\"payload\":{}}");
-            VCoreFree(response);
-            VCoreFree((char *)0);
+            char *response = VoleInvoke("{\"method\":\"version\",\"payload\":{}}");
+            VoleFree(response);
+            VoleFree((char *)0);
             return 0;
           }
           C
-          clang++ -x c++ -std=c++17 -Wall -Wextra -Werror -fsyntax-only -include vcore.h -I include - <<'CPP'
+          clang++ -x c++ -std=c++17 -Wall -Wextra -Werror -fsyntax-only -include vole.h -I include - <<'CPP'
           int main() {
-            char *response = VCoreInvoke("{\"method\":\"version\",\"payload\":{}}");
-            VCoreFree(response);
-            VCoreFree(nullptr);
+            char *response = VoleInvoke("{\"method\":\"version\",\"payload\":{}}");
+            VoleFree(response);
+            VoleFree(nullptr);
             return 0;
           }
           CPP
@@ -82,8 +82,8 @@ jobs:
         if: matrix.profile == 'features'
         shell: bash
         run: |
-          cargo metadata --locked --all-features --format-version 1 > "$RUNNER_TEMP/vcore-metadata.json"
-          uv run --project scripts --locked python - "$RUNNER_TEMP/vcore-metadata.json" <<'PY'
+          cargo metadata --locked --all-features --format-version 1 > "$RUNNER_TEMP/vole-metadata.json"
+          uv run --project scripts --locked python - "$RUNNER_TEMP/vole-metadata.json" <<'PY'
           import json
           import sys
           from pathlib import Path
@@ -145,9 +145,9 @@ jobs:
         if: matrix.profile == 'features'
         run: |
           cargo clippy --locked --features ffi --lib --bins -- -D warnings
-          cargo clippy --locked --no-default-features --features cli --lib --bin vcore -- -D warnings
+          cargo clippy --locked --no-default-features --features cli --lib --bin vole -- -D warnings
           cargo clippy --locked --all-features --lib --bins -- -D warnings
-          cargo clippy --locked --manifest-path crates/vcore-netstack/Cargo.toml --all-targets -- -D warnings
+          cargo clippy --locked --manifest-path crates/vole-netstack/Cargo.toml --all-targets -- -D warnings
       - name: Run memory-only ${{ matrix.name }}
         if: matrix.profile != 'features'
         shell: bash
@@ -162,7 +162,7 @@ jobs:
             local expected_summaries="$1"
             shift
             local test_log
-            test_log="$(mktemp "$RUNNER_TEMP/vcore-tests.XXXXXX")"
+            test_log="$(mktemp "$RUNNER_TEMP/vole-tests.XXXXXX")"
             "${test_command[@]}" "$@" | tee "$test_log"
             test "$(grep -Ec '^test result: ok\. [0-9]+ passed; [0-9]+ failed; [0-9]+ ignored;' "$test_log")" -eq "$expected_summaries"
             test "$(grep -Ec '^test result: ok\. [1-9][0-9]* passed; 0 failed;' "$test_log")" -eq "$expected_summaries"
@@ -193,7 +193,7 @@ jobs:
             invoke::foreground::tests:: runtime::shutdown_tests::
           )
           for filter in "${filters[@]}"; do run_test 1 --lib "$filter"; done
-          run_test 1 --bin vcore cli::tests::
+          run_test 1 --bin vole cli::tests::
           exact_tests=(
             dialer::tests::socket_initialization_churn_reclaims_completed_work
             dialer::tests::socket_initialization_cancellation_joins_started_and_queued_work
@@ -224,7 +224,7 @@ jobs:
             local expected_summaries="$1"
             shift
             local test_log
-            test_log="$(mktemp "$RUNNER_TEMP/vcore-features.XXXXXX")"
+            test_log="$(mktemp "$RUNNER_TEMP/vole-features.XXXXXX")"
             cargo test --locked --no-default-features "$@" | tee "$test_log"
             test "$(grep -Ec '^test result: ok\. [0-9]+ passed; [0-9]+ failed; [0-9]+ ignored;' "$test_log")" -eq "$expected_summaries"
             test "$(grep -Ec '^test result: ok\. [1-9][0-9]* passed; 0 failed;' "$test_log")" -eq "$expected_summaries"
@@ -239,7 +239,7 @@ jobs:
           for feature in inbound-http inbound-socks5 stream-transport quic-transport shadow-tls-v3 tun invoke ffi cli windows-wintun windows-uwp; do
             cargo check --locked --no-default-features --features "$feature" --lib
           done
-          cargo check --locked --no-default-features --features cli --bin vcore
+          cargo check --locked --no-default-features --features cli --bin vole
           run_test 2 --test feature_foundations --test hysteria2_config
           cargo check --locked --lib
           # Compilation only: historical listener fixtures must not execute on CI hosts.
@@ -248,7 +248,7 @@ jobs:
           # set with the unchanged release profile, including both macOS targets.
       - name: Memory-only netstack tests
         if: matrix.profile == 'features'
-        run: cargo test --locked --manifest-path crates/vcore-netstack/Cargo.toml --all-targets
+        run: cargo test --locked --manifest-path crates/vole-netstack/Cargo.toml --all-targets
 
   platform-build:
     name: Release builds and artifact identity

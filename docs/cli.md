@@ -1,18 +1,18 @@
 # CLI 与 tag 发布
 
-`vcore` 是前台命令行入口，所有内核功能通过与库相同的 Invoke 请求处理器调用。
+`vole` 是前台命令行入口，所有内核功能通过与库相同的 Invoke 请求处理器调用。
 tag 发布工作流见 [CLI release](../.github/workflows/cli-release.yml)。工作流存在不代表
 六个平台的发布已在当前环境执行；真实驱动和设备数据面仍须独立验证。
 库接口见 [Invoke API](invoke-api.md)，平台边界见 [TUN 平台层](tun-platform.md)
 与 [Windows VPN](windows-vpn.md)。
 
 ```sh
-cargo build --locked --release --no-default-features --features cli --bin vcore
-./target/release/vcore -f /path/to/config.yaml
-./target/release/vcore -d /path/to/data -f ./config.yaml
-./target/release/vcore -t -f ./config.yaml
+cargo build --locked --release --no-default-features --features cli --bin vole
+./target/release/vole -f /path/to/config.yaml
+./target/release/vole -d /path/to/data -f ./config.yaml
+./target/release/vole -t -f ./config.yaml
 # Windows 桌面 TUN 构建选择 Wintun 后端：
-cargo build --locked --release --no-default-features --features cli,windows-wintun --bin vcore
+cargo build --locked --release --no-default-features --features cli,windows-wintun --bin vole
 ```
 
 ## 薄入口与参数
@@ -28,7 +28,7 @@ CLI 不复制配置规则，不为 `tun.enable` 增加额外的配置错误或�
 
 | 参数 | 语义 |
 | --- | --- |
-| `-d <data-dir>` | 配置及数据目录；默认用户目录下的 `.config/vcore`，默认配置文件为 `<data-dir>/config.yaml`。 |
+| `-d <data-dir>` | 配置及数据目录；默认用户目录下的 `.config/vole`，默认配置文件为 `<data-dir>/config.yaml`。 |
 | `-f <config-file>` | 显式配置文件；相对路径从进程启动时的工作目录解析，可位于数据目录之外；`-f -` 从标准输入读取。Invoke 前台操作读取配置并交给同一内核。 |
 | `-t` | 仅调用内核配置校验；不创建数据目录、不启动监听器、不解析远端、不联网，不对 TUN 配置另加拒绝分支。 |
 | `-v` | 输出内核软件版本和构建身份，不读取配置。 |
@@ -39,12 +39,12 @@ CLI 不复制配置规则，不为 `tun.enable` 增加额外的配置错误或�
 `-h`（也接受 `--help`）立即向 stderr 输出帮助并成功退出；`-v` 优先于 `-t`。
 参数错误向 stderr 输出静态帮助并返回 2，内核或配置错误返回 1。
 文件输入必须是普通文件，文件和标准输入均按既有内核的 256 KiB 上限读取；路径可包含空格和平台原生字符，
-例如 `vcore -f "/path with spaces/config.yaml"`。配置内容不写回磁盘。
+例如 `vole -f "/path with spaces/config.yaml"`。配置内容不写回磁盘。
 
-`VCORE_HOME_DIR`、`VCORE_CONFIG_FILE` 分别提供 `-d`、`-f` 的环境默认值，显式参数覆盖环境值；
+`VOLE_HOME_DIR`、`VOLE_CONFIG_FILE` 分别提供 `-d`、`-f` 的环境默认值，显式参数覆盖环境值；
 空值使用默认行为。Unix 用户目录来自 `HOME`，Windows 来自 `USERPROFILE`；缺失时回落到
-启动工作目录。默认 `.config/vcore` 不存在或无法读取元数据时，若定义了 `XDG_CONFIG_HOME`，
-则使用其中的 `vcore` 目录。这沿用 Mihomo 的目录选择规则，以 VCore 的名称和环境变量命名。
+启动工作目录。默认 `.config/vole` 不存在或无法读取元数据时，若定义了 `XDG_CONFIG_HOME`，
+则使用其中的 `vole` 目录。这沿用 Mihomo 的目录选择规则，以 Vole 的名称和环境变量命名。
 
 `-d` 与 `-f` 原样进入 Invoke 路径元数据，路径归属互相独立。Invoke 从启动工作目录
 分别解析相对路径，初始化时收到绝对数据目录；只有正常运行模式执行初始化。
@@ -80,7 +80,7 @@ Windows 编译时选择互斥的 `windows-wintun` / `windows-uwp`，桌面 CLI �
 和库交付独立维护，不放入 CLI 归档，也不作为桌面 CLI 的后备启动路径。
 
 Wintun DLL 由宿主提供，与可执行程序目标架构一致。Windows CLI 包不携带 `wintun.dll`。
-首版的接口地址、DNS、路由和防递归物理出口配置由宿主承担，VCore 不自动配置系统网络，
+首版的接口地址、DNS、路由和防递归物理出口配置由宿主承担，Vole 不自动配置系统网络，
 也不增加 TUN 专用 CLI 参数。
 Wintun 的设备名与 MTU 来自 `tun.device` / `tun.mtu`；默认 MTU 为 9000。设备所有权由
 [TUN 平台层](tun-platform.md) 维护，统一启动与前台 payload 见 [Invoke API](invoke-api.md)。
@@ -93,19 +93,19 @@ Linux 使用 GNU/glibc 目标，Windows 使用 MSVC，macOS 分别构建两个�
 
 | 平台 | 架构 | Rust 目标 | 归档名称 |
 | --- | --- | --- | --- |
-| Linux | amd64 | `x86_64-unknown-linux-gnu` | `vcore-linux-amd64.gz` |
-| Linux | arm64 | `aarch64-unknown-linux-gnu` | `vcore-linux-arm64.gz` |
-| Windows | amd64 | `x86_64-pc-windows-msvc` | `vcore-windows-amd64.zip` |
-| Windows | arm64 | `aarch64-pc-windows-msvc` | `vcore-windows-arm64.zip` |
-| macOS | amd64 | `x86_64-apple-darwin` | `vcore-darwin-amd64.gz` |
-| macOS | arm64 | `aarch64-apple-darwin` | `vcore-darwin-arm64.gz` |
+| Linux | amd64 | `x86_64-unknown-linux-gnu` | `vole-linux-amd64.gz` |
+| Linux | arm64 | `aarch64-unknown-linux-gnu` | `vole-linux-arm64.gz` |
+| Windows | amd64 | `x86_64-pc-windows-msvc` | `vole-windows-amd64.zip` |
+| Windows | arm64 | `aarch64-pc-windows-msvc` | `vole-windows-arm64.zip` |
+| macOS | amd64 | `x86_64-apple-darwin` | `vole-darwin-amd64.gz` |
+| macOS | arm64 | `aarch64-apple-darwin` | `vole-darwin-arm64.gz` |
 
-Linux/macOS 仅 gzip 压缩 `vcore` 可执行文件，Windows zip 包含 `vcore.exe`。
+Linux/macOS 仅 gzip 压缩 `vole` 可执行文件，Windows zip 包含 `vole.exe`。
 CI 从实际锁定的目标依赖图收集许可证及原生第三方通知，并将完整文本嵌入可执行文件；
 打包前逐字节验证保留，Release 描述保留来源说明。不增加通知归档、CLI 参数或额外发布资产。
 不生成或发布独立 checksums 文件。版本由 release tag 与核心 `coreVersion` 标识，
 构建仍在 CI 内记录 commit、Cargo.lock、目标架构、feature 集、工具链和 artifact hash。
-构建身份保持 `VCore;engine=rust;coreVersion=<Cargo package version>`，不增加 API
+构建身份保持 `Vole;engine=rust;coreVersion=<Cargo package version>`，不增加 API
 或配置 revision 字段，也不把版本号写进可执行文件名或归档文件名。
 
 CLI 发布采用独立工作流；现有 [平台库编译](../scripts/README.md) 的 Apple、Android、

@@ -91,7 +91,7 @@ impl GeoDataUpdateService {
                                     geodata_kind = %kind,
                                     retry_seconds = delay.as_secs(),
                                     error = %error,
-                                    "VCore GeoData update failed; business routing remains active"
+                                    "Vole GeoData update failed; business routing remains active"
                                 );
                             }
                         }
@@ -101,7 +101,7 @@ impl GeoDataUpdateService {
                 Err(error) => {
                     tracing::warn!(
                         error = %error,
-                        "VCore GeoData state check failed; business routing remains active"
+                        "Vole GeoData state check failed; business routing remains active"
                     );
                 }
             }
@@ -182,7 +182,7 @@ impl GeoDataUpdateService {
                 })
                 .await?
                 .map_err(|error| error.to_string())?;
-                tracing::info!(geodata_kind = %kind, "VCore GeoData is current");
+                tracing::info!(geodata_kind = %kind, "Vole GeoData is current");
                 Ok(UpdateAttempt::Completed)
             }
             Ok(GeoDataDownloadOutcome::Downloaded {
@@ -197,7 +197,7 @@ impl GeoDataUpdateService {
                     geodata_kind = %kind,
                     bytes = size,
                     active_registration = report.active_registration,
-                    "VCore GeoData downloaded and hot-activated"
+                    "Vole GeoData downloaded and hot-activated"
                 );
                 Ok(UpdateAttempt::Completed)
             }

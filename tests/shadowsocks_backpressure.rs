@@ -18,7 +18,7 @@ use std::{
     time::Duration,
 };
 use tokio::io::{AsyncReadExt, AsyncWrite, AsyncWriteExt, BufWriter};
-use vcore::{
+use vole::{
     config::{ShadowsocksCipher, ShadowsocksOutboundConfig},
     dispatch::{BoxStream, DatagramTransport, DispatchError},
     outbound::{
@@ -54,7 +54,7 @@ impl OutboundConnector for MemoryUpstream {
 async fn growing_caller_buffer_after_backpressure_never_loses_plaintext() {
     #[cfg(feature = "interop-test")]
     let _case =
-        vcore::resources::case_events::Case::new("INTEGRATION-ADAPTER", "growing_caller_buffer");
+        vole::resources::case_events::Case::new("INTEGRATION-ADAPTER", "growing_caller_buffer");
     for (cipher, initial) in [
         ShadowsocksCipher::Aes128Gcm,
         ShadowsocksCipher::Aes256Gcm,
@@ -101,10 +101,7 @@ async fn growing_caller_buffer_after_backpressure_never_loses_plaintext() {
             Poll::Ready(result) => result.unwrap(),
             Poll::Pending => 0,
         };
-        assert_eq!(
-            accepted,
-            initial.min(vcore::limits::SHADOWSOCKS_WRITE_CHUNK)
-        );
+        assert_eq!(accepted, initial.min(vole::limits::SHADOWSOCKS_WRITE_CHUNK));
         let mut decoder = ProxyServerStream::from_stream(
             Context::new_shared(ServerType::Server),
             peer,
@@ -140,7 +137,7 @@ async fn growing_caller_buffer_after_backpressure_never_loses_plaintext() {
 #[tokio::test]
 async fn read_first_flushes_the_official_header_over_a_buffered_upstream() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "INTEGRATION-ADAPTER",
         "server_first_buffered_upstream",
     );

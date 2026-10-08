@@ -1,6 +1,6 @@
 #![cfg(feature = "outbound-vmess")]
 
-use vcore::{
+use vole::{
     outbound::vmess::{
         BodyCipher, BodyOptions, ClientHandshake, Command, VmessIdentity, VmessStream,
     },
@@ -10,12 +10,12 @@ use vcore::{
 #[tokio::test]
 async fn xudp_cancelled_send_and_bad_frame_release_io_and_cannot_resume() {
     #[cfg(feature = "interop-test")]
-    let _evidence = vcore::resources::case_events::Case::new(
+    let _evidence = vole::resources::case_events::Case::new(
         "VMESS-CODEC",
         "xudp_cancelled_send_and_bad_frame_release_io_and_cannot_resume",
     );
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use vcore::{dispatch::DatagramTransport, session::Datagram, xudp::XudpTransport};
+    use vole::{dispatch::DatagramTransport, session::Datagram, xudp::XudpTransport};
     let (io, mut peer) = tokio::io::duplex(1);
     let mut client = XudpTransport::new(Box::new(io), [0; 8], 16);
     let datagram = Datagram {
@@ -54,7 +54,7 @@ async fn xudp_cancelled_send_and_bad_frame_release_io_and_cannot_resume() {
     assert_eq!(peer.read(&mut [0; 1]).await.unwrap(), 0);
     // The two packet-mode VMess codecs must release IO on cancellation too,
     // without waiting for another call or the association owner to drop them.
-    use vcore::{
+    use vole::{
         dispatch::DatagramBudget, dns::resolution::ResolutionContext,
         outbound::vmess::VmessDatagram,
     };
@@ -113,12 +113,12 @@ async fn xudp_cancelled_send_and_bad_frame_release_io_and_cannot_resume() {
 #[tokio::test]
 async fn xudp_zero_global_id_omits_the_optional_extension_like_mihomo() {
     #[cfg(feature = "interop-test")]
-    let _evidence = vcore::resources::case_events::Case::new(
+    let _evidence = vole::resources::case_events::Case::new(
         "VMESS-CODEC",
         "xudp_zero_global_id_omits_the_optional_extension_like_mihomo",
     );
     use tokio::io::AsyncReadExt;
-    use vcore::{dispatch::DatagramTransport, session::Datagram, xudp::XudpTransport};
+    use vole::{dispatch::DatagramTransport, session::Datagram, xudp::XudpTransport};
     let (io, mut peer) = tokio::io::duplex(128);
     let mut transport = XudpTransport::new(Box::new(io), [0; 8], 1500);
     transport
@@ -137,11 +137,11 @@ async fn xudp_zero_global_id_omits_the_optional_extension_like_mihomo() {
 #[test]
 fn packetaddr_has_ip_only_address_first_wire_and_rejects_truncation() {
     #[cfg(feature = "interop-test")]
-    let _evidence = vcore::resources::case_events::Case::new(
+    let _evidence = vole::resources::case_events::Case::new(
         "VMESS-CODEC",
         "packetaddr_has_ip_only_address_first_wire_and_rejects_truncation",
     );
-    use vcore::outbound::address::{decode_packet_addr, encode_packet_addr};
+    use vole::outbound::address::{decode_packet_addr, encode_packet_addr};
     let peer = Destination::Ip("1.2.3.4:53".parse().unwrap());
     let mut wire = bytes::BytesMut::new();
     encode_packet_addr(&peer, &mut wire).unwrap();
@@ -172,7 +172,7 @@ fn packetaddr_has_ip_only_address_first_wire_and_rejects_truncation() {
 #[test]
 fn vmess_aead_requests_are_fresh_bounded_and_redacted() {
     #[cfg(feature = "interop-test")]
-    let _evidence = vcore::resources::case_events::Case::new(
+    let _evidence = vole::resources::case_events::Case::new(
         "VMESS-CODEC",
         "vmess_aead_requests_are_fresh_bounded_and_redacted",
     );
@@ -193,7 +193,7 @@ fn vmess_aead_requests_are_fresh_bounded_and_redacted() {
 #[tokio::test]
 async fn vmess_response_authentication_cannot_be_skipped_by_none_cipher() {
     #[cfg(feature = "interop-test")]
-    let _evidence = vcore::resources::case_events::Case::new(
+    let _evidence = vole::resources::case_events::Case::new(
         "VMESS-CODEC",
         "vmess_response_authentication_cannot_be_skipped_by_none_cipher",
     );
@@ -225,7 +225,7 @@ async fn vmess_response_authentication_cannot_be_skipped_by_none_cipher() {
 #[tokio::test]
 async fn vmess_whole_close_wakes_reader_and_releases_io_before_response() {
     #[cfg(feature = "interop-test")]
-    let _evidence = vcore::resources::case_events::Case::new(
+    let _evidence = vole::resources::case_events::Case::new(
         "VMESS-CODEC",
         "vmess_whole_close_wakes_reader_and_releases_io_before_response",
     );
@@ -264,20 +264,17 @@ async fn vmess_whole_close_wakes_reader_and_releases_io_before_response() {
 #[tokio::test]
 async fn xudp_explicit_budget_rejects_max_plus_one_before_writing() {
     #[cfg(feature = "interop-test")]
-    let _evidence = vcore::resources::case_events::Case::new(
+    let _evidence = vole::resources::case_events::Case::new(
         "VMESS-CODEC",
         "xudp_explicit_budget_rejects_max_plus_one_before_writing",
     );
-    use vcore::{
+    use vole::{
         dispatch::{DatagramBudget, DatagramTransport},
         session::Datagram,
     };
     let (client, mut peer) = tokio::io::duplex(64);
-    let mut client = vcore::xudp::XudpTransport::with_budget(
-        Box::new(client),
-        [0; 8],
-        DatagramBudget::new(4, 4),
-    );
+    let mut client =
+        vole::xudp::XudpTransport::with_budget(Box::new(client), [0; 8], DatagramBudget::new(4, 4));
     let remote = "192.0.2.1:53"
         .parse::<std::net::SocketAddr>()
         .unwrap()

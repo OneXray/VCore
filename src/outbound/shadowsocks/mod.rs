@@ -1,4 +1,4 @@
-//! Official SS 2022 codec over VCore-owned TCP and UDP transports.
+//! Official SS 2022 codec over Vole-owned TCP and UDP transports.
 use super::{
     ConnectedStream, DatagramRequest, EstablishContext, OutboundConnector, UpstreamPath,
     server_destination,

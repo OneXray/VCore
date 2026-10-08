@@ -12,7 +12,7 @@ impl TunFd {
     /// Duplicates `borrowed_fd` before returning. The caller retains ownership
     /// of the original descriptor and this type closes only the duplicate. The
     /// host must supply a nonblocking descriptor because `dup` shares file
-    /// status flags with the original open-file description; VCore never
+    /// status flags with the original open-file description; Vole never
     /// changes those shared flags behind the host's back.
     /// Linux additionally validates a real raw-IP single-queue TUN and its
     /// configured MTU in the owning network namespace before acceptance.
@@ -149,7 +149,7 @@ mod tests {
         let before = unsafe { libc::fcntl(original.as_raw_fd(), libc::F_GETFL) };
         let error = TunFd::duplicate(original.as_raw_fd()).unwrap_err();
         assert!(error.to_string().contains("Linux TUNGETIFF"));
-        // SAFETY: rejection closes only VCore's temporary duplicate.
+        // SAFETY: rejection closes only Vole's temporary duplicate.
         let after = unsafe { libc::fcntl(original.as_raw_fd(), libc::F_GETFL) };
         assert_eq!(after, before);
         original.write_all(b"ok").unwrap();

@@ -1,24 +1,24 @@
 # 测试入口
 
 本仓库保留生产核心的配置、内存 IO、安全和生命周期回归，直接以定向 Rust 测试
-执行。[VCore scripts](../scripts/README.md) 只编译核心与平台产物。协议互通、对端
+执行。[Vole scripts](../scripts/README.md) 只编译核心与平台产物。协议互通、对端
 下载、容器消费者以及内存/吞吐压力由独立的 [container-benchmark](https://github.com/YuanDevTeam/container-benchmark)
-维护，通过显式 VCore checkout 指定被测核心；编译不依赖 benchmark 的安装或路径。
+维护，通过显式 Vole checkout 指定被测核心；编译不依赖 benchmark 的安装或路径。
 
 | 层次 | 保留内容 | 入口 |
 | --- | --- | --- |
 | 核心回归 | 严格配置、协议/TLS 内存 IO、局部上限、取消、Invoke/原生传输边界和确定性回归 | 定向 cargo test |
-| 编译 | 精简 feature、生产 feature、平台架构与全目标编译 | VCore scripts build |
+| 编译 | 精简 feature、生产 feature、平台架构与全目标编译 | Vole scripts build |
 | 编译工具回归 | 平台构建、产物身份与构建参数回归 | scripts/tests |
 | 协议互通 | 官方 listener、生产 ABI 消费者、TCP/UDP 内容与代理路径 | 独立 container-benchmark interop |
 | 性能评估 | Linux 原生 TUN、完整 CN 分流、吞吐/CPU/RSS/UDP 丢包/DNS | 独立 container-benchmark compare |
 | 内存压力 | 完整真实 CN GeoData、加载与联合流量下的进程峰值 | 独立 container-benchmark stress |
 
-在独立 benchmark 工程中执行，`PATH` 为显式 VCore checkout：
+在独立 benchmark 工程中执行，`PATH` 为显式 Vole checkout：
 
 ```sh
-container-benchmark interop --source vcore=PATH
-container-benchmark stress --source vcore=PATH
+container-benchmark interop --source vole=PATH
+container-benchmark stress --source vole=PATH
 ```
 
 `interop --list` 可不提供 source，只列出测试，不运行互通。
@@ -41,7 +41,7 @@ Rust 依赖缓存区分检查种类、工具链、锁文件和 runner 镜像/SDK
 
 ## 必要回归与独立输入
 
-- CLI：`cargo test --locked --no-default-features --features cli --bin vcore cli::tests::`
+- CLI：`cargo test --locked --no-default-features --features cli --bin vole cli::tests::`
   覆盖五个参数的 Go flag 语法、优先级、原始路径/空值请求转换、未知参数脱敏、无损路径元数据、
   响应输出流和退出码。路径、环境默认、文件读取和信号属于共享 Invoke，不能由 CLI 另行实现。
   `cargo test --locked --no-default-features --features cli --lib invoke::foreground::tests::`
@@ -116,7 +116,7 @@ Rust 依赖缓存区分检查种类、工具链、锁文件和 runner 镜像/SDK
   真实 fd-TUN 联合流量、完整 CN 选择、合成四类型/复杂正则与更新期间峰值由独立 benchmark
   验证；输入身份、实测数据和证据边界见其 README。Regex 使用常规
   `regex::bytes::Regex`，保持 ASCII 语义与库默认编译/嵌套/缓存保护；所选正则编译
-  失败使该种类不可用，不恢复旧整体快照。无 VCore 自设 NFA/DFA/determinization
+  失败使该种类不可用，不恢复旧整体快照。无 Vole 自设 NFA/DFA/determinization
   额度、正则条数或总内存预算。
   容量账本不含正则库内部状态或搜索 scratch；Regex 搜索可能分配，不报告其内存为零。
   旧 dense DFA 输入实验不能替代当前实现的回归与压力结果，单次特定输入的 RSS

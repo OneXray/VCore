@@ -1,4 +1,4 @@
-//! Strict parsing for the current VCore YAML configuration.
+//! Strict parsing for the current Vole YAML configuration.
 
 use std::{
     collections::{HashMap, VecDeque},
@@ -16,7 +16,7 @@ use serde_yaml_ng::Value as YamlValue;
 use url::{Host, Url};
 use uuid::Uuid;
 
-use crate::{Result, VCoreError};
+use crate::{Result, VoleError};
 
 mod credentials;
 pub use credentials::{ProxyAccess, ProxyCredentials};
@@ -704,7 +704,7 @@ impl std::fmt::Debug for HttpInboundConfig {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct RawVCoreConfig {
+struct RawVoleConfig {
     #[serde(default = "default_true")]
     ipv6: bool,
     #[serde(
@@ -827,7 +827,7 @@ impl RawTunConfig {
                     .map_or(target.as_str(), |(_, value)| value);
                 let endpoint = endpoint.replacen("any", "0.0.0.0", 1);
                 endpoint.parse::<SocketAddr>().map_err(|_| {
-                    VCoreError::InvalidConfig(
+                    VoleError::InvalidConfig(
                         "tun.dns-hijack requires IP:port or any:port endpoints".into(),
                     )
                 })
@@ -1413,22 +1413,22 @@ impl Config {
             ));
         }
         let input = std::str::from_utf8(input)
-            .map_err(|_| VCoreError::InvalidConfig("configuration is not UTF-8".to_owned()))?;
+            .map_err(|_| VoleError::InvalidConfig("configuration is not UTF-8".to_owned()))?;
 
         reject_yaml_anchors_and_aliases(input)?;
         let yaml: YamlValue = serde_yaml_ng::from_str(input)
-            .map_err(|error| VCoreError::InvalidConfig(error.to_string()))?;
+            .map_err(|error| VoleError::InvalidConfig(error.to_string()))?;
         validate_json_compatible_yaml(&yaml)?;
         // Deserialize from the YAML value directly. Mapping order is part of
         // nameserver-policy semantics and would be lost by the intermediate
         // serde_json map representation.
-        let raw: RawVCoreConfig = serde_yaml_ng::from_value(yaml)
-            .map_err(|error| VCoreError::InvalidConfig(error.to_string()))?;
+        let raw: RawVoleConfig = serde_yaml_ng::from_value(yaml)
+            .map_err(|error| VoleError::InvalidConfig(error.to_string()))?;
         raw.normalize()
     }
 }
 
-impl RawVCoreConfig {
+impl RawVoleConfig {
     fn normalize(self) -> Result<Config> {
         let geodata_update = normalize_geodata_update(
             self.geox_url,
@@ -1535,7 +1535,7 @@ fn normalize_external_controller(
         return invalid("secret is required when external-controller manages proxy-groups");
     }
     let listen = listen.parse::<SocketAddr>().map_err(|_| {
-        VCoreError::InvalidConfig(
+        VoleError::InvalidConfig(
             "external-controller must be an IP socket address with an explicit port".to_owned(),
         )
     })?;
@@ -1590,7 +1590,7 @@ fn normalize_geox_url(raw: String, field: &str) -> Result<String> {
         ));
     }
     let url = Url::parse(&raw)
-        .map_err(|error| VCoreError::InvalidConfig(format!("{field} is invalid: {error}")))?;
+        .map_err(|error| VoleError::InvalidConfig(format!("{field} is invalid: {error}")))?;
     let allowed_scheme = url.scheme() == "https";
     #[cfg(feature = "benchmark-geodata-http")]
     let allowed_scheme = allowed_scheme || url.scheme() == "http";
@@ -1717,7 +1717,7 @@ fn parse_sniffer_port_string(value: &str, protocol: &str) -> Result<u16> {
         ));
     }
     let parsed = value.parse::<u64>().map_err(|_| {
-        VCoreError::InvalidConfig(format!(
+        VoleError::InvalidConfig(format!(
             "sniffer.sniff.{protocol}.ports contains invalid port `{value}`"
         ))
     })?;
@@ -1729,7 +1729,7 @@ fn parse_sniffer_port_number(value: u64, protocol: &str) -> Result<u16> {
         .ok()
         .filter(|port| *port != 0)
         .ok_or_else(|| {
-            VCoreError::InvalidConfig(format!(
+            VoleError::InvalidConfig(format!(
                 "sniffer.sniff.{protocol}.ports values must be between 1 and 65535"
             ))
         })
@@ -1789,11 +1789,11 @@ fn normalize_proxy_authentication(
                 return invalid("authentication must contain exactly one user:password entry");
             };
             let (username, password) = credential.split_once(':').ok_or_else(|| {
-                VCoreError::InvalidConfig("authentication entry must use user:password".to_owned())
+                VoleError::InvalidConfig("authentication entry must use user:password".to_owned())
             })?;
             ProxyCredentials::new(username, password)
                 .map(Some)
-                .map_err(|error| VCoreError::InvalidConfig(error.to_string()))
+                .map_err(|error| VoleError::InvalidConfig(error.to_string()))
         }
     }
 }
@@ -1844,7 +1844,7 @@ fn normalize_proxy_graph_with_groups(
                         return Ok(RouteTargetId::Group(*id));
                     }
                     proxy_ids.get(tag).copied().map(RouteTargetId::Proxy).ok_or_else(|| {
-                        VCoreError::InvalidConfig(format!(
+                        VoleError::InvalidConfig(format!(
                             "proxy `{}` dialer-proxy `{tag}` does not reference a configured proxy or group name",
                             proxy.tag
                         ))
@@ -1938,7 +1938,7 @@ fn normalize_proxy_groups(
                             .copied()
                             .map(ProxyGroupMemberTarget::Route)
                             .ok_or_else(|| {
-                                VCoreError::InvalidConfig(format!(
+                                VoleError::InvalidConfig(format!(
                                     "proxy group `{}` member `{name}` does not reference a configured proxy, proxy group, DIRECT, or REJECT",
                                     group.name
                                 ))
@@ -1952,7 +1952,7 @@ fn normalize_proxy_groups(
                     .iter()
                     .position(|member| member.name == default)
                     .ok_or_else(|| {
-                        VCoreError::InvalidConfig(format!(
+                        VoleError::InvalidConfig(format!(
                             "proxy group `{}` default-selected `{default}` must name a direct member",
                             group.name
                         ))
@@ -2124,9 +2124,9 @@ impl RawRealitySettings {
     fn normalize(self, server_name: String) -> Result<RealityConfig> {
         let decoded = URL_SAFE_NO_PAD
             .decode(self.public_key.as_bytes())
-            .map_err(|_| VCoreError::InvalidConfig("invalid REALITY public-key".to_owned()))?;
+            .map_err(|_| VoleError::InvalidConfig("invalid REALITY public-key".to_owned()))?;
         let public_key: [u8; 32] = decoded.try_into().map_err(|_| {
-            VCoreError::InvalidConfig("invalid REALITY public-key length".to_owned())
+            VoleError::InvalidConfig("invalid REALITY public-key length".to_owned())
         })?;
         if URL_SAFE_NO_PAD.encode(public_key) != self.public_key {
             return invalid("REALITY public-key must use canonical unpadded base64url");
@@ -2139,7 +2139,7 @@ impl RawRealitySettings {
         for pair in self.short_id.as_bytes().as_chunks::<2>().0 {
             let pair = std::str::from_utf8(pair).expect("hex input is UTF-8");
             let byte = u8::from_str_radix(pair, 16)
-                .map_err(|_| VCoreError::InvalidConfig("invalid REALITY short-id".to_owned()))?;
+                .map_err(|_| VoleError::InvalidConfig("invalid REALITY short-id".to_owned()))?;
             short_id.push(byte);
         }
 
@@ -2669,7 +2669,7 @@ fn normalize_dns_nameserver_policies(
             .selector
             .strip_prefix("geosite:")
             .ok_or_else(|| {
-                VCoreError::InvalidConfig(format!(
+                VoleError::InvalidConfig(format!(
                     "invalid dns.nameserver-policy selector `{}`; expected geosite:<code>[,<code>...]",
                     raw_policy.selector
                 ))
@@ -2748,7 +2748,7 @@ fn parse_dns_nameserver(
     };
 
     let (address, port) = parse_dns_endpoint(endpoint).ok_or_else(|| {
-        VCoreError::InvalidConfig(format!(
+        VoleError::InvalidConfig(format!(
             "invalid DNS nameserver `{input}`; hostnames and URL paths are not supported"
         ))
     })?;
@@ -2784,7 +2784,7 @@ fn parse_dns_route_fragment(
             .copied()
             .map(DnsRoute::Route)
             .ok_or_else(|| {
-                VCoreError::InvalidConfig(format!(
+                VoleError::InvalidConfig(format!(
                     "invalid DNS nameserver `{input}`; route fragment must be exactly DIRECT, RULES, or a configured proxy or proxy group name"
                 ))
             }),
@@ -2821,7 +2821,7 @@ fn derive_default_route_target_from_rules(
     route_targets: &RouteTargetsByName,
 ) -> Result<RouteTargetId> {
     let final_rule = rules.last().ok_or_else(|| {
-        VCoreError::InvalidConfig(
+        VoleError::InvalidConfig(
             "rules must end with MATCH targeting an exact proxy or proxy group name".to_owned(),
         )
     })?;
@@ -2833,7 +2833,7 @@ fn derive_default_route_target_from_rules(
         return invalid("rules must end with MATCH targeting an exact proxy or proxy group name");
     }
     route_targets.get(fields[1]).copied().ok_or_else(|| {
-        VCoreError::InvalidConfig(format!(
+        VoleError::InvalidConfig(format!(
             "final MATCH target must be an exact configured proxy or proxy group name; found `{}`",
             fields[1]
         ))
@@ -2861,7 +2861,7 @@ fn normalize_rules(
         }
         total_bytes = total_bytes
             .checked_add(rule.len())
-            .ok_or_else(|| VCoreError::InvalidConfig("rules byte length overflowed".to_owned()))?;
+            .ok_or_else(|| VoleError::InvalidConfig("rules byte length overflowed".to_owned()))?;
         if total_bytes > MAX_RULES_TOTAL_BYTES {
             return invalid(format!(
                 "rules exceeds the {MAX_RULES_TOTAL_BYTES}-byte cumulative limit"
@@ -2896,7 +2896,7 @@ fn parse_rule(input: &str, route_targets: &RouteTargetsByName) -> Result<RuleSpe
     let rule_type = fields
         .first()
         .filter(|field| !field.is_empty())
-        .ok_or_else(|| VCoreError::InvalidConfig("rule type must not be empty".to_owned()))?
+        .ok_or_else(|| VoleError::InvalidConfig("rule type must not be empty".to_owned()))?
         .to_ascii_uppercase();
 
     match rule_type.as_str() {
@@ -2981,7 +2981,7 @@ fn parse_rule_action(action: &str, route_targets: &RouteTargetsByName) -> Result
             .copied()
             .map(RuleAction::Route)
             .ok_or_else(|| {
-                VCoreError::InvalidConfig(format!(
+                VoleError::InvalidConfig(format!(
                     "rule target must be exactly DIRECT, REJECT, or a configured proxy or proxy group name; found `{action}`"
                 ))
             }),
@@ -2991,7 +2991,7 @@ fn parse_rule_action(action: &str, route_targets: &RouteTargetsByName) -> Result
 fn normalize_rule_domain(input: &str, rule_type: &str) -> Result<String> {
     let input = input.strip_suffix('.').unwrap_or(input);
     crate::routing::normalize_domain_name(input)
-        .map_err(|_| VCoreError::InvalidConfig(format!("invalid {rule_type} domain")))
+        .map_err(|_| VoleError::InvalidConfig(format!("invalid {rule_type} domain")))
 }
 
 fn normalize_rule_keyword(input: &str) -> Result<String> {
@@ -3012,22 +3012,22 @@ fn normalize_geo_code(input: &str, rule_type: &str) -> Result<String> {
         crate::geodata::GeoDataKind::GeoSite
     };
     crate::geodata::normalize_selector(kind, input)
-        .map_err(|_| VCoreError::InvalidConfig(format!("invalid {rule_type} selector")))
+        .map_err(|_| VoleError::InvalidConfig(format!("invalid {rule_type} selector")))
 }
 
 fn parse_ip_cidr(input: &str, require_v6: bool) -> Result<IpCidr> {
     let (address, prefix) = input
         .split_once('/')
-        .ok_or_else(|| VCoreError::InvalidConfig("CIDR must include a prefix length".to_owned()))?;
+        .ok_or_else(|| VoleError::InvalidConfig("CIDR must include a prefix length".to_owned()))?;
     if prefix.contains('/') {
         return invalid("CIDR must contain exactly one `/`");
     }
     let address = address
         .parse::<IpAddr>()
-        .map_err(|_| VCoreError::InvalidConfig(format!("invalid CIDR address `{address}`")))?;
+        .map_err(|_| VoleError::InvalidConfig(format!("invalid CIDR address `{address}`")))?;
     let prefix_len = prefix
         .parse::<u8>()
-        .map_err(|_| VCoreError::InvalidConfig(format!("invalid CIDR prefix `{prefix}`")))?;
+        .map_err(|_| VoleError::InvalidConfig(format!("invalid CIDR prefix `{prefix}`")))?;
 
     let network = match (require_v6, address) {
         (false, IpAddr::V4(address)) if prefix_len <= 32 => {
@@ -3084,7 +3084,7 @@ fn parse_port_ranges(input: &str) -> Result<Vec<PortRange>> {
 fn parse_destination_port(input: &str) -> Result<u16> {
     let port = input
         .parse::<u16>()
-        .map_err(|_| VCoreError::InvalidConfig(format!("invalid destination port `{input}`")))?;
+        .map_err(|_| VoleError::InvalidConfig(format!("invalid destination port `{input}`")))?;
     if port == 0 {
         return invalid("destination port must be between 1 and 65535");
     }
@@ -3162,7 +3162,7 @@ fn validate_port(port: u16, kind: &str) -> Result<()> {
 
 fn parse_standard_uuid(input: &str) -> Result<Uuid> {
     let id = Uuid::parse_str(input)
-        .map_err(|_| VCoreError::InvalidConfig("invalid VLESS settings.id UUID".to_owned()))?;
+        .map_err(|_| VoleError::InvalidConfig("invalid VLESS settings.id UUID".to_owned()))?;
     if id.hyphenated().to_string() != input.to_ascii_lowercase() {
         return invalid("VLESS settings.id must use standard hyphenated UUID form");
     }
@@ -3266,7 +3266,7 @@ fn is_yaml_node_boundary(bytes: &[u8], index: usize) -> bool {
 }
 
 fn invalid<T>(message: impl Into<String>) -> Result<T> {
-    Err(VCoreError::InvalidConfig(message.into()))
+    Err(VoleError::InvalidConfig(message.into()))
 }
 
 #[cfg(test)]

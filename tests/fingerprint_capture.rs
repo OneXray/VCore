@@ -6,7 +6,7 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use serde_json::{Value, json};
 use std::time::Duration;
 use tokio::io::AsyncReadExt;
-use vcore::{
+use vole::{
     config::{Config, ProxyProtocol},
     security::SecurityClient,
 };
@@ -125,7 +125,7 @@ async fn selected_public_profiles_emit_bounded_client_hellos() {
         }
     }
     assert_eq!(cases.len(), 168);
-    if let Ok(path) = std::env::var("VCORE_FINGERPRINT_CAPTURE") {
+    if let Ok(path) = std::env::var("VOLE_FINGERPRINT_CAPTURE") {
         std::fs::write(path, serde_json::to_vec_pretty(&cases).unwrap()).unwrap();
     }
 }

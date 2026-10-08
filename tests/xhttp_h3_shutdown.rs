@@ -22,7 +22,7 @@ use tokio::{
     sync::mpsc,
     task::JoinSet,
 };
-use vcore::{
+use vole::{
     config::{Config, ProxyProtocol},
     dispatch::{DatagramBudget, DatagramTransport, DispatchError},
     outbound::{EstablishContext, OutboundConnector, UpstreamPath, VlessOutbound},

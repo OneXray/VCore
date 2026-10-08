@@ -1,26 +1,26 @@
-# VCore Invoke API
+# Vole Invoke API
 
-业务实例通过内联的 `configYaml` 启动，测速通过 `configYamls` 传入节点配置；前台 `foreground` 操作负责从文件或标准输入加载同一配置。每份已加载的 VCore 运行时最多拥有一个公共实例。业务代理入口仅通过 `mixed-port` 配置，HTTP/SOCKS5 TCP 与 SOCKS5 UDP 共用端口；顶层 `port`、`socks-port`、`udp` 和 `listeners` 都会失败。代理组实时选择沿用 Controller。静态 ECH 只使用节点内联配置，不新增 bootstrap DNS 入参。
+业务实例通过内联的 `configYaml` 启动，测速通过 `configYamls` 传入节点配置；前台 `foreground` 操作负责从文件或标准输入加载同一配置。每份已加载的 Vole 运行时最多拥有一个公共实例。业务代理入口仅通过 `mixed-port` 配置，HTTP/SOCKS5 TCP 与 SOCKS5 UDP 共用端口；顶层 `port`、`socks-port`、`udp` 和 `listeners` 都会失败。代理组实时选择沿用 Controller。静态 ECH 只使用节点内联配置，不新增 bootstrap DNS 入参。
 
-共享请求处理位于 `src/invoke/`。Rust 调用方使用 `vcore::invoke::invoke_bytes(&[u8]) -> Vec<u8>`；CLI 和 C ABI 都调用该入口。`invoke` feature 提供共享操作，`cli` 和 `ffi` 分别添加命令行与原生传输适配。
+共享请求处理位于 `src/invoke/`。Rust 调用方使用 `vole::invoke::invoke_bytes(&[u8]) -> Vec<u8>`；CLI 和 C ABI 都调用该入口。`invoke` feature 提供共享操作，`cli` 和 `ffi` 分别添加命令行与原生传输适配。
 
 ## C ABI
 
 ```c
-char *VCoreInvoke(const char *request_json);
+char *VoleInvoke(const char *request_json);
 #ifdef _WIN32
-char *VCoreWindowsVpnInvoke(const char *request_json);
+char *VoleWindowsVpnInvoke(const char *request_json);
 #endif
-void VCoreFree(char *response);
+void VoleFree(char *response);
 ```
 
 - 请求必须是以 NUL 结尾的 UTF-8 JSON。
-- 非空响应由 VCore 分配，调用方必须使用同一库中的 `VCoreFree` 释放。
+- 非空响应由 Vole 分配，调用方必须使用同一库中的 `VoleFree` 释放。
 - 非法输入、未知方法、状态错误和 panic 返回合法失败 JSON；只有灾难性分配失败可以返回 `NULL`。
 - 业务运行时线程不能重入 Invoke；Debug 和 Release 构建都立即返回失败 JSON，包括 `version` 等只读请求。
 - 请求正文、响应正文、完整配置、UUID、密钥、short ID 和凭据不得写入日志。
-- `VCoreWindowsVpnInvoke` 只在 `windows-uwp` 构建中提供，是独立的 Windows 安装包桥接接口。
-- `VCoreWindowsVpnInvoke` 当前在调用线程上初始化 MTA；调用线程必须尚未初始化 COM，或已经是 MTA。STA/ASTA 调用不受支持。
+- `VoleWindowsVpnInvoke` 只在 `windows-uwp` 构建中提供，是独立的 Windows 安装包桥接接口。
+- `VoleWindowsVpnInvoke` 当前在调用线程上初始化 MTA；调用线程必须尚未初始化 COM，或已经是 MTA。STA/ASTA 调用不受支持。
 
 ## 请求与响应
 
@@ -51,7 +51,7 @@ void VCoreFree(char *response);
 - 请求 envelope 只接受 `method`、`instanceId` 和 `payload`。
 - `method` 必须来自本文列出的白名单。
 - `payload` 必须是对象；无参数时传 `{}`。
-- 运行时级方法必须省略 `instanceId`；实例级方法必须携带 VCore 返回的非空 ID。
+- 运行时级方法必须省略 `instanceId`；实例级方法必须携带 Vole 返回的非空 ID。
 - 未知或已移除的 envelope 字段和 payload 字段都会失败，不静默忽略。
 - 无业务数据的方法成功时返回空对象，不返回 `null`。
 - Invoke envelope 最大 3 MiB，单份 YAML 最大 256 KiB。
@@ -67,11 +67,11 @@ void VCoreFree(char *response);
 }
 ```
 
-`dataDir` 必须是可写绝对路径。VCore 固定使用：
+`dataDir` 必须是可写绝对路径。Vole 固定使用：
 
 ```text
 <dataDir>/configs   # 宿主可选持久化目录，不是 Invoke 输入
-<dataDir>/geodata   # VCore 管理的 GeoData 目录
+<dataDir>/geodata   # Vole 管理的 GeoData 目录
 ```
 
 同一路径重复初始化幂等，切换路径失败。`version`、`validateConfig` 和前台帮助不要求初始化；`foreground` 的运行模式自行初始化并管理实例。
@@ -108,7 +108,7 @@ stopped -> preparing -> prepared -> starting -> running
 
 ```json
 {
-  "buildIdentity": "VCore;engine=rust;coreVersion=0.1.0",
+  "buildIdentity": "Vole;engine=rust;coreVersion=0.1.0",
   "engine": "rust",
   "version": "0.1.0"
 }
@@ -219,19 +219,19 @@ TUN 资源参数来自 YAML 的 `tun`，平台包格式由内核选择。
 - GeoData 更新只在启动后按需后台运行，不属于启动关键路径。
 
 `tun.file-descriptor > 0` 时，Unix 宿主借用已经 nonblocking 的 TUN fd。
-VCore 校验后建立带 `CLOEXEC` 的副本，只关闭副本，不更改原始 fd 的所有权或标志。
+Vole 校验后建立带 `CLOEXEC` 的副本，只关闭副本，不更改原始 fd 的所有权或标志。
 Apple 使用 utun 包头，Android 与 Linux 使用 raw-IP。Linux 要求真实单队列 TUN、关闭
 PI/VNET header，并验证实际 MTU 与 `tun.mtu` 相同；跨网络命名空间的校验需要宿主提供权限。
 
 `tun.file-descriptor` 省略或为 0 时，Linux 与 macOS 根据 `tun.device` 创建或打开原生
-TUN；移动平台仍需要宿主描述符。接口地址、DNS、路由和物理出口隔离由宿主配置，VCore
+TUN；移动平台仍需要宿主描述符。接口地址、DNS、路由和物理出口隔离由宿主配置，Vole
 不自动管理系统路由。`tun.mtu` 省略或为 0 使用 9000；完整六字段契约及借用 fd 边界见
 [配置参考](config.yaml)与 [TUN 平台层](tun-platform.md)。
 
 Windows 编译时选择互斥的 `windows-wintun` 或 `windows-uwp`：
 
 - Wintun 构建中，业务 `start(configYaml)` 在 `tun.enable: true` 时自动打开或创建
-  Wintun。设备名取 `tun.device`，空值使用 `VCore`；MTU 使用 `tun.mtu`。仅加载进程
+  Wintun。设备名取 `tun.device`，空值使用 `Vole`；MTU 使用 `tun.mtu`。仅加载进程
   可执行文件所在目录的外置 `wintun.dll`，宿主提供匹配架构的官方 DLL，并负责系统网络
   配置与物理出口防环。该入口不要求包身份，且不下载或打包 DLL。
 - UWP 构建的系统 VPN 通过独立安装包桥接与 Session Host 启动，保留物理绑定和网络监控。
@@ -265,10 +265,10 @@ Stop 关闭本次持有的 fd、session 和原生句柄；Wintun 不承诺移除
 | `validate` | 有界读取配置后执行纯配置校验，不初始化数据目录、创建实例、解析远端或检查 TUN 设备。 | `output` 为 `configuration valid\n`，`diagnostics` 为空。 |
 | `run` | 初始化数据目录，创建一个公共实例，执行同一内部 `start(configYaml)`，等待退出并停止、销毁实例。 | 停止与清理成功后两项均为空。 |
 
-省略路径时，分别使用 `VCORE_HOME_DIR` 和 `VCORE_CONFIG_FILE`；显式空字符串绕过
+省略路径时，分别使用 `VOLE_HOME_DIR` 和 `VOLE_CONFIG_FILE`；显式空字符串绕过
 对应环境值并恢复默认。默认数据目录为 Unix `HOME` / Windows `USERPROFILE` 下的
-`.config/vcore`，用户目录缺失时从启动工作目录计算。该默认目录元数据读取失败时，
-若定义 `XDG_CONFIG_HOME`，使用 `<XDG_CONFIG_HOME>/vcore`。相对数据目录和显式
+`.config/vole`，用户目录缺失时从启动工作目录计算。该默认目录元数据读取失败时，
+若定义 `XDG_CONFIG_HOME`，使用 `<XDG_CONFIG_HOME>/vole`。相对数据目录和显式
 配置路径分别从启动工作目录解析；配置默认 `<dataDir>/config.yaml`。
 `configPath: "-"` 从标准输入读取。文件必须是普通文件，文件和标准输入均最多 256 KiB；
 不会下载、创建模板或改写配置。详细命令行映射见 [CLI](cli.md)。
@@ -292,7 +292,7 @@ Unix 等待 SIGINT/SIGTERM，Windows 等待 Ctrl+C/Ctrl+Break；标准输入先�
 {"method":"stop","instanceId":"1","payload":{}}
 ```
 
-同步取消并等待监听器、Controller、TUN、netstack、DNS、会话、出站和更新任务，关闭 VCore 持有的文件描述符副本并释放平台回调租约；Wintun 还唤醒并等待 reader 线程退出、释放设备资源。返回后不得继续产生数据包或调用 protect callback；本次 session 的代理组选择随之销毁。
+同步取消并等待监听器、Controller、TUN、netstack、DNS、会话、出站和更新任务，关闭 Vole 持有的文件描述符副本并释放平台回调租约；Wintun 还唤醒并等待 reader 线程退出、释放设备资源。返回后不得继续产生数据包或调用 protect callback；本次 session 的代理组选择随之销毁。
 
 ### `getState`
 
@@ -336,7 +336,7 @@ Unix 等待 SIGINT/SIGTERM，Windows 等待 Ctrl+C/Ctrl+Break；标准输入先�
 
 - `configYamls` 接受 1–5 份非空节点配置，`timeout` 为 1–30 秒。
 - 同一运行时一次只允许一个测速批次，最多并发五个私有工作器。
-- 节点配置顶层只允许 `proxies`，不接受 `proxy-groups`；`dialer-proxy` 也只能引用具体节点。VCore 推导唯一链头，且该链必须覆盖全部节点。
+- 节点配置顶层只允许 `proxies`，不接受 `proxy-groups`；`dialer-proxy` 也只能引用具体节点。Vole 推导唯一链头，且该链必须覆盖全部节点。
 - 工作器只准备出站图并执行 TCP、可选 TLS 和 HTTP/1.1 HEAD；不创建公共实例、监听器、TUN、DNS、规则、嗅探器或 GeoData。
 - 宿主测量组成员时，按当前选择快照展开具体链后提交；上游选到 DIRECT 时移除相应 `dialer-proxy`，选到 REJECT 时不发起该项测量。该快照不改变运行中的组选择。
 - URL 必须是无 userinfo 和 fragment 的绝对 HTTP/HTTPS URL；HTTPS 使用发布信任根。
@@ -370,7 +370,7 @@ ProtectFd(fd) -> bool
 
 ## Windows 安装包桥接
 
-`VCoreWindowsVpnInvoke` 使用独立的桥接修订版 3：
+`VoleWindowsVpnInvoke` 使用独立的桥接修订版 3：
 
 ```json
 {"bridgeVersion":3,"method":"getVpnStatus","payload":{}}
@@ -416,7 +416,7 @@ ProtectFd(fd) -> bool
 
 `sessionBackend` 可以省略。存在时包含 `1..=8` 个有序关键进程；每项只有 package installed location 内的规范 `.exe` 相对路径和有界 argv 数组。同一可执行文件可出现多次。第一版不接受 port、UDP、readiness、restart、environment、working directory 或 raw command line；任一进程退出都会使当前 VPN 会话失败关闭。
 
-桥接把 YAML、进程顺序、路径和参数发布为 `vcore-session-v2:<sha256>` Session Snapshot。参数引用的文件由调用方保持存在且不可变，VCore 不读取或摘要其内容。`getVpnStatus.data.snapshotToken` 返回该完整 Session token。
+桥接把 YAML、进程顺序、路径和参数发布为 `vole-session-v2:<sha256>` Session Snapshot。参数引用的文件由调用方保持存在且不可变，Vole 不读取或摘要其内容。`getVpnStatus.data.snapshotToken` 返回该完整 Session token。
 
 桥接请求最大 1 MiB。它负责安装包身份、单一 VPN profile、不可变 Session Snapshot、连接/断开命令和系统 VPN 状态；Provider 负责激活 Session Host。桥接不公开 profile CRUD、内部文件路径、backend 描述、参数、PID、管道名称或 Snapshot 维护。数据包、Controller 流量查询、代理组查询/切换和业务生命周期不经过该 JSON 桥接。
 

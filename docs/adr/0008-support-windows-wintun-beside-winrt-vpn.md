@@ -19,12 +19,12 @@ Wintun 依赖的 Win32 bindings 可以间接存在于图中；按实际 Windows 
 区分它们与 `Networking_Vpn` / `ApplicationModel` 等 WinRT 包功能。
 
 Wintun 的动态库由宿主提供，Windows CLI 归档不携带 `wintun.dll`。首版地址、DNS、
-路由和防递归物理出口配置由宿主负责，VCore 不自动配置系统网络。
+路由和防递归物理出口配置由宿主负责，Vole 不自动配置系统网络。
 平台启动失败和资源取消都受同步停止屏障约束，不能回退到未经保护的普通 socket。
 
 ADR 0001、0002、0004 与 0007 的安装包参与者和所有权约束继续适用于 WinRT VPN；
 它们不定义桌面 Wintun 的进程边界。ADR 0003 中不引入 Wintun 的拆分理由也仅适用于
-该 WinRT 包路径，不再构成整个 VCore 禁止 Wintun 的约束。
+该 WinRT 包路径，不再构成整个 Vole 禁止 Wintun 的约束。
 已有 Windows 11 包环境验收不转移到 Wintun；驱动、权限、原始包、物理出口和停止释放
 必须独立取证。当前非 Windows 主机不能完成这组设备验收。
 

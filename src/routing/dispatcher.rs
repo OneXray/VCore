@@ -171,7 +171,7 @@ impl ProxyDispatchers {
 
 pub(crate) type RouteTargetDispatchers = ProxyDispatchers;
 
-/// Ordered VCore router backed by named route targets, built-in DIRECT, and
+/// Ordered Vole router backed by named route targets, built-in DIRECT, and
 /// fail-closed REJECT actions.
 ///
 /// The outer session observer records returned transport lifetimes without

@@ -59,7 +59,7 @@ pub(super) fn validate(fd: BorrowedFd<'_>, mtu: u16) -> io::Result<()> {
     // namespace; Invoke, Tokio and outbound workers retain physical egress.
     // Joining completes validation (and closes its fds) before startup proceeds.
     thread::Builder::new()
-        .name("vcore-tun-validate".into())
+        .name("vole-tun-validate".into())
         .spawn(move || {
             // SAFETY: namespace remains open; CLONE_NEWNET changes only this
             // disposable thread. No caller-owned socket is moved into it.

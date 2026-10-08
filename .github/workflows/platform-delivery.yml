@@ -76,21 +76,21 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          key: delivery-${{ matrix.name }}-${{ hashFiles('scripts/src/vcore_scripts/builds.py', 'scripts/cmake/**') }}
+          key: delivery-${{ matrix.name }}-${{ hashFiles('scripts/src/vole_scripts/builds.py', 'scripts/cmake/**') }}
           workspaces: ". -> target"
-          env-vars: ImageOS ImageVersion SDKROOT DEVELOPER_DIR ANDROID_NDK_HOME VCORE BORING AWS_LC LIBCLANG BINDGEN
+          env-vars: ImageOS ImageVersion SDKROOT DEVELOPER_DIR ANDROID_NDK_HOME VOLE BORING AWS_LC LIBCLANG BINDGEN
           cache-bin: "false"
       - name: Build production artifacts and validate identity
-        run: uv run --project scripts --locked vcore-scripts build ${{ matrix.platform }} --delivery
+        run: uv run --project scripts --locked vole-scripts build ${{ matrix.platform }} --delivery
       - name: Check native Wintun CLI without staging release assets
         if: matrix.platform == 'windows'
         run: >-
           uv run --project scripts --locked python -c
-          "from vcore_scripts.builds import check_windows_wintun_cli; check_windows_wintun_cli()"
+          "from vole_scripts.builds import check_windows_wintun_cli; check_windows_wintun_cli()"
       - name: Preserve unsigned build artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: vcore-${{ matrix.name }}-${{ github.sha }}
+          name: vole-${{ matrix.name }}-${{ github.sha }}
           path: |
             dist/${{ matrix.platform }}/
           if-no-files-found: error

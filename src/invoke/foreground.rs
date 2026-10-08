@@ -22,9 +22,9 @@ use tracing::{
     subscriber::Interest,
 };
 
-const HELP: &str = "VCore standalone proxy core\n\
-Usage: vcore [-d <data-dir>] [-f <config-file>] [-t] [-v] [-h]\n\
-  -d <data-dir>     Data directory (default: home/.config/vcore)\n\
+const HELP: &str = "Vole standalone proxy core\n\
+Usage: vole [-d <data-dir>] [-f <config-file>] [-t] [-v] [-h]\n\
+  -d <data-dir>     Data directory (default: home/.config/vole)\n\
   -f <config-file>  Configuration file; - reads stdin (default: <data-dir>/config.yaml)\n\
   -t               Validate configuration and exit\n\
   -v               Print software version and build identity\n\
@@ -156,8 +156,8 @@ pub(super) fn execute(payload: ForegroundPayload) -> Result<Value, InvokeFailure
         None
     };
     let options = PathOptions {
-        data_dir: option_path(payload.data_dir, "VCORE_HOME_DIR"),
-        config_file: option_path(payload.config_path, "VCORE_CONFIG_FILE"),
+        data_dir: option_path(payload.data_dir, "VOLE_HOME_DIR"),
+        config_file: option_path(payload.config_path, "VOLE_CONFIG_FILE"),
     };
     let cwd = std::env::current_dir().map_err(|e| io_failure("resolve working directory", e))?;
     let paths = Paths::resolve(&options, &cwd, &PathDefaults::environment())
@@ -344,12 +344,12 @@ impl Paths {
             Some(path) => absolute(path),
             None => {
                 let home = absolute(defaults.home.as_deref().unwrap_or(launch_dir));
-                let default = home.join(".config/vcore");
+                let default = home.join(".config/vole");
                 if fs::metadata(&default).is_err() {
                     defaults
                         .xdg
                         .as_deref()
-                        .map_or(default, |xdg| absolute(xdg).join("vcore"))
+                        .map_or(default, |xdg| absolute(xdg).join("vole"))
                 } else {
                     default
                 }
@@ -525,10 +525,10 @@ impl StderrSubscriber {
         let target = metadata.target();
         metadata.is_event()
             && *metadata.level() <= Level::INFO
-            && (target == "vcore"
-                || target.starts_with("vcore::")
-                || target == "vcore_netstack"
-                || target.starts_with("vcore_netstack::"))
+            && (target == "vole"
+                || target.starts_with("vole::")
+                || target == "vole_netstack"
+                || target.starts_with("vole_netstack::"))
     }
 
     fn admit(&self) -> bool {
@@ -586,7 +586,7 @@ impl Subscriber for StderrSubscriber {
         let mut line = LogLine::new();
         _ = write!(
             line,
-            "vcore: [{}] {}",
+            "vole: [{}] {}",
             event.metadata().level(),
             event.metadata().target()
         );
@@ -720,13 +720,13 @@ mod tests {
             xdg: Some(xdg.clone()),
         };
         let paths = Paths::resolve(&options(None, None), dir.path(), &defaults).unwrap();
-        assert_eq!(paths.data_dir, xdg.join("vcore"));
-        fs::create_dir_all(home.join(".config/vcore")).unwrap();
+        assert_eq!(paths.data_dir, xdg.join("vole"));
+        fs::create_dir_all(home.join(".config/vole")).unwrap();
         assert_eq!(
             Paths::resolve(&options(None, None), dir.path(), &defaults)
                 .unwrap()
                 .data_dir,
-            home.join(".config/vcore")
+            home.join(".config/vole")
         );
         assert!(!xdg.exists());
     }

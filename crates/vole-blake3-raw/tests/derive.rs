@@ -1,4 +1,4 @@
-use vcore_blake3_raw::derive_key;
+use vole_blake3_raw::derive_key;
 
 #[test]
 fn derives_binary_context_without_utf8_conversion() {
@@ -40,7 +40,7 @@ fn matches_independent_go_vectors_across_block_chunk_and_wire_context_lengths() 
 
 #[test]
 fn coexists_with_official_rust_blake3_and_matches_its_utf8_interface() {
-    for context in ["", "VLESS", "vcore tests 2026-09-26 固定 context\0with NUL"] {
+    for context in ["", "VLESS", "vole tests 2026-09-26 固定 context\0with NUL"] {
         for length in [0, 1, 32, 64, 1023, 1024, 1025, 17005] {
             let material: Vec<u8> = (0..length).map(|i| (i * 13 + 7) as u8).collect();
             assert_eq!(

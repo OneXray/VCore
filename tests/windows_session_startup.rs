@@ -25,7 +25,7 @@ fn unpackaged_session_host_exits_without_crashing() {
 
     // Child processes inherit this mode; suppress loader and crash dialogs.
     let previous = unsafe { SetErrorMode(0x8003) };
-    let spawned = Command::new(env!("CARGO_BIN_EXE_vcore-windows-session-host"))
+    let spawned = Command::new(env!("CARGO_BIN_EXE_vole-windows-session-host"))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())

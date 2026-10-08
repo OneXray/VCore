@@ -11,7 +11,7 @@ const IP_PROTOCOL_ICMPV6: u8 = 58;
 pub(crate) enum IcmpIngress {
     /// The base IP header does not identify ICMP/ICMPv6. Normal dispatch may continue.
     NotIcmp,
-    /// The packet violates `VCore`'s strict raw-IP or address policy.
+    /// The packet violates `Vole`'s strict raw-IP or address policy.
     Dropped,
     /// Let smoltcp parse the message and generate an echo reply when appropriate.
     Smoltcp,

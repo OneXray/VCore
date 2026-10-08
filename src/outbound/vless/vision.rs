@@ -1,5 +1,5 @@
 //! Vision framing over authenticated VLESS. Wire constants follow the public
-//! XTLS/Mihomo protocol; state, bounds and async ownership are VCore-owned.
+//! XTLS/Mihomo protocol; state, bounds and async ownership are Vole-owned.
 use super::vision_filter::Filter;
 use crate::{dispatch::BoxStream, security::vision::SpliceControl};
 use bytes::{Buf, BufMut, Bytes, BytesMut};

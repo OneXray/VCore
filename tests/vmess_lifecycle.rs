@@ -7,7 +7,7 @@ use std::{
     },
     time::Duration,
 };
-use vcore::{
+use vole::{
     config::{Config, ProxyProtocol},
     dialer::{Dialer, ResolvedEndpoint, SocketProtector},
     outbound::{EstablishContext, OutboundConnector, UpstreamPath, vmess::VmessOutbound},
@@ -23,26 +23,26 @@ impl OutboundConnector for SuppliedStream {
         &self,
         session: StreamSession,
         _context: &EstablishContext,
-    ) -> Result<vcore::outbound::ConnectedStream, vcore::dispatch::DispatchError> {
+    ) -> Result<vole::outbound::ConnectedStream, vole::dispatch::DispatchError> {
         tokio::time::sleep(Duration::from_millis(150)).await;
-        Ok(vcore::outbound::ConnectedStream {
+        Ok(vole::outbound::ConnectedStream {
             io: Box::new(self.io.lock().unwrap().take().unwrap()),
             effective_peer: session.destination,
         })
     }
     async fn open_datagram(
         &self,
-        _: vcore::outbound::DatagramRequest,
+        _: vole::outbound::DatagramRequest,
         _: &EstablishContext,
-    ) -> Result<Box<dyn vcore::dispatch::DatagramTransport>, vcore::dispatch::DispatchError> {
-        Err(vcore::dispatch::DispatchError::NotAllowed)
+    ) -> Result<Box<dyn vole::dispatch::DatagramTransport>, vole::dispatch::DispatchError> {
+        Err(vole::dispatch::DispatchError::NotAllowed)
     }
 }
 
 #[tokio::test]
 async fn vmess_all_handshakes_keep_the_original_deadline_and_join_cancelled_io() {
     #[cfg(feature = "interop-test")]
-    let _evidence = vcore::resources::case_events::Case::new(
+    let _evidence = vole::resources::case_events::Case::new(
         "VMESS-CANCEL",
         "vmess_all_handshakes_keep_the_original_deadline_and_join_cancelled_io",
     );
@@ -139,7 +139,7 @@ impl SocketProtector for RejectProtect {
 #[tokio::test]
 async fn vmess_expired_deadline_and_protect_failure_never_fall_back() {
     #[cfg(feature = "interop-test")]
-    let _evidence = vcore::resources::case_events::Case::new(
+    let _evidence = vole::resources::case_events::Case::new(
         "VMESS-CANCEL",
         "vmess_expired_deadline_and_protect_failure_never_fall_back",
     );

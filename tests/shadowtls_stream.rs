@@ -4,7 +4,7 @@
 
 use std::{collections::HashSet, time::Duration};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use vcore::{
+use vole::{
     config::{ClientFingerprint, ShadowTlsConfig},
     security::{SecurityContext, ShadowTlsClient},
 };
@@ -24,7 +24,7 @@ fn options(profile: Option<ClientFingerprint>) -> ShadowTlsConfig {
 #[tokio::test]
 async fn cancelled_shadowtls_handshakes_release_io_and_never_reuse_authenticated_hellos() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new("SHADOWTLS-STREAM", "cancelled_hello");
+    let _case = vole::resources::case_events::Case::new("SHADOWTLS-STREAM", "cancelled_hello");
     use ClientFingerprint::*;
     tokio::time::timeout(Duration::from_secs(10), async {
         let mut seen = HashSet::new();
@@ -69,7 +69,7 @@ async fn cancelled_shadowtls_handshakes_release_io_and_never_reuse_authenticated
 #[tokio::test]
 async fn truncated_or_oversized_shadowtls_handshake_records_never_create_a_business_stream() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new("SHADOWTLS-STREAM", "invalid_record");
+    let _case = vole::resources::case_events::Case::new("SHADOWTLS-STREAM", "invalid_record");
     tokio::time::timeout(Duration::from_secs(10), async {
         for record in [
             vec![],

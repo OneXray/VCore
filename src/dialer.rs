@@ -88,7 +88,7 @@ impl DnsWorker {
         let busy = Arc::new(AtomicBool::new(false));
         let worker_busy = busy.clone();
         thread::Builder::new()
-            .name(format!("vcore-bootstrap-dns-{slot}"))
+            .name(format!("vole-bootstrap-dns-{slot}"))
             .stack_size(DNS_WORKER_STACK_BYTES)
             .spawn(move || {
                 while let Ok(request) = receiver.recv() {

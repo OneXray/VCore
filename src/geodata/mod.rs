@@ -18,7 +18,7 @@ use regex::bytes::{Regex, RegexBuilder};
 use thiserror::Error;
 
 use crate::{
-    VCoreError,
+    VoleError,
     config::{DnsNameserverPolicy, RuleKind, RuleSpec},
     routing::GeoMatcher,
 };
@@ -101,7 +101,7 @@ pub enum GeoDataError {
     AllocationFailed { bytes: usize },
 }
 
-impl From<GeoDataError> for VCoreError {
+impl From<GeoDataError> for VoleError {
     fn from(error: GeoDataError) -> Self {
         Self::InvalidConfig(error.to_string())
     }
@@ -109,7 +109,7 @@ impl From<GeoDataError> for VCoreError {
 
 /// Diagnostic capacity accounting, never a memory admission policy.
 ///
-/// Includes VCore-owned matcher/index vectors and arenas, with old/new buffer
+/// Includes Vole-owned matcher/index vectors and arenas, with old/new buffer
 /// overlap during growth. Compiled regex programs and search caches are opaque
 /// third-party allocations and are not counted, nor are allocator overhead or
 /// the process peak; those require independent measurements.
@@ -414,7 +414,7 @@ impl RequestedCodes {
     }
 }
 
-/// Normalized GeoData categories referenced by one VCore configuration.
+/// Normalized GeoData categories referenced by one Vole configuration.
 ///
 /// Collection validates base code/selector syntax and canonicalizes attribute
 /// intersections and case, without a reference-count quota. Asset
@@ -1221,7 +1221,7 @@ fn validate_regex_source(code: &Code, pattern: &str) -> Result<(), GeoDataError>
     if !pattern.is_ascii() {
         return Err(GeoDataError::InvalidRegex {
             code: code.as_str().to_owned(),
-            detail: "the VCore Regex subset only accepts ASCII source".to_owned(),
+            detail: "the Vole Regex subset only accepts ASCII source".to_owned(),
         });
     }
     if has_unsupported_inline_regex_flag(pattern.as_bytes()) {
@@ -1451,7 +1451,7 @@ fn compile_regex_set(
     ensure_vec_capacity(&mut regexes, ranges.len(), ledger)?;
 
     // Use the library's normal byte-regex interface and default compiler/cache
-    // protections. VCore adds no expression count, source or memory quota, and
+    // protections. Vole adds no expression count, source or memory quota, and
     // does not request eager complete-DFA construction. Programs/search caches
     // are opaque to the ledger; only this owned vector is accounted.
     for range in ranges {

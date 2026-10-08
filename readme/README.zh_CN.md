@@ -1,12 +1,12 @@
-# VCore
+# Vole
 
 <p align="center">
   <a href="../README.md">English</a> · 简体中文 · <a href="./README.ru.md">Русский</a>
 </p>
 
-VCore 是用于 VPN 客户端和本地代理的 Rust 代理内核，提供原生库和前台 CLI。它通过直连、代理节点、代理组和代理链转发 TCP/UDP 流量，并集成 DNS、GeoData 和跨平台 TUN 数据面。
+Vole 是用于 VPN 客户端和本地代理的 Rust 代理内核，提供原生库和前台 CLI。它通过直连、代理节点、代理组和代理链转发 TCP/UDP 流量，并集成 DNS、GeoData 和跨平台 TUN 数据面。
 
-配置采用**与 Mihomo 兼容的 YAML，兼容范围限于 VCore 已支持的功能**。VCore 聚焦客户端能力，并未实现 Mihomo 的全部字段或完整 Dashboard API。
+配置采用**与 Mihomo 兼容的 YAML，兼容范围限于 Vole 已支持的功能**。Vole 聚焦客户端能力，并未实现 Mihomo 的全部字段或完整 Dashboard API。
 
 ## 内核能做什么
 
@@ -74,21 +74,21 @@ rules:
 
 `mixed-port` 在同一 TCP 端口接入 HTTP 与 SOCKS5，并在同端口启用 SOCKS5 UDP。`allow-lan` 控制绑定地址，与 `authentication` 独立：`authentication` 省略或为 `[]` 时，回环与通配绑定均免认证；配置凭据后 HTTP 与 SOCKS5 均校验。顶层 `port`、`socks-port`、`udp` 和 `listeners` 都会拒绝；代理节点的 `port` 与 `udp` 保留出站含义。
 
-兼容范围限于文档列出的字段和行为，不覆盖任意 Mihomo 配置。代理组目前支持静态 `select`；DNS 上游使用固定 IP，通过 UDP/TCP 查询。Providers、自动代理组选择、加密 DNS 和 fake-IP 不在当前功能范围内。未知字段与无效组合会被拒绝，不会静默忽略；VCore 特有的语义会在相应契约中说明。
+兼容范围限于文档列出的字段和行为，不覆盖任意 Mihomo 配置。代理组目前支持静态 `select`；DNS 上游使用固定 IP，通过 UDP/TCP 查询。Providers、自动代理组选择、加密 DNS 和 fake-IP 不在当前功能范围内。未知字段与无效组合会被拒绝，不会静默忽略；Vole 特有的语义会在相应契约中说明。
 
 库接口由宿主使用内联 `configYaml` 启动实例；TUN 设备、描述符、MTU、DNS 拦截和 UDP 超时归属于 `tun` 配置，平台回调仍在运行时本地注册。CLI 通过同一 Invoke API 传递参数，由其前台操作读取 `-f` 指定的配置。接口地址、DNS 与系统路由由宿主配置。
 
 ## CLI
 
-通过 `cargo build --locked --release --no-default-features --features cli --bin vcore` 构建前台程序；Windows 桌面 TUN 构建在 feature 列表中加入 `windows-wintun`。
+通过 `cargo build --locked --release --no-default-features --features cli --bin vole` 构建前台程序；Windows 桌面 TUN 构建在 feature 列表中加入 `windows-wintun`。
 
 ```sh
-vcore -f /path/to/config.yaml
-vcore -d /path/to/data -f ./config.yaml
-vcore -t -f ./config.yaml
+vole -f /path/to/config.yaml
+vole -d /path/to/data -f ./config.yaml
+vole -t -f ./config.yaml
 ```
 
-`-d` 设置配置及数据目录，`-f` 独立指定配置文件；相对路径均从启动工作目录解析。省略 `-f` 时读取 `<数据目录>/config.yaml`，目录默认用户的 `.config/vcore`，按 Mihomo 规则回落到 `XDG_CONFIG_HOME`。`-f -` 从标准输入读取。`VCORE_HOME_DIR` / `VCORE_CONFIG_FILE` 提供环境默认值，显式参数优先。`-t` 只校验配置，`-v` 显示版本与构建身份，`-h` 显示帮助。详见 [CLI 与 tag 发布](../docs/cli.md)。
+`-d` 设置配置及数据目录，`-f` 独立指定配置文件；相对路径均从启动工作目录解析。省略 `-f` 时读取 `<数据目录>/config.yaml`，目录默认用户的 `.config/vole`，按 Mihomo 规则回落到 `XDG_CONFIG_HOME`。`-f -` 从标准输入读取。`VOLE_HOME_DIR` / `VOLE_CONFIG_FILE` 提供环境默认值，显式参数优先。`-t` 只校验配置，`-v` 显示版本与构建身份，`-h` 显示帮助。详见 [CLI 与 tag 发布](../docs/cli.md)。
 
 ## 平台与集成
 
@@ -100,24 +100,24 @@ vcore -t -f ./config.yaml
 | Linux | 借用 fd 或由内核打开设备的真实单队列 raw-IP TUN；宿主负责系统网络配置 |
 | Windows | 编译时互斥的 `windows-wintun` 桌面后端与 `windows-uwp` 安装包 Provider/Session Host；共用内核 |
 
-VCore 提供原生库和前台 CLI；系统网络配置仍由平台宿主负责。Unix 宿主持有原始 TUN 描述符；VCore 使用并关闭自己复制的描述符。Apple 公开的 packetFlow API 不保证可获取 raw fd，因此实际 Network Extension 集成和设备验证仍由宿主负责。详见 [TUN 集成](../docs/tun-platform.md)与[平台验收边界](../docs/acceptance.md)。
+Vole 提供原生库和前台 CLI；系统网络配置仍由平台宿主负责。Unix 宿主持有原始 TUN 描述符；Vole 使用并关闭自己复制的描述符。Apple 公开的 packetFlow API 不保证可获取 raw fd，因此实际 Network Extension 集成和设备验证仍由宿主负责。详见 [TUN 集成](../docs/tun-platform.md)与[平台验收边界](../docs/acceptance.md)。
 
 桌面 Wintun 从进程可执行文件所在目录加载宿主提供的 `wintun.dll`。接口地址、DNS、路由与物理出口由宿主配置；Wintun 设备验收独立于已有安装包 VPN 结果。命令行使用与交付见 [CLI 与 tag 发布](../docs/cli.md)。
 
 跨平台 C ABI 通过 Invoke API 接受 JSON 请求：
 
 ```c
-char *VCoreInvoke(const char *request_json);
-void VCoreFree(char *response);
+char *VoleInvoke(const char *request_json);
+void VoleFree(char *response);
 ```
 
 单个公共实例遵循 `initialize → createInstance → start(configYaml) → stop → destroyInstance` 生命周期，准备过程由 `start` 内部完成；`validateConfig` 不要求初始化。CLI 通过显式的前台 Invoke 操作处理文件、环境默认值、信号与清理。API 还提供状态查询、GeoData 状态与延迟测量。详见 [Invoke API](../docs/invoke-api.md)、[Controller API](../docs/controller-api.md)与 [Windows 集成示例](../example/windows-uwp/README.md)。
 
 ## Benchmark
 
-[**VCore / Mihomo TUN benchmark**](https://github.com/YuanDevTeam/container-benchmark) 提供两个内核在相同原生 Linux TUN 环境下的可复现测试设置、实测结果与对比图表。
+[**Vole / Mihomo TUN benchmark**](https://github.com/YuanDevTeam/container-benchmark) 提供两个内核在相同原生 Linux TUN 环境下的可复现测试设置、实测结果与对比图表。
 
-benchmark 工程同时负责协议互通（`interop`）与内存压力（`stress`），通过显式 `--source vcore=PATH` 提供被测 checkout；VCore 自有脚本只编译核心与平台产物。
+benchmark 工程同时负责协议互通（`interop`）与内存压力（`stress`），通过显式 `--source vole=PATH` 提供被测 checkout；Vole 自有脚本只编译核心与平台产物。
 
 测试使用 **1 / 1.5 / 2 Gbps** 混合 TCP/UDP 流量、**每秒 1,000 次 DNS 查询**和增强的 `geosite:cn` / `geoip:cn` 规则，报告实际吞吐量、CPU、观察到的 Linux 峰值 RSS、UDP 丢包与成功的 DNS 查询数。它使用 DIRECT 出口评估 TUN/DNS/路由路径，不衡量加密代理吞吐量；Linux RSS 不等同于 Apple Network Extension 内存占用。
 
@@ -135,10 +135,10 @@ benchmark 工程同时负责协议互通（`interop`）与内存压力（`stress
 
 ## Credits
 
-VCore 使用并参考以下公开依赖、协议实现和平台资料：
+Vole 使用并参考以下公开依赖、协议实现和平台资料：
 
-- TUN 依赖：自有 [`vcore-netstack`](../crates/vcore-netstack/README.md) 使用 [smoltcp](https://github.com/smoltcp-rs/smoltcp)，Unix 与 Windows Wintun 包 I/O 使用 [tun-rs](https://github.com/tun-rs/tun-rs)（Apache-2.0）。
-- [Wintun](https://www.wintun.net/)：运行时 DLL 由宿主提供，不随 VCore 捆绑。tun-rs 中的上游 [API 头文件](https://github.com/tun-rs/tun-rs/blob/2.8.11/src/platform/windows/tun/wintun.h) 版权为 2018–2021 WireGuard LLC，许可证为 `GPL-2.0 OR MIT`；分发链接的 API bindings 时须保留其版权和 MIT 可选许可证声明。
+- TUN 依赖：自有 [`vole-netstack`](../crates/vole-netstack/README.md) 使用 [smoltcp](https://github.com/smoltcp-rs/smoltcp)，Unix 与 Windows Wintun 包 I/O 使用 [tun-rs](https://github.com/tun-rs/tun-rs)（Apache-2.0）。
+- [Wintun](https://www.wintun.net/)：运行时 DLL 由宿主提供，不随 Vole 捆绑。tun-rs 中的上游 [API 头文件](https://github.com/tun-rs/tun-rs/blob/2.8.11/src/platform/windows/tun/wintun.h) 版权为 2018–2021 WireGuard LLC，许可证为 `GPL-2.0 OR MIT`；分发链接的 API bindings 时须保留其版权和 MIT 可选许可证声明。
 - 网络与路由参考：[clash-rs](https://github.com/Watfaq/clash-rs)、[netstack-smoltcp](https://github.com/cavivie/netstack-smoltcp)、[Mihomo](https://github.com/MetaCubeX/mihomo)、[Xray-core](https://github.com/XTLS/Xray-core) 和 [Leaf](https://github.com/eycorsican/leaf)。这些参考项目并非 netstack 依赖。
 - TLS 与 Shadowsocks：[rustls](https://github.com/rustls/rustls)、[boring](https://github.com/cloudflare/boring)、[BoringSSL](https://boringssl.googlesource.com/boringssl/) 和 [shadowsocks-rust](https://github.com/shadowsocks/shadowsocks-rust)。衍生的重放窗口代码保留了 [MIT 声明](../src/outbound/shadowsocks/packet_window.rs)。
 - Windows 集成：[windows-rs](https://github.com/microsoft/windows-rs)、[UWP VPN Plugin Sample](https://github.com/microsoft/UwpVpnPluginSample)、[wireguard-uwp-rs](https://github.com/luqmana/wireguard-uwp-rs)、[Maple](https://github.com/YtFlow/Maple) 和 [YtFlowCore](https://github.com/YtFlow/YtFlowCore)。

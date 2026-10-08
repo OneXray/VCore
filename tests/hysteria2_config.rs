@@ -1,9 +1,9 @@
-use vcore::config::Config;
+use vole::config::Config;
 
 #[test]
 fn hysteria2_configuration_follows_its_protocol_feature() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "HYSTERIA2-CFG",
         "hysteria2_configuration_follows_its_protocol_feature",
     );
@@ -21,7 +21,7 @@ fn hysteria2_configuration_follows_its_protocol_feature() {
 #[test]
 fn hysteria2_accepts_the_approved_tls_bandwidth_obfs_and_hopping_configuration() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "HYSTERIA2-CFG",
         "hysteria2_accepts_the_approved_tls_bandwidth_obfs_and_hopping_configuration",
     );
@@ -38,12 +38,12 @@ fn hysteria2_accepts_the_approved_tls_bandwidth_obfs_and_hopping_configuration()
 #[test]
 fn hysteria2_fields_are_strict_normalized_and_credentials_are_not_trimmed() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "HYSTERIA2-CFG",
         "hysteria2_fields_are_strict_normalized_and_credentials_are_not_trimmed",
     );
     use serde_json::{Value, json};
-    use vcore::config::ProxyProtocol;
+    use vole::config::ProxyProtocol;
     let base = json!({"name":"edge", "type":"hysteria2", "server":"localhost", "port":443});
     let parse = |raw: Value| {
         Config::parse_yaml(

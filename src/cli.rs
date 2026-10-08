@@ -6,7 +6,7 @@ use std::{
     path::PathBuf,
     process::ExitCode,
 };
-use vcore::invoke::{InvokePath, invoke_bytes};
+use vole::invoke::{InvokePath, invoke_bytes};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Mode {
     Help,
@@ -153,7 +153,7 @@ fn render(
     if response["success"] != true {
         writeln!(
             diagnostics,
-            "vcore: {}",
+            "vole: {}",
             response["error"].as_str().unwrap_or("Invoke failed")
         )?;
         return Ok(1);
@@ -162,7 +162,7 @@ fn render(
     if let (Some(version), Some(identity)) =
         (data["version"].as_str(), data["buildIdentity"].as_str())
     {
-        writeln!(output, "VCore {version}\n{identity}")?;
+        writeln!(output, "Vole {version}\n{identity}")?;
     } else {
         output.write_all(data["output"].as_str().unwrap_or("").as_bytes())?;
         diagnostics.write_all(data["diagnostics"].as_str().unwrap_or("").as_bytes())?;
@@ -175,7 +175,7 @@ pub(crate) fn entry() -> ExitCode {
     let options = match Options::parse(std::env::args_os().skip(1), None, None) {
         Ok(options) => options,
         Err(error) => {
-            let _ = writeln!(diagnostics, "vcore: {}", error.0);
+            let _ = writeln!(diagnostics, "vole: {}", error.0);
             if let Ok(help) = call(json!({"method":"foreground","payload":{"action":"help"}})) {
                 let _ = render(&help, &mut output, &mut diagnostics);
             }
@@ -187,7 +187,7 @@ pub(crate) fn entry() -> ExitCode {
             ExitCode::from(render(&response, &mut output, &mut diagnostics).unwrap_or(1))
         }
         Err(error) => {
-            let _ = writeln!(diagnostics, "vcore: {}", error.0);
+            let _ = writeln!(diagnostics, "vole: {}", error.0);
             ExitCode::from(1)
         }
     }

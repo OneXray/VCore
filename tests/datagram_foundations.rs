@@ -1,16 +1,16 @@
-use vcore::{dispatch::DatagramBudget, packet::IpVersion};
+use vole::{dispatch::DatagramBudget, packet::IpVersion};
 
 #[cfg(feature = "outbound-shadowsocks")]
 #[tokio::test]
 async fn shadowsocks_budget_accounts_for_cipher_headers_and_identity_chain() {
     #[cfg(feature = "interop-test")]
-    let mut _case = vcore::resources::case_events::Case::new(
+    let mut _case = vole::resources::case_events::Case::new(
         "FOUNDATIONS-DATAGRAM",
         "shadowsocks_budget_accounts_for_cipher_headers_and_identity_chain",
     );
     use base64::{Engine as _, engine::general_purpose::STANDARD};
     use bytes::Bytes;
-    use vcore::{
+    use vole::{
         config::{ShadowsocksCipher, ShadowsocksOutboundConfig},
         dialer::{Dialer, ResolvedEndpoint},
         outbound::{
@@ -86,13 +86,13 @@ async fn shadowsocks_budget_accounts_for_cipher_headers_and_identity_chain() {
 #[tokio::test]
 async fn socks5_budget_retains_distinct_payload_and_envelope_limits() {
     #[cfg(feature = "interop-test")]
-    let mut _case = vcore::resources::case_events::Case::new(
+    let mut _case = vole::resources::case_events::Case::new(
         "FOUNDATIONS-DATAGRAM",
         "socks5_budget_retains_distinct_payload_and_envelope_limits",
     );
     use bytes::Bytes;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use vcore::{
+    use vole::{
         config::Socks5OutboundConfig,
         dialer::{Dialer, ResolvedEndpoint},
         outbound::{DatagramRequest, EstablishContext, OutboundConnector, Socks5Outbound},
@@ -178,12 +178,12 @@ async fn socks5_budget_retains_distinct_payload_and_envelope_limits() {
 #[tokio::test]
 async fn direct_budget_rejects_large_sends_and_drops_oversize_responses() {
     #[cfg(feature = "interop-test")]
-    let mut _case = vcore::resources::case_events::Case::new(
+    let mut _case = vole::resources::case_events::Case::new(
         "FOUNDATIONS-DATAGRAM",
         "direct_budget_rejects_large_sends_and_drops_oversize_responses",
     );
     use bytes::Bytes;
-    use vcore::{
+    use vole::{
         dialer::Dialer,
         outbound::{DatagramRequest, DirectOutbound, EstablishContext, OutboundConnector},
         session::{Datagram, DatagramSession, Destination, InboundKind},
@@ -225,7 +225,7 @@ async fn direct_budget_rejects_large_sends_and_drops_oversize_responses() {
 #[test]
 fn layered_directional_budgets_account_for_ip_headers_and_exact_minima() {
     #[cfg(feature = "interop-test")]
-    let mut _case = vcore::resources::case_events::Case::new(
+    let mut _case = vole::resources::case_events::Case::new(
         "FOUNDATIONS-DATAGRAM",
         "layered_directional_budgets_account_for_ip_headers_and_exact_minima",
     );

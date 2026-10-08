@@ -1,7 +1,7 @@
 #![cfg(feature = "outbound-vless")]
 
 use serde_json::{Value, json};
-use vcore::config::{Config, ProxyProtocol};
+use vole::config::{Config, ProxyProtocol};
 
 fn document(options: Value) -> Vec<u8> {
     serde_json::to_vec(&json!({
@@ -32,10 +32,10 @@ fn xhttp_authorities_reject_userinfo_on_both_legs_without_echoing_it() {
             assert!(!error.contains("synthetic-secret"));
         }
         assert!(
-            vcore::transport::xhttp::XHttpConfig::new(
+            vole::transport::xhttp::XHttpConfig::new(
                 host,
                 "/",
-                vcore::transport::xhttp::XHttpMode::StreamOne
+                vole::transport::xhttp::XHttpMode::StreamOne
             )
             .is_err()
         );
@@ -53,7 +53,7 @@ fn xhttp_authorities_reject_userinfo_on_both_legs_without_echoing_it() {
 #[test]
 fn xhttp_fields_reject_wrong_types_null_and_every_range_boundary_before_io() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "xhttp_fields_reject_wrong_types_null_and_every_range_boundary_before_io",
     );
@@ -203,7 +203,7 @@ fn xhttp_fields_reject_wrong_types_null_and_every_range_boundary_before_io() {
 #[test]
 fn empty_http_authority_falls_back_to_each_legs_authentication_name() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "empty_http_authority_falls_back_to_each_legs_authentication_name",
     );
@@ -239,7 +239,7 @@ fn empty_http_authority_falls_back_to_each_legs_authentication_name() {
 #[test]
 fn download_security_changes_do_not_silently_discard_inherited_certificate_policy() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "download_security_changes_do_not_silently_discard_inherited_certificate_policy",
     );
@@ -270,7 +270,7 @@ fn download_security_changes_do_not_silently_discard_inherited_certificate_polic
 #[test]
 fn h3_requires_exclusive_alpn_and_standard_tls_on_each_leg() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "h3_requires_exclusive_alpn_and_standard_tls_on_each_leg",
     );
@@ -306,7 +306,7 @@ fn h3_requires_exclusive_alpn_and_standard_tls_on_each_leg() {
 #[test]
 fn custom_headers_inherit_replace_clear_and_do_not_leak_values() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "custom_headers_inherit_replace_clear_and_do_not_leak_values",
     );
@@ -348,7 +348,7 @@ fn custom_headers_inherit_replace_clear_and_do_not_leak_values() {
 #[test]
 fn conflicting_request_fields_are_rejected_on_both_legs_before_io() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "conflicting_request_fields_are_rejected_on_both_legs_before_io",
     );
@@ -371,11 +371,11 @@ fn conflicting_request_fields_are_rejected_on_both_legs_before_io() {
 #[test]
 fn http_version_selects_h1_only_for_its_single_alpn_and_supports_plaintext() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "http_version_selects_h1_only_for_its_single_alpn_and_supports_plaintext",
     );
-    use vcore::config::{SecurityConfig, XHttpVersion};
+    use vole::config::{SecurityConfig, XHttpVersion};
     for tls in [true, false] {
         for (alpn, version) in [
             (json!(["http/1.1"]), XHttpVersion::Http1),
@@ -412,11 +412,11 @@ fn http_version_selects_h1_only_for_its_single_alpn_and_supports_plaintext() {
 #[test]
 fn download_certificate_policy_inherits_and_explicit_false_or_empty_clears() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "download_certificate_policy_inherits_and_explicit_false_or_empty_clears",
     );
-    use vcore::config::SecurityConfig;
+    use vole::config::SecurityConfig;
     for clear in [false, true] {
         let download = if clear {
             json!({"skip-cert-verify":false,"name-cert-verify":"","fingerprint":""})
@@ -460,12 +460,12 @@ fn download_certificate_policy_inherits_and_explicit_false_or_empty_clears() {
 #[test]
 fn download_mtls_identity_is_inherited_or_replaced_and_cleared_as_a_pair() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "download_mtls_identity_is_inherited_or_replaced_and_cleared_as_a_pair",
     );
     use base64::Engine as _;
-    use vcore::config::SecurityConfig;
+    use vole::config::SecurityConfig;
     let identity = |name: &str| {
         let value = rcgen::generate_simple_self_signed(vec![name.into()]).unwrap();
         let pem = |kind, bytes| {
@@ -520,12 +520,12 @@ fn download_mtls_identity_is_inherited_or_replaced_and_cleared_as_a_pair() {
 #[test]
 fn download_reality_object_replaces_inherits_or_clears_without_merging_keys() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "download_reality_object_replaces_inherits_or_clears_without_merging_keys",
     );
     use base64::Engine as _;
-    use vcore::config::SecurityConfig;
+    use vole::config::SecurityConfig;
     let key = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([7; 32]);
     let other = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([8; 32]);
     for (download, expected) in [
@@ -573,7 +573,7 @@ fn download_reality_object_replaces_inherits_or_clears_without_merging_keys() {
 #[test]
 fn reuse_object_presence_and_download_whole_object_replacement_are_preserved() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "reuse_object_presence_and_download_whole_object_replacement_are_preserved",
     );

@@ -1,6 +1,6 @@
 # TUN ICMP 与 DNS
 
-VCore 在 TUN netstack 内回答受支持的 ICMP Echo Request。启用运行时 DNS 后，匹配 `tun.dns-hijack` 的 TUN TCP/UDP、选路惰性解析和内部查询共享同一套有界 DNS 实现。
+Vole 在 TUN netstack 内回答受支持的 ICMP Echo Request。启用运行时 DNS 后，匹配 `tun.dns-hijack` 的 TUN TCP/UDP、选路惰性解析和内部查询共享同一套有界 DNS 实现。
 
 顶层 `ipv6: false` 时，IPv6 原始包会在进入 netstack 前被丢弃，因此不会触发 ICMPv6 回应或 IPv6 上的 DNS/业务流量；运行时 DNS 的有效 IPv6 能力同时要求顶层 `ipv6` 和 `dns.ipv6` 为 `true`。
 
@@ -22,7 +22,7 @@ VCore 在 TUN netstack 内回答受支持的 ICMP Echo Request。启用运行时
 - 非 Echo、非零 code、截断和非单播地址一律丢弃；
 - 单包失败不停止 netstack，也不生成 ICMP error。
 
-smoltcp 负责生成 Echo Reply，VCore 负责更严格的输入分类和运行时门禁。响应直接尝试进入现有原始包出站队列；队列满时只丢当前低优先级响应并更新统计，不创建等待任务或积压队列。
+smoltcp 负责生成 Echo Reply，Vole 负责更严格的输入分类和运行时门禁。响应直接尝试进入现有原始包出站队列；队列满时只丢当前低优先级响应并更新统计，不创建等待任务或积压队列。
 
 ## TUN DNS 入口
 

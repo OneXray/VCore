@@ -2,10 +2,10 @@
 
 #[cfg(windows)]
 fn main() {
-    let _ = vcore::windows::session::run();
+    let _ = vole::windows::session::run();
 }
 
 #[cfg(not(windows))]
 fn main() {
-    eprintln!("vcore-windows-session-host is only available on Windows");
+    eprintln!("vole-windows-session-host is only available on Windows");
 }

@@ -1,23 +1,23 @@
-# VCore Windows UWP VPN 最小集成
+# Vole Windows UWP VPN 最小集成
 
-本示例演示如何把 VCore 的 `Windows.Networking.Vpn` Provider、每会话完全信任运行时和一个最小命令行前台打进同一个 MSIX，并通过 `VCoreWindowsVpnInvoke` 创建、连接、查询和停止系统 VPN。
+本示例演示如何把 Vole 的 `Windows.Networking.Vpn` Provider、每会话完全信任运行时和一个最小命令行前台打进同一个 MSIX，并通过 `VoleWindowsVpnInvoke` 创建、连接、查询和停止系统 VPN。
 
-> 这里的 “UWP” 指 Windows 的 UWP VPN Provider 模型。VCore **不支持纯 AppContainer 前台直接承载完整集成**：profile/snapshot 管理必须由同包的完全信任进程执行，Session Host 则由 Provider 激活。已有纯 UWP UI 时，应增加一个完全信任 broker；不要从 UWP UI 直接调用桥接接口。
+> 这里的 “UWP” 指 Windows 的 UWP VPN Provider 模型。Vole **不支持纯 AppContainer 前台直接承载完整集成**：profile/snapshot 管理必须由同包的完全信任进程执行，Session Host 则由 Provider 激活。已有纯 UWP UI 时，应增加一个完全信任 broker；不要从 UWP UI 直接调用桥接接口。
 
 ## 最小架构
 
 ```text
-VCoreUwpDemo.exe（完全信任前台）
-  └─ VCoreWindowsVpnInvoke
+VoleUwpDemo.exe（完全信任前台）
+  └─ VoleWindowsVpnInvoke
        ├─ 发布不可变配置快照
        ├─ 创建/更新同包 VPN profile
        └─ ConnectProfileAsync
 
-vcore-windows-vpn-host.exe + vcore.dll（AppContainer Provider）
+vole-windows-vpn-host.exe + vole.dll（AppContainer Provider）
   ├─ VpnChannel / routes / DNS assignment / packet buffers / physical network
   └─ FullTrustProcessLauncher
-       └─ vcore-windows-session-host.exe（每次连接一个完全信任进程）
-            └─ 完整 VCore：netstack / DNS / rules / outbounds
+       └─ vole-windows-session-host.exe（每次连接一个完全信任进程）
+            └─ 完整 Vole：netstack / DNS / rules / outbounds
 ```
 
 前台退出不会停止 VPN。Provider 或 Session Host 退出、管道损坏、非法 frame 或物理网络变化会失败关闭当前 VPN。
@@ -29,9 +29,9 @@ vcore-windows-vpn-host.exe + vcore.dll（AppContainer Provider）
 | `demo.cpp` | 最小完全信任宿主；读取 YAML，调用 revision-3 Windows bridge |
 | `demo.yaml` | 无真实凭据的生命周期示例；把流量交给 `127.0.0.1:1080` SOCKS5 |
 | `AppxManifest.xml.in` | 完整最小 MSIX manifest，包括 Provider、Session Host 和受限能力 |
-| `build.ps1` | 构建三项 VCore 产物、编译 demo、打包、签名并可选安装 |
+| `build.ps1` | 构建三项 Vole 产物、编译 demo、打包、签名并可选安装 |
 
-示例没有实现第二套 Provider、netstack、管道协议或 profile 管理代码；这些都由 VCore 现有产物提供。
+示例没有实现第二套 Provider、netstack、管道协议或 profile 管理代码；这些都由 Vole 现有产物提供。
 
 ## 前置条件
 
@@ -57,26 +57,26 @@ powershell -ExecutionPolicy Bypass -File example/windows-uwp/build.ps1 `
   -Install
 ```
 
-脚本从 Windows 系统注册表自动选择原生 ARM64 或 x64 架构，不接受架构参数。默认通过 `uv run --project scripts --locked vcore-scripts build windows` 构建 VCore；已经生成当前架构产物时可以加 `-SkipVCoreBuild`。输出位于：
+脚本从 Windows 系统注册表自动选择原生 ARM64 或 x64 架构，不接受架构参数。默认通过 `uv run --project scripts --locked vole-scripts build windows` 构建 Vole；已经生成当前架构产物时可以加 `-SkipVoleBuild`。输出位于：
 
 ```text
-dist/windows-uwp-demo/VCore.UwpDemo.Dev_<version>_<arch>.msix
+dist/windows-uwp-demo/Vole.UwpDemo.Dev_<version>_<arch>.msix
 ```
 
-更新已安装包前必须先停止 VPN，并把四段式 MSIX 版本提高。架构必须在 demo、`vcore.dll`、Provider Host、Session Host 和 manifest 中保持一致。
+更新已安装包前必须先停止 VPN，并把四段式 MSIX 版本提高。架构必须在 demo、`vole.dll`、Provider Host、Session Host 和 manifest 中保持一致。
 
 ## 运行最小 demo
 
 安装后重新打开终端，让 App Execution Alias 生效：
 
 ```powershell
-vcore-uwp-demo.exe environment
-vcore-uwp-demo.exe status
+vole-uwp-demo.exe environment
+vole-uwp-demo.exe status
 
 $config = (Resolve-Path example/windows-uwp/demo.yaml).Path
-vcore-uwp-demo.exe start $config
-vcore-uwp-demo.exe status
-vcore-uwp-demo.exe stop
+vole-uwp-demo.exe start $config
+vole-uwp-demo.exe status
+vole-uwp-demo.exe stop
 ```
 
 典型响应：
@@ -95,19 +95,19 @@ vcore-uwp-demo.exe stop
 - `dns.enable: false` 表示 TCP/UDP 53 保留原目标并作为普通流量走 SOCKS5；
 - 外部 SOCKS5 服务自行负责其外层 socket 的 VPN 绕过和进程生命周期。
 
-要验证真实流量，请把命令中的 YAML 换成自己的合法 VCore TUN 配置，或先启动符合上述约束的外部 SOCKS5 服务。不要把真实配置、secret 或响应前的完整请求写入日志。
+要验证真实流量，请把命令中的 YAML 换成自己的合法 Vole TUN 配置，或先启动符合上述约束的外部 SOCKS5 服务。不要把真实配置、secret 或响应前的完整请求写入日志。
 
 ## 前台调用契约
 
-`demo.cpp` 直接链接构建产物的 `vcore.dll.lib`，运行时从同目录加载 `vcore.dll`：
+`demo.cpp` 直接链接构建产物的 `vole.dll.lib`，运行时从同目录加载 `vole.dll`：
 
 ```cpp
-#include "vcore.h"
+#include "vole.h"
 
-char* response = VCoreWindowsVpnInvoke(request_json);
+char* response = VoleWindowsVpnInvoke(request_json);
 if (response != nullptr) {
     // 读取 UTF-8 JSON；不要使用 host allocator 释放。
-    VCoreFree(response);
+    VoleFree(response);
 }
 ```
 
@@ -116,7 +116,7 @@ if (response != nullptr) {
 - 请求是 NUL 结尾 UTF-8 JSON，最大 1 MiB；
 - revision 固定为 `bridgeVersion: 3`；
 - DTO 严格拒绝未知字段；
-- 返回内存必须由同一份 `vcore.dll` 的 `VCoreFree` 释放；
+- 返回内存必须由同一份 `vole.dll` 的 `VoleFree` 释放；
 - 桥接命令不能重叠；真实前台应在单进程内串行调用，本命令行 demo 额外用 session-local named mutex 串行化多个 alias 进程；
 - 调用进程必须具有当前 MSIX package identity；unpackaged EXE 会失败关闭；
 - 不要从 Provider 回调、Session Host 或 AppContainer UI 重入该接口。
@@ -136,7 +136,7 @@ if (response != nullptr) {
 <desktop:Extension Category="windows.startupTask"
                    Executable="YourHost.exe"
                    EntryPoint="Windows.FullTrustApplication">
-  <desktop:StartupTask TaskId="VCoreStartup"
+  <desktop:StartupTask TaskId="VoleStartup"
                        Enabled="false"
                        DisplayName="Your App" />
 </desktop:Extension>
@@ -179,37 +179,37 @@ if (response != nullptr) {
 
 `policy.excludedCidrs` 最多 64 项，必须是规范 network/prefix；拒绝重复、host bits、`/0`、禁用 IPv6 时的 IPv6 项和 VPN DNS overlap。`alwaysOn` 只声明 profile capability，实际自动连接仍由 Windows 用户设置和 active profile 决定。
 
-VCore 会校验 YAML、发布 `vcore-session-v2:` 内容寻址 Session Snapshot，并把 token、解析后的顶层 IPv6 开关、四个地址和 policy 写入最大 4 KiB 的 profile custom configuration。调用方不要自行创建另一个 `VpnPlugInProfile` 或维护第二份 Snapshot。
+Vole 会校验 YAML、发布 `vole-session-v2:` 内容寻址 Session Snapshot，并把 token、解析后的顶层 IPv6 开关、四个地址和 policy 写入最大 4 KiB 的 profile custom configuration。调用方不要自行创建另一个 `VpnPlugInProfile` 或维护第二份 Snapshot。
 
 需要让 Session Host 同会话监督 package-local 进程时，可以额外提交 `sessionBackend.processes`；每项只有 `executableRelativePath` 和 `arguments`。第一版不管理端口、UDP、readiness 或进程业务配置，完整契约见 [Windows 会话运行时](../../docs/windows-vpn.md)。本 demo 不携带 backend。
 
 ## Manifest 契约
 
-`AppxManifest.xml.in` 中以下值是当前 VCore 代码契约：
+`AppxManifest.xml.in` 中以下值是当前 Vole 代码契约：
 
 | Manifest 项 | 必须值/规则 |
 | --- | --- |
 | Application 数量 | `1` |
-| Session Host extension | `windows.fullTrustProcess` / `vcore-windows-session-host.exe` |
-| Provider executable | `vcore-windows-vpn-host.exe` |
-| Provider background EntryPoint | `VCore.VpnBackgroundTask` |
+| Session Host extension | `windows.fullTrustProcess` / `vole-windows-session-host.exe` |
+| Provider executable | `vole-windows-vpn-host.exe` |
+| Provider background EntryPoint | `Vole.VpnBackgroundTask` |
 | Provider runtime / trust | `windowsApp` / `appContainer` |
-| in-process server path | `vcore.dll` |
-| activatable class | `VCore.VpnBackgroundTask`，`ThreadingModel="both"` |
+| in-process server path | `vole.dll` |
+| activatable class | `Vole.VpnBackgroundTask`，`ThreadingModel="both"` |
 | capabilities | `internetClientServer`、`privateNetworkClientServer`、`runFullTrust`、`networkingVpnProvider` |
 | minimum desktop OS | `10.0.19042.0` |
 
-可以修改 identity、publisher、版本、主 Application Id/EXE、显示名称、图标和 app execution alias。不要删除 Session Host/Provider extensions 或修改 `VCore.VpnBackgroundTask`。桥接还固定使用 profile 名 `VCore`，可选 StartupTask 固定使用 `VCoreStartup`；两者都按 package family 隔离。
+可以修改 identity、publisher、版本、主 Application Id/EXE、显示名称、图标和 app execution alias。不要删除 Session Host/Provider extensions 或修改 `Vole.VpnBackgroundTask`。桥接还固定使用 profile 名 `Vole`，可选 StartupTask 固定使用 `VoleStartup`；两者都按 package family 隔离。
 
-三项 VCore 文件必须位于 package 根目录：
+三项 Vole 文件必须位于 package 根目录：
 
 ```text
-vcore.dll
-vcore-windows-vpn-host.exe
-vcore-windows-session-host.exe
+vole.dll
+vole-windows-vpn-host.exe
+vole-windows-session-host.exe
 ```
 
-不要加入 Wintun、`LoopbackAccessRules` 或 `CheckNetIsolation` exemption。Provider 的 loopback 唤醒、同包命名管道、`/1 + /1` 路由、DNS assignment 和物理 socket 绑定都由 VCore 管理。
+不要加入 Wintun、`LoopbackAccessRules` 或 `CheckNetIsolation` exemption。Provider 的 loopback 唤醒、同包命名管道、`/1 + /1` 路由、DNS assignment 和物理 socket 绑定都由 Vole 管理。
 
 ## 已有纯 UWP UI 的接入方式
 
@@ -219,12 +219,12 @@ vcore-windows-session-host.exe
 UWP UI
   -> AppService 或受认证的同包 IPC
   -> full-trust broker
-  -> VCoreWindowsVpnInvoke
+  -> VoleWindowsVpnInvoke
 ```
 
-broker 负责 JSON bridge、命令串行化和结果回传。UWP UI 不接触 YAML 快照路径、VPN profile、Provider 管道或 Session Host PID。broker 也不能复用 `vcore-windows-session-host.exe`；Session Host 是 VCore 私有的每会话数据面进程。
+broker 负责 JSON bridge、命令串行化和结果回传。UWP UI 不接触 YAML 快照路径、VPN profile、Provider 管道或 Session Host PID。broker 也不能复用 `vole-windows-session-host.exe`；Session Host 是 Vole 私有的每会话数据面进程。
 
-本示例用 `VCoreUwpDemo.exe` 直接充当完全信任 broker/前台，因此没有加入产品特定的 AppService 协议、UI 和状态持久化。只有确实存在纯 UWP UI 时才增加这层 IPC。
+本示例用 `VoleUwpDemo.exe` 直接充当完全信任 broker/前台，因此没有加入产品特定的 AppService 协议、UI 和状态持久化。只有确实存在纯 UWP UI 时才增加这层 IPC。
 
 ## 生命周期与失败关闭
 
@@ -238,7 +238,7 @@ broker 负责 JSON bridge、命令串行化和结果回传。UWP UI 不接触 YA
 6. 用户断开时调用 `stopVpn` 并等待结果；
 7. 只有 Disconnected 时才安装或更新包。
 
-不要在普通代理流失败时自动停止整个 VPN。Provider/Session Host 退出、控制或数据管道 EOF、非法协议、启动超时和物理网络变化由 VCore 自己失败关闭。
+不要在普通代理流失败时自动停止整个 VPN。Provider/Session Host 退出、控制或数据管道 EOF、非法协议、启动超时和物理网络变化由 Vole 自己失败关闭。
 
 ## 发布前检查
 

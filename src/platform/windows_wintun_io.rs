@@ -77,7 +77,7 @@ impl WindowsWintunIo {
         // IPv4/IPv6 addresses nor route/metric settings are passed to the builder.
         let device = tun_rs::DeviceBuilder::new()
             .name(if device_name.is_empty() {
-                "VCore"
+                "Vole"
             } else {
                 device_name
             })
@@ -97,7 +97,7 @@ impl WindowsWintunIo {
         let reader_device = device.clone();
         let reader_stopping = stopping.clone();
         let reader = thread::Builder::new()
-            .name("vcore-wintun-reader".into())
+            .name("vole-wintun-reader".into())
             .spawn(move || {
                 let result = catch_unwind(AssertUnwindSafe(|| {
                     read_packets(
@@ -277,7 +277,7 @@ mod tests {
         task::Poll,
     };
 
-    use crate::{VCoreError, platform::TUN_PACKET_BATCH_SIZE};
+    use crate::{VoleError, platform::TUN_PACKET_BATCH_SIZE};
 
     use super::*;
 
@@ -426,7 +426,7 @@ mod tests {
         io.read_packets(&mut packets, &mut outcomes).await.unwrap();
         assert_eq!(outcomes.len(), 3);
         assert_eq!(outcomes[0].as_ref().unwrap(), &IpVersion::V4);
-        assert!(matches!(outcomes[1], Err(VCoreError::InvalidPacket(_))));
+        assert!(matches!(outcomes[1], Err(VoleError::InvalidPacket(_))));
         assert_eq!(outcomes[2].as_ref().unwrap(), &IpVersion::V6);
         let error = io
             .read_packets(&mut packets, &mut outcomes)
@@ -434,7 +434,7 @@ mod tests {
             .unwrap_err();
         assert!(outcomes.is_empty());
         assert!(
-            matches!(&error, VCoreError::Io(error) if error.kind() == io::ErrorKind::BrokenPipe)
+            matches!(&error, VoleError::Io(error) if error.kind() == io::ErrorKind::BrokenPipe)
         );
         assert_eq!(error.to_string(), "Wintun receive packet failed");
     }
@@ -457,7 +457,7 @@ mod tests {
                     assert!(outcomes.iter().all(|result| result.is_ok()));
                     received += outcomes.len();
                 }
-                Err(VCoreError::Io(error)) if error.kind() == io::ErrorKind::BrokenPipe => break,
+                Err(VoleError::Io(error)) if error.kind() == io::ErrorKind::BrokenPipe => break,
                 Err(error) => panic!("unexpected memory reader error: {error}"),
             }
         }
@@ -474,7 +474,7 @@ mod tests {
             .await
             .unwrap_err();
         assert!(
-            matches!(&error, VCoreError::Io(error) if error.kind() == io::ErrorKind::InvalidInput)
+            matches!(&error, VoleError::Io(error) if error.kind() == io::ErrorKind::InvalidInput)
         );
         assert_eq!(error.to_string(), "Wintun receive packet failed");
     }
@@ -501,10 +501,10 @@ mod tests {
             .write_packets(&[IPV4, &[0x70], IPV6, IPV4], &mut outcomes)
             .await
             .unwrap_err();
-        assert!(matches!(error, VCoreError::Io(error) if error.kind() == io::ErrorKind::WriteZero));
+        assert!(matches!(error, VoleError::Io(error) if error.kind() == io::ErrorKind::WriteZero));
         assert_eq!(outcomes.len(), 2);
         assert!(outcomes[0].is_ok());
-        assert!(matches!(outcomes[1], Err(VCoreError::InvalidPacket(_))));
+        assert!(matches!(outcomes[1], Err(VoleError::InvalidPacket(_))));
         let state = device.state.lock().unwrap();
         assert_eq!(state.accepted, [IPV4]);
         assert_eq!(state.attempts, [IPV4, IPV6]);
@@ -570,7 +570,7 @@ mod tests {
         let io = WindowsWintunIo::from_device(device.clone(), TEST_MTU as u16).unwrap();
         assert!(matches!(
             io.write_packet(&vec![0x45; TEST_MTU + 1]).await,
-            Err(VCoreError::InvalidPacket(_))
+            Err(VoleError::InvalidPacket(_))
         ));
         let mut outcomes = Vec::new();
         let error = io

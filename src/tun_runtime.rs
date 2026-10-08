@@ -18,14 +18,14 @@ use tokio::{
     time::{Instant as TokioInstant, MissedTickBehavior, interval_at, timeout},
 };
 use tokio_util::sync::CancellationToken;
-use vcore_netstack::{
+use vole_netstack::{
     NetStack, NetStackConfig, NetStackError, NetStackStats, Packet, PacketSink, PacketStream,
     TcpListener, TcpStream, UdpDatagram, UdpPacketView, encode_udp_packet_into,
     parse_udp_packet_view,
 };
 
 use crate::{
-    ResourceLimits, VCoreError,
+    ResourceLimits, VoleError,
     config::{SnifferConfig, TunConfig},
     dispatch::{DatagramTransport, DispatchError, Dispatcher},
     dns::{
@@ -395,11 +395,11 @@ async fn tun_read_inner(
         for (packet, outcome) in packets.iter().zip(outcomes.drain(..)) {
             match outcome {
                 Ok(_) => {}
-                Err(VCoreError::InvalidPacket(reason)) => {
+                Err(VoleError::InvalidPacket(reason)) => {
                     tracing::debug!(%reason, "dropping invalid packet read from TUN");
                     continue;
                 }
-                Err(error) => return Err(vcore_to_io(error)),
+                Err(error) => return Err(vole_to_io(error)),
             }
             if cancellation.is_cancelled() {
                 return Ok(());
@@ -458,7 +458,7 @@ async fn tun_read_inner(
                 Err(error) => return Err(netstack_to_io(error)),
             }
         }
-        result.map_err(vcore_to_io)?;
+        result.map_err(vole_to_io)?;
         // try_send / borrowed UDP classification have no channel await. Charge
         // actual packets, including locally dropped ones, after each <=8 batch.
         for _ in 0..processed {
@@ -627,12 +627,12 @@ async fn tun_write_loop(
                             first_write_logged = true;
                         }
                     }
-                    Err(VCoreError::InvalidPacket(reason)) => {
+                    Err(VoleError::InvalidPacket(reason)) => {
                         tracing::debug!(%reason, "dropping invalid packet emitted by netstack");
                     }
                     Err(error) => {
                         traffic_stats.record_down(down_bytes);
-                        return Err(vcore_to_io(error));
+                        return Err(vole_to_io(error));
                     }
                 }
             }
@@ -642,7 +642,7 @@ async fn tun_write_loop(
             let Some(result) = result else {
                 return Ok(());
             };
-            result.map_err(vcore_to_io)?;
+            result.map_err(vole_to_io)?;
         }
         for index in 0..count {
             raw[index] = None;
@@ -2068,9 +2068,9 @@ where
     Ok(())
 }
 
-fn vcore_to_io(error: VCoreError) -> io::Error {
+fn vole_to_io(error: VoleError) -> io::Error {
     match error {
-        VCoreError::Io(error) => error,
+        VoleError::Io(error) => error,
         error => io::Error::other(error),
     }
 }

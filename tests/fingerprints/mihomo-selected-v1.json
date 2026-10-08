@@ -1,7 +1,7 @@
 {
   "scope": "selected-v1",
   "kind": "synthetic-official-clienthello-fixtures",
-  "proves": "Reference shapes only, not VCore support, proxy data or REALITY authentication",
+  "proves": "Reference shapes only, not Vole support, proxy data or REALITY authentication",
   "source": {
     "release": "Mihomo Meta v1.19.31 linux arm64 with go1.26.8 Mon Sep 14 13:20:46 UTC 2026\nUse tags: with_gvisor",
     "binary_sha256": "1b315bc038d05f84ee86d232f3c3d2b020b5044e9b971bb8fe215b6e6a2148f3",

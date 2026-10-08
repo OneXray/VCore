@@ -13,7 +13,7 @@ import tempfile
 from pathlib import Path
 
 CORE_DIR = Path(__file__).resolve().parents[3]
-EXPECTED_IDENTITY = b"VCore;engine=rust;coreVersion=0.1.0"
+EXPECTED_IDENTITY = b"Vole;engine=rust;coreVersion=0.1.0"
 DEFAULT_FEATURES = (
     "ffi,tun,inbound-http,inbound-socks5,outbound-anytls,"
     "outbound-socks5,outbound-shadowsocks,outbound-trojan,outbound-vmess,outbound-vless,"
@@ -24,7 +24,7 @@ WINDOWS_FEATURES = DEFAULT_FEATURES + ",windows-uwp"
 
 
 def tvos_deployment_target() -> str:
-    value = _env("VCORE_TVOS_DEPLOYMENT_TARGET", "17.0")
+    value = _env("VOLE_TVOS_DEPLOYMENT_TARGET", "17.0")
     if not re.fullmatch(r"\d+\.\d+(?:\.\d+)?", value) or tuple(
         map(int, value.split("."))
     ) < (17, 0):
@@ -130,12 +130,12 @@ def _run(
 
 
 def _profile() -> tuple[str, list[str]]:
-    profile = _env("VCORE_BUILD_PROFILE", "release")
+    profile = _env("VOLE_BUILD_PROFILE", "release")
     if profile == "release":
         return profile, ["--release"]
     if profile == "debug":
         return profile, []
-    raise RuntimeError(f"unsupported VCORE_BUILD_PROFILE: {profile}")
+    raise RuntimeError(f"unsupported VOLE_BUILD_PROFILE: {profile}")
 
 
 def _production_features(features: str) -> str:
@@ -203,7 +203,7 @@ def _require_windows_architecture(artifact: Path, architecture: str) -> None:
             raise RuntimeError(f"invalid Windows PE artifact: {artifact}")
     expected = {"arm64": 0xAA64, "x64": 0x8664}[architecture]
     if int.from_bytes(machine, "little") != expected:
-        raise RuntimeError(f"VCore Windows artifact has wrong architecture: {artifact}")
+        raise RuntimeError(f"Vole Windows artifact has wrong architecture: {artifact}")
 
 
 def _require_identity(artifact: Path, platform_name: str) -> None:
@@ -216,7 +216,7 @@ def _require_identity(artifact: Path, platform_name: str) -> None:
             found = contents.find(EXPECTED_IDENTITY) >= 0
     if not found:
         raise RuntimeError(
-            f"VCore {platform_name} artifact has a missing or incompatible "
+            f"Vole {platform_name} artifact has a missing or incompatible "
             f"Rust identity: {artifact}"
         )
 
@@ -274,7 +274,7 @@ def _android_ndk_home() -> Path:
         else Path.home() / "Library" / "Android" / "sdk"
     )
     installed = android_home / "ndk"
-    selector = _env("VCORE_ANDROID_NDK_VERSION", "30")
+    selector = _env("VOLE_ANDROID_NDK_VERSION", "30")
     if not selector.isdigit():
         return (installed / selector).resolve()
     candidates = []
@@ -303,16 +303,16 @@ def build_android() -> None:
     if os.name == "nt":
         raise RuntimeError("Android artifacts must be built on macOS or Linux")
     ndk_home = _android_ndk_home()
-    android_api = _env("VCORE_ANDROID_API", "24")
+    android_api = _env("VOLE_ANDROID_API", "24")
     profile_name, profile_flags = _profile()
-    features = _production_features(_env("VCORE_FEATURES", DEFAULT_FEATURES))
+    features = _production_features(_env("VOLE_FEATURES", DEFAULT_FEATURES))
     targets = _env(
-        "VCORE_ANDROID_TARGETS", "aarch64-linux-android x86_64-linux-android"
+        "VOLE_ANDROID_TARGETS", "aarch64-linux-android x86_64-linux-android"
     ).split()
     if not targets:
-        raise RuntimeError("VCORE_ANDROID_TARGETS must not be empty")
+        raise RuntimeError("VOLE_ANDROID_TARGETS must not be empty")
     output = Path(
-        _env("VCORE_ANDROID_OUTPUT_DIR", CORE_DIR / "dist" / "android")
+        _env("VOLE_ANDROID_OUTPUT_DIR", CORE_DIR / "dist" / "android")
     ).resolve()
     toolchain = _android_toolchain(ndk_home)
     _require_targets(targets)
@@ -365,8 +365,8 @@ def build_android() -> None:
             f"CMAKE_TOOLCHAIN_FILE_{target_env}": str(
                 CORE_DIR / "scripts/cmake/android.toolchain.cmake"
             ),
-            "VCORE_CMAKE_ANDROID_ABI": abi,
-            "VCORE_CMAKE_ANDROID_API": android_api,
+            "VOLE_CMAKE_ANDROID_ABI": abi,
+            "VOLE_CMAKE_ANDROID_API": android_api,
             # NDK 30 rejects bindgen's default unversioned Rust target. Use
             # the same API-qualified compiler triple as CC/CXX and CMake.
             bindgen_key: (
@@ -374,13 +374,13 @@ def build_android() -> None:
             ).strip(),
         }
         _cargo_build(target, profile_flags, features, env)
-        artifact = _cargo_target_dir(env) / target / profile_name / "libvcore.so"
+        artifact = _cargo_target_dir(env) / target / profile_name / "libvole.so"
         _require_identity(artifact, "Android")
-        destination = output / abi / "libvcore.so"
+        destination = output / abi / "libvole.so"
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(artifact, destination)
         # BoringSSL links the NDK shared C++ runtime. It is not supplied by
-        # Android itself; distribute the matching ABI/runtime alongside VCore.
+        # Android itself; distribute the matching ABI/runtime alongside Vole.
         shutil.copy2(cpp_runtime, destination.parent / cpp_runtime.name)
 
     print(output)
@@ -389,10 +389,10 @@ def build_android() -> None:
 def build_apple() -> None:
     if platform.system() != "Darwin":
         raise RuntimeError("Apple artifacts must be built on macOS")
-    dist = Path(_env("VCORE_APPLE_DIST_DIR", CORE_DIR / "dist" / "apple")).resolve()
-    work = _cargo_target_dir() / "vcore-apple"
+    dist = Path(_env("VOLE_APPLE_DIST_DIR", CORE_DIR / "dist" / "apple")).resolve()
+    work = _cargo_target_dir() / "vole-apple"
     profile_name, profile_flags = _profile()
-    features = _production_features(_env("VCORE_FEATURES", DEFAULT_FEATURES))
+    features = _production_features(_env("VOLE_FEATURES", DEFAULT_FEATURES))
     targets = [
         "aarch64-apple-ios",
         "aarch64-apple-ios-sim",
@@ -404,14 +404,14 @@ def build_apple() -> None:
     _require_targets(targets)
 
     env = os.environ.copy()
-    env["IPHONEOS_DEPLOYMENT_TARGET"] = _env("VCORE_IOS_DEPLOYMENT_TARGET", "13.0")
-    env["MACOSX_DEPLOYMENT_TARGET"] = _env("VCORE_MACOS_DEPLOYMENT_TARGET", "10.15")
+    env["IPHONEOS_DEPLOYMENT_TARGET"] = _env("VOLE_IOS_DEPLOYMENT_TARGET", "13.0")
+    env["MACOSX_DEPLOYMENT_TARGET"] = _env("VOLE_MACOS_DEPLOYMENT_TARGET", "10.15")
     env["TVOS_DEPLOYMENT_TARGET"] = tvos_deployment_target()
     if profile_name == "release":
         env["CARGO_PROFILE_RELEASE_PANIC"] = "unwind"
 
     shutil.rmtree(work, ignore_errors=True)
-    shutil.rmtree(dist / "LibVCore.xcframework", ignore_errors=True)
+    shutil.rmtree(dist / "LibVole.xcframework", ignore_errors=True)
     for directory in (
         "ios-device",
         "ios-simulator",
@@ -425,18 +425,16 @@ def build_apple() -> None:
     for target in targets:
         _cargo_build(target, profile_flags, features, env)
     artifacts = {
-        target: _cargo_target_dir(env) / target / profile_name / "libvcore.a"
+        target: _cargo_target_dir(env) / target / profile_name / "libvole.a"
         for target in targets
     }
     for artifact in artifacts.values():
         _require_identity(artifact, "Apple")
 
-    shutil.copy2(artifacts["aarch64-apple-ios"], work / "ios-device/libvcore.a")
-    shutil.copy2(artifacts["aarch64-apple-ios-sim"], work / "ios-simulator/libvcore.a")
-    shutil.copy2(artifacts["aarch64-apple-tvos"], work / "tvos-device/libvcore.a")
-    shutil.copy2(
-        artifacts["aarch64-apple-tvos-sim"], work / "tvos-simulator/libvcore.a"
-    )
+    shutil.copy2(artifacts["aarch64-apple-ios"], work / "ios-device/libvole.a")
+    shutil.copy2(artifacts["aarch64-apple-ios-sim"], work / "ios-simulator/libvole.a")
+    shutil.copy2(artifacts["aarch64-apple-tvos"], work / "tvos-device/libvole.a")
+    shutil.copy2(artifacts["aarch64-apple-tvos-sim"], work / "tvos-simulator/libvole.a")
     _run(
         [
             "xcrun",
@@ -445,11 +443,11 @@ def build_apple() -> None:
             artifacts["aarch64-apple-darwin"],
             artifacts["x86_64-apple-darwin"],
             "-output",
-            work / "macos/libvcore.a",
+            work / "macos/libvole.a",
         ],
         env=env,
     )
-    output = dist / "LibVCore.xcframework"
+    output = dist / "LibVole.xcframework"
     for directory, target_os, variant, architectures, minimum in (
         ("ios-device", "ios", None, {"arm64"}, env["IPHONEOS_DEPLOYMENT_TARGET"]),
         (
@@ -470,30 +468,30 @@ def build_apple() -> None:
         ),
     ):
         check_apple_binary(
-            work / directory / "libvcore.a", target_os, variant, architectures, minimum
+            work / directory / "libvole.a", target_os, variant, architectures, minimum
         )
     _run(
         [
             "xcodebuild",
             "-create-xcframework",
             "-library",
-            work / "ios-device/libvcore.a",
+            work / "ios-device/libvole.a",
             "-headers",
             CORE_DIR / "include",
             "-library",
-            work / "ios-simulator/libvcore.a",
+            work / "ios-simulator/libvole.a",
             "-headers",
             CORE_DIR / "include",
             "-library",
-            work / "macos/libvcore.a",
+            work / "macos/libvole.a",
             "-headers",
             CORE_DIR / "include",
             "-library",
-            work / "tvos-device/libvcore.a",
+            work / "tvos-device/libvole.a",
             "-headers",
             CORE_DIR / "include",
             "-library",
-            work / "tvos-simulator/libvcore.a",
+            work / "tvos-simulator/libvole.a",
             "-headers",
             CORE_DIR / "include",
             "-output",
@@ -546,7 +544,7 @@ def _windows_msvc_environment(architecture: str) -> dict[str, str]:
     if not vcvars:
         raise RuntimeError("Visual Studio C++ tools were not found")
     vc_target = "amd64_arm64" if architecture == "arm64" else "amd64"
-    with tempfile.TemporaryDirectory(prefix="vcore-msvc-") as directory:
+    with tempfile.TemporaryDirectory(prefix="vole-msvc-") as directory:
         command = Path(directory) / "environment.cmd"
         command.write_bytes(
             (
@@ -584,7 +582,7 @@ def _windows_msvc_environment(architecture: str) -> dict[str, str]:
             {
                 "CC_aarch64_pc_windows_msvc": compilers["clang-cl"],
                 "CXX_aarch64_pc_windows_msvc": compilers["clang-cl"],
-                "VCORE_WINDOWS_ARM64_CLANG": compilers["clang"],
+                "VOLE_WINDOWS_ARM64_CLANG": compilers["clang"],
                 "CMAKE_GENERATOR_aarch64_pc_windows_msvc": "Ninja",
                 "CMAKE_TOOLCHAIN_FILE_aarch64_pc_windows_msvc": str(
                     CORE_DIR / "scripts/cmake/windows-arm64.toolchain.cmake"
@@ -617,7 +615,7 @@ def check_windows_wintun_cli() -> None:
             "cli,windows-wintun",
             "--lib",
             "--bin",
-            "vcore",
+            "vole",
         ],
         env=env,
     )
@@ -626,7 +624,7 @@ def check_windows_wintun_cli() -> None:
 def build_windows() -> None:
     if os.name != "nt":
         raise RuntimeError("Windows artifacts must be built on Windows")
-    _production_features(_env("VCORE_FEATURES", DEFAULT_FEATURES))
+    _production_features(_env("VOLE_FEATURES", DEFAULT_FEATURES))
     architecture = _windows_architecture()
     output = CORE_DIR / "dist" / "windows" / architecture
     shutil.rmtree(output, ignore_errors=True)
@@ -653,13 +651,13 @@ def build_windows() -> None:
 
     release = _cargo_target_dir(env) / target / "release"
     artifacts = [
-        "vcore.dll",
-        "vcore-windows-vpn-host.exe",
-        "vcore-windows-session-host.exe",
+        "vole.dll",
+        "vole-windows-vpn-host.exe",
+        "vole-windows-session-host.exe",
     ]
     for name in artifacts:
         _require_windows_architecture(release / name, architecture)
-    _require_identity(release / "vcore.dll", "Windows")
+    _require_identity(release / "vole.dll", "Windows")
     for name in artifacts:
         shutil.copy2(release / name, output / name)
     digests = {}
@@ -668,7 +666,7 @@ def build_windows() -> None:
         with artifact.open("rb") as file:
             digests[name] = hashlib.file_digest(file, "sha256").hexdigest()
         print(f"{digests[name]}  {artifact}")
-    (output / "vcore-windows-artifacts.json").write_text(
+    (output / "vole-windows-artifacts.json").write_text(
         json.dumps(
             {
                 "formatVersion": 1,

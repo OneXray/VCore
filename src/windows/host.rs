@@ -34,8 +34,8 @@ use crate::config::Config;
 const BRIDGE_VERSION: u32 = 3;
 const MAX_REQUEST_BYTES: usize = 1024 * 1024;
 const MAX_ERROR_BYTES: usize = 4096;
-const PROFILE_NAME: &str = "VCore";
-const STARTUP_TASK_ID: &str = "VCoreStartup";
+const PROFILE_NAME: &str = "Vole";
+const STARTUP_TASK_ID: &str = "VoleStartup";
 static COMMAND: Mutex<()> = Mutex::new(());
 
 #[derive(Deserialize)]
@@ -103,14 +103,14 @@ impl Drop for WinRtGuard {
 }
 
 /// Executes a packaged Windows host request. The returned string must be
-/// released with `VCoreFree` from the same DLL.
+/// released with `VoleFree` from the same DLL.
 ///
 /// # Safety
 /// `request_json` must be null or point to readable storage containing a NUL
 /// terminator within `MAX_REQUEST_BYTES + 1` bytes.
 #[unsafe(no_mangle)]
 #[allow(non_snake_case)]
-pub unsafe extern "C" fn VCoreWindowsVpnInvoke(request_json: *const c_char) -> *mut c_char {
+pub unsafe extern "C" fn VoleWindowsVpnInvoke(request_json: *const c_char) -> *mut c_char {
     let response = match catch_unwind(AssertUnwindSafe(|| {
         // SAFETY: the caller contract is documented above and the scan is bounded.
         unsafe { read_request(request_json) }.and_then(invoke_bytes)
@@ -182,7 +182,7 @@ fn start_vpn(payload: StartPayload) -> Result<Value, String> {
         session_backend,
     } = payload;
     let config = Config::parse_yaml(config_yaml.as_bytes())
-        .map_err(|_| "invalid VCore configuration".to_owned())?;
+        .map_err(|_| "invalid Vole configuration".to_owned())?;
     if !config.tun.enable {
         return Err("Windows VPN configuration must enable TUN".to_owned());
     }
@@ -394,7 +394,7 @@ fn find_profile(
             continue;
         }
         if found.is_some() {
-            return Err("multiple package-owned VCore VPN profiles exist".to_owned());
+            return Err("multiple package-owned Vole VPN profiles exist".to_owned());
         }
         found = Some(ProfileMatch {
             profile: plugin,

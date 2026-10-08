@@ -10,16 +10,16 @@ from .builds import build_android, build_apple, build_windows
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="vcore-scripts",
-        description="Build VCore platform artifacts.",
+        prog="vole-scripts",
+        description="Build Vole platform artifacts.",
     )
     commands = parser.add_subparsers(dest="command", required=True)
 
     build = commands.add_parser("build", help="build platform artifacts")
     platforms = build.add_subparsers(dest="platform", required=True)
     for name, description in (
-        ("apple", "build LibVCore.xcframework on macOS"),
-        ("android", "build Android libvcore.so artifacts"),
+        ("apple", "build LibVole.xcframework on macOS"),
+        ("android", "build Android libvole.so artifacts"),
         ("windows", "build packaged Windows artifacts"),
     ):
         command = platforms.add_parser(name, help=description)
@@ -46,6 +46,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             build_windows()
     except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
-        print(f"vcore-scripts: {error}", file=sys.stderr)
+        print(f"vole-scripts: {error}", file=sys.stderr)
         return 1
     return 0

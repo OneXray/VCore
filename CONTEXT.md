@@ -1,11 +1,11 @@
-# VCore
+# Vole
 
-VCore turns host-captured IP traffic into routed proxy or direct sessions while keeping platform tunnel integration separate from its protocol graph.
+Vole turns host-captured IP traffic into routed proxy or direct sessions while keeping platform tunnel integration separate from its protocol graph.
 
 ## Language
 
-**VCore CLI**:
-The foreground `vcore` executable that reads one YAML configuration and owns one shared-core session. Its configuration-test mode performs core validation without initialization or networking; its normal mode waits for shutdown and core cleanup.
+**Vole CLI**:
+The foreground `vole` executable that reads one YAML configuration and owns one shared-core session. Its configuration-test mode performs core validation without initialization or networking; its normal mode waits for shutdown and core cleanup.
 _Avoid_: Windows session host, second proxy core, service, daemon
 
 **Windows VPN provider**:
@@ -13,7 +13,7 @@ The packaged AppContainer participant that owns one active Windows tunnel sessio
 _Avoid_: Plugin, background task when referring to the whole participant, proxy core
 
 **Windows Wintun adapter**:
-The desktop raw-IP platform adapter backed by a host-provided Wintun DLL. It connects to the shared VCore TUN runtime without a Windows VPN Provider, package identity or packet channel; the first release leaves system network configuration to the host.
+The desktop raw-IP platform adapter backed by a host-provided Wintun DLL. It connects to the shared Vole TUN runtime without a Windows VPN Provider, package identity or packet channel; the first release leaves system network configuration to the host.
 _Avoid_: Windows VPN provider, second proxy core, Unix fd emulation
 
 **Windows VPN policy**:
@@ -21,7 +21,7 @@ The profile-level Always On and destination-bypass choices for a Windows tunnel 
 _Avoid_: Per-app policy, app selection, traffic filter
 
 **Windows session runtime**:
-The VCore runtime serving one active Windows tunnel session inside the Windows session host.
+The Vole runtime serving one active Windows tunnel session inside the Windows session host.
 _Avoid_: Foreground runtime, provider runtime, external core
 
 **Windows session host**:
@@ -29,7 +29,7 @@ The packaged full-trust process registered under the product's single Applicatio
 _Avoid_: Helper Application, foreground process, provider host, external-core host
 
 **Windows session backend**:
-The optional ordered set of package-local processes whose lifetime is owned by one Windows session host. VCore supervises process liveness but does not interpret their arguments, files, ports, or protocols.
+The optional ordered set of package-local processes whose lifetime is owned by one Windows session host. Vole supervises process liveness but does not interpret their arguments, files, ports, or protocols.
 _Avoid_: External core, process service, plugin
 
 **Windows managed session process**:
@@ -41,7 +41,7 @@ The minimal AppContainer executable that supplies a process for Windows to activ
 _Avoid_: Foreground host, plugin executable, background core
 
 **Windows packet adapter**:
-The raw-IP exchange point between Windows VPN callbacks and a VCore tunnel runtime.
+The raw-IP exchange point between Windows VPN callbacks and a Vole tunnel runtime.
 _Avoid_: UWP TUN, fake fd, channel transport
 
 **Windows packet channel**:
@@ -57,11 +57,11 @@ The immutable adapter identity and source-IP/interface-index pairs selected by t
 _Avoid_: Default interface, automatic fallback, interface-only binding
 
 **TUN traffic snapshot**:
-The current rate and session totals for raw-IP bytes crossing a VCore TUN boundary.
+The current rate and session totals for raw-IP bytes crossing a Vole TUN boundary.
 _Avoid_: Proxy traffic, transport traffic, per-node traffic
 
 **Local SOCKS5 outbound**:
-A normal VCore SOCKS5 outbound to a loopback server. The server may be managed outside VCore or happen to run in a Windows session backend; SOCKS5 readiness and protocol health remain outside the backend contract.
+A normal Vole SOCKS5 outbound to a loopback server. The server may be managed outside Vole or happen to run in a Windows session backend; SOCKS5 readiness and protocol health remain outside the backend contract.
 _Avoid_: Managed core, child core, URI configuration
 
 **Proxy node**:

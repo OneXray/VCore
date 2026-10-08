@@ -142,11 +142,11 @@ Mihomo 不可替换的 XorConn，仍整流关闭。未进入 direct 时三种外
 
 Vision padding、TLS 记录过滤和读写切换状态独立管理。内层非 TLS / TLS 1.2 只结束 padding，保持外层加密；识别支持的内层 TLS 1.3 协商后，分别发送/接收 direct 标记才切到裸流。每次发送最多暂存 8 KiB 一帧，接收逐段处理 u16 长度，不按声明长度无限分配。非法 UUID/命令或截断关闭 IO；取消读取保留帧进度。
 
-外层 TLS 使用公开 rustls 或 boring 接口及同一记录边界适配器；每次最多读一个 TLS 记录，不在识别切换标记前吞入后续裸流。切换读取前排空已解密明文，切换写入前 flush 外层密文；VCore 不访问 TLS 私有内存布局。direct 关闭不向裸流插入外层 close-notify；未切换时保留共享 TLS 的有界关闭语义。
+外层 TLS 使用公开 rustls 或 boring 接口及同一记录边界适配器；每次最多读一个 TLS 记录，不在识别切换标记前吞入后续裸流。切换读取前排空已解密明文，切换写入前 flush 外层密文；Vole 不访问 TLS 私有内存布局。direct 关闭不向裸流插入外层 close-notify；未切换时保留共享 TLS 的有界关闭语义。
 
 ## UDP
 
-`packet-encoding` 默认 **xudp**，与既有 VCore 行为一致：
+`packet-encoding` 默认 **xudp**，与既有 Vole 行为一致：
 
 | 配置 | 线上语义 | 目标 |
 | --- | --- | --- |
@@ -154,7 +154,7 @@ Vision padding、TLS 记录过滤和读写切换状态独立管理。内层非 T
 | `none` | VLESS CommandUDP + 两字节长度 | 固定首包目标，后续换目标失败 |
 | `packetaddr` / `packet` | CommandUDP 到原生约定地址，长度帧内再带地址 | IP-only，域名经受控 ResolutionContext 解析 |
 
-`none` 是 VCore 的显式 raw 拼写，不是对 Mihomo 同名字段的兼容承诺。原生约定地址不做本地 DNS。UDP 443 不额外过滤。
+`none` 是 Vole 的显式 raw 拼写，不是对 Mihomo 同名字段的兼容承诺。原生约定地址不做本地 DNS。UDP 443 不额外过滤。
 
 raw/packetaddr 每关联只拥有一个已建流，首次发送前已固定物理上游选择和建链期限；等待首包不会重新选择组或重启期限。packetaddr 不调用系统 resolver：运行期使用本 Running Session DNS，独立测速使用受控 bootstrap。
 
@@ -178,7 +178,7 @@ HTTPUpgrade/fast-open 与 sing-mux 的未列举组合不从单层结果推导。
 HTTP/H2/扩展 WS 可用 Xray TLS 网关 → V2Ray transport；需 UDP/Encryption 时另由
 Mihomo 解码。网关使用官方 XRAY_BUF_SPLICE=disable，避免下行 raw splice 绕过 TLS；
 不代表 V2Ray 直接支持 ECH。无指纹 JLS/gRPC 及 Safari ECH/gRPC 的官方对照缺口采用
-明确标注的 Chrome 关闭参照；VCore 原配置的数据面单独验证，不声称同配置差分。
+明确标注的 Chrome 关闭参照；Vole 原配置的数据面单独验证，不声称同配置差分。
 VLESS 不接受动态 ECH、ShadowTLS 或 Restls 配置；ShadowTLS v3 仅用于 SS2022 插件。
 
 WS + REALITY（普通 WS、HTTPUpgrade、fast-open）的数据及认证使用真实 Mihomo listener；关闭验证采用明确标注的分层参照。当前 Mihomo WS 客户端分支未接入 REALITY，不能作为同组合对照，因此使用标准 TLS 的同种传输客户端关闭基线，并独立验证 REALITY。不得将该结果写成 Mihomo WS + REALITY 客户端互通或同组合差分通过。
