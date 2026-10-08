@@ -1,4 +1,4 @@
-use crate::{Result, VCoreError};
+use crate::{Result, VoleError};
 
 const UTUN_HEADER_LEN: usize = 4;
 const DARWIN_AF_INET: u32 = 2;
@@ -14,11 +14,11 @@ impl IpVersion {
     fn from_packet(packet: &[u8]) -> Result<Self> {
         let first = *packet
             .first()
-            .ok_or(VCoreError::InvalidPacket("empty IP packet"))?;
+            .ok_or(VoleError::InvalidPacket("empty IP packet"))?;
         match first >> 4 {
             4 => Ok(Self::V4),
             6 => Ok(Self::V6),
-            _ => Err(VCoreError::InvalidPacket("unsupported IP version")),
+            _ => Err(VoleError::InvalidPacket("unsupported IP version")),
         }
     }
 }
@@ -35,20 +35,20 @@ impl TunFraming {
             Self::RawIp => Ok((IpVersion::from_packet(frame)?, frame)),
             Self::Utun => {
                 if frame.len() <= UTUN_HEADER_LEN {
-                    return Err(VCoreError::InvalidPacket("truncated utun frame"));
+                    return Err(VoleError::InvalidPacket("truncated utun frame"));
                 }
                 let family_bytes: [u8; UTUN_HEADER_LEN] = frame[..UTUN_HEADER_LEN]
                     .try_into()
-                    .map_err(|_| VCoreError::InvalidPacket("truncated utun frame"))?;
+                    .map_err(|_| VoleError::InvalidPacket("truncated utun frame"))?;
                 let family = u32::from_be_bytes(family_bytes);
                 let packet = &frame[UTUN_HEADER_LEN..];
                 let version = match family {
                     DARWIN_AF_INET => IpVersion::V4,
                     DARWIN_AF_INET6 => IpVersion::V6,
-                    _ => return Err(VCoreError::InvalidPacket("unknown utun address family")),
+                    _ => return Err(VoleError::InvalidPacket("unknown utun address family")),
                 };
                 if IpVersion::from_packet(packet)? != version {
-                    return Err(VCoreError::InvalidPacket(
+                    return Err(VoleError::InvalidPacket(
                         "utun address family does not match IP packet",
                     ));
                 }

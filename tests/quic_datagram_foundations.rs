@@ -2,7 +2,7 @@
 
 use quinn::AsyncUdpSocket;
 use std::{future::poll_fn, io::IoSliceMut, time::Duration};
-use vcore::{
+use vole::{
     dialer::Dialer,
     dispatch::DatagramBudget,
     outbound::{DatagramRequest, DirectOutbound, EstablishContext, OutboundConnector},
@@ -13,7 +13,7 @@ use vcore::{
 #[tokio::test]
 async fn quic_minimum_budget_is_checked_before_io_and_exact_minimum_connects() {
     #[cfg(feature = "interop-test")]
-    let mut _case = vcore::resources::case_events::Case::new(
+    let mut _case = vole::resources::case_events::Case::new(
         "FOUNDATIONS-QUIC",
         "quic_minimum_budget_is_checked_before_io_and_exact_minimum_connects",
     );
@@ -102,22 +102,20 @@ struct PendingSend {
     entered: std::sync::Arc<tokio::sync::Notify>,
 }
 #[async_trait::async_trait]
-impl vcore::dispatch::DatagramTransport for PendingSend {
+impl vole::dispatch::DatagramTransport for PendingSend {
     async fn send(
         &mut self,
-        _: vcore::session::Datagram,
-    ) -> Result<(), vcore::dispatch::DispatchError> {
+        _: vole::session::Datagram,
+    ) -> Result<(), vole::dispatch::DispatchError> {
         self.starts
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         self.entered.notify_one();
         std::future::pending().await
     }
-    async fn receive(
-        &mut self,
-    ) -> Result<vcore::session::Datagram, vcore::dispatch::DispatchError> {
+    async fn receive(&mut self) -> Result<vole::session::Datagram, vole::dispatch::DispatchError> {
         std::future::pending().await
     }
-    async fn close(&mut self) -> Result<(), vcore::dispatch::DispatchError> {
+    async fn close(&mut self) -> Result<(), vole::dispatch::DispatchError> {
         self.closed
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         Ok(())
@@ -127,7 +125,7 @@ impl vcore::dispatch::DatagramTransport for PendingSend {
 #[tokio::test]
 async fn pending_send_is_not_restarted_and_stop_cancels_without_waiting_for_writable() {
     #[cfg(feature = "interop-test")]
-    let mut _case = vcore::resources::case_events::Case::new(
+    let mut _case = vole::resources::case_events::Case::new(
         "FOUNDATIONS-QUIC",
         "pending_send_is_not_restarted_and_stop_cancels_without_waiting_for_writable",
     );
@@ -179,7 +177,7 @@ async fn pending_send_is_not_restarted_and_stop_cancels_without_waiting_for_writ
 #[tokio::test]
 async fn controlled_quic_datagram_seam_roundtrips_and_stop_closes_owned_io() {
     #[cfg(feature = "interop-test")]
-    let mut _case = vcore::resources::case_events::Case::new(
+    let mut _case = vole::resources::case_events::Case::new(
         "FOUNDATIONS-QUIC",
         "controlled_quic_datagram_seam_roundtrips_and_stop_closes_owned_io",
     );
@@ -240,7 +238,7 @@ async fn controlled_quic_datagram_seam_roundtrips_and_stop_closes_owned_io() {
 #[tokio::test]
 async fn mapped_peer_sends_to_one_physical_port_and_reports_the_logical_peer() {
     #[cfg(feature = "interop-test")]
-    let mut _case = vcore::resources::case_events::Case::new(
+    let mut _case = vole::resources::case_events::Case::new(
         "FOUNDATIONS-QUIC",
         "mapped_peer_sends_to_one_physical_port_and_reports_the_logical_peer",
     );
@@ -257,7 +255,7 @@ async fn mapped_peer_sends_to_one_physical_port_and_reports_the_logical_peer() {
             )
             .await
             .unwrap();
-        let (socket, driver) = vcore::transport::quic::attach_mapped(
+        let (socket, driver) = vole::transport::quic::attach_mapped(
             transport,
             logical_peer,
             physical_peer,
@@ -300,7 +298,7 @@ async fn mapped_peer_sends_to_one_physical_port_and_reports_the_logical_peer() {
 #[tokio::test]
 async fn incoming_queue_backpressures_without_discarding_a_controlled_burst() {
     #[cfg(feature = "interop-test")]
-    let mut _case = vcore::resources::case_events::Case::new(
+    let mut _case = vole::resources::case_events::Case::new(
         "FOUNDATIONS-QUIC",
         "incoming_queue_backpressures_without_discarding_a_controlled_burst",
     );
@@ -334,7 +332,7 @@ async fn incoming_queue_backpressures_without_discarding_a_controlled_burst() {
         tokio::time::sleep(Duration::from_millis(100)).await;
         assert_eq!(
             socket.stats().peak_incoming,
-            vcore::transport::quic::QUEUE_LIMIT
+            vole::transport::quic::QUEUE_LIMIT
         );
         assert_eq!(socket.stats().dropped_full, 0);
         for expected in 0..40_u8 {
@@ -354,7 +352,7 @@ async fn incoming_queue_backpressures_without_discarding_a_controlled_burst() {
 #[tokio::test]
 async fn controlled_direct_datagrams_roundtrip_and_stop() {
     #[cfg(feature = "interop-test")]
-    let mut _case = vcore::resources::case_events::Case::new(
+    let mut _case = vole::resources::case_events::Case::new(
         "FOUNDATIONS-QUIC",
         "controlled_direct_datagrams_roundtrip_and_stop",
     );
@@ -435,7 +433,7 @@ async fn controlled_direct_datagrams_roundtrip_and_stop() {
             segment_size: None,
             src_ip: None,
         };
-        for _ in 0..vcore::transport::quic::QUEUE_LIMIT {
+        for _ in 0..vole::transport::quic::QUEUE_LIMIT {
             socket.try_send(&transmit).unwrap();
         }
         assert_eq!(
@@ -455,7 +453,7 @@ async fn controlled_direct_datagrams_roundtrip_and_stop() {
             .unwrap();
         assert_eq!(
             socket.stats().peak_outgoing,
-            vcore::transport::quic::QUEUE_LIMIT
+            vole::transport::quic::QUEUE_LIMIT
         );
         driver.stop().await.unwrap();
         assert!(

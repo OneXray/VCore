@@ -13,7 +13,7 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use vcore::{
+use vole::{
     config::{Config, ProxyProtocol},
     security::SecurityClient,
 };
@@ -68,7 +68,7 @@ fn client_with(profile: &str, list: &[u8], pin: &str, extra: serde_json::Value) 
         .extend(extra.as_object().unwrap().clone());
     let config = Config::parse_yaml(
         &serde_json::to_vec(&json!({
-            "socks-port":1080,
+            "mixed-port":1080,
             "proxies":[node],
             "rules":["MATCH,edge"]
         }))
@@ -84,7 +84,7 @@ fn client_with(profile: &str, list: &[u8], pin: &str, extra: serde_json::Value) 
 #[tokio::test]
 async fn rejected_or_wrong_key_ech_never_reaches_application_data_even_with_a_matching_pin() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "SECURITY-CONFIG-TLS",
         "rejected_or_wrong_key_ech_never_reaches_application_data_even_with_a_matching_pin",
     );
@@ -185,7 +185,7 @@ fn outer_sni(hello: &[u8]) -> &[u8] {
 #[tokio::test]
 async fn client_identity_is_sent_only_after_ech_acceptance() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "SECURITY-CONFIG-TLS",
         "client_identity_is_sent_only_after_ech_acceptance",
     );
@@ -273,7 +273,7 @@ async fn client_identity_is_sent_only_after_ech_acceptance() {
 #[tokio::test]
 async fn cancelled_ech_emits_only_public_sni_and_releases_io_for_every_backend() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "SECURITY-CONFIG-TLS",
         "cancelled_ech_emits_only_public_sni_and_releases_io_for_every_backend",
     );
@@ -317,7 +317,7 @@ async fn cancelled_ech_emits_only_public_sni_and_releases_io_for_every_backend()
 #[tokio::test]
 async fn each_backend_and_hpke_suite_requires_real_ech_acceptance_before_data() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "SECURITY-CONFIG-TLS",
         "each_backend_and_hpke_suite_requires_real_ech_acceptance_before_data",
     );

@@ -16,8 +16,8 @@ use windows::{
 use super::managed_processes::SessionBackend;
 use crate::config::MAX_CONFIG_BYTES;
 
-pub(crate) const SESSION_DIRECTORY: &str = "vcore/windows/sessions";
-const SESSION_TOKEN_PREFIX: &str = "vcore-session-v2:";
+pub(crate) const SESSION_DIRECTORY: &str = "vole/windows/sessions";
+const SESSION_TOKEN_PREFIX: &str = "vole-session-v2:";
 const SESSION_REVISION: u32 = 2;
 const MAX_SESSION_SNAPSHOT_BYTES: u64 = 1024 * 1024;
 const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
@@ -206,7 +206,7 @@ fn validate_config_yaml(config_yaml: &str) -> Result<()> {
     if config_yaml.is_empty() || config_yaml.len() > MAX_CONFIG_BYTES {
         return Err(Error::new(
             E_FAIL,
-            "invalid Windows VCore configuration size",
+            "invalid Windows Vole configuration size",
         ));
     }
     Ok(())
@@ -218,8 +218,8 @@ fn session_directory(local_folder: &Path, create: bool) -> Result<PathBuf> {
         fs::create_dir_all(&sessions).map_err(windows_error)?;
     }
     for path in [
-        local_folder.join("vcore"),
-        local_folder.join("vcore/windows"),
+        local_folder.join("vole"),
+        local_folder.join("vole/windows"),
         sessions.clone(),
     ] {
         reject_reparse_point(&path)?;
@@ -288,16 +288,16 @@ mod tests {
     #[test]
     fn token_accepts_only_the_canonical_session_digest() {
         let digest = "0123456789abcdef".repeat(4);
-        let reference = SessionReference::parse(&format!("vcore-session-v2:{digest}")).unwrap();
+        let reference = SessionReference::parse(&format!("vole-session-v2:{digest}")).unwrap();
         assert_eq!(reference.file_name(), format!("{digest}.json"));
 
         for token in [
             digest.clone(),
-            format!("vcore-v1:{digest}"),
-            format!("vcore-session-v3:{digest}"),
-            format!("vcore-session-v2:{}", digest.to_uppercase()),
-            "vcore-session-v2:../session.json".to_owned(),
-            "vcore-session-v2:00".to_owned(),
+            format!("vole-v1:{digest}"),
+            format!("vole-session-v3:{digest}"),
+            format!("vole-session-v2:{}", digest.to_uppercase()),
+            "vole-session-v2:../session.json".to_owned(),
+            "vole-session-v2:00".to_owned(),
         ] {
             assert!(SessionReference::parse(&token).is_err(), "accepted {token}");
         }

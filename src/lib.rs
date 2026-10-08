@@ -1,8 +1,11 @@
-//! VCore's platform-neutral Rust core.
+//! Vole's platform-neutral Rust core.
 //!
-//! Public native bindings are intentionally kept behind the `ffi` feature. Its
-//! only business entry point is the JSON `VCoreInvoke` API; that single ABI
-//! dispatches to one public runtime lifecycle plus private batch-measurement workers.
+//! The `invoke` feature exposes the common JSON API and its runtime lifecycle.
+//! Native ABI/JNI wrappers (`ffi`) and the command-line entry (`cli`) call the
+//! same dispatcher. Windows backends are selected explicitly at compile time.
+
+#[cfg(all(windows, feature = "windows-wintun", feature = "windows-uwp"))]
+compile_error!("windows-wintun and windows-uwp are mutually exclusive Windows backends");
 
 pub mod config;
 #[cfg(any(feature = "inbound-http", feature = "inbound-socks5"))]
@@ -16,6 +19,8 @@ pub mod error;
 pub mod ffi;
 pub mod geodata;
 pub mod inbound;
+#[cfg(feature = "invoke")]
+pub mod invoke;
 pub mod lifecycle;
 pub mod limits;
 pub mod outbound;
@@ -36,7 +41,7 @@ pub mod routing;
         feature = "outbound-hysteria2",
         feature = "outbound-tuic"
     ),
-    any(feature = "ffi", test)
+    any(feature = "invoke", test)
 ))]
 mod runtime;
 #[cfg(any(
@@ -73,36 +78,28 @@ pub(crate) mod traffic;
     feature = "quic-transport"
 ))]
 pub mod transport;
-#[cfg(all(feature = "tun", any(unix, windows)))]
+#[cfg(all(
+    feature = "tun",
+    any(
+        unix,
+        all(windows, any(feature = "windows-wintun", feature = "windows-uwp"))
+    )
+))]
 mod tun_runtime;
-#[cfg(all(windows, feature = "ffi"))]
+#[cfg(all(windows, feature = "windows-uwp"))]
 #[doc(hidden)]
 pub mod windows;
 #[cfg(any(feature = "outbound-vless", feature = "outbound-vmess"))]
 pub mod xudp;
 
-pub use error::{Result, VCoreError};
+pub use error::{Result, VoleError};
 pub use lifecycle::{Lifecycle, LifecycleState};
 pub use limits::ResourceLimits;
 pub use packet::{IpVersion, TunFraming};
 
-/// Strict version carried by every current Invoke request and version response.
-pub const INVOKE_API_VERSION: u32 = 5;
-
-/// Internal configuration schema revision reported through Invoke.
-///
-/// The strict Mihomo YAML subset deliberately carries no version field.
-pub const CONFIG_VERSION: u8 = 31;
-
 /// Stable implementation identifier returned by the version Invoke method.
 pub const ENGINE: &str = "rust";
 
-/// Stable compatibility identity embedded in every native artifact.
-///
-/// This is deliberately independent from a source revision. Release tooling
-/// records the immutable Git revision and artifact hash separately.
-pub const BUILD_IDENTITY: &str = concat!(
-    "VCore;engine=rust;coreVersion=",
-    env!("CARGO_PKG_VERSION"),
-    ";invokeApiVersion=5;configVersion=31"
-);
+/// Implementation identity embedded in every native artifact.
+pub const BUILD_IDENTITY: &str =
+    concat!("Vole;engine=rust;coreVersion=", env!("CARGO_PKG_VERSION"));

@@ -3,11 +3,11 @@
 #[test]
 fn transport_options_reject_ambiguous_headers_before_io() {
     #[cfg(feature = "interop-test")]
-    let mut _case = vcore::resources::case_events::Case::new(
+    let mut _case = vole::resources::case_events::Case::new(
         "FOUNDATIONS-STREAM",
         "transport_options_reject_ambiguous_headers_before_io",
     );
-    use vcore::transport::{HttpObfsOptions, WebSocketEarlyData, WebSocketOptions};
+    use vole::transport::{HttpObfsOptions, WebSocketEarlyData, WebSocketOptions};
     for name in ["host", "x-custom"] {
         let mut headers = http::HeaderMap::new();
         headers.append(name, "example.com".parse().unwrap());
@@ -50,7 +50,7 @@ fn transport_options_reject_ambiguous_headers_before_io() {
 #[tokio::test]
 async fn http_first_header_preserves_prefix_raw_continuation_and_half_close_tail() {
     #[cfg(feature = "interop-test")]
-    let mut _case = vcore::resources::case_events::Case::new(
+    let mut _case = vole::resources::case_events::Case::new(
         "FOUNDATIONS-STREAM",
         "http_first_header_preserves_prefix_raw_continuation_and_half_close_tail",
     );
@@ -81,13 +81,13 @@ async fn http_first_header_preserves_prefix_raw_continuation_and_half_close_tail
         });
         let mut headers = http::HeaderMap::new();
         headers.insert("x-custom", "value".parse().unwrap());
-        let options = vcore::transport::HttpObfsOptions::new(
+        let options = vole::transport::HttpObfsOptions::new(
             http::Method::POST,
             "http://cover.example:8080/cover?q=1",
             headers,
         )
         .unwrap();
-        let mut stream = vcore::transport::http_obfs(
+        let mut stream = vole::transport::http_obfs(
             Box::new(client),
             &options,
             b"prefix",
@@ -112,7 +112,7 @@ async fn http_first_header_preserves_prefix_raw_continuation_and_half_close_tail
 #[tokio::test]
 async fn legacy_h2_keeps_unframed_bytes_server_first_and_owned_whole_close() {
     #[cfg(feature = "interop-test")]
-    let mut _case = vcore::resources::case_events::Case::new(
+    let mut _case = vole::resources::case_events::Case::new(
         "FOUNDATIONS-STREAM",
         "legacy_h2_keeps_unframed_bytes_server_first_and_owned_whole_close",
     );
@@ -148,7 +148,7 @@ async fn legacy_h2_keeps_unframed_bytes_server_first_and_owned_whole_close() {
             while connection.accept().await.is_some() {}
             work.await.unwrap();
         });
-        let (mut stream, owner) = vcore::transport::legacy_h2(
+        let (mut stream, owner) = vole::transport::legacy_h2(
             Box::new(client),
             "https://cover.example/h2",
             Instant::now() + Duration::from_secs(2),
@@ -179,7 +179,7 @@ async fn legacy_h2_keeps_unframed_bytes_server_first_and_owned_whole_close() {
 #[tokio::test]
 async fn websocket_rejects_invalid_upgrade_responses_and_bounded_header_overflows() {
     #[cfg(feature = "interop-test")]
-    let mut _case = vcore::resources::case_events::Case::new(
+    let mut _case = vole::resources::case_events::Case::new(
         "FOUNDATIONS-STREAM",
         "websocket_rejects_invalid_upgrade_responses_and_bounded_header_overflows",
     );
@@ -254,12 +254,12 @@ async fn websocket_rejects_invalid_upgrade_responses_and_bounded_header_overflow
 #[allow(clippy::result_large_err)]
 async fn websocket_early_data_and_remaining_frames_keep_the_original_byte_order() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "FOUNDATIONS-STREAM",
         "websocket_early_data_and_remaining_frames_keep_the_original_byte_order",
     );
     use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-    use vcore::transport::{WebSocketEarlyData, WebSocketOptions, connect_websocket};
+    use vole::transport::{WebSocketEarlyData, WebSocketOptions, connect_websocket};
     for maximum in [1, 2048] {
         timeout(Duration::from_secs(3), async {
             let (client, peer) = tokio::io::duplex(128);
@@ -339,7 +339,7 @@ async fn stalled_handshake(kind: &str, raw: Observed, deadline: Instant) -> io::
         }
         "h2" => {
             let (mut stream, owner) =
-                vcore::transport::legacy_h2(Box::new(raw), "https://fixture.invalid/h2", deadline)
+                vole::transport::legacy_h2(Box::new(raw), "https://fixture.invalid/h2", deadline)
                     .await?;
             let result = stream.read_u8().await;
             drop(stream);
@@ -347,13 +347,13 @@ async fn stalled_handshake(kind: &str, raw: Observed, deadline: Instant) -> io::
             result?;
         }
         "http" => {
-            let options = vcore::transport::HttpObfsOptions::new(
+            let options = vole::transport::HttpObfsOptions::new(
                 http::Method::GET,
                 "http://fixture.invalid/",
                 Default::default(),
             )?;
             let mut stream =
-                vcore::transport::http_obfs(Box::new(raw), &options, &[], deadline).await?;
+                vole::transport::http_obfs(Box::new(raw), &options, &[], deadline).await?;
             stream.read_u8().await?;
         }
         _ => unreachable!(),
@@ -364,7 +364,7 @@ async fn stalled_handshake(kind: &str, raw: Observed, deadline: Instant) -> io::
 #[tokio::test]
 async fn setup_deadline_releases_supplied_io_in_stream_adapters() {
     #[cfg(feature = "interop-test")]
-    let mut _case = vcore::resources::case_events::Case::new(
+    let mut _case = vole::resources::case_events::Case::new(
         "FOUNDATIONS-STREAM",
         "setup_deadline_releases_supplied_io_in_stream_adapters",
     );
@@ -451,7 +451,7 @@ async fn http2_lazy_response_obeys_setup_deadline_but_established_reads_do_not()
             });
             let deadline = Instant::now() + Duration::from_secs(1);
             let uri = "https://fixture.invalid/stream/Tun";
-            let pool = vcore::transport::GrpcPool::new(Default::default());
+            let pool = vole::transport::GrpcPool::new(Default::default());
             let (mut stream, owner) = if kind == "pooled" {
                 (
                     pool.open(uri, deadline, || async { Ok(Box::new(client) as _) })
@@ -462,10 +462,8 @@ async fn http2_lazy_response_obeys_setup_deadline_but_established_reads_do_not()
             } else {
                 let pair = match kind {
                     "grpc" => grpc(Box::new(client), uri, deadline).await,
-                    "duplex" => {
-                        vcore::transport::grpc_duplex(Box::new(client), uri, deadline).await
-                    }
-                    "h2" => vcore::transport::legacy_h2(Box::new(client), uri, deadline).await,
+                    "duplex" => vole::transport::grpc_duplex(Box::new(client), uri, deadline).await,
+                    "h2" => vole::transport::legacy_h2(Box::new(client), uri, deadline).await,
                     _ => unreachable!(),
                 }
                 .unwrap();
@@ -512,7 +510,7 @@ async fn http2_lazy_response_obeys_setup_deadline_but_established_reads_do_not()
 #[tokio::test]
 async fn cancelled_setup_releases_supplied_io_without_a_detached_task() {
     #[cfg(feature = "interop-test")]
-    let mut _case = vcore::resources::case_events::Case::new(
+    let mut _case = vole::resources::case_events::Case::new(
         "FOUNDATIONS-STREAM",
         "cancelled_setup_releases_supplied_io_without_a_detached_task",
     );
@@ -547,7 +545,7 @@ async fn cancelled_setup_releases_supplied_io_without_a_detached_task() {
 #[tokio::test]
 async fn ws_rejects_oversized_and_truncated_frames_instead_of_reporting_eof() {
     #[cfg(feature = "interop-test")]
-    let mut _case = vcore::resources::case_events::Case::new(
+    let mut _case = vole::resources::case_events::Case::new(
         "FOUNDATIONS-STREAM",
         "ws_rejects_oversized_and_truncated_frames_instead_of_reporting_eof",
     );
@@ -586,7 +584,7 @@ async fn ws_rejects_oversized_and_truncated_frames_instead_of_reporting_eof() {
 #[tokio::test]
 async fn ws_accepts_mihomo_clean_underlay_eof_only_at_complete_message_boundaries() {
     #[cfg(feature = "interop-test")]
-    let mut _case = vcore::resources::case_events::Case::new(
+    let mut _case = vole::resources::case_events::Case::new(
         "FOUNDATIONS-STREAM",
         "ws_accepts_mihomo_clean_underlay_eof_only_at_complete_message_boundaries",
     );
@@ -620,7 +618,7 @@ async fn ws_accepts_mihomo_clean_underlay_eof_only_at_complete_message_boundarie
 #[tokio::test]
 async fn dropping_an_established_ws_releases_its_only_io_owner() {
     #[cfg(feature = "interop-test")]
-    let mut _case = vcore::resources::case_events::Case::new(
+    let mut _case = vole::resources::case_events::Case::new(
         "FOUNDATIONS-STREAM",
         "dropping_an_established_ws_releases_its_only_io_owner",
     );
@@ -658,7 +656,7 @@ async fn dropping_an_established_ws_releases_its_only_io_owner() {
 #[tokio::test]
 async fn grpc_rejects_oversized_truncated_and_invalid_records() {
     #[cfg(feature = "interop-test")]
-    let mut _case = vcore::resources::case_events::Case::new(
+    let mut _case = vole::resources::case_events::Case::new(
         "FOUNDATIONS-STREAM",
         "grpc_rejects_oversized_truncated_and_invalid_records",
     );
@@ -711,7 +709,7 @@ async fn grpc_rejects_oversized_truncated_and_invalid_records() {
 #[tokio::test]
 async fn grpc_large_writes_obey_small_http2_windows_and_keep_byte_integrity() {
     #[cfg(feature = "interop-test")]
-    let mut _case = vcore::resources::case_events::Case::new(
+    let mut _case = vole::resources::case_events::Case::new(
         "FOUNDATIONS-STREAM",
         "grpc_large_writes_obey_small_http2_windows_and_keep_byte_integrity",
     );
@@ -791,7 +789,7 @@ async fn grpc_large_writes_obey_small_http2_windows_and_keep_byte_integrity() {
 #[tokio::test]
 async fn ws_partial_writes_empty_frames_ping_and_half_close_preserve_every_byte() {
     #[cfg(feature = "interop-test")]
-    let mut _case = vcore::resources::case_events::Case::new(
+    let mut _case = vole::resources::case_events::Case::new(
         "FOUNDATIONS-STREAM",
         "ws_partial_writes_empty_frames_ping_and_half_close_preserve_every_byte",
     );
@@ -856,7 +854,7 @@ use tokio::{
     io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf},
     time::{Instant, timeout},
 };
-use vcore::transport::{grpc, websocket};
+use vole::transport::{grpc, websocket};
 
 struct Observed {
     io: DuplexStream,
@@ -900,7 +898,7 @@ impl AsyncWrite for Observed {
 #[tokio::test]
 async fn grpc_handles_response_after_upload_fragmented_records_and_owned_stop() {
     #[cfg(feature = "interop-test")]
-    let mut _case = vcore::resources::case_events::Case::new(
+    let mut _case = vole::resources::case_events::Case::new(
         "FOUNDATIONS-STREAM",
         "grpc_handles_response_after_upload_fragmented_records_and_owned_stop",
     );
@@ -995,7 +993,7 @@ use tokio_tungstenite::tungstenite::Message;
 #[tokio::test]
 async fn websocket_supplied_io_preserves_server_first_and_partial_writes() {
     #[cfg(feature = "interop-test")]
-    let mut _case = vcore::resources::case_events::Case::new(
+    let mut _case = vole::resources::case_events::Case::new(
         "FOUNDATIONS-STREAM",
         "websocket_supplied_io_preserves_server_first_and_partial_writes",
     );
@@ -1012,7 +1010,7 @@ async fn websocket_supplied_io_preserves_server_first_and_partial_writes() {
         assert_eq!(received, vec![42; 65_536]);
         ws.send(Message::Binary("done".into())).await.unwrap();
     });
-    let mut ws = vcore::transport::websocket(
+    let mut ws = vole::transport::websocket(
         Box::new(client),
         "ws://example.com/tunnel",
         tokio::time::Instant::now() + Duration::from_secs(3),

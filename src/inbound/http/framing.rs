@@ -340,7 +340,7 @@ fn stripped(name: &str, connection: &HashSet<String>) -> bool {
         "transfer-encoding",
     ]
     .contains(&name.as_str())
-        || name.starts_with("x-vcore-")
+        || name.starts_with("x-vole-")
         || connection.contains(&name)
 }
 
@@ -662,7 +662,7 @@ mod tests {
             (Body::Chunked, "3\r\nabcXX"),
             (Body::Chunked, "z\r\n"),
             (Body::Chunked, "0\r\nProxy-Authorization: secret\r\n\r\n"),
-            (Body::Chunked, "0\r\nX-VCore-Measure-Diagnostic: v1\r\n\r\n"),
+            (Body::Chunked, "0\r\nX-Vole-Measure-Diagnostic: v1\r\n\r\n"),
             (Body::Chunked, "0\r\nContent-Length: 9\r\n\r\n"),
             (Body::Chunked, "0\r\nX-Hop: removed\r\n\r\n"),
         ] {

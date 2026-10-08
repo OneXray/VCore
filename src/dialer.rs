@@ -12,7 +12,7 @@ use std::{
 
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
-#[cfg(all(windows, feature = "ffi"))]
+#[cfg(all(windows, feature = "windows-uwp"))]
 use std::{
     num::NonZeroU32,
     os::windows::io::{AsRawSocket, RawSocket},
@@ -26,7 +26,7 @@ use tokio::{
     time::timeout,
 };
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
-#[cfg(all(windows, feature = "ffi"))]
+#[cfg(all(windows, feature = "windows-uwp"))]
 use windows::Win32::Networking::WinSock::{
     IP_UNICAST_IF, IPPROTO_IP, IPPROTO_IPV6, IPV6_UNICAST_IF, SOCKET, SOCKET_ERROR,
     WSAGetLastError, setsockopt,
@@ -88,7 +88,7 @@ impl DnsWorker {
         let busy = Arc::new(AtomicBool::new(false));
         let worker_busy = busy.clone();
         thread::Builder::new()
-            .name(format!("vcore-bootstrap-dns-{slot}"))
+            .name(format!("vole-bootstrap-dns-{slot}"))
             .stack_size(DNS_WORKER_STACK_BYTES)
             .spawn(move || {
                 while let Ok(request) = receiver.recv() {
@@ -356,7 +356,7 @@ struct SourceBinding {
     ipv6: Option<Ipv6Addr>,
 }
 
-#[cfg(all(windows, feature = "ffi"))]
+#[cfg(all(windows, feature = "windows-uwp"))]
 #[derive(Debug, Clone, Copy)]
 struct InterfaceBinding {
     ipv4: Option<(Ipv4Addr, NonZeroU32)>,
@@ -368,7 +368,7 @@ pub struct Dialer {
     initialization: Arc<SocketInitialization>,
     protector: Option<Arc<dyn SocketProtector>>,
     source_binding: Option<SourceBinding>,
-    #[cfg(all(windows, feature = "ffi"))]
+    #[cfg(all(windows, feature = "windows-uwp"))]
     interface_binding: Option<InterfaceBinding>,
     ipv6: bool,
     connect_timeout: Duration,
@@ -380,7 +380,7 @@ impl std::fmt::Debug for Dialer {
         debug
             .field("has_protector", &self.protector.is_some())
             .field("source_binding", &self.source_binding);
-        #[cfg(all(windows, feature = "ffi"))]
+        #[cfg(all(windows, feature = "windows-uwp"))]
         debug.field("interface_binding", &self.interface_binding);
         debug
             .field("ipv6", &self.ipv6)
@@ -395,7 +395,7 @@ impl Default for Dialer {
             initialization: Arc::new(SocketInitialization::default()),
             protector: None,
             source_binding: None,
-            #[cfg(all(windows, feature = "ffi"))]
+            #[cfg(all(windows, feature = "windows-uwp"))]
             interface_binding: None,
             ipv6: true,
             connect_timeout: Duration::from_secs(10),
@@ -443,14 +443,14 @@ impl Dialer {
                 ipv6: Some(ipv6),
             },
         });
-        #[cfg(all(windows, feature = "ffi"))]
+        #[cfg(all(windows, feature = "windows-uwp"))]
         {
             self.interface_binding = None;
         }
         self
     }
 
-    #[cfg(all(windows, feature = "ffi"))]
+    #[cfg(all(windows, feature = "windows-uwp"))]
     #[must_use]
     pub(crate) const fn with_windows_interface(
         mut self,
@@ -516,7 +516,7 @@ impl Dialer {
                 )?;
                 let guard = track(ResourceKind::Socket);
                 check()?;
-                #[cfg(all(windows, feature = "ffi"))]
+                #[cfg(all(windows, feature = "windows-uwp"))]
                 dialer.apply_interface_binding(socket.as_raw_socket(), destination)?;
                 socket.bind(&bind_address.into())?;
                 socket.set_nonblocking(true)?;
@@ -530,7 +530,7 @@ impl Dialer {
     }
 
     fn source_address_for(&self, destination: SocketAddr) -> io::Result<Option<SocketAddr>> {
-        #[cfg(all(windows, feature = "ffi"))]
+        #[cfg(all(windows, feature = "windows-uwp"))]
         if self.interface_binding.is_some() && destination.ip().is_loopback() {
             return Ok(Some(loopback_address(destination.is_ipv6())));
         }
@@ -538,7 +538,7 @@ impl Dialer {
     }
 
     fn source_address(&self, ipv6: bool) -> io::Result<Option<SocketAddr>> {
-        #[cfg(all(windows, feature = "ffi"))]
+        #[cfg(all(windows, feature = "windows-uwp"))]
         if let Some(binding) = self.interface_binding {
             let source_ip = if ipv6 {
                 binding.ipv6.map(|(ip, _)| IpAddr::V6(ip))
@@ -574,7 +574,7 @@ impl Dialer {
         )
     }
 
-    #[cfg(all(windows, feature = "ffi"))]
+    #[cfg(all(windows, feature = "windows-uwp"))]
     fn apply_interface_binding(
         &self,
         socket: RawSocket,
@@ -631,7 +631,7 @@ impl Dialer {
                 check()?;
                 dialer.protect_socket(&socket)?;
                 check()?;
-                #[cfg(all(windows, feature = "ffi"))]
+                #[cfg(all(windows, feature = "windows-uwp"))]
                 dialer.apply_interface_binding(socket.as_raw_socket(), address)?;
                 if let Some(source_address) = source_address {
                     socket.bind(source_address)?;
@@ -685,7 +685,7 @@ fn wildcard_address(ipv6: bool) -> SocketAddr {
     }
 }
 
-#[cfg(all(windows, feature = "ffi"))]
+#[cfg(all(windows, feature = "windows-uwp"))]
 fn loopback_address(ipv6: bool) -> SocketAddr {
     if ipv6 {
         SocketAddr::from((Ipv6Addr::LOCALHOST, 0))
@@ -694,7 +694,7 @@ fn loopback_address(ipv6: bool) -> SocketAddr {
     }
 }
 
-#[cfg(all(windows, feature = "ffi"))]
+#[cfg(all(windows, feature = "windows-uwp"))]
 fn interface_option_value(index: NonZeroU32, ipv6: bool) -> [u8; 4] {
     if ipv6 {
         index.get().to_ne_bytes()
@@ -809,7 +809,7 @@ mod tests {
         );
     }
 
-    #[cfg(all(windows, feature = "ffi"))]
+    #[cfg(all(windows, feature = "windows-uwp"))]
     #[tokio::test]
     async fn interface_binding_rejects_missing_non_loopback_address_family() {
         let ipv4_only = Dialer::default().with_windows_interface(
@@ -826,7 +826,7 @@ mod tests {
         );
     }
 
-    #[cfg(all(windows, feature = "ffi"))]
+    #[cfg(all(windows, feature = "windows-uwp"))]
     #[tokio::test]
     async fn windows_physical_binding_exempts_explicit_loopback_tcp_and_udp() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -853,7 +853,7 @@ mod tests {
         );
     }
 
-    #[cfg(all(windows, feature = "ffi"))]
+    #[cfg(all(windows, feature = "windows-uwp"))]
     #[test]
     fn windows_interface_index_uses_win_sock_byte_order() {
         let index = NonZeroU32::new(0x0102_0304).unwrap();

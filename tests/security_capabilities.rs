@@ -63,14 +63,14 @@ fn key_shares(records: &[u8]) -> Vec<(u16, usize)> {
 #[tokio::test]
 async fn public_hybrid_reality_emits_required_shares_on_both_transport_legs() {
     use serde_json::json;
-    use vcore::{
+    use vole::{
         config::{Config, ProxyProtocol},
         security::SecurityClient,
     };
 
     for profile in ["none", "chrome"] {
         let yaml = serde_json::to_vec(&json!({
-            "socks-port": 1080,
+            "mixed-port": 1080,
             "proxies": [{
                 "name": "edge", "type": "vless", "server": "example.invalid", "port": 443,
                 "uuid": "07070707-0707-0707-0707-070707070707", "tls": true,

@@ -187,7 +187,7 @@ fn uri(scheme: &str, server: &str, port: u16, path: &str) -> Result<String> {
         .authority(authority)
         .path_and_query(path)
         .build()
-        .map_err(|_| crate::VCoreError::InvalidConfig("invalid Trojan transport URI".into()))?;
+        .map_err(|_| crate::VoleError::InvalidConfig("invalid Trojan transport URI".into()))?;
     // Same bounded HTTP head envelope as the shared stream adapters.
     if uri.to_string().len() > 16 * 1024 - 256 {
         return invalid("Trojan transport URI exceeds HTTP head limit");

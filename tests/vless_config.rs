@@ -1,11 +1,11 @@
 #![cfg(feature = "outbound-vless")]
 use serde_json::{Value, json};
-use vcore::config::Config;
+use vole::config::Config;
 
 #[test]
 fn inline_client_identity_is_validated_and_redacted_before_io() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "VLESS-UNIT",
         "inline_client_identity_is_validated_and_redacted_before_io",
     );
@@ -34,17 +34,17 @@ fn document(extra: Value) -> Vec<u8> {
     node.as_object_mut()
         .unwrap()
         .extend(extra.as_object().unwrap().clone());
-    serde_json::to_vec(&json!({"socks-port":1080,"proxies":[node],"rules":["MATCH,edge"]})).unwrap()
+    serde_json::to_vec(&json!({"mixed-port":1080,"proxies":[node],"rules":["MATCH,edge"]})).unwrap()
 }
 
 #[test]
 fn vision_requires_tcp_tls13_and_xudp_before_any_io() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "VLESS-UNIT",
         "vision_requires_tcp_tls13_and_xudp_before_any_io",
     );
-    use vcore::config::{ProxyProtocol, SecurityConfig};
+    use vole::config::{ProxyProtocol, SecurityConfig};
     let config =
         Config::parse_yaml(&document(json!({"flow":"xtls-rprx-vision","tls":true}))).unwrap();
     let ProxyProtocol::Vless(node) = &config.proxies[0].protocol else {
@@ -70,7 +70,7 @@ fn vision_requires_tcp_tls13_and_xudp_before_any_io() {
 #[test]
 fn default_tcp_and_three_udp_encodings_are_accepted_without_io() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "VLESS-UNIT",
         "default_tcp_and_three_udp_encodings_are_accepted_without_io",
     );
@@ -90,7 +90,7 @@ fn default_tcp_and_three_udp_encodings_are_accepted_without_io() {
 #[test]
 fn tcp_and_existing_xhttp_reject_mismatched_and_future_options() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "VLESS-UNIT",
         "tcp_and_existing_xhttp_reject_mismatched_and_future_options",
     );
@@ -138,7 +138,7 @@ fn tcp_and_existing_xhttp_reject_mismatched_and_future_options() {
 #[test]
 fn stream_transports_and_explicit_tls_policy_have_strict_public_fields() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "VLESS-UNIT",
         "stream_transports_and_explicit_tls_policy_have_strict_public_fields",
     );
@@ -189,7 +189,7 @@ fn stream_transports_and_explicit_tls_policy_have_strict_public_fields() {
 #[test]
 fn extended_ws_and_grpc_fields_are_scoped_and_bounded() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "VLESS-UNIT",
         "extended_ws_and_grpc_fields_are_scoped_and_bounded",
     );

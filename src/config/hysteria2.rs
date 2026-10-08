@@ -121,7 +121,7 @@ impl RawHysteria2 {
             .map(|ports| {
                 let ports = parse_ports(&ports)?;
                 let (min_seconds, max_seconds) = parse_interval(self.hop_interval.as_ref())?;
-                Ok::<_, crate::VCoreError>(Hysteria2Hopping {
+                Ok::<_, crate::VoleError>(Hysteria2Hopping {
                     ports,
                     min_seconds,
                     max_seconds,
@@ -134,7 +134,7 @@ impl RawHysteria2 {
         let port = match &hopping {
             Some(hopping) => hopping.ports[0],
             None => self.port.ok_or_else(|| {
-                crate::VCoreError::InvalidConfig("Hysteria2 requires port or ports".into())
+                crate::VoleError::InvalidConfig("Hysteria2 requires port or ports".into())
             })?,
         };
         // The complete auth header section is bounded to 16 KiB. Validate the
@@ -165,9 +165,7 @@ impl RawHysteria2 {
             (Some(certificate), Some(private_key)) => {
                 #[cfg(feature = "outbound-hysteria2")]
                 crate::security::TlsClientIdentity::from_pem(&certificate, &private_key).map_err(
-                    |_| {
-                        crate::VCoreError::InvalidConfig("invalid Hysteria2 client identity".into())
-                    },
+                    |_| crate::VoleError::InvalidConfig("invalid Hysteria2 client identity".into()),
                 )?;
                 Some(TlsIdentityPem {
                     certificate,
@@ -180,7 +178,7 @@ impl RawHysteria2 {
             .fingerprint
             .map(|pin| {
                 super::vless::parse_pin(&pin).map_err(|_| {
-                    crate::VCoreError::InvalidConfig(
+                    crate::VoleError::InvalidConfig(
                         "invalid Hysteria2 certificate fingerprint".into(),
                     )
                 })
@@ -235,7 +233,7 @@ fn parse_rate(raw: Option<NumberOrText>) -> Result<u64> {
     let end = text.bytes().take_while(u8::is_ascii_digit).count();
     let value = text[..end]
         .parse::<u64>()
-        .map_err(|_| crate::VCoreError::InvalidConfig("invalid Hysteria2 bandwidth".into()))?;
+        .map_err(|_| crate::VoleError::InvalidConfig("invalid Hysteria2 bandwidth".into()))?;
     let unit = text[end..].trim();
     let (factor, divisor) = match unit {
         "" | "Mbps" => (1_000_000_u64, 8),
@@ -253,7 +251,7 @@ fn parse_rate(raw: Option<NumberOrText>) -> Result<u64> {
     value
         .checked_mul(factor)
         .map(|bytes| bytes / divisor)
-        .ok_or_else(|| crate::VCoreError::InvalidConfig("Hysteria2 bandwidth overflows".into()))
+        .ok_or_else(|| crate::VoleError::InvalidConfig("Hysteria2 bandwidth overflows".into()))
 }
 
 fn decimal(value: &str) -> Result<u32> {
@@ -262,7 +260,7 @@ fn decimal(value: &str) -> Result<u32> {
     }
     value
         .parse()
-        .map_err(|_| crate::VCoreError::InvalidConfig("Hysteria2 integer range overflows".into()))
+        .map_err(|_| crate::VoleError::InvalidConfig("Hysteria2 integer range overflows".into()))
 }
 
 fn parse_ports(value: &str) -> Result<Vec<u16>> {

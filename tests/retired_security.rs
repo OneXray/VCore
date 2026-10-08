@@ -1,17 +1,17 @@
 #![cfg(feature = "outbound-vless")]
 
 use serde_json::{Value, json};
-use vcore::config::Config;
+use vole::config::Config;
 
 fn node() -> Value {
     json!({"name":"edge", "type":"vless", "server":"example.invalid", "port":443,
         "uuid":"07070707-0707-0707-0707-070707070707", "tls":true})
 }
 
-fn parse(node: Value) -> vcore::Result<Config> {
+fn parse(node: Value) -> vole::Result<Config> {
     Config::parse_yaml(
         &serde_json::to_vec(&json!({
-            "socks-port":1080, "proxies":[node], "rules":["MATCH,edge"]
+            "mixed-port":1080, "proxies":[node], "rules":["MATCH,edge"]
         }))
         .unwrap(),
     )

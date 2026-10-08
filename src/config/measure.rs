@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use serde_yaml_ng::Value as YamlValue;
 
-use crate::{Result, VCoreError};
+use crate::{Result, VoleError};
 
 use super::{
     MAX_CONFIG_BYTES, ProxyConfig, ProxyId, RawOutbound, RouteTargetId, normalize_proxy_graph,
@@ -28,19 +28,19 @@ struct RawMeasureConfig {
 impl MeasureConfig {
     pub(crate) fn parse_yaml(input: &[u8]) -> Result<Self> {
         if input.len() > MAX_CONFIG_BYTES {
-            return Err(VCoreError::InvalidConfig(format!(
+            return Err(VoleError::InvalidConfig(format!(
                 "configuration exceeds the {MAX_CONFIG_BYTES}-byte limit"
             )));
         }
         let input = std::str::from_utf8(input)
-            .map_err(|_| VCoreError::InvalidConfig("configuration is not UTF-8".to_owned()))?;
+            .map_err(|_| VoleError::InvalidConfig("configuration is not UTF-8".to_owned()))?;
 
         reject_yaml_anchors_and_aliases(input)?;
         let yaml: YamlValue = serde_yaml_ng::from_str(input)
-            .map_err(|error| VCoreError::InvalidConfig(error.to_string()))?;
+            .map_err(|error| VoleError::InvalidConfig(error.to_string()))?;
         validate_json_compatible_yaml(&yaml)?;
         let raw: RawMeasureConfig = serde_yaml_ng::from_value(yaml)
-            .map_err(|error| VCoreError::InvalidConfig(error.to_string()))?;
+            .map_err(|error| VoleError::InvalidConfig(error.to_string()))?;
         raw.normalize()
     }
 }
@@ -59,12 +59,12 @@ impl RawMeasureConfig {
             .enumerate()
             .filter_map(|(index, referenced)| (!referenced).then_some(ProxyId::from_index(index)));
         let default_proxy = heads.next().ok_or_else(|| {
-            VCoreError::InvalidConfig(
+            VoleError::InvalidConfig(
                 "measurement proxies must form one chain with exactly one head".to_owned(),
             )
         })?;
         if heads.next().is_some() {
-            return Err(VCoreError::InvalidConfig(
+            return Err(VoleError::InvalidConfig(
                 "measurement proxies must form one chain with exactly one head".to_owned(),
             ));
         }
@@ -87,7 +87,7 @@ impl RawMeasureConfig {
             };
         }
         if reachable != proxies.len() {
-            return Err(VCoreError::InvalidConfig(
+            return Err(VoleError::InvalidConfig(
                 "measurement proxies must form one chain with exactly one head".to_owned(),
             ));
         }
@@ -157,14 +157,17 @@ proxies:
         assert_eq!(config.default_proxy.index(), 0);
 
         for extra in [
+            "mixed-port: 18080",
             "port: 18080",
+            "socks-port: 18080",
+            "listeners: []",
+            "udp: true",
             "authentication: [measure:secret]",
             "tun: { enable: false }",
             "sniffer: { enable: false }",
             "dns: { enable: false }",
             "rules: [MATCH,PROXY]",
             "geo-auto-update: false",
-            "configVersion: 9",
             "default-proxy: proxy",
             "proxy-groups: []",
         ] {
@@ -211,14 +214,7 @@ proxies:
     }
 
     #[test]
-    fn rejects_removed_selectors_and_non_json_yaml() {
-        assert!(
-            MeasureConfig::parse_yaml(
-                NODE.replacen("proxies:", "configVersion: 9\nproxies:", 1)
-                    .as_bytes()
-            )
-            .is_err()
-        );
+    fn rejects_non_json_yaml() {
         assert!(
             MeasureConfig::parse_yaml(NODE.replace("name: proxy", "name: &tag proxy").as_bytes())
                 .is_err()

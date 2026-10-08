@@ -1019,7 +1019,7 @@ fn dat_reverse_match_is_ignored_and_invalid_cidr_is_rejected() {
 }
 
 #[test]
-fn geosite_regexes_load_without_vcore_record_or_cumulative_source_quotas() {
+fn geosite_regexes_load_without_vole_record_or_cumulative_source_quotas() {
     let dir = tempdir().unwrap();
     let records: Vec<_> = (0..513)
         .map(|index| domain(1, &format!("^{}r{index}\\.test$", "a".repeat(130))))
@@ -1216,13 +1216,13 @@ fn literal_ip_family_does_not_cross_match() {
 
 /// Opt-in compatibility check for the real Xray GeoData assets shipped by the
 /// app. CI does not require those external files; run with
-/// `VCORE_GEODATA_DIR=/path/to/assets/dat cargo test real_xray_geodata -- --ignored --nocapture`.
+/// `VOLE_GEODATA_DIR=/path/to/assets/dat cargo test real_xray_geodata -- --ignored --nocapture`.
 #[test]
-#[ignore = "requires VCORE_GEODATA_DIR containing real geosite.dat and geoip.dat"]
+#[ignore = "requires VOLE_GEODATA_DIR containing real geosite.dat and geoip.dat"]
 fn real_xray_geodata_loads_common_codes_without_memory_quotas() {
-    let dir = std::env::var_os("VCORE_GEODATA_DIR")
+    let dir = std::env::var_os("VOLE_GEODATA_DIR")
         .map(PathBuf::from)
-        .expect("VCORE_GEODATA_DIR must point to the directory containing both .dat files");
+        .expect("VOLE_GEODATA_DIR must point to the directory containing both .dat files");
     let rules = [
         rule(RuleKind::GeoSite("cn".to_owned())),
         rule(RuleKind::GeoSite("geolocation-!cn".to_owned())),

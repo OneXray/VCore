@@ -10,7 +10,7 @@ use std::{
     time::Duration,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use vcore::{
+use vole::{
     config::{Config, ProxyProtocol},
     dispatch::{BoxStream, DatagramTransport, DispatchError},
     outbound::{
@@ -167,7 +167,7 @@ impl OutboundConnector for MemoryPeer {
 }
 fn outbound(peer: Arc<MemoryPeer>, options: &str) -> VlessOutbound {
     let raw = format!(
-        "socks-port: 1080\nproxies:\n- name: edge\n  type: vless\n  server: example.com\n  port: 443\n  uuid: 07070707-0707-0707-0707-070707070707\n  smux: {{enabled: true, {options}}}\nrules: [MATCH,edge]\n"
+        "mixed-port: 1080\nproxies:\n- name: edge\n  type: vless\n  server: example.com\n  port: 443\n  uuid: 07070707-0707-0707-0707-070707070707\n  smux: {{enabled: true, {options}}}\nrules: [MATCH,edge]\n"
     );
     let raw = raw.replace("rules: [MATCH,edge]", "rules: ['MATCH,edge']");
     let config = Config::parse_yaml(raw.as_bytes()).unwrap();
@@ -198,7 +198,7 @@ async fn hello(io: &mut BoxStream) {
 #[tokio::test]
 async fn yamux_replacing_dropped_streams_at_capacity_keeps_the_sibling_alive() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "yamux_replacing_dropped_streams_at_capacity_keeps_the_sibling_alive",
     );
@@ -239,7 +239,7 @@ async fn yamux_replacing_dropped_streams_at_capacity_keeps_the_sibling_alive() {
 #[tokio::test]
 async fn sing_mux_scheduling_uses_the_selected_branch_not_a_global_stream_quota() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "sing_mux_scheduling_uses_the_selected_branch_not_a_global_stream_quota",
     );
@@ -314,11 +314,11 @@ impl OutboundConnector for CapturePeer {
 #[tokio::test]
 async fn h2mux_sends_idle_ping_and_retires_a_peer_that_never_acknowledges() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "h2mux_sends_idle_ping_and_retires_a_peer_that_never_acknowledges",
     );
-    let raw = serde_json::json!({"socks-port":1080,"proxies":[{"name":"edge","type":"vless","server":"example.com","port":443,"uuid":"07070707-0707-0707-0707-070707070707","smux":{"enabled":true,"max-connections":1}}],"rules":["MATCH,edge"]});
+    let raw = serde_json::json!({"mixed-port":1080,"proxies":[{"name":"edge","type":"vless","server":"example.com","port":443,"uuid":"07070707-0707-0707-0707-070707070707","smux":{"enabled":true,"max-connections":1}}],"rules":["MATCH,edge"]});
     let config = Config::parse_yaml(raw.to_string().as_bytes()).unwrap();
     let ProxyProtocol::Vless(config) = &config.proxies[0].protocol else {
         unreachable!()
@@ -380,15 +380,15 @@ async fn h2mux_sends_idle_ping_and_retires_a_peer_that_never_acknowledges() {
 #[tokio::test]
 async fn only_tcp_preserves_all_three_vless_udp_wire_commands() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "only_tcp_preserves_all_three_vless_udp_wire_commands",
     );
-    use vcore::session::{Datagram, DatagramSession};
+    use vole::session::{Datagram, DatagramSession};
     tokio::time::timeout(Duration::from_secs(3), async {
         for protocol in ["h2mux", "smux", "yamux"] {
             for (codec, command) in [("xudp", 3), ("none", 2), ("packetaddr", 2)] {
-                let raw = serde_json::json!({"socks-port":1080,"proxies":[{"name":"edge","type":"vless","server":"example.com","port":443,"uuid":"07070707-0707-0707-0707-070707070707","udp":true,"packet-encoding":codec,"smux":{"enabled":true,"protocol":protocol,"padding":true,"only-tcp":true}}],"rules":["MATCH,edge"]});
+                let raw = serde_json::json!({"mixed-port":1080,"proxies":[{"name":"edge","type":"vless","server":"example.com","port":443,"uuid":"07070707-0707-0707-0707-070707070707","udp":true,"packet-encoding":codec,"smux":{"enabled":true,"protocol":protocol,"padding":true,"only-tcp":true}}],"rules":["MATCH,edge"]});
                 let config = Config::parse_yaml(raw.to_string().as_bytes()).unwrap();
                 let ProxyProtocol::Vless(config) = &config.proxies[0].protocol else { unreachable!() };
                 let (io, mut peer) = tokio::io::duplex(4096);
@@ -415,7 +415,7 @@ async fn only_tcp_preserves_all_three_vless_udp_wire_commands() {
 #[tokio::test]
 async fn h2mux_reuses_physical_vless_and_cancels_only_one_logical_stream() -> io::Result<()> {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "h2mux_reuses_physical_vless_and_cancels_only_one_logical_stream",
     );
@@ -424,7 +424,7 @@ async fn h2mux_reuses_physical_vless_and_cancels_only_one_logical_stream() -> io
 #[tokio::test]
 async fn yamux_reuses_physical_vless_and_cancels_only_one_logical_stream() -> io::Result<()> {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "yamux_reuses_physical_vless_and_cancels_only_one_logical_stream",
     );
@@ -433,7 +433,7 @@ async fn yamux_reuses_physical_vless_and_cancels_only_one_logical_stream() -> io
 #[tokio::test]
 async fn smux_reuses_physical_vless_and_cancels_only_one_logical_stream() -> io::Result<()> {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "smux_reuses_physical_vless_and_cancels_only_one_logical_stream",
     );
@@ -477,11 +477,11 @@ async fn siblings(protocol: &str, wire: u8) -> io::Result<()> {
 #[tokio::test]
 async fn sing_mux_udp_preserves_addresses_and_cancellation_safe_partial_frames() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "sing_mux_udp_preserves_addresses_and_cancellation_safe_partial_frames",
     );
-    use vcore::{
+    use vole::{
         dispatch::DatagramBudget,
         session::{Datagram, DatagramSession},
     };

@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use vcore::{
+use vole::{
     config::{Config, ProxyProtocol},
     transport::xhttp::{XHttpClient, XHttpConfig, XHttpMode},
 };
@@ -11,7 +11,7 @@ use vcore::{
 #[tokio::test(start_paused = true)]
 async fn packet_up_coalesces_small_writes_and_flushes_without_more_caller_io() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "packet_up_coalesces_small_writes_and_flushes_without_more_caller_io",
     );
@@ -85,7 +85,7 @@ async fn packet_up_coalesces_small_writes_and_flushes_without_more_caller_io() {
 #[tokio::test(start_paused = true)]
 async fn packet_up_backpressures_bounded_batches_and_stop_cancels_the_timer() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "packet_up_backpressures_bounded_batches_and_stop_cancels_the_timer",
     );
@@ -133,7 +133,7 @@ async fn packet_up_backpressures_bounded_batches_and_stop_cancels_the_timer() {
 #[tokio::test]
 async fn first_vless_read_never_acknowledges_or_replays_a_concurrent_packet_write() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "first_vless_read_never_acknowledges_or_replays_a_concurrent_packet_write",
     );
@@ -176,7 +176,7 @@ async fn first_vless_read_never_acknowledges_or_replays_a_concurrent_packet_writ
             });
             let raw = client.connect(Box::new(io)).await.unwrap();
             let mut stream =
-                vcore::outbound::VlessStream::new(raw, bytes::Bytes::from_static(b"header"));
+                vole::outbound::VlessStream::new(raw, bytes::Bytes::from_static(b"header"));
             stream.write_all(b"preface").await.unwrap();
             if explicit_flush {
                 stream.flush().await.unwrap();
@@ -210,7 +210,7 @@ async fn first_vless_read_never_acknowledges_or_replays_a_concurrent_packet_writ
 #[tokio::test]
 async fn response_codes_follow_mihomo_streaming_and_packet_rules() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "response_codes_follow_mihomo_streaming_and_packet_rules",
     );
@@ -271,7 +271,7 @@ async fn response_codes_follow_mihomo_streaming_and_packet_rules() {
 
 async fn observe_stream_request(options: serde_json::Value) -> http::Request<()> {
     tokio::time::timeout(Duration::from_secs(2), async {
-        let document = serde_json::json!({"socks-port":1080,"proxies":[{
+        let document = serde_json::json!({"mixed-port":1080,"proxies":[{
             "name":"edge","type":"vless","server":"example.com","port":443,
             "uuid":"07070707-0707-0707-0707-070707070707","network":"xhttp","tls":true,
             "xhttp-opts":options
@@ -315,7 +315,7 @@ async fn observe_stream_request(options: serde_json::Value) -> http::Request<()>
 #[tokio::test]
 async fn streaming_content_type_can_be_disabled_without_disabling_padding() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "streaming_content_type_can_be_disabled_without_disabling_padding",
     );
@@ -334,7 +334,7 @@ async fn streaming_content_type_can_be_disabled_without_disabling_padding() {
 #[tokio::test]
 async fn custom_semantic_headers_are_allowed_when_no_generated_field_overwrites_them() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "custom_semantic_headers_are_allowed_when_no_generated_field_overwrites_them",
     );
@@ -353,7 +353,7 @@ async fn custom_semantic_headers_are_allowed_when_no_generated_field_overwrites_
 #[tokio::test]
 async fn padding_uses_the_configured_http_location_and_encoding() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "padding_uses_the_configured_http_location_and_encoding",
     );
@@ -410,7 +410,7 @@ async fn observe_packet(
     payload: &[u8],
 ) -> Vec<(http::Request<()>, Vec<u8>)> {
     tokio::time::timeout(Duration::from_secs(3), async {
-        let doc = serde_json::json!({"socks-port":1080,"proxies":[{
+        let doc = serde_json::json!({"mixed-port":1080,"proxies":[{
             "name":"edge","type":"vless","server":"example.com","port":443,
             "uuid":"07070707-0707-0707-0707-070707070707","network":"xhttp","tls":true,
             "xhttp-opts":options}],"rules":["MATCH,edge"]});
@@ -479,7 +479,7 @@ async fn observe_packet(
 #[tokio::test]
 async fn packet_metadata_and_upload_methods_are_sent_in_each_supported_location() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "packet_metadata_and_upload_methods_are_sent_in_each_supported_location",
     );
@@ -541,7 +541,7 @@ async fn packet_metadata_and_upload_methods_are_sent_in_each_supported_location(
 #[tokio::test]
 async fn packet_upload_can_move_payload_into_bounded_header_or_cookie_chunks() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "packet_upload_can_move_payload_into_bounded_header_or_cookie_chunks",
     );
@@ -601,7 +601,7 @@ async fn packet_upload_can_move_payload_into_bounded_header_or_cookie_chunks() {
 #[tokio::test]
 async fn http1_stream_one_is_chunked_duplex_and_shutdown_closes_both_directions() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "http1_stream_one_is_chunked_duplex_and_shutdown_closes_both_directions",
     );
@@ -637,7 +637,7 @@ async fn http1_stream_one_is_chunked_duplex_and_shutdown_closes_both_directions(
             assert!(peer.write_all(b"5\r\nextra\r\n").await.is_err());
         });
         let mut config = XHttpConfig::new("example.com", "/x", XHttpMode::StreamOne).unwrap();
-        config.http_version = vcore::config::XHttpVersion::Http1;
+        config.http_version = vole::config::XHttpVersion::Http1;
         let client = XHttpClient::new(config);
         let mut io = client.connect(Box::new(io)).await.unwrap();
         io.write_all(b"payload").await.unwrap();
@@ -657,7 +657,7 @@ async fn http1_stream_one_is_chunked_duplex_and_shutdown_closes_both_directions(
 #[tokio::test]
 async fn http1_packet_up_shares_a_session_across_two_connections() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "http1_packet_up_shares_a_session_across_two_connections",
     );
@@ -728,7 +728,7 @@ async fn http1_packet_up_shares_a_session_across_two_connections() {
             assert_eq!(upload.read(&mut [0; 1]).await.unwrap(), 0);
         });
         let mut config = XHttpConfig::new("example.com", "/x", XHttpMode::PacketUp).unwrap();
-        config.http_version = vcore::config::XHttpVersion::Http1;
+        config.http_version = vole::config::XHttpVersion::Http1;
         let client = XHttpClient::new(config);
         let mut io = client
             .connect_with_download(Box::new(up), &client, Box::new(down))
@@ -752,7 +752,7 @@ async fn http1_packet_up_shares_a_session_across_two_connections() {
 #[tokio::test]
 async fn http1_response_body_can_arrive_after_the_response_headers() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "http1_response_body_can_arrive_after_the_response_headers",
     );
@@ -772,7 +772,7 @@ async fn http1_response_body_can_arrive_after_the_response_headers() {
             peer.read_to_end(&mut rest).await.unwrap();
         });
         let mut config = XHttpConfig::new("example.com", "/x", XHttpMode::StreamOne).unwrap();
-        config.http_version = vcore::config::XHttpVersion::Http1;
+        config.http_version = vole::config::XHttpVersion::Http1;
         let client = XHttpClient::new(config);
         let mut io = client.connect(Box::new(io)).await.unwrap();
         io.write_all(b"payload").await.unwrap();
@@ -790,12 +790,12 @@ async fn http1_response_body_can_arrive_after_the_response_headers() {
 #[tokio::test]
 async fn custom_request_headers_reach_the_http_peer_without_changing_body() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "custom_request_headers_reach_the_http_peer_without_changing_body",
     );
     tokio::time::timeout(Duration::from_secs(2), async {
-        let document = serde_json::json!({"socks-port":1080,"proxies":[{
+        let document = serde_json::json!({"mixed-port":1080,"proxies":[{
             "name":"edge","type":"vless","server":"example.com","port":443,
             "uuid":"07070707-0707-0707-0707-070707070707","network":"xhttp","tls":true,
             "xhttp-opts":{"mode":"stream-one","headers":{"X-Custom":"private-value"}}

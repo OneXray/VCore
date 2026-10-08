@@ -28,6 +28,14 @@ use crate::{
     routing::{EmptyGeoMatcher, ProxyDispatchers, RuleSet},
 };
 
+fn test_tun_config() -> TunConfig {
+    TunConfig {
+        mtu: 1500,
+        udp_timeout: Duration::from_secs(30),
+        ..TunConfig::default()
+    }
+}
+
 fn test_sniffer(
     http_ports: &[PortRange],
     tls_ports: &[PortRange],
@@ -89,6 +97,7 @@ async fn batch_tun_runtime_preserves_order_stats_and_invalid_packet_isolation() 
     let runtime = TunRuntime::new_with_stats(
         tun,
         ResourceLimits::default(),
+        &test_tun_config(),
         dispatcher.clone(),
         None,
         false,
@@ -141,6 +150,7 @@ async fn batch_tun_read_loop_counts_consumed_prefix_before_eof() {
     let runtime = TunRuntime::new_with_stats(
         tun,
         ResourceLimits::default(),
+        &test_tun_config(),
         Arc::new(MockDispatcher::default()),
         None,
         true,
@@ -220,6 +230,10 @@ async fn assert_effective_mtu_drops_oversized_udp(dns_query: bool) {
         ResourceLimits {
             tun_max_datagram_size: 1400,
             ..ResourceLimits::default()
+        },
+        &TunConfig {
+            mtu: 1400,
+            ..test_tun_config()
         },
         dispatcher.clone(),
         dns_query.then(|| test_runtime_dns(dns_dispatcher.clone())),
@@ -325,13 +339,16 @@ fn scripted_quic_state(
         .into_iter()
         .map(VecDeque::from)
         .collect::<VecDeque<_>>();
-    UdpQuicSniffState::new(move || ScriptedQuicSniffer {
-        outcomes: scripts
-            .pop_front()
-            .expect("scripted QUIC flow factory exhausted"),
-        authentications: VecDeque::new(),
-        authenticated_initial_in_last_ingest: false,
-    })
+    UdpQuicSniffState::with_idle_timeout(
+        move || ScriptedQuicSniffer {
+            outcomes: scripts
+                .pop_front()
+                .expect("scripted QUIC flow factory exhausted"),
+            authentications: VecDeque::new(),
+            authenticated_initial_in_last_ingest: false,
+        },
+        Duration::from_secs(30),
+    )
 }
 
 fn scripted_quic_state_with_authentication(
@@ -348,11 +365,14 @@ fn scripted_quic_state_with_authentication(
             }
         })
         .collect::<VecDeque<_>>();
-    UdpQuicSniffState::new(move || {
-        sniffers
-            .pop_front()
-            .expect("scripted QUIC flow factory exhausted")
-    })
+    UdpQuicSniffState::with_idle_timeout(
+        move || {
+            sniffers
+                .pop_front()
+                .expect("scripted QUIC flow factory exhausted")
+        },
+        Duration::from_secs(30),
+    )
 }
 
 fn test_udp_datagram(
@@ -737,6 +757,7 @@ async fn quic_prepared_datagrams_forward_flow_identity_only_on_the_marked_send()
     let destination: SocketAddr = "198.51.100.20:443".parse().unwrap();
     let (responses, _responses_rx) = mpsc::channel(1);
     let context = UdpAssociationTaskContext {
+        udp_timeout: Duration::from_secs(30),
         association_id: 1,
         source,
         responses,
@@ -1238,6 +1259,7 @@ async fn quic_association_holds_the_first_fragment_then_sends_the_original_fligh
         run_udp_association_inner_with_quic_factory(
             &mut inbound_rx,
             &UdpAssociationTaskContext {
+                udp_timeout: Duration::from_secs(30),
                 association_id: 1,
                 source,
                 responses,
@@ -1340,6 +1362,7 @@ async fn quic_ready_response_is_processed_before_the_next_replay_send_blocks() {
         run_udp_association_inner_with_quic_factory(
             &mut inbound_rx,
             &UdpAssociationTaskContext {
+                udp_timeout: Duration::from_secs(30),
                 association_id: 1,
                 source,
                 responses,
@@ -1653,6 +1676,7 @@ async fn default_udp_response_queue_absorbs_bounded_bursts_without_blocking_dns(
     let cancellation = CancellationToken::new();
     let (mut ingress, mut ordinary, mut dns) = UdpIngress::new(
         UdpIngressContext {
+            config: test_tun_config(),
             dispatcher: Arc::new(MockDispatcher::default()),
             dns: None,
             sniffer: None,
@@ -1873,7 +1897,8 @@ fn periodic_cleanup_removes_expired_and_closed_but_preserves_active_entries() {
         (active_source, active),
     ]);
 
-    let removed = take_expired_or_closed_associations(&mut associations, now);
+    let removed =
+        take_expired_or_closed_associations(&mut associations, now, Duration::from_secs(30));
     assert_eq!(removed.len(), 2);
     assert!(associations.contains_key(&active_source));
     assert!(!expired_cancellation.is_cancelled());
@@ -2980,6 +3005,7 @@ async fn queued_udp_response_is_drained_before_a_same_source_ingress_burst() {
         run_udp_association_inner(
             &mut inbound_rx,
             &UdpAssociationTaskContext {
+                udp_timeout: Duration::from_secs(30),
                 association_id: 1,
                 source,
                 responses: responses_tx,
@@ -3106,6 +3132,7 @@ async fn blocked_udp_response_does_not_block_ingress_or_stop() {
     let runtime = TunRuntime::new_with_stats(
         tun,
         limits,
+        &test_tun_config(),
         dispatcher.clone(),
         None,
         true,
@@ -3224,6 +3251,7 @@ async fn full_tcp_ingress_drops_only_that_packet_and_keeps_udp_and_dns_responsiv
     let cancellation = CancellationToken::new();
     let (udp, mut ordinary_rx, mut dns_rx) = UdpIngress::new(
         UdpIngressContext {
+            config: test_tun_config(),
             dispatcher: dispatcher.clone(),
             dns: Some(test_runtime_dns(dns_dispatcher.clone())),
             sniffer: None,
@@ -3600,6 +3628,7 @@ async fn udp_ingress_stop_releases_associations_without_cancelling_caller() {
     let probe = observation::ResourceProbe::default();
     let (mut udp, ordinary, dns) = UdpIngress::new(
         UdpIngressContext {
+            config: test_tun_config(),
             dispatcher,
             dns: None,
             sniffer: None,
@@ -3772,4 +3801,173 @@ fn fold(mut sum: u32) -> u16 {
     }
     let checksum = !u16::try_from(sum).unwrap();
     if checksum == 0 { u16::MAX } else { checksum }
+}
+
+#[tokio::test]
+async fn configured_jumbo_mtu_reaches_platform_io_and_udp_response_budget() {
+    let (host, peer) = UnixDatagram::pair().unwrap();
+    // macOS defaults cap each Unix datagram below the configured jumbo MTU.
+    // Increase only this pair so both injected packets and responses fit.
+    socket2::SockRef::from(&peer)
+        .set_send_buffer_size(32_768)
+        .unwrap();
+    socket2::SockRef::from(&host)
+        .set_send_buffer_size(32_768)
+        .unwrap();
+    socket2::SockRef::from(&peer)
+        .set_recv_buffer_size(65_536)
+        .unwrap();
+    socket2::SockRef::from(&host)
+        .set_recv_buffer_size(65_536)
+        .unwrap();
+    host.set_nonblocking(true).unwrap();
+    peer.set_nonblocking(true).unwrap();
+    let config = TunConfig {
+        enable: true,
+        ..TunConfig::default()
+    };
+    let limits = ResourceLimits {
+        tun_max_datagram_size: 9000,
+        ..ResourceLimits::default()
+    };
+    let tun = TunIo::new_with_mtu(
+        TunFd::duplicate_mock(host.as_raw_fd()).unwrap(),
+        crate::TunFraming::RawIp,
+        config.mtu,
+    )
+    .unwrap();
+    let dispatcher = Arc::new(MockDispatcher::default());
+    let runtime = TunRuntime::new_with_stats(
+        tun,
+        limits,
+        &config,
+        dispatcher.clone(),
+        None,
+        true,
+        false,
+        None,
+        Arc::new(TunTrafficStats::default()),
+    )
+    .unwrap();
+    let cancellation = CancellationToken::new();
+    let task = tokio::spawn(runtime.run(cancellation.clone()));
+    let peer = tokio::net::UnixDatagram::from_std(peer).unwrap();
+    let payload = vec![0x5a; 8952];
+    let mut response = vec![0; 9000];
+    for (source, destination) in [
+        ("192.0.2.10:12000", "198.51.100.20:443"),
+        ("[2001:db8::10]:12000", "[2001:db8::20]:443"),
+    ] {
+        let request = UdpDatagram::new(
+            source.parse().unwrap(),
+            destination.parse().unwrap(),
+            payload.clone(),
+        );
+        let mut packet = Vec::new();
+        encode_udp_packet_into(&request, 9000, &mut packet).unwrap();
+        peer.send(&packet).await.unwrap();
+        let size = timeout(Duration::from_secs(2), peer.recv(&mut response))
+            .await
+            .unwrap()
+            .unwrap();
+        let parsed = parse_udp_packet_view(&response[..size]).unwrap();
+        assert_eq!(parsed.source, request.destination);
+        assert_eq!(parsed.destination, request.source);
+        assert_eq!(parsed.payload, payload.as_slice());
+    }
+    cancellation.cancel();
+    timeout(Duration::from_secs(2), task)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let sessions = dispatcher.udp_sessions.lock().unwrap();
+    assert_eq!(sessions.len(), 2);
+    assert!(
+        sessions
+            .iter()
+            .all(|session| session.max_response_payload_size() == 8952)
+    );
+}
+
+#[tokio::test]
+async fn configured_udp_idle_timeout_controls_real_association_cleanup() {
+    for seconds in [7, 300] {
+        let tick = Arc::new(AtomicU64::new(0));
+        let config = TunConfig {
+            udp_timeout: Duration::from_secs(seconds),
+            ..test_tun_config()
+        };
+        let cancellation = CancellationToken::new();
+        let (mut ingress, _ordinary, _dns) = UdpIngress::new(
+            UdpIngressContext {
+                dispatcher: Arc::new(MockDispatcher::default()),
+                dns: None,
+                sniffer: None,
+                limits: ResourceLimits::default(),
+                config,
+                resource_stats: RuntimeResourceStats::new("configured_udp_idle_test"),
+            },
+            cancellation,
+        );
+        ingress.association_clock = AssociationClock::injected(tick.clone());
+        let source = "192.0.2.10:12000".parse().unwrap();
+        ingress.offer(UdpPacketView {
+            source,
+            destination: "198.51.100.20:443".parse().unwrap(),
+            payload: b"queued",
+        });
+        tick.store(seconds - 1, Ordering::Release);
+        ingress.cleanup();
+        assert!(ingress.associations.contains_key(&source));
+        let child = ingress.associations[&source].cancellation.clone();
+        tick.store(seconds, Ordering::Release);
+        ingress.cleanup();
+        assert!(ingress.associations.is_empty());
+        assert!(child.is_cancelled());
+        ingress.stop().await;
+    }
+}
+
+#[tokio::test]
+async fn configured_udp_dns_targets_match_exact_endpoints_and_empty_disables_hijack() {
+    let dispatcher = Arc::new(MockDispatcher::default());
+    let dns = test_runtime_dns(dispatcher.clone());
+    let target = "192.0.2.53:5353".parse().unwrap();
+    let (mut ingress, _ordinary, _dns) = UdpIngress::new(
+        UdpIngressContext {
+            dispatcher,
+            dns: Some(dns),
+            sniffer: None,
+            limits: ResourceLimits::default(),
+            config: TunConfig {
+                dns_hijack: vec![target],
+                ..test_tun_config()
+            },
+            resource_stats: RuntimeResourceStats::new("configured_dns_targets_test"),
+        },
+        CancellationToken::new(),
+    );
+    let first = "192.0.2.10:12000".parse().unwrap();
+    ingress.offer(UdpPacketView {
+        source: first,
+        destination: target,
+        payload: b"invalid-dns",
+    });
+    assert!(ingress.associations.is_empty());
+    let second = "192.0.2.11:12001".parse().unwrap();
+    ingress.offer(UdpPacketView {
+        source: second,
+        destination: "1.1.1.1:53".parse().unwrap(),
+        payload: b"ordinary-udp",
+    });
+    assert!(ingress.associations.contains_key(&second));
+    ingress.context.config.dns_hijack.clear();
+    ingress.offer(UdpPacketView {
+        source: first,
+        destination: target,
+        payload: b"ordinary-udp",
+    });
+    assert!(ingress.associations.contains_key(&first));
+    ingress.stop().await;
 }

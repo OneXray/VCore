@@ -18,7 +18,7 @@ use tokio::{
 };
 
 use crate::{
-    config::{Network, ProxyId, RouteTargetId, RuleAction},
+    config::{Network, ProxyId, RouteTargetId, RuleAction, TunConfig},
     dispatch::{BoxStream, DatagramTransport, DispatchError, Dispatcher},
     dns::{
         MAX_MESSAGE_SIZE,
@@ -32,7 +32,7 @@ use super::{
 };
 
 const TCP_DNS_DUPLEX_CAPACITY: usize = 8 * 1024;
-const UDP_FLOW_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
+
 const UDP_FLOW_CLEANUP_INTERVAL: Duration = Duration::from_secs(10);
 
 #[async_trait]
@@ -171,7 +171,7 @@ impl ProxyDispatchers {
 
 pub(crate) type RouteTargetDispatchers = ProxyDispatchers;
 
-/// Ordered VCore router backed by named route targets, built-in DIRECT, and
+/// Ordered Vole router backed by named route targets, built-in DIRECT, and
 /// fail-closed REJECT actions.
 ///
 /// The outer session observer records returned transport lifetimes without
@@ -185,6 +185,7 @@ pub struct RoutingDispatcher {
     ipv6: bool,
     rules: Arc<RuleSet>,
     geo_matcher: Arc<dyn GeoMatcher>,
+    tun_config: TunConfig,
 }
 
 impl RoutingDispatcher {
@@ -215,6 +216,7 @@ impl RoutingDispatcher {
             ipv6,
             rules: Arc::new(rules),
             geo_matcher,
+            tun_config: TunConfig::default(),
         }
     }
 
@@ -235,7 +237,17 @@ impl RoutingDispatcher {
             ipv6,
             rules: Arc::new(rules),
             geo_matcher,
+            tun_config: TunConfig {
+                udp_timeout: Duration::from_secs(30),
+                ..TunConfig::default()
+            },
         }
+    }
+
+    #[must_use]
+    pub(crate) fn with_tun_config(mut self, config: &TunConfig) -> Self {
+        self.tun_config = config.clone();
+        self
     }
 
     fn ensure_destination_allowed(&self, destination: &Destination) -> Result<(), DispatchError> {
@@ -484,7 +496,7 @@ impl Dispatcher for RoutingDispatcher {
     async fn connect_tcp(&self, mut session: StreamSession) -> Result<BoxStream, DispatchError> {
         self.ensure_destination_allowed(&session.destination)?;
         if session.inbound == InboundKind::Tun
-            && session.destination.port() == 53
+            && matches!(&session.destination, Destination::Ip(address) if self.tun_config.hijacks_dns(*address))
             && let Some(dns) = &self.dns
         {
             return Ok(self.dns_tcp_stream(dns.clone()));
@@ -530,7 +542,7 @@ impl Dispatcher for RoutingDispatcher {
             session,
             route_transports: HashMap::new(),
             direct_transport: None,
-            flows: DatagramRoutes::new(),
+            flows: DatagramRoutes::new(self.tun_config.udp_timeout),
             logged_route_actions: HashSet::new(),
             receive_wakeup: Arc::new(Notify::new()),
         }))
@@ -546,6 +558,7 @@ impl RoutingDispatcher {
             ipv6: self.ipv6,
             rules: self.rules.clone(),
             geo_matcher: self.geo_matcher.clone(),
+            tun_config: self.tun_config.clone(),
         }
     }
 }
@@ -576,13 +589,15 @@ struct DatagramRoute {
 struct DatagramRoutes {
     entries: HashMap<SocketAddr, DatagramRoute>,
     next_cleanup: Instant,
+    idle_timeout: Duration,
 }
 
 impl DatagramRoutes {
-    fn new() -> Self {
+    fn new(idle_timeout: Duration) -> Self {
         Self {
             entries: HashMap::new(),
             next_cleanup: Instant::now() + UDP_FLOW_CLEANUP_INTERVAL,
+            idle_timeout,
         }
     }
 
@@ -592,7 +607,7 @@ impl DatagramRoutes {
         }
         self.next_cleanup = now + UDP_FLOW_CLEANUP_INTERVAL;
         self.entries
-            .retain(|_, route| now.duration_since(route.last_used) < UDP_FLOW_IDLE_TIMEOUT);
+            .retain(|_, route| now.duration_since(route.last_used) < self.idle_timeout);
         // Entry removal alone retains buckets. Reclaim burst capacity without
         // resizing on the hot path or imposing a business-flow count ceiling.
         if self.entries.capacity() > self.entries.len().saturating_mul(4).max(8) {
@@ -603,7 +618,7 @@ impl DatagramRoutes {
     fn action(&mut self, destination: SocketAddr, now: Instant) -> Option<RuleAction> {
         self.expire(now);
         let route = self.entries.get_mut(&destination)?;
-        if now.duration_since(route.last_used) >= UDP_FLOW_IDLE_TIMEOUT {
+        if now.duration_since(route.last_used) >= self.idle_timeout {
             self.entries.remove(&destination);
             return None;
         }
@@ -615,7 +630,7 @@ impl DatagramRoutes {
         self.expire(now);
         if let Some(route) = self.entries.get_mut(&destination) {
             // An already expired entry is not revived by a late response.
-            if now.duration_since(route.last_used) < UDP_FLOW_IDLE_TIMEOUT {
+            if now.duration_since(route.last_used) < self.idle_timeout {
                 route.last_used = now;
             } else {
                 self.entries.remove(&destination);
@@ -1182,6 +1197,7 @@ mod tests {
                 RuleSet::compile(vec![rule(RuleKind::Match, group_action(0))]).unwrap(),
             ),
             geo_matcher: Arc::new(EmptyGeoMatcher),
+            tun_config: TunConfig::default(),
         };
 
         router
@@ -2289,7 +2305,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn udp_idle_sweep_reclaims_burst_capacity_without_a_count_limit() {
         let start = Instant::now();
-        let mut routes = DatagramRoutes::new();
+        let mut routes = DatagramRoutes::new(Duration::from_secs(30));
         for port in 1..=16_384 {
             routes.entries.insert(
                 SocketAddr::from(([192, 0, 2, 1], port)),
@@ -2433,6 +2449,83 @@ mod tests {
             .unwrap();
         assert_eq!(proxy.tcp_sessions.lock().unwrap().len(), 1);
         assert_eq!(dns.exchange_calls.load(Ordering::Relaxed), 2);
+    }
+
+    #[tokio::test]
+    async fn configured_tcp_dns_targets_preserve_nonmatching_and_non_tun_routes() {
+        let proxy = Arc::new(RecordingDispatcher::default());
+        let dns = Arc::new(MockDns::new(Vec::new()));
+        let target = "192.0.2.53:5353".parse().unwrap();
+        let router = dispatcher(
+            proxy.clone(),
+            Arc::new(RecordingDispatcher::default()),
+            Some(dns.clone()),
+            vec![rule(RuleKind::Match, proxy_action(0))],
+        )
+        .with_tun_config(&TunConfig {
+            dns_hijack: vec![target],
+            ..TunConfig::default()
+        });
+        for (destination, inbound) in [
+            ("1.1.1.1:53".parse().unwrap(), InboundKind::Tun),
+            ("192.0.2.54:5353".parse().unwrap(), InboundKind::Tun),
+            (target, InboundKind::Http),
+        ] {
+            drop(
+                router
+                    .connect_tcp(stream(destination, inbound))
+                    .await
+                    .unwrap(),
+            );
+        }
+        let mut hijacked = router
+            .connect_tcp(stream(target, InboundKind::Tun))
+            .await
+            .unwrap();
+        hijacked.write_u16(5).await.unwrap();
+        hijacked.write_all(b"query").await.unwrap();
+        assert_eq!(hijacked.read_u16().await.unwrap(), 5);
+        let mut response = [0; 5];
+        hijacked.read_exact(&mut response).await.unwrap();
+        assert_eq!(&response, b"query");
+        drop(hijacked);
+        let router = router.with_tun_config(&TunConfig {
+            dns_hijack: Vec::new(),
+            ..TunConfig::default()
+        });
+        drop(
+            router
+                .connect_tcp(stream(target, InboundKind::Tun))
+                .await
+                .unwrap(),
+        );
+        assert_eq!(proxy.tcp_sessions.lock().unwrap().len(), 4);
+        assert_eq!(dns.exchange_calls.load(Ordering::Relaxed), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn configured_udp_timeout_preserves_flow_until_its_actual_idle_deadline() {
+        let now = Instant::now();
+        for seconds in [7, 300] {
+            let mut routes = DatagramRoutes::new(Duration::from_secs(seconds));
+            let target = "192.0.2.10:443".parse().unwrap();
+            routes.entries.insert(
+                target,
+                DatagramRoute {
+                    action: RuleAction::Reject,
+                    last_used: now,
+                    flow_id: None,
+                },
+            );
+            assert_eq!(
+                routes.action(target, now + Duration::from_secs(seconds - 1)),
+                Some(RuleAction::Reject)
+            );
+            assert_eq!(
+                routes.action(target, now + Duration::from_secs(2 * seconds - 1)),
+                None
+            );
+        }
     }
 
     #[tokio::test]

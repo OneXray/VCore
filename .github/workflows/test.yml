@@ -21,11 +21,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: Core tests (Debug)
+          - name: Core (Debug)
             profile: debug
-          - name: Core tests (Release)
+          - name: Core (Release)
             profile: release
-          - name: Quality and compilation
+          - name: Quality
             profile: features
     steps:
       - uses: actions/checkout@v7
@@ -51,7 +51,7 @@ jobs:
           # Native TLS artifacts must not cross runner SDK/image changes.
           env-vars: ImageOS ImageVersion SDKROOT DEVELOPER_DIR BORING AWS_LC LIBCLANG BINDGEN
           cache-bin: "false"
-      - name: Formatting and build helper contracts
+      - name: Format and scripts
         if: matrix.profile == 'features'
         run: |
           cargo fmt --all -- --check
@@ -62,19 +62,19 @@ jobs:
         if: matrix.profile == 'features'
         shell: bash
         run: |
-          clang -x c -std=c11 -Wall -Wextra -Werror -fsyntax-only -include vcore.h -I include - <<'C'
+          clang -x c -std=c11 -Wall -Wextra -Werror -fsyntax-only -include vole.h -I include - <<'C'
           int main(void) {
-            char *response = VCoreInvoke("{\"apiVersion\":5,\"method\":\"version\",\"payload\":{}}");
-            VCoreFree(response);
-            VCoreFree((char *)0);
+            char *response = VoleInvoke("{\"method\":\"version\",\"payload\":{}}");
+            VoleFree(response);
+            VoleFree((char *)0);
             return 0;
           }
           C
-          clang++ -x c++ -std=c++17 -Wall -Wextra -Werror -fsyntax-only -include vcore.h -I include - <<'CPP'
+          clang++ -x c++ -std=c++17 -Wall -Wextra -Werror -fsyntax-only -include vole.h -I include - <<'CPP'
           int main() {
-            char *response = VCoreInvoke("{\"apiVersion\":5,\"method\":\"version\",\"payload\":{}}");
-            VCoreFree(response);
-            VCoreFree(nullptr);
+            char *response = VoleInvoke("{\"method\":\"version\",\"payload\":{}}");
+            VoleFree(response);
+            VoleFree(nullptr);
             return 0;
           }
           CPP
@@ -82,8 +82,8 @@ jobs:
         if: matrix.profile == 'features'
         shell: bash
         run: |
-          cargo metadata --locked --all-features --format-version 1 > "$RUNNER_TEMP/vcore-metadata.json"
-          uv run --project scripts --locked python - "$RUNNER_TEMP/vcore-metadata.json" <<'PY'
+          cargo metadata --locked --all-features --format-version 1 > "$RUNNER_TEMP/vole-metadata.json"
+          uv run --project scripts --locked python - "$RUNNER_TEMP/vole-metadata.json" <<'PY'
           import json
           import sys
           from pathlib import Path
@@ -145,8 +145,9 @@ jobs:
         if: matrix.profile == 'features'
         run: |
           cargo clippy --locked --features ffi --lib --bins -- -D warnings
+          cargo clippy --locked --no-default-features --features cli --lib --bin vole -- -D warnings
           cargo clippy --locked --all-features --lib --bins -- -D warnings
-          cargo clippy --locked --manifest-path crates/vcore-netstack/Cargo.toml --all-targets -- -D warnings
+          cargo clippy --locked --manifest-path crates/vole-netstack/Cargo.toml --all-targets -- -D warnings
       - name: Run memory-only ${{ matrix.name }}
         if: matrix.profile != 'features'
         shell: bash
@@ -161,7 +162,7 @@ jobs:
             local expected_summaries="$1"
             shift
             local test_log
-            test_log="$(mktemp "$RUNNER_TEMP/vcore-tests.XXXXXX")"
+            test_log="$(mktemp "$RUNNER_TEMP/vole-tests.XXXXXX")"
             "${test_command[@]}" "$@" | tee "$test_log"
             test "$(grep -Ec '^test result: ok\. [0-9]+ passed; [0-9]+ failed; [0-9]+ ignored;' "$test_log")" -eq "$expected_summaries"
             test "$(grep -Ec '^test result: ok\. [1-9][0-9]* passed; 0 failed;' "$test_log")" -eq "$expected_summaries"
@@ -182,24 +183,35 @@ jobs:
           # Keep this explicit allowlist: unfiltered legacy tests may open host listeners.
           filters=(
             geodata:: routing:: security:: outbound::vless::encryption config::
+            inbound::mixed::tests:: inbound::socks5::association::tests::
+            inbound::http::parser::tests:: inbound::http::framing::tests::
             outbound::hysteria2:: outbound::shadowsocks::tests::official_tcp_
             outbound::anytls:: outbound::uot:: outbound::tuic:: transport::h2_write::tests::
             transport::sing_mux::smux_driver::tests:: transport::sing_mux::tests::
-            platform::tun_rs_io::tests:: platform::windows_tun_io::tests:: tun_runtime::tests::
+            platform::tun_rs_io::tests:: platform::windows_tun_io::tests::
+            platform::windows_wintun_io::tests:: tun_runtime::tests::
+            invoke::foreground::tests:: runtime::shutdown_tests::
           )
           for filter in "${filters[@]}"; do run_test 1 --lib "$filter"; done
+          run_test 1 --bin vole cli::tests::
           exact_tests=(
             dialer::tests::socket_initialization_churn_reclaims_completed_work
             dialer::tests::socket_initialization_cancellation_joins_started_and_queued_work
             dialer::tests::socket_initialization_shared_pool_contention_reclaims_cancelled_work
             outbound::connector::tests::authenticated_continuation_keeps_group_choice_but_has_a_new_io_deadline
             runtime::tests::integration_feature_admission_is_explicit_without_opening_sockets
-            ffi::tests::runtime_thread_cannot_reenter_invoke
-            ffi::tests::engine_workers_preserve_invoke_admission_and_shutdown
+            invoke::tests::version_and_state_use_the_fixed_response_envelope
+            invoke::tests::initialize_is_idempotent_only_for_the_same_data_directory
+            invoke::tests::envelope_and_payload_are_strict
+            invoke::tests::runtime_thread_cannot_reenter_invoke
+            invoke::tests::engine_workers_preserve_invoke_admission_and_shutdown
+            invoke::tests::engine_completion_notifies_after_panic_and_join_reports_failure
             dns::runtime::tests::concurrent_redir_host_hint_reads_and_dns_updates_complete
-            ffi::tests::null_invalid_utf8_and_oversized_input_return_json_failures
-            ffi::tests::same_instance_command_is_fail_fast
-            ffi::tests::android_protector_is_required_only_for_tun
+            invoke::tests::null_invalid_utf8_and_oversized_input_return_json_failures
+            invoke::tests::same_instance_command_is_fail_fast
+            invoke::tests::android_protector_is_required_only_for_tun
+            invoke::tests::start_accepts_only_config_yaml_and_removed_prepare_is_unknown
+            invoke::tests::byte_dispatch_preserves_utf8_for_chinese_and_emoji_requests
           )
           for test_name in "${exact_tests[@]}"; do run_test 1 --lib "$test_name" -- --exact; done
           run_test 1 --test quic_datagram_foundations pending_send_is_not_restarted_and_stop_cancels_without_waiting_for_writable -- --exact
@@ -212,7 +224,7 @@ jobs:
             local expected_summaries="$1"
             shift
             local test_log
-            test_log="$(mktemp "$RUNNER_TEMP/vcore-features.XXXXXX")"
+            test_log="$(mktemp "$RUNNER_TEMP/vole-features.XXXXXX")"
             cargo test --locked --no-default-features "$@" | tee "$test_log"
             test "$(grep -Ec '^test result: ok\. [0-9]+ passed; [0-9]+ failed; [0-9]+ ignored;' "$test_log")" -eq "$expected_summaries"
             test "$(grep -Ec '^test result: ok\. [1-9][0-9]* passed; 0 failed;' "$test_log")" -eq "$expected_summaries"
@@ -224,19 +236,25 @@ jobs:
             cargo check --locked --no-default-features --features "outbound-$protocol" --lib
             run_test 1 --features "outbound-$protocol" --lib runtime::tests::integration_feature_admission_is_explicit_without_opening_sockets -- --exact
           done
-          for feature in stream-transport quic-transport shadow-tls-v3 tun ffi; do
+          for feature in inbound-http inbound-socks5 stream-transport quic-transport shadow-tls-v3 tun invoke ffi cli windows-wintun windows-uwp; do
             cargo check --locked --no-default-features --features "$feature" --lib
           done
+          cargo check --locked --no-default-features --features cli --bin vole
           run_test 2 --test feature_foundations --test hysteria2_config
           cargo check --locked --lib
           # Compilation only: historical listener fixtures must not execute on CI hosts.
           cargo test --locked --all-features --all-targets --no-run
-          # The platform delivery matrix builds the complete production feature
-          # set with the unchanged release profile, including both macOS targets.
+          # The unified release matrix builds CLI and FFI with the unchanged
+          # production release profile, including both macOS targets.
       - name: Memory-only netstack tests
         if: matrix.profile == 'features'
-        run: cargo test --locked --manifest-path crates/vcore-netstack/Cargo.toml --all-targets
+        run: cargo test --locked --manifest-path crates/vole-netstack/Cargo.toml --all-targets
 
-  platform-build:
-    name: Release builds and artifact identity
-    uses: ./.github/workflows/platform-delivery.yml
+  release-build:
+    name: Build
+    # Reusable-workflow permissions are statically bounded by the caller, even
+    # for skipped jobs. Build/assemble jobs downgrade to read; only a direct
+    # release.yml tag push can execute the callee's write-permission publish job.
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release.yml

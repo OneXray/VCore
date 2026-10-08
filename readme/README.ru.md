@@ -1,19 +1,19 @@
-# VCore
+# Vole
 
 <p align="center">
   <a href="../README.md">English</a> · <a href="./README.zh_CN.md">简体中文</a> · Русский
 </p>
 
-VCore — встраиваемое прокси-ядро на Rust для VPN-клиентов и локальных прокси. Оно маршрутизирует TCP/UDP-трафик через прямые соединения, прокси-узлы, группы и цепочки, объединяя DNS, GeoData и кроссплатформенную плоскость данных TUN.
+Vole — прокси-ядро на Rust для VPN-клиентов и локальных прокси, доступное как нативная библиотека и CLI переднего плана. Оно маршрутизирует TCP/UDP-трафик через прямые соединения, прокси-узлы, группы и цепочки, объединяя DNS, GeoData и кроссплатформенную плоскость данных TUN.
 
-Конфигурация использует **совместимый с Mihomo YAML в пределах поддерживаемых возможностей**. VCore ориентирован на клиентские функции и не реализует все поля Mihomo или его полный Dashboard API.
+Конфигурация использует **совместимый с Mihomo YAML в пределах поддерживаемых возможностей**. Vole ориентирован на клиентские функции и не реализует все поля Mihomo или его полный Dashboard API.
 
-## Что умеет VCore
+## Что умеет Vole
 
 - **Принимать трафик приложений и VPN:** пересылка HTTP, CONNECT и Upgrade; SOCKS5 CONNECT и UDP ASSOCIATE; IPv4/IPv6-пакеты TUN, предоставленные хостом.
 - **Маршрутизировать по назначению:** правила по домену, суффиксу или ключевому слову домена, IP CIDR, порту назначения, TCP/UDP, GeoSite и GeoIP, с явными действиями DIRECT и REJECT.
 - **Выбирать прокси и строить цепочки:** вложенные группы `select`, переключение групп во время работы и цепочки `dialer-proxy`, ссылающиеся на узлы или группы. Изменения выбора применяются к новым физическим транспортным соединениям, не перенося существующие.
-- **Обрабатывать DNS:** управляемые UDP/TCP-серверы, политики выбора серверов по GeoSite, последовательное переключение при отказе, кеширование и объединение одинаковых запросов; перехват TCP/UDP-порта 53 в режиме TUN.
+- **Обрабатывать DNS:** управляемые UDP/TCP-серверы, политики выбора серверов по GeoSite, последовательное переключение при отказе, кеширование и объединение одинаковых запросов; перехват заданных TCP/UDP DNS-адресов в TUN (по умолчанию порт 53).
 - **Определять трафик для маршрутизации:** извлечение домена из HTTP, TLS и QUIC, а также DNS-подсказки TUN, без изменения фактического назначения. На ICMPv4/ICMPv6 Echo ядро отвечает локально.
 - **Управлять данными маршрутизации:** загрузка используемых категорий из `geosite.dat` / `geoip.dat` по запросу и обновление файлов через заданный маршрут. GeoSite поддерживает Domain, Full, Plain и Regex, пересечение атрибутов и инверсию; GeoIP поддерживает инверсию. На всех платформах выбранные записи сохраняются без жёсткого лимита количества или усечения; общая квота памяти GeoData не задана. См. [границы GeoData](../docs/geodata.md#内存与安全边界).
 - **Предоставлять средства управления клиенту:** Controller на loopback-интерфейсе для выбора групп, текущей скорости и общего объёма TUN-трафика, а также изолированное измерение задержки узлов и цепочек через Invoke API.
@@ -39,10 +39,10 @@ SS2022 использует официальную Rust-библиотеку б�
 
 ## Конфигурация в стиле Mihomo
 
-Используйте привычные структуры `proxies`, `proxy-groups`, `rules`, `dns`, `port`, `socks-port` и `tun`. Например:
+Используйте привычные структуры `proxies`, `proxy-groups`, `rules`, `dns`, `mixed-port` и `tun`. Например:
 
 ```yaml
-socks-port: 1080
+mixed-port: 1080
 allow-lan: false
 
 proxies:
@@ -72,36 +72,52 @@ rules:
 
 Замените адрес сервера и учётные данные в примере. Для правил GeoSite/GeoIP нужны соответствующие файлы в `<dataDir>/geodata`; без них эти типы правил недоступны. См. [полный справочник конфигурации](../docs/config.yaml) и [поведение GeoData](../docs/geodata.md).
 
-Совместимость ограничена документированными полями и поведением и не распространяется на произвольные конфигурации Mihomo. Группы пока поддерживают статический `select`; DNS-серверы задаются буквальными IP-адресами и используют UDP/TCP. Providers, автоматический выбор в группах, зашифрованный DNS и fake-IP не входят в текущий набор возможностей. Неизвестные поля и недопустимые сочетания отклоняются, а не игнорируются; особенности семантики VCore отмечены в соответствующих контрактах.
+`mixed-port` принимает HTTP и SOCKS5 на одном TCP-порту и включает SOCKS5 UDP на том же порту. `allow-lan` управляет адресом привязки независимо от `authentication`: если `authentication` отсутствует или равен `[]`, аутентификация не требуется ни на loopback, ни на всех интерфейсах; заданные учётные данные проверяются HTTP и SOCKS5. Поля верхнего уровня `port`, `socks-port`, `udp` и `listeners` отклоняются; `port` и `udp` прокси-узла сохраняют смысл параметров исходящего соединения.
 
-Хост передаёт YAML inline через `configYaml`; дескрипторы TUN и платформенные callbacks предоставляются отдельно через runtime API. VCore не читает пути конфигурации хоста и не настраивает системные маршруты Linux автоматически.
+Совместимость ограничена документированными полями и поведением и не распространяется на произвольные конфигурации Mihomo. Группы пока поддерживают статический `select`; DNS-серверы задаются буквальными IP-адресами и используют UDP/TCP. Providers, автоматический выбор в группах, зашифрованный DNS и fake-IP не входят в текущий набор возможностей. Неизвестные поля и недопустимые сочетания отклоняются, а не игнорируются; особенности семантики Vole отмечены в соответствующих контрактах.
+
+Хост запускает экземпляр библиотеки с inline `configYaml`; устройство TUN, дескриптор, MTU, перехват DNS и тайм-аут UDP задаются в `tun`. Платформенные callbacks регистрируются локально в runtime. CLI передаёт параметры через тот же Invoke API, чья операция foreground читает файл `-f`. Адреса интерфейса, DNS и системные маршруты настраивает хост.
+
+## CLI
+
+Сборка исполняемого файла: `uv run --project scripts --locked vole-scripts build cli`. Windows CLI всегда использует Wintun; для выбора backend FFI используйте `build windows --backend wintun|uwp` (по умолчанию UWP). Релизы по тегам публикуют CLI и FFI вместе: Windows CLI использует Wintun, а FFI предлагает оба backend. Цели и состав архивов описаны в [скриптах сборки](../scripts/README.md).
+
+```sh
+vole -f /path/to/config.yaml
+vole -d /path/to/data -f ./config.yaml
+vole -t -f ./config.yaml
+```
+
+`-d` задаёт каталог конфигурации и данных, а `-f` независимо выбирает файл конфигурации. Относительные пути отсчитываются от рабочего каталога при запуске. Без `-f` используется `<data-dir>/config.yaml`; каталог по умолчанию — `.config/vole` пользователя с переходом к `XDG_CONFIG_HOME` по правилам Mihomo. `-f -` читает стандартный ввод. `VOLE_HOME_DIR` / `VOLE_CONFIG_FILE` задают значения из окружения; явные параметры имеют приоритет. `-t` только проверяет конфигурацию, `-v` выводит версию и идентификатор сборки, `-h` — справку. См. [CLI и релизы по тегам](../docs/cli.md).
 
 ## Платформы и интеграция
 
 | Платформа | Интеграция TUN |
 | --- | --- |
-| iOS / macOS | Дескриптор файла utun, предоставленный хостом |
+| iOS / macOS | Дескриптор utun от хоста; macOS также может открыть или создать нативный utun |
 | tvOS 17+ | Дескриптор файла utun, предоставленный хостом; ARM64-устройства и симулятор |
 | Android | Дескриптор `VpnService` с защитой исходящих сокетов |
-| Linux | Настоящий raw-IP TUN с одной очередью; создание интерфейса и изоляцию маршрутизации обеспечивает хост |
-| Windows | Нативный Provider на `Windows.Networking.Vpn` и полностью доверенный Session Host, без Wintun или эмуляции fd |
+| Linux | Настоящий raw-IP TUN с одной очередью через заимствованный fd или устройство, открытое ядром; системную сеть настраивает хост |
+| Windows | Взаимоисключающие сборки `windows-wintun` для настольного процесса и `windows-uwp` для пакетного Provider/Session Host; общее ядро |
 
-VCore — библиотека, а не самостоятельное VPN-приложение. На Unix исходный дескриптор TUN принадлежит хосту; VCore использует и закрывает собственную копию. Публичный API packetFlow от Apple не гарантирует доступ к raw fd, поэтому интеграция с Network Extension и проверка на устройствах остаются ответственностью хоста. См. [интеграцию TUN](../docs/tun-platform.md) и [границы приёмки платформ](../docs/acceptance.md).
+Vole предоставляет нативные библиотеки и CLI; настройка системной сети остаётся обязанностью хоста. На Unix исходный дескриптор TUN принадлежит хосту; Vole использует и закрывает собственную копию. Публичный API packetFlow от Apple не гарантирует доступ к raw fd, поэтому интеграция с Network Extension и проверка на устройствах остаются ответственностью хоста. См. [интеграцию TUN](../docs/tun-platform.md) и [границы приёмки платформ](../docs/acceptance.md).
 
-Кроссплатформенный C ABI принимает JSON-запросы через Invoke API v5:
+Настольный Wintun загружает предоставленный хостом `wintun.dll` из каталога исполняемого файла процесса. Адреса интерфейса, DNS, маршруты и физический выход настраивает хост; проверка Wintun на устройстве независима от результатов пакетного VPN. Использование CLI и поставка описаны в [документации CLI и релизов по тегам](../docs/cli.md).
+
+Кроссплатформенный C ABI принимает JSON-запросы через Invoke API:
 
 ```c
-char *VCoreInvoke(const char *request_json);
-void VCoreFree(char *response);
+char *VoleInvoke(const char *request_json);
+void VoleFree(char *response);
 ```
 
-Один публичный экземпляр проходит жизненный цикл `initialize → createInstance → prepare(configYaml) → start → stop → destroyInstance`. API также предоставляет проверку конфигурации, запросы состояния, статус GeoData и измерение задержки. См. [Invoke API](../docs/invoke-api.md), [Controller API](../docs/controller-api.md) и [пример интеграции Windows](../example/windows-uwp/README.md).
+Один публичный экземпляр проходит жизненный цикл `initialize → createInstance → start(configYaml) → stop → destroyInstance`; подготовка выполняется внутри `start`. `validateConfig` не требует инициализации. CLI использует явную операцию foreground Invoke для файлов, окружения, сигналов и очистки. API также предоставляет запросы состояния, статус GeoData и измерение задержки. См. [Invoke API](../docs/invoke-api.md), [Controller API](../docs/controller-api.md) и [пример интеграции Windows](../example/windows-uwp/README.md).
 
 ## Benchmark
 
-[**TUN-бенчмарк VCore / Mihomo**](https://github.com/YuanDevTeam/container-benchmark) содержит воспроизводимую методику, результаты измерений и сравнительные графики для обоих ядер в одинаковой среде с нативным Linux TUN.
+[**TUN-бенчмарк Vole / Mihomo**](https://github.com/YuanDevTeam/container-benchmark) содержит воспроизводимую методику, результаты измерений и сравнительные графики для обоих ядер в одинаковой среде с нативным Linux TUN.
 
-Проект benchmark также выполняет проверку совместимости протоколов (`interop`) и тесты нагрузки на память (`stress`), используя явно указанный checkout `--source vcore=PATH`. Собственные скрипты VCore только компилируют ядро и платформенные артефакты.
+Проект benchmark также выполняет проверку совместимости протоколов (`interop`) и тесты нагрузки на память (`stress`), используя явно указанный checkout `--source vole=PATH`. Собственные скрипты Vole только компилируют ядро и платформенные артефакты.
 
 Он измеряет смешанный TCP/UDP-трафик на **1 / 1,5 / 2 Гбит/с** с **1 000 DNS-запросов/с** и расширенными правилами `geosite:cn` / `geoip:cn`, показывая фактическую пропускную способность, CPU, наблюдаемый пиковый Linux RSS, потери UDP-пакетов и успешные DNS-запросы. Проверяется путь TUN/DNS/маршрутизации с выходом через DIRECT, а не пропускная способность зашифрованных прокси; Linux RSS не отражает потребление памяти Apple Network Extension.
 
@@ -112,15 +128,17 @@ void VCoreFree(char *response);
 - [Указатель документации](../docs/README.md)
 - [Справочник конфигурации](../docs/config.yaml)
 - [Сборка ядра и платформенных артефактов](../scripts/README.md)
+- [CLI и релизы по тегам](../docs/cli.md)
 - [Регрессионные тесты ядра](../tests/README.md)
 - [Политика ресурсов](../docs/runtime-resource-policy.md)
 - [Приёмка и известные ограничения](../docs/acceptance.md)
 
 ## Благодарности
 
-VCore использует публичные зависимости и опирается на реализации протоколов и примеры платформенной интеграции:
+Vole использует публичные зависимости и опирается на реализации протоколов и примеры платформенной интеграции:
 
-- Зависимости TUN: локальный [`vcore-netstack`](../crates/vcore-netstack/README.md) использует [smoltcp](https://github.com/smoltcp-rs/smoltcp), а пакетный I/O на Unix — [tun-rs](https://github.com/tun-rs/tun-rs).
+- Зависимости TUN: локальный [`vole-netstack`](../crates/vole-netstack/README.md) использует [smoltcp](https://github.com/smoltcp-rs/smoltcp), а пакетный I/O на Unix и Windows Wintun — [tun-rs](https://github.com/tun-rs/tun-rs) (Apache-2.0).
+- [Wintun](https://www.wintun.net/): DLL предоставляет хост; Vole её не включает. Исходный [заголовок API](https://github.com/tun-rs/tun-rs/blob/2.8.11/src/platform/windows/tun/wintun.h) в tun-rs имеет copyright 2018–2021 WireGuard LLC и лицензию `GPL-2.0 OR MIT`; при распространении связанных API bindings необходимо сохранить copyright и уведомление об альтернативной лицензии MIT.
 - Архитектурные ориентиры для сети и маршрутизации: [clash-rs](https://github.com/Watfaq/clash-rs), [netstack-smoltcp](https://github.com/cavivie/netstack-smoltcp), [Mihomo](https://github.com/MetaCubeX/mihomo), [Xray-core](https://github.com/XTLS/Xray-core) и [Leaf](https://github.com/eycorsican/leaf). Эти проекты не являются зависимостями netstack.
 - TLS и Shadowsocks: [rustls](https://github.com/rustls/rustls), [boring](https://github.com/cloudflare/boring), [BoringSSL](https://boringssl.googlesource.com/boringssl/) и [shadowsocks-rust](https://github.com/shadowsocks/shadowsocks-rust). Заимствованный код replay-window сохраняет [уведомления MIT](../src/outbound/shadowsocks/packet_window.rs).
 - Интеграция Windows: [windows-rs](https://github.com/microsoft/windows-rs), [UWP VPN Plugin Sample](https://github.com/microsoft/UwpVpnPluginSample), [wireguard-uwp-rs](https://github.com/luqmana/wireguard-uwp-rs), [Maple](https://github.com/YtFlow/Maple) и [YtFlowCore](https://github.com/YtFlow/YtFlowCore).

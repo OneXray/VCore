@@ -1,4 +1,4 @@
-//! The upstream library is caller-driven. VCore owns its one driver and the
+//! The upstream library is caller-driven. Vole owns its one driver and the
 //! bounded open-command queue; it never delegates detached task ownership.
 use super::*;
 use tokio::sync::{mpsc, oneshot};

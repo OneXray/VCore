@@ -44,7 +44,7 @@ pub(super) struct Aead {
 }
 impl Aead {
     pub(super) fn new(context: &[u8], material: &[u8], suite: Suite) -> io::Result<Self> {
-        let key = Zeroizing::new(vcore_blake3_raw::derive_key(context, material));
+        let key = Zeroizing::new(vole_blake3_raw::derive_key(context, material));
         let algorithm = match suite {
             Suite::Aes => Algorithm::aes_256_gcm(),
             Suite::ChaCha => Algorithm::chacha20_poly1305(),

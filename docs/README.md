@@ -1,13 +1,13 @@
-# VCore 文档
+# Vole 文档
 
 本文档只维护当前契约、有效约束和发布边界。历史方案、阶段报告与已取消能力留在 Git 历史，不另建归档副本。行为以当前源码、测试和契约为准，不一致时一起修正。
 
 ## 配置与接口
 
 - [配置协议](config.yaml)：严格 YAML、节点、静态 select 组、DNS 与规则。
-- [Invoke API](invoke-api.md)：请求格式、生命周期、平台回调与内联配置。
+- [Invoke API](invoke-api.md)：严格请求格式、核心软件版本与构建身份、生命周期、平台回调及内联配置。
 - [Controller](controller-api.md)：认证、运行中组选择和 TUN 流量。
-- [入站](inbounds.md)：HTTP 转发/隧道、SOCKS5 TCP/授权 UDP、监听及认证。
+- [混合入站](inbounds.md)：同端口 HTTP 转发/隧道、SOCKS5 TCP/授权 UDP、监听及认证。
 - [出站](outbounds.md)：SOCKS5、AnyTLS、Trojan、VMess AEAD、Hysteria2、SS 2022。
 - [VLESS](vless.md)：传输、Vision、Encryption、REALITY、JLS、静态 ECH。
 - [XHTTP 与 sing-mux](xhttp.md)：双腿、H1/H2/H3、连接池及复用。
@@ -25,6 +25,7 @@
 ## 开发与验证
 
 - [平台编译](../scripts/README.md)、[离线回归与独立容器入口](../tests/README.md)。
+- [CLI 与 tag 发布](cli.md)：五个参数、配置路径、共用内核入口和 CLI / FFI 统一发布。
 - [测试隔离](testing-isolation.md)：所有网络服务端必须容器化。
 - [验收边界](acceptance.md)：本地、CI、设备和发布证据分别记录。
 - [领域上下文](../CONTEXT.md)、[架构决策](adr/)。

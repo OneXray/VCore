@@ -172,7 +172,7 @@ fn uri(scheme: &str, authority: &str, path: &str) -> Result<String> {
         .authority(authority)
         .path_and_query(path)
         .build()
-        .map_err(|_| crate::VCoreError::InvalidConfig("invalid stream transport URI".into()))?;
+        .map_err(|_| crate::VoleError::InvalidConfig("invalid stream transport URI".into()))?;
     if uri.to_string().len() > 16 * 1024 - 256 {
         return invalid("VMess transport URI exceeds limit");
     }
@@ -181,7 +181,7 @@ fn uri(scheme: &str, authority: &str, path: &str) -> Result<String> {
 fn authority_host(value: &str) -> Result<String> {
     let authority: http::uri::Authority = value
         .parse()
-        .map_err(|_| crate::VCoreError::InvalidConfig("invalid VMess Host".into()))?;
+        .map_err(|_| crate::VoleError::InvalidConfig("invalid VMess Host".into()))?;
     let has_port = value.len() > authority.host().len();
     if value.contains('@') || (has_port && !authority.port_u16().is_some_and(|port| port > 0)) {
         return invalid("invalid VMess Host");
@@ -484,7 +484,7 @@ pub(super) fn normalize_transport(
             }
             for (key, values) in &http.headers {
                 let name: http::HeaderName = key.parse().map_err(|_| {
-                    crate::VCoreError::InvalidConfig("invalid HTTP transport header".into())
+                    crate::VoleError::InvalidConfig("invalid HTTP transport header".into())
                 })?;
                 for value in values {
                     if value.parse::<http::HeaderValue>().is_err() {
@@ -504,7 +504,7 @@ pub(super) fn normalize_transport(
                     }
                     let mut url =
                         url::Url::parse(&format!("{scheme}://{authority}/")).map_err(|_| {
-                            crate::VCoreError::InvalidConfig("invalid HTTP transport URI".into())
+                            crate::VoleError::InvalidConfig("invalid HTTP transport URI".into())
                         })?;
                     url.set_path(path);
                     Ok(url.to_string())

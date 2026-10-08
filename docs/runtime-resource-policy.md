@@ -1,6 +1,6 @@
 # 运行时资源策略
 
-所有 TUN 运行时使用同一组局部结构上限。VCore 不根据业务流总数或整进程内存读数拒绝正常流量；容量控制放在包、队列、缓冲区、缓存、解析器和生命周期所有者处。
+所有 TUN 运行时使用同一组局部结构上限。Vole 不根据业务流总数或整进程内存读数拒绝正常流量；容量控制放在包、队列、缓冲区、缓存、解析器和生命周期所有者处。
 
 ## 原则
 
@@ -15,7 +15,7 @@
 Tokio `new_multi_thread()`，不按 TUN 分叉，不自行读取 CPU 数或设置 worker 数。
 worker 数遵循 Tokio 默认行为（包括其 `TOKIO_WORKER_THREADS` 环境覆盖）；
 线程栈使用 Tokio / Rust 默认值，不固定为 1 MiB。
-短生命周期的 `prepare` / `measureDelay` 保留共用的单线程执行策略，不按 TUN 分叉。
+启动准备和 `measureDelay` 保留共用的单线程执行策略，不按 TUN 分叉。
 工作线程（含阻塞任务线程）继承 Invoke 重入保护，
 Apple 平台另保留线程局部日志作用域；同步停止仍等待子任务与运行时线程退出。
 Release 构建优先吞吐（`opt-level = 3`），保留 thin LTO 与现有缓冲、队列边界。
@@ -23,8 +23,8 @@ Release 构建优先吞吐（`opt-level = 3`），保留 thin LTO 与现有缓�
 ## TUN 结构上限
 
 ```text
-原始包 / MTU                    1,500 字节
-最终代理 UDP 负载               1,452 字节（Windows 1,352）
+原始包 / MTU                    tun.mtu
+最终代理 UDP 负载               配置 MTU - 48
 包队列                          256
 普通事件 / TCP accept           128
 每关联 UDP 入站                 64
@@ -37,14 +37,14 @@ DNS 原始响应缓存                64 项 / 256 KiB
 TUN 域名提示                    256 项（按需）
 ```
 
-Windows L3 接口及其 Session Host netstack 使用 1400 MTU，因此按 IPv6 UDP 头保守计算的响应负载上限是 1352；表中的 1500 是跨平台原始包解析上限和其他 TUN 平台的固定 MTU。
+MTU 由 `tun.mtu` 配置，默认值和平台限制统一见 [TUN 平台层](tun-platform.md#mtu-与结构上限)。
 
 - 普通 UDP 在 reader 同步分流并直接提交到每源关联，不经过 TCP Driver 或共享 UDP 入站队列；DNS 查询独立提交受跟踪任务。
 - 每关联请求、普通响应和 DNS 响应使用独立内部容量，不扩大 128 项的 TCP accept，也不增加公开配置字段。
 - TUN 域名提示只在 TUN 配置实际包含域名规则时创建，并从空容量按需增长。
 - 域名提示的读写使用短同步锁，临界区内不等待 IO 或执行异步操作；新 TUN IP 流读取当前提示，活动 UDP 五元组保持既定 action。
 - ICMP 响应复用原始包出站队列，不创建独立任务或长期状态。
-- TUN 读写每批最多处理 8 个已就绪包，不等待凑批。复用至多 8 个 1500 字节读缓冲区；
+- TUN 读写每批最多处理 8 个已就绪包，不等待凑批。按配置 MTU 复用至多 8 个读缓冲区；
   唯一 writer 公平轮转 TCP/ICMP raw、普通 UDP/DNS 响应三通道，至多暂持 8 包，
   UDP 在复用 MTU frame 中构包，不增加中转队列。非法输出也计入工作预算。批次中途取消或
   失败仍按已完成结果逐包统计；非法包局部隔离，Unix 系统调用保持单包边界。
@@ -104,38 +104,16 @@ XUDP现在只拥有已认证流上的帧编码；VLESS响应头由VLESS包装层
 - reader 拥有关联表和入站分发，唯一 TUN writer 直接、公平消费普通/DNS/TCP raw 三个通道；写回等待不阻塞 reader，不增加逐关联写回任务；
 - TCP/ICMP ingress 满时非阻塞丢当前完整 IP 包，避免阻塞 UDP/DNS，记录 packet queue drop；TCP 重传恢复，不引入 pending FIFO；
 - 使用代次感知所有权和子取消令牌；
-- 空闲超时 30 秒，清理周期 10 秒；
+- 空闲超时由 `tun.udp-timeout` 配置；
 - 清理时先从表中删除，再取消子任务；
 - 只有成功入队的请求或响应刷新活动时间；
 - 源关联内的 IP 五元组仅保留规则 action、活动时间和可选 QUIC 连接标识，
-  不创建逐流任务、队列或 socket；不设流数量上限。各目标独立 30 秒空闲失效，
-  关联收发时最多每 10 秒扫描回收并收缩明显过大的表容量；关联关闭释放整个表。
+  不创建逐流任务、队列或 socket；不设流数量上限。各目标按 `tun.udp-timeout` 独立空闲失效，
+  关联收发时按维护周期扫描回收并收缩明显过大的表容量；关联关闭释放整个表。
   响应只刷新自身已存在且未过期的目标，不创建状态或复活过期流。
   五元组活动以接收请求或读到匹配出口响应为准；源关联仍只以成功入队刷新，
   响应队列满不会延长源关联所有者的生命周期。
 - reader EOF、错误或取消时，先取消其 UDP 子作用域，再删除、取消并等待全部关联和 DNS 任务；父运行时统一取消并等待唯一 writer 与 netstack。UDP 子作用域停止不取消调用者令牌。
-
-### 高吞吐优化边界
-
-普通响应的 4,096 项是所有 TUN 平台共用的内部默认值，用于吸收收包任务与唯一
-writer 之间的短时突发。Linux NAT 的无热路径探针 Release 容量对照支持从
-1,024 项扩大至此值；它不是逐关联容量、业务并发配额或无损吞吐保证。
-相对原值，多出的 3,072 项在 1,452 字节负载下最多多持有 4,460,544 字节
-payload，另有元数据与分配器开销；实测 RSS 增量不能作为最坏内存上界。
-
-已采用分类二分定位、TUN UDP 五元组 action 复用、reader 直接分流、单 writer
-三通道公平轮转和已就绪批次处理。netstack 每批执行维护，沿用单个待处理 RX 包
-和原有 TX 队列，不增加重复中转队列。每关联容量、DNS 保留容量、socket 缓冲、
-批次大小和线程策略不随普通响应容量扩大；队列 Full 不等待、重试或刷新源关联活动。
-
-剩余丢包必须分别核对 VCore 队列、内核 TUN、物理出口和客户端 socket，不能以
-内部 drop 为零推断端到端无损。2 Gbps UDP 叠加 DNS 的端到端无损目标仍未通过。
-Linux TUN `txqueuelen` 属于宿主网络配置，VCore
-不修改借用接口的队列长度或 qdisc。扩大宿主队列的实验结果不能直接推广到其他
-平台；Linux 吞吐与 RSS 结果也不替代 iOS/tvOS physical footprint 或真机验收。
-诊断计时探针、强制让步、Full 后重试和无协作预算发送不属于生产优化策略。
-
-嵌套代理协议可以增加有界帧头，但最终解封装负载仍不得超过调用方按有效 MTU 给出的上限；其他 TUN 平台为 1,452 字节，Windows 为 1,352 字节。
 
 ### 定向数据报预算与受控 QUIC
 
@@ -149,8 +127,7 @@ QUIC owner.stop先取消并等待驱动，再关闭并释放上游；上游close
 
 TUIC 与 Hysteria2 共用这一接点；TUIC 的独立会话、关联 ID 退役、控制流、分片负载
 及交付队列边界见 [TUIC v5](outbounds.md#tuic-v5)。旧池的待建流也持有所有权，
-不能在等待 credit 时被当成空闲池回收。TUIC 业务 UDP 队列使用独立观测类别，
-旧七协议压力 fixture 中该类别为零不代表 TUIC 压力通过。
+不能在等待 credit 时被当成空闲池回收。TUIC 业务 UDP 队列使用独立观测类别。
 
 ## DNS
 
@@ -190,9 +167,9 @@ IP-only协议接点持有`ResolutionContext`，runtime DNS通过Weak绑定，不
 - 分类按 code 二分定位；TUN UDP 五元组固定规则 action，不保留 GeoData 快照
   或域名。没有全局目的缓存或旧快照引用；各目标独立空闲回收。
   活动流的规则数据更新在新流生效；DNS 查询、域名目标和非 TUN 路径不受此固定策略影响。
-- VCore 不显式构建 dense DFA，也不配置 NFA、DFA 或 determinization 额度；保留正则库
+- Vole 不显式构建 dense DFA，也不配置 NFA、DFA 或 determinization 额度；保留正则库
   默认的编译大小、嵌套和搜索缓存保护。不新增正则记录数、累计源码或总内存预算。
-  容量账本仅计 VCore 自有容器的可见容量，排除正则内部状态、动态 scratch 和缓存；
+  容量账本仅计 Vole 自有容器的可见容量，排除正则内部状态、动态 scratch 和缓存；
   未计入不代表零，账本不能充当进程峰值上界。局部库保护同样不是所有 Regex 的总量保证。
 - 格式、整数表示、值与 Regex 语法校验和可恢复分配错误仍失败关闭。属性筛选排除的记录不进入匹配器；有效分类的空筛选仍可反选，缺失/不可用分类不会反选为全匹配。
 - 首次缺失或无效资产使对应种类不可用，实例以 degraded 状态继续准备/启动；两种资源可用性独立。
@@ -209,41 +186,9 @@ IP-only协议接点持有`ResolutionContext`，runtime DNS通过Weak绑定，不
   304 在 matcher 已可用时只调度，不可用时重载本地资产。既有 TCP 选路与 TUN UDP
   固定 action 不回溯；没有新增公开 API、业务数量配额或 GeoData 内存预算。
 
-公开 [benchmark](https://github.com/YuanDevTeam/container-benchmark) 的 `stress` 与 `compare`
-固定只加载增强 DAT 中完整 `geosite:cn` / `geoip:cn`，不裁剪原件或扩展分类；
-`stress` 叠加 2 Gbps / 60 秒 / 1,000 QPS DNS，可选 `--geodata-update` 验证负载中
-真实下载与重载。该测试选择不限制生产支持的分类。真实资产中的类型计数、
-正则编译/搜索实验、真实更新期间的峰值和 TUN 实测分别报告，不能互相替代。旧 dense DFA
-实现的实验不直接证明常规正则实现的峰值、性能或复杂输入行为。
-实际结果以 benchmark README 为准，Linux RSS 不是 Apple 真机 footprint 或任意输入
-50,000,000 bytes 保证。VCore 自有脚本只负责编译。
-
-完整边界见 [GeoData 规则与资产](geodata.md)。
-
-## 当前限制的保留判断
-
-运行时维持 `standard` 行为，不新增 `resourceProfile` API 或活动业务流准入配额。
-GeoData 不设置平台条数硬上限或截断，也不设置总内存预算。完整 CN 的代表性协议冷/热、双栈入口、取消/重建及资源叠加
-短测曾有明显余量。旧 dense DFA 实现的完整增强资产 2 Gbps 混合压力 RSS 为
-53,542,912 bytes，离线双快照 probe 为 64,045,056 bytes，均超过 50,000,000 bytes
-目标；它们是历史基线，不是当前常规正则实现的验收结果。
-这些不同范围的结果不能互相抵扣，也不是正式 Provider 的签收；当前采用先排空旧代、
-再构建新代的更新策略，收益仍须真实更新叠加压力验证，不以数量截断达标。其他移动资源策略仍需同一最终
-候选的完整矩阵与真机结果。局部队列、解析和缓冲继续保持有界。
-
-完整 CN、IPv4、16 条背景 TCP、300 秒、DIRECT/代理各承担一半流量的 1 Gbps 子集
-曾测得最坏 7,864,824 bytes；它不覆盖最大并发、DNS 冷查询风暴、UDP、TUN、协议池
-或 iOS/tvOS 实机，不能据此删除局部容量边界，也不能承诺任意负载低于 50M。
-
-- 活动 DNS/TCP/UDP/握手已有无总数配额的语义，继续保持；4 个 bootstrap 工作者、
-  DNS 空闲 TCP 池 4/2、TUN accept 队列 128 都不是活动业务并发上限。
-- 保留队列、缓存、单流缓冲、窗口与解析边界；若出现 VCore 瓶颈，依据队列高水位、
-  丢包、背压和峰值测量调整，不通过无界积压掩盖问题。对端 UDP 设施丢包不是核心归因。
-- AnyTLS idle 目前只有 30 秒空闲/30 秒扫描，没有数量或字节 cap；后续 churn 应重点
-  测量突发后的保留。TUIC 分片重组按关联持有，HY2 按物理会话共享，不能按相同总量估算。
-- 普通规则条数和 DNS nameserver 列表数是配置复杂度边界；当前小规则表、高速 TCP
-  结果不足以证明可删除，本轮不改。若最终确需业务数量门禁，只在独立 iOS/tvOS
-  low-memory 策略中基于实测另行决定，不影响其他平台。
+GeoData 行为见 [规则与资产](geodata.md)。性能与压力测试由
+[container-benchmark](https://github.com/YuanDevTeam/container-benchmark) 维护，
+测试结果记录在对应运行中。
 
 ## Apple 内存遥测
 
@@ -269,7 +214,6 @@ TCP-only netstack，因此该值为零不代表 UDP 无丢包。运行时记录
 
 仅`cfg(test)`/`interop-test`启用的`ResourceProbe`按测试作用域记录RAII当前值/峰值；子任务显式继承作用域，不使用进程全局reset或更换生产allocator。当前接入物理TCP/UDP、共享流/QUIC驱动与session、数据报association、DNS池/等待者及既有运行时活动guard。Hysteria2 的待完成分片通过 `Reassembly` 登记，交付后释放 Packet ID 和重组资源；零计数必须与实际执行过的重组路径一起解释。
 
-生产`ObservedIo`中的观测guard为空类型，不分配共享计数器。同步Stop、5秒静默窗口和真实对端由断言及结构化事件证明，不根据日志中的PASS文字判断。`tests/protocols/limits.json`登记公共限额及继承的`ResourceLimits`，`limit_foundations`直接与Rust常量核对；它不是第二套运行时配置。
 
 ## 变更要求
 

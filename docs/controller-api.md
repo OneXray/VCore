@@ -6,23 +6,23 @@ Controller 是当前 Running Session 的回环 HTTP 接口。它提供一次性 
 
 ```yaml
 external-controller: 127.0.0.1:9090
-secret: "vcore-runtime-secret"
+secret: "vole-runtime-secret"
 ```
 
 - 省略 `external-controller` 表示不启动 Controller，此时不能单独配置 `secret`。含代理组但没有 Controller 的配置合法，组在本次 session 内保持初始选择。
-- `external-controller` 只接受带显式非零端口的回环 IP 地址。它要求启用 TUN 或至少定义一个 `proxy-groups`；非 TUN 配置须通过 `port` 或 `socks-port` 满足运行配置的入站要求。
+- `external-controller` 只接受带显式非零端口的回环 IP 地址。它要求启用 TUN 或至少定义一个 `proxy-groups`；非 TUN 配置须通过 `mixed-port` 满足运行配置的入站要求。
 - 只要同时配置代理组与 Controller，`secret` 就必填；仅有 TUN 流量接口时可省略。`secret` 出现时必须为 1–255 UTF-8 字节，并保护本文定义的全部路由。
 - `measureDelay` 的 node-only 配置不能包含 Controller 或代理组字段。
 - `validateConfig` 只校验字段；`prepare` 不监听端口；`start` 绑定端口，绑定失败则启动失败。`stop` 和 `destroyInstance` 关闭监听器。
 
-Controller 与公共运行时 session 同生共灭。代理组选择只保存在 VCore 当前 session 的内存中；VCore 不写回配置。宿主如需跨 session 保留选择，必须自行持久化，并在下次 `configYaml` 中提供对应的 `default-selected`。
+Controller 与公共运行时 session 同生共灭。代理组选择只保存在 Vole 当前 session 的内存中；Vole 不写回配置。宿主如需跨 session 保留选择，必须自行持久化，并在下次 `configYaml` 中提供对应的 `default-selected`。
 
 ## Bearer 鉴权
 
 配置 `secret` 后，每个请求都必须携带：
 
 ```http
-Authorization: Bearer vcore-runtime-secret
+Authorization: Bearer vole-runtime-secret
 ```
 
 要求：
@@ -48,8 +48,8 @@ Authorization: Bearer vcore-runtime-secret
 
 字段均为非负整数，单位为字节：
 
-- `up`：最近一个完整的一秒窗口内，从宿主 TUN 进入 VCore 的原始 IP 包字节数；
-- `down`：最近一个完整的一秒窗口内，由 VCore 写回宿主 TUN 的原始 IP 包字节数；
+- `up`：最近一个完整的一秒窗口内，从宿主 TUN 进入 Vole 的原始 IP 包字节数；
+- `down`：最近一个完整的一秒窗口内，由 Vole 写回宿主 TUN 的原始 IP 包字节数；
 - `upTotal`：本次 TUN session 的累计上行字节数；
 - `downTotal`：本次 TUN session 的累计下行字节数。
 
@@ -94,7 +94,7 @@ GET /proxies/{name}
 
 ```http
 PUT /proxies/main-select HTTP/1.1
-Authorization: Bearer vcore-runtime-secret
+Authorization: Bearer vole-runtime-secret
 Content-Type: application/json
 Content-Length: 26
 
@@ -151,4 +151,7 @@ Hysteria2 已认证 QUIC 会话也保留其 `dialer-proxy` 上游组快照，包
 
 第一版不提供 provider/`use`、health check、自动 failover、`url-test`/`fallback`/`load-balance`、delay 测试、连接管理、配置修改、WebSocket 推送、Controller 版本协商或完整 Dashboard response。除 `GET /traffic`、`GET /group`、`GET /group/{name}`、`GET /proxies/{name}` 和 `PUT /proxies/{name}` 外，其他路径和方法均不属于公共协议。
 
-Windows 的完整运行时和 Controller 位于独立 Session Host。App 通过回环 HTTP 直接访问实际 Running Session；组查询和切换不经过 `VCoreInvoke`、Windows bridge 或 Provider 控制管道，不携带 `instanceId`，也不占用 Invoke 命令锁。
+Windows WinRT VPN 的完整运行时和 Controller 位于独立 Session Host；桌面 Wintun 的
+Controller 位于普通业务运行时。宿主通过回环 HTTP 直接访问实际 Running Session；
+组查询和切换不经过 `VoleInvoke`、Windows bridge 或 Provider 控制管道，
+不携带 `instanceId`，也不占用 Invoke 命令锁。

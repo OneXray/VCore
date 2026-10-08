@@ -19,7 +19,7 @@ use super::{
 
 /// Current Xray compatibility version carried in the encrypted REALITY session ID.
 ///
-/// Xray-core 26.7.11 defaults `minClientVer` to 26.3.27. VCore pins the wire
+/// Xray-core 26.7.11 defaults `minClientVer` to 26.3.27. Vole pins the wire
 /// version here rather than exposing another profile field.
 pub const REALITY_CLIENT_VERSION: [u8; 3] = [26, 7, 11];
 

@@ -269,7 +269,7 @@ async fn pipeline_routes_and_authenticates_every_request_without_credential_leak
         request(
             "POST",
             "http://one.test/upload",
-            "Content-Length: 3\r\nX-VCore-Measure-Diagnostic: v1\r\nConnection: X-Private\r\nX-Private: secret\r\n"
+            "Content-Length: 3\r\nX-Vole-Measure-Diagnostic: v1\r\nConnection: X-Private\r\nX-Private: secret\r\n"
         ),
         request("GET", "http://two.test/next", "")
     );
@@ -287,7 +287,7 @@ async fn pipeline_routes_and_authenticates_every_request_without_credential_leak
             async {
                 let forwarded = head(&mut first).await.to_ascii_lowercase();
                 assert!(forwarded.starts_with("post /upload http/1.1\r\n"));
-                for secret in ["proxy-authorization", "x-vcore", "x-private", "password"] {
+                for secret in ["proxy-authorization", "x-vole", "x-private", "password"] {
                     assert!(!forwarded.contains(secret));
                 }
                 exact(&mut first, b"abc").await;
@@ -330,7 +330,7 @@ async fn keep_alive_requests_reenter_the_real_rule_dispatcher() {
         peers.streams.lock().unwrap().push_back(local);
         remotes.push(BufReader::new(remote));
     }
-    let config = Config::parse_yaml(b"port: 1080\nproxies:\n  - {name: first, type: socks5, server: 192.0.2.1, port: 1080}\n  - {name: second, type: socks5, server: 192.0.2.2, port: 1080}\nrules: ['DOMAIN,one.test,first', 'MATCH,second']\n").unwrap();
+    let config = Config::parse_yaml(b"mixed-port: 1080\nproxies:\n  - {name: first, type: socks5, server: 192.0.2.1, port: 1080}\n  - {name: second, type: socks5, server: 192.0.2.2, port: 1080}\nrules: ['DOMAIN,one.test,first', 'MATCH,second']\n").unwrap();
     let router = RoutingDispatcher::new(
         ProxyDispatchers::new(vec![first.clone(), second.clone()]).unwrap(),
         Arc::new(Peers::default()),
@@ -407,13 +407,13 @@ async fn chunk_extensions_trailers_and_pipeline_keep_separate_boundaries() {
             client.write_all(format!("{}3 ; kind = \"a;b\"\r\nabc\r\n0\r\nX-Checksum: yes\r\n\r\nGET http://next.test/ HTTP/1.1\r\nHost: next.test\r\n\r\n", request("POST", "http://origin.test/", "Transfer-Encoding: chunked\r\nTrailer: X-Checksum\r\n")).as_bytes()).await.unwrap();
             let response = head(&mut client).await;
             assert!(response.contains("Transfer-Encoding: chunked\r\n"));
-            assert!(!response.to_ascii_lowercase().contains("x-vcore"));
+            assert!(!response.to_ascii_lowercase().contains("x-vole"));
             exact(&mut client, b"2\r\nok\r\n0\r\nX-Checksum: yes\r\n\r\n").await;
             assert!(head(&mut client).await.starts_with("HTTP/1.1 407"));
         }, async {
             assert!(head(&mut remote).await.contains("Trailer: X-Checksum\r\n"));
             exact(&mut remote, b"3\r\nabc\r\n0\r\nX-Checksum: yes\r\n\r\n").await;
-            remote.write_all(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nTrailer: X-Checksum\r\nX-VCore-Measure-Diagnostic: private\r\n\r\n2;ignored=value\r\nok\r\n0\r\nX-Checksum: yes\r\n\r\n").await.unwrap();
+            remote.write_all(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nTrailer: X-Checksum\r\nX-Vole-Measure-Diagnostic: private\r\n\r\n2;ignored=value\r\nok\r\n0\r\nX-Checksum: yes\r\n\r\n").await.unwrap();
         });
     }).await.unwrap();
     assert_eq!(fixture.peers.targets.lock().unwrap().len(), 1);

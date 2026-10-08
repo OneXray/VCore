@@ -4,7 +4,7 @@ use std::{
     time::Duration,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use vcore::{
+use vole::{
     config::{Config, ProxyProtocol},
     dispatch::{BoxStream, DatagramTransport, DispatchError},
     outbound::{
@@ -41,7 +41,7 @@ fn node(io: BoxStream, extra: serde_json::Value) -> VlessOutbound {
         .extend(extra.as_object().unwrap().clone());
     let config = Config::parse_yaml(
         &serde_json::to_vec(
-            &serde_json::json!({"socks-port":1080,"proxies":[node],"rules":["MATCH,edge"]}),
+            &serde_json::json!({"mixed-port":1080,"proxies":[node],"rules":["MATCH,edge"]}),
         )
         .unwrap(),
     )
@@ -67,7 +67,7 @@ fn session() -> StreamSession {
 #[tokio::test]
 async fn http_camouflage_shutdown_releases_both_directions_without_waiting_for_peer_eof() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "VLESS-UNIT",
         "http_camouflage_shutdown_releases_both_directions_without_waiting_for_peer_eof",
     );
@@ -79,9 +79,9 @@ async fn http_camouflage_shutdown_releases_both_directions_without_waiting_for_p
             while !head.ends_with(b"\r\n\r\n") {
                 head.push(peer.read_u8().await.unwrap());
             }
-            let header = vcore::outbound::encode_request_header(
+            let header = vole::outbound::encode_request_header(
                 uuid::Uuid::from_bytes([7; 16]),
-                vcore::outbound::VlessCommand::Tcp,
+                vole::outbound::VlessCommand::Tcp,
                 Some(&session().destination),
             )
             .unwrap();
@@ -119,7 +119,7 @@ async fn http_camouflage_shutdown_releases_both_directions_without_waiting_for_p
 #[tokio::test]
 async fn grpc_server_first_flushes_vless_request_without_an_application_write() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "VLESS-UNIT",
         "grpc_server_first_flushes_vless_request_without_an_application_write",
     );
@@ -183,7 +183,7 @@ async fn grpc_server_first_flushes_vless_request_without_an_application_write() 
 #[tokio::test]
 async fn http_upgrade_consumes_early_prefix_and_requires_valid_101_even_fast_open() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "VLESS-UNIT",
         "http_upgrade_consumes_early_prefix_and_requires_valid_101_even_fast_open",
     );
@@ -214,9 +214,9 @@ async fn http_upgrade_consumes_early_prefix_and_requires_valid_101_even_fast_ope
                         .unwrap(),
                     [0]
                 );
-                let expected = vcore::outbound::encode_request_header(
+                let expected = vole::outbound::encode_request_header(
                     uuid::Uuid::from_bytes([7; 16]),
-                    vcore::outbound::VlessCommand::Tcp,
+                    vole::outbound::VlessCommand::Tcp,
                     Some(&session().destination),
                 )
                 .unwrap();

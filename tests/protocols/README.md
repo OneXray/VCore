@@ -1,7 +1,7 @@
 # 核心协议回归输入
 
 生产字段以 [config.yaml](../../docs/config.yaml) 和协议契约为准。本目录只保留
-VCore 纯核心回归直接使用的独立输入，不包含容器 catalog、消费者或测试编排。
+Vole 纯核心回归直接使用的独立输入，不包含容器 catalog、消费者或测试编排。
 
 - `limits.json`：局部资源上限、实际常量引用和边界断言；
   `tests/limit_foundations.rs` 直接读取并核对。
@@ -12,11 +12,11 @@ VCore 纯核心回归直接使用的独立输入，不包含容器 catalog、消
 核心离线回归见 [tests](../README.md)，平台编译见 [scripts](../../scripts/README.md)。
 互通消费者、官方对端下载与编排位于公开的
 [container-benchmark](https://github.com/YuanDevTeam/container-benchmark)，入口为
-`container-benchmark interop --source vcore=PATH`，默认使用 Mihomo、Xray-core、
+`container-benchmark interop --source vole=PATH`，默认使用 Mihomo、Xray-core、
 Hysteria2、V2Ray 与 Caddy/Xray 的 64 个代表用例；Mihomo listener 的缺口保留原生
 或明确分层验证。`--backend` / `--protocol` 可筛选，`--list` 离线列举。
 原生 TUN 压力与两核性能比较使用该工程的 `stress` / `compare`；真实执行均显式
-提供 VCore checkout，不推断工程路径。网络互通不混入离线检查或平台构建。
+提供 Vole checkout，不推断工程路径。网络互通不混入离线检查或平台构建。
 此入口不恢复历史全部字段、代理链、长测或 ClientHello golden 的网络矩阵，
 本目录独立输入的离线回归也不能冒充当前网络通过。
 

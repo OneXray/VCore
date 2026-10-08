@@ -1,22 +1,29 @@
-# HTTP 与 SOCKS5 入站
+# HTTP 与 SOCKS5 混合入站
 
-两个客户端入口和 TUN 共用 Dispatcher、规则、DNS、静态 select 组及出站图。
+HTTP 与 SOCKS5 共用一个混合入口，并和 TUN 共用 Dispatcher、规则、DNS、静态 select 组及出站图。
 字段全集见[配置协议](config.yaml)，Controller 另见[接口](controller-api.md)。
 
 ## 监听与认证
 
-- `port` 控制 HTTP；`socks-port` 控制同端口 SOCKS5 TCP/UDP。省略或 0 关闭，
-  启用时为 1–65535；HTTP、SOCKS5、TUN 至少启用一个。
+- `mixed-port` 省略或 0 关闭，启用时为 1–65535；混合入口和 TUN 至少启用一个。
+  同一 TCP 端口接入 HTTP 转发、CONNECT、Upgrade 和 SOCKS5 CONNECT、UDP ASSOCIATE。
+  SOCKS5 UDP 随入口启用并绑定同地址、同端口，不提供独立入站 UDP 开关。
+- 顶层 `port`、`socks-port`、`udp` 和 `listeners` 均拒绝，不迁移或忽略旧字段。
+  代理节点的 `port` 和 `udp` 保留各自的出站含义，不控制混合入站。
+- 启用混合入口要求同时编译 `inbound-http` 与 `inbound-socks5`；缺少任一 feature
+  均无法启动入口。两个协议模块仍可分别编译，但单独启用其 feature 不能提供混合入口。
 - `allow-lan: false` 绑定 IPv4 回环，true 绑定通配地址。`ipv6: true` 增加独立
   IPv6-only 回环/通配 socket。仅系统明确不支持地址族时可省略 IPv6，其余绑定错误
   整体回滚。取得 Controller 和全部业务 socket 后才启动接收任务。
-- `authentication` 省略或空列表时仅本机免认证；非空必须恰好一项 `user:password`，
+- `allow-lan` 与 `authentication` 独立；通配绑定不强制认证。
+  `authentication` 省略或空列表时，HTTP/SOCKS5 在任何绑定地址均免认证；
+  非空必须恰好一项 `user:password`，
   按第一个冒号拆分，两项各 1–255 UTF-8 字节，不 trim。null 不视为省略。
-  共享强制认证；共享或非空凭据须有启用的 HTTP/SOCKS5 入口消费。
+  配置凭据后 HTTP/SOCKS5 均校验凭据；共享或非空凭据须有启用的混合入口消费。
 - Basic / SOCKS 用户密码没有链路加密，只适合可信网络。Controller 仍独立回环监听，
   使用自己的 Bearer 认证，不随共享开关开放。
 - 不设置全局业务连接/关联准入数。Stop 取消并等待全部连接、relay 和接收任务，
-  返回后端口可重新绑定。纯 SOCKS5 的独立 feature 不要求启用业务 HTTP。
+  返回后端口可重新绑定。
 
 ## HTTP
 

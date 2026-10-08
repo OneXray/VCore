@@ -1,11 +1,11 @@
 use std::{io, net::SocketAddr, sync::Arc, time::Duration};
 
 use tokio::{
-    io::{AsyncReadExt, copy_bidirectional_with_sizes},
+    io::{AsyncRead, AsyncReadExt, AsyncWrite, copy_bidirectional_with_sizes},
     net::{TcpListener, TcpStream, UdpSocket},
     sync::mpsc,
     task::JoinSet,
-    time::{Instant, MissedTickBehavior, interval_at, timeout},
+    time::{Instant, MissedTickBehavior, interval_at, timeout, timeout_at},
 };
 use tokio_util::sync::CancellationToken;
 
@@ -37,12 +37,6 @@ pub struct Socks5Server {
 
 impl Socks5Server {
     pub fn bind(config: Socks5InboundConfig, dispatcher: Arc<dyn Dispatcher>) -> io::Result<Self> {
-        if config.access.allow_lan && config.auth.is_none() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "shared proxy requires authentication",
-            ));
-        }
         let listeners = bind_proxy_tcp(config.port, config.access)?;
         // UDP must bind every successfully acquired TCP family. Failure drops
         // all sockets, before either protocol can accept application traffic.
@@ -74,26 +68,14 @@ impl Socks5Server {
     }
 
     pub async fn serve(self, cancellation: CancellationToken) -> io::Result<()> {
-        let registry = Arc::new(Associations::default());
+        let handler = Socks5Handler::new(self.config.clone(), self.dispatcher.clone());
         let mut receivers = JoinSet::new();
         for socket in &self.sockets {
             let socket = socket.clone();
-            let registry = registry.clone();
+            let handler = handler.clone();
             let child = cancellation.clone();
             receivers.spawn(crate::resources::observation::task(async move {
-                // A sentinel byte rejects oversized packets, including OS
-                // truncation, without allocating from a client length field.
-                let mut buffer = vec![0; SOCKS5_UDP_PACKET_LIMIT + 1];
-                loop {
-                    tokio::select! {
-                        biased;
-                        () = child.cancelled() => return Ok::<_, io::Error>(()),
-                        received = socket.recv_from(&mut buffer) => {
-                            let (length, source) = received?;
-                            registry.enqueue(source, &buffer[..length], Instant::now());
-                        }
-                    }
-                }
+                handler.receive_udp(socket, child).await
             }));
         }
         let mut connections = JoinSet::new();
@@ -108,19 +90,19 @@ impl Socks5Server {
                     _ => Err(io::Error::other("SOCKS5 UDP receiver stopped")),
                 },
                 joined = connections.join_next(), if !connections.is_empty() => { let _ = joined; },
-                _ = cleanup.tick() => registry.cleanup(Instant::now()),
+                _ = cleanup.tick() => handler.cleanup(Instant::now()),
                 accepted = self.accept() => {
                     let (index, stream, peer) = match accepted { Ok(value) => value, Err(error) => break Err(error) };
                     let socket = self.sockets[index].clone();
-                    let dispatcher = self.dispatcher.clone();
-                    let config = self.config.clone();
-                    let registry = registry.clone();
+                    let handler = handler.clone();
                     let child = cancellation.clone();
+                    let deadline = Instant::now() + HANDSHAKE_TIMEOUT;
                     connections.spawn(crate::resources::observation::task(async move {
+                        let Ok(relay) = stream.local_addr() else { return; };
                         tokio::select! {
                             biased;
                             () = child.cancelled() => {},
-                            _ = handle_connection(stream, peer, socket, config, dispatcher, registry, child.clone()) => {},
+                            _ = handler.handle_connection(stream, peer, relay, Some(socket), child.clone(), deadline) => {},
                         }
                     }));
                 }
@@ -142,89 +124,144 @@ where
         .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "SOCKS5 operation timed out"))?
 }
 
-async fn handle_connection(
-    mut stream: TcpStream,
-    peer: SocketAddr,
-    socket: Arc<UdpSocket>,
+#[derive(Clone)]
+pub(crate) struct Socks5Handler {
     config: Socks5InboundConfig,
     dispatcher: Arc<dyn Dispatcher>,
     registry: Arc<Associations>,
-    cancellation: CancellationToken,
-) -> io::Result<()> {
-    let (command, destination) = timeout(
-        HANDSHAKE_TIMEOUT,
-        handshake::negotiate(&mut stream, config.auth.as_ref()),
-    )
-    .await
-    .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "SOCKS5 handshake timed out"))??;
-    if !config.access.ipv6 && matches!(&destination, Destination::Ip(address) if address.is_ipv6())
-    {
-        timed(handshake::reply(&mut stream, 8, None)).await?;
-        return Ok(());
-    }
-    if command == COMMAND_CONNECT {
-        let session = StreamSession {
-            inbound: InboundKind::Socks5,
-            source: peer,
-            destination,
-            sniffed_domain: None,
-        };
-        let connected = timeout(IO_TIMEOUT, dispatcher.connect_tcp(session))
-            .await
-            .unwrap_or(Err(DispatchError::TimedOut));
-        match connected {
-            Ok(mut upstream) => {
-                timed(handshake::reply(&mut stream, 0, None)).await?;
-                copy_bidirectional_with_sizes(
-                    &mut stream,
-                    &mut upstream,
-                    RELAY_BUFFER_SIZE,
-                    RELAY_BUFFER_SIZE,
-                )
-                .await?;
-            }
-            Err(error) => {
-                timed(handshake::reply(
-                    &mut stream,
-                    handshake::status(&error),
-                    None,
-                ))
-                .await?;
-            }
-        }
-        return Ok(());
-    }
-    let requested = match destination {
-        Destination::Ip(address) if address.ip().is_unspecified() || address.ip() == peer.ip() => {
-            address
-        }
-        _ => {
-            timed(handshake::reply(&mut stream, 2, None)).await?;
-            return Ok(());
-        }
-    };
-    let (lease, receiver) = match registry.register(peer, requested.port(), &cancellation) {
-        Ok(value) => value,
-        Err(_) => {
-            timed(handshake::reply(&mut stream, 2, None)).await?;
-            return Ok(());
-        }
-    };
-    // The accepted socket's concrete local IP is reachable even when the
-    // listener was bound to a wildcard. TCP and UDP share this exact port.
-    let relay = stream.local_addr()?;
-    timed(handshake::reply(&mut stream, 0, Some(relay))).await?;
-    tokio::select! {
-        biased;
-        () = lease.cancellation.cancelled() => {},
-        _ = read_control(&mut stream) => {},
-        _ = relay_datagrams(&lease, receiver, socket, dispatcher, registry) => {},
-    }
-    // Dropping the lease revokes authorization before the control socket.
-    Ok(())
 }
 
-async fn read_control(stream: &mut TcpStream) -> io::Result<()> {
+#[cfg(all(feature = "inbound-http", feature = "inbound-socks5"))]
+pub(crate) const UDP_CLEANUP_INTERVAL: Duration = CLEANUP_INTERVAL;
+
+impl Socks5Handler {
+    pub(crate) fn new(config: Socks5InboundConfig, dispatcher: Arc<dyn Dispatcher>) -> Self {
+        Self {
+            config,
+            dispatcher,
+            registry: Arc::new(Associations::default()),
+        }
+    }
+
+    pub(crate) fn cleanup(&self, now: Instant) {
+        self.registry.cleanup(now);
+    }
+
+    pub(crate) async fn receive_udp(
+        &self,
+        socket: Arc<UdpSocket>,
+        cancellation: CancellationToken,
+    ) -> io::Result<()> {
+        // The sentinel rejects oversized/truncated packets before authorization.
+        let mut buffer = vec![0; SOCKS5_UDP_PACKET_LIMIT + 1];
+        loop {
+            tokio::select! {
+                biased;
+                () = cancellation.cancelled() => return Ok(()),
+                received = socket.recv_from(&mut buffer) => {
+                    let (length, source) = received?;
+                    self.registry.enqueue(source, &buffer[..length], Instant::now());
+                }
+            }
+        }
+    }
+
+    pub(crate) async fn handle_connection<S>(
+        &self,
+        mut stream: S,
+        peer: SocketAddr,
+        relay: SocketAddr,
+        socket: Option<Arc<UdpSocket>>,
+        cancellation: CancellationToken,
+        deadline: Instant,
+    ) -> io::Result<()>
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+    {
+        let config = &self.config;
+        let dispatcher = self.dispatcher.clone();
+        let registry = self.registry.clone();
+        let (command, destination) = timeout_at(
+            deadline,
+            handshake::negotiate(&mut stream, config.auth.as_ref()),
+        )
+        .await
+        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "SOCKS5 handshake timed out"))??;
+        if !config.access.ipv6
+            && matches!(&destination, Destination::Ip(address) if address.is_ipv6())
+        {
+            timed(handshake::reply(&mut stream, 8, None)).await?;
+            return Ok(());
+        }
+        if command == COMMAND_CONNECT {
+            let session = StreamSession {
+                inbound: InboundKind::Socks5,
+                source: peer,
+                destination,
+                sniffed_domain: None,
+            };
+            let connected = timeout(IO_TIMEOUT, dispatcher.connect_tcp(session))
+                .await
+                .unwrap_or(Err(DispatchError::TimedOut));
+            match connected {
+                Ok(mut upstream) => {
+                    timed(handshake::reply(&mut stream, 0, None)).await?;
+                    copy_bidirectional_with_sizes(
+                        &mut stream,
+                        &mut upstream,
+                        RELAY_BUFFER_SIZE,
+                        RELAY_BUFFER_SIZE,
+                    )
+                    .await?;
+                }
+                Err(error) => {
+                    timed(handshake::reply(
+                        &mut stream,
+                        handshake::status(&error),
+                        None,
+                    ))
+                    .await?;
+                }
+            }
+            return Ok(());
+        }
+        let Some(socket) = socket else {
+            timed(handshake::reply(&mut stream, 7, None)).await?;
+            return Ok(());
+        };
+        let requested = match destination {
+            Destination::Ip(address)
+                if address.ip().is_unspecified() || address.ip() == peer.ip() =>
+            {
+                address
+            }
+            _ => {
+                timed(handshake::reply(&mut stream, 2, None)).await?;
+                return Ok(());
+            }
+        };
+        let (lease, receiver) = match registry.register(peer, requested.port(), &cancellation) {
+            Ok(value) => value,
+            Err(_) => {
+                timed(handshake::reply(&mut stream, 2, None)).await?;
+                return Ok(());
+            }
+        };
+        // The accepted socket's concrete local IP is reachable even when the
+        // listener was bound to a wildcard. TCP and UDP share this exact port.
+        timed(handshake::reply(&mut stream, 0, Some(relay))).await?;
+        tokio::select! {
+            biased;
+            () = lease.cancellation.cancelled() => {},
+            _ = read_control(&mut stream) => {},
+            _ = relay_datagrams(&lease, receiver, socket, dispatcher, registry) => {},
+        }
+        // Dropping the lease revokes authorization before the control socket.
+        Ok(())
+    }
+}
+
+async fn read_control<S: AsyncRead + Unpin>(stream: &mut S) -> io::Result<()> {
     let mut buffer = [0; 1024];
     while stream.read(&mut buffer).await? != 0 {}
     Ok(())

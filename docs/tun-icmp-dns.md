@@ -1,6 +1,6 @@
 # TUN ICMP 与 DNS
 
-VCore 在 TUN netstack 内回答受支持的 ICMP Echo Request。启用运行时 DNS 后，TUN TCP/UDP 53、选路惰性解析和内部查询共享同一套有界 DNS 实现。
+Vole 在 TUN netstack 内回答受支持的 ICMP Echo Request。启用运行时 DNS 后，匹配 `tun.dns-hijack` 的 TUN TCP/UDP、选路惰性解析和内部查询共享同一套有界 DNS 实现。
 
 顶层 `ipv6: false` 时，IPv6 原始包会在进入 netstack 前被丢弃，因此不会触发 ICMPv6 回应或 IPv6 上的 DNS/业务流量；运行时 DNS 的有效 IPv6 能力同时要求顶层 `ipv6` 和 `dns.ipv6` 为 `true`。
 
@@ -22,17 +22,23 @@ VCore 在 TUN netstack 内回答受支持的 ICMP Echo Request。启用运行时
 - 非 Echo、非零 code、截断和非单播地址一律丢弃；
 - 单包失败不停止 netstack，也不生成 ICMP error。
 
-smoltcp 负责生成 Echo Reply，VCore 负责更严格的输入分类和运行时门禁。响应直接尝试进入现有原始包出站队列；队列满时只丢当前低优先级响应并更新统计，不创建等待任务或积压队列。
+smoltcp 负责生成 Echo Reply，Vole 负责更严格的输入分类和运行时门禁。响应直接尝试进入现有原始包出站队列；队列满时只丢当前低优先级响应并更新统计，不创建等待任务或积压队列。
 
 ## TUN DNS 入口
 
 当 `dns.enable: true`：
 
-- TUN UDP/53 在普通 UDP 关联建立前进入 DNS 快速路径；
-- TUN TCP/53 保留 netstack TCP 状态和两字节 DNS 长度帧；
+- 匹配 `tun.dns-hijack` 的 TUN UDP 在普通 UDP 关联建立前进入 DNS 快速路径；
+- 匹配目标的 TUN TCP 保留 netstack TCP 状态和两字节 DNS 长度帧；
 - 两者与惰性解析和内部查询共享缓存、singleflight 和上游连接。
 
-当 `dns.enable: false` 时，TCP/UDP 53 不做劫持或地址改写，而是保留原目标并作为普通业务流量执行规则。
+`tun.dns-hijack` 缺省为 `[0.0.0.0:53]`，显式 `[]` 关闭劫持。
+每项接受 `IP:port` 或 `any:port`；与 Mihomo 相同，若包含 `://`，忽略此前的任意前缀，
+仅解析后面的端点。前缀不决定传输协议，`https://` 也不表示启用 DoH。
+精确端点匹配 IP 和端口。未指定 IP（`0.0.0.0` / `::` / `any`）
+跨地址族匹配业务 53 端口，包括配置未指定地址项的端口写为其他值的情况。
+
+当 `dns.enable: false`、列表为空或目标不匹配时，不做劫持或地址改写，而是保留原目标并作为普通业务流量执行规则。非 TUN 入站不使用这份劫持列表。
 
 UDP 读取器只做有界 wire 分类和任务提交，不同步等待上游。合法 DNS 数据报不创建或刷新普通 UDP 关联。
 
@@ -160,24 +166,24 @@ Controller 切换代理组后，只在后续需要创建新 DNS transport 时使
 | DNS 响应 | 128 |
 | 普通 UDP 响应 | 4,096 |
 
-reader 在进入 TCP netstack 前分流 UDP，拥有按源地址建立的关联表，没有共享 UDP 入站接收器或独立 DNS 请求准入数。每普通 UDP 关联有独立请求队列；DNS 查询继续提交受跟踪的任务，不等待上游。队列满时只丢当前请求或响应，不阻塞 reader；TCP accept 仍为 128 项。TUN UDP 响应按有效 MTU 减去 48 字节保守限制；其他平台为 1,452 字节，Windows 为 1,352 字节。
+reader 在进入 TCP netstack 前分流 UDP，拥有按源地址建立的关联表，没有共享 UDP 入站接收器或独立 DNS 请求准入数。每普通 UDP 关联有独立请求队列；DNS 查询继续提交受跟踪的任务，不等待上游。队列满时只丢当前请求或响应，不阻塞 reader；TCP accept 仍为 128 项。TUN UDP 响应按有效 MTU 减去 48 字节保守限制；默认 9000 MTU 时为 8,952 字节；显式 1500 为 1,452 字节，Windows UWP 使用 1400 时为 1,352 字节。
 
-唯一受跟踪的 TUN writer 公平读取普通 UDP、DNS 和 TCP/ICMP raw 三个通道，任一通道关闭不丢弃其他通道的待写响应。UDP 构包后直接写平台，不再转发到共享 raw output。DNS 查询观测 permit 保留至该包被平台接受、最终丢弃或取消，写回阻塞和 ENOBUFS 重试不提前释放；Windows Adapter 成功处理不等于框架最终交付。MTU/地址族错误只丢当前响应。
+唯一受跟踪的 TUN writer 公平读取普通 UDP、DNS 和 TCP/ICMP raw 三个通道，任一通道关闭不丢弃其他通道的待写响应。UDP 构包后直接写平台，不再转发到共享 raw output。DNS 查询观测 permit 保留至该包被平台接受、最终丢弃或取消，写回阻塞和 ENOBUFS 重试不提前释放；WinRT Adapter 成功处理不等于框架最终交付。MTU/地址族错误只丢当前响应。
 
 运行时停止会取消 open、send、receive、retry 和 response-send，释放全部传输并等待已跟踪任务结束。停止返回后不得再向 TUN 回包。
 
-普通非 DNS UDP 关联不设固定总数，采用代次感知所有权、30 秒空闲超时和 10 秒清理周期。只有成功入队的请求或响应刷新活动时间。
+普通非 DNS UDP 关联不设固定总数，采用代次感知所有权和 `tun.udp-timeout` 空闲超时，缺省或零值为 300 秒；清理周期为该期限与 10 秒的较小值。只有成功入队的请求或响应刷新活动时间。
 
 普通 TUN UDP 的 IP 目标在源关联内按目的 IP/端口固定规则 action，即五元组独立
 选路，不把整个源的所有目标固定到同一个动作。首包完成嗅探/选路后，活动流不随
-DNS 提示或 GeoData 更新改路；新流使用当前数据。每目标独立 30 秒空闲失效，
+DNS 提示或 GeoData 更新改路；新流使用当前数据。每目标按同一个 `tun.udp-timeout` 独立空闲失效，
 10 秒间隔借既有关联收发回收；无逐流任务/队列/socket。新认证 QUIC 连接的首包
 重新选路，同连接 Initial 重传不重选。具体边界见 [GeoData 生命周期](geodata.md#生命周期)。
-DNS/53 劫持仍先于普通关联，每个查询独立执行 nameserver-policy，不受五元组固定影响。
+匹配配置的 DNS 劫持仍先于普通关联，每个查询独立执行 nameserver-policy，不受五元组固定影响。
 
 ## IP-only协议与独立测速接点
 
-公共`ResolutionContext`仅在协议必须取得IP地址的边界解析业务目标或逻辑上游；原始`Destination`保持不变，HTTP Host、TLS SNI和路由仍使用逻辑名称。代理endpoint的prepare bootstrap与该运行期解析分离，不递归使用尚未建立的同一出口。当前静态ECH不查询DNS；动态ECH及其可选宿主bootstrap入口尚未实现，不属于当前Invoke v5。
+公共`ResolutionContext`仅在协议必须取得IP地址的边界解析业务目标或逻辑上游；原始`Destination`保持不变，HTTP Host、TLS SNI和路由仍使用逻辑名称。代理endpoint的prepare bootstrap与该运行期解析分离，不递归使用尚未建立的同一出口。当前静态ECH不查询DNS；动态ECH及其可选宿主bootstrap入口尚未实现，不属于当前Invoke接口。
 
 Running Session上下文仅弱引用本session的RuntimeDns，使用上文nameserver/policy与出口；未绑定、DNS关闭、上游不可达或session已停止时明确失败，不调用系统resolver兜底。IP字面量仍执行端口/地址族政策。解析共享同一次建链期限，Stop取消当前及后续查询；在进入可能等待自身的singleflight之前拒绝同名递归依赖，嵌套依赖深度最多32层。不会因为DNS经代理出口就无条件禁止整个图。
 

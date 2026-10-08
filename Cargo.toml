@@ -1,27 +1,32 @@
 [workspace]
-members = ["crates/vcore-blake3-raw", "crates/vcore-netstack"]
+members = ["crates/vole-blake3-raw", "crates/vole-netstack"]
 resolver = "3"
 
 [package]
-name = "vcore"
+name = "vole"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
 publish = false
 
 [lib]
-name = "vcore"
+name = "vole"
 crate-type = ["rlib", "staticlib", "cdylib"]
 
 [[bin]]
-name = "vcore-windows-vpn-host"
-path = "src/bin/windows_vpn_host.rs"
-required-features = ["ffi"]
+name = "vole"
+path = "src/bin/vole.rs"
+required-features = ["cli"]
 
 [[bin]]
-name = "vcore-windows-session-host"
+name = "vole-windows-vpn-host"
+path = "src/bin/windows_vpn_host.rs"
+required-features = ["ffi", "windows-uwp"]
+
+[[bin]]
+name = "vole-windows-session-host"
 path = "src/bin/windows_session_host.rs"
-required-features = ["ffi"]
+required-features = ["ffi", "windows-uwp"]
 
 [features]
 default = [
@@ -42,7 +47,7 @@ inbound-socks5 = []
 outbound-anytls = ["dep:md-5", "tls-fingerprint"]
 outbound-socks5 = []
 outbound-shadowsocks = ["dep:shadowsocks", "dep:log"]
-outbound-vless = ["tls-fingerprint", "boring/reality", "boring/jls", "boring/mlkem", "dep:blake3", "dep:hpke", "dep:zeroize", "dep:vcore-blake3-raw", "stream-transport", "quic-transport", "dep:hyper", "dep:hyper-util", "dep:h3", "dep:h3-quinn", "dep:yamux", "tokio-util/compat"]
+outbound-vless = ["tls-fingerprint", "boring/reality", "boring/jls", "boring/mlkem", "dep:blake3", "dep:hpke", "dep:zeroize", "dep:vole-blake3-raw", "stream-transport", "quic-transport", "dep:hyper", "dep:hyper-util", "dep:h3", "dep:h3-quinn", "dep:yamux", "tokio-util/compat"]
 outbound-trojan = ["stream-transport", "tls-fingerprint"]
 outbound-vmess = ["stream-transport", "tls-fingerprint", "dep:aes", "dep:crc32fast", "dep:md-5", "dep:ring", "dep:shake"]
 tls-fingerprint = ["dep:boring", "dep:tokio-boring"]
@@ -56,10 +61,13 @@ quic-transport = ["dep:quinn"]
 interop-test = ["outbound-anytls", "outbound-vless"]
 # Allows plaintext GeoData fixtures for isolated benchmarks, never production.
 benchmark-geodata-http = []
-ffi = ["tun", "tokio/rt-multi-thread", "dep:windows", "dep:windows-collections", "dep:windows-core"]
+invoke = ["tun", "tokio/rt-multi-thread", "tokio/signal"]
+ffi = ["invoke"]
+cli = ["invoke"]
+windows-wintun = ["tun", "dep:tun-rs"]
+windows-uwp = ["invoke", "dep:windows", "dep:windows-collections", "dep:windows-core"]
 tun = [
-    "dep:tun-rs",
-    "dep:vcore-netstack",
+    "dep:vole-netstack",
     "inbound-http",
     "inbound-socks5",
     "outbound-anytls",
@@ -95,7 +103,7 @@ httparse = { version = "1.10", optional = true }
 idna = "1.1"
 libc = "0.2"
 # Upstream SS trace/debug logs include key material and traffic destinations.
-# Keep the log facade compiled out when SS is linked; VCore uses tracing.
+# Keep the log facade compiled out when SS is linked; Vole uses tracing.
 log = { version = "0.4", optional = true, features = ["max_level_off", "release_max_level_off"] }
 md-5 = { version = "0.11", optional = true }
 quinn = { version = "=0.11.12", default-features = false, features = ["runtime-tokio", "rustls-ring"], optional = true }
@@ -121,8 +129,8 @@ tokio-util = { version = "0.7", features = ["rt"] }
 tracing = "0.1"
 url = "2"
 uuid = { version = "1", features = ["serde"] }
-vcore-netstack = { path = "crates/vcore-netstack", optional = true }
-vcore-blake3-raw = { path = "crates/vcore-blake3-raw", optional = true }
+vole-netstack = { path = "crates/vole-netstack", optional = true }
+vole-blake3-raw = { path = "crates/vole-blake3-raw", optional = true }
 webpki-roots = "1"
 yamux = { version = "=0.14.1", optional = true }
 zeroize = { version = "=1.9.0", optional = true }
@@ -131,9 +139,12 @@ zeroize = { version = "=1.9.0", optional = true }
 oslog = { version = "0.2", default-features = false }
 
 [target.'cfg(unix)'.dependencies]
-tun-rs = { version = "=2.8.11", default-features = false, optional = true }
+# Keep one Cargo dependency name across target tables. Unix compiles this small
+# adapter dependency; platform I/O remains gated by the tun feature.
+tun-rs = { version = "=2.8.11", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
+tun-rs = { version = "=2.8.11", default-features = false, optional = true, features = ["interruptible"] }
 windows = { version = "=0.62.2", optional = true, features = [
     "ApplicationModel_Background",
     "ApplicationModel_Core",

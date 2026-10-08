@@ -19,6 +19,8 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 
 use super::Socks5Server;
+#[cfg(feature = "inbound-http")]
+use crate::{config::MixedInboundConfig, inbound::mixed::MixedServer};
 use crate::{
     config::{ProxyAccess, ProxyCredentials, Socks5InboundConfig},
     dispatch::{BoxStream, DatagramTransport, DispatchError, Dispatcher},
@@ -132,6 +134,18 @@ impl Fixture {
             },
             auth: authenticated.then(auth),
         };
+        #[cfg(feature = "inbound-http")]
+        let server = MixedServer::bind(
+            MixedInboundConfig {
+                tag: config.tag,
+                port: config.port,
+                access: config.access,
+                auth: config.auth,
+            },
+            peers.clone(),
+        )
+        .unwrap();
+        #[cfg(not(feature = "inbound-http"))]
         let server = Socks5Server::bind(config, peers.clone()).unwrap();
         let addresses = server.local_addrs().unwrap();
         let cancellation = CancellationToken::new();

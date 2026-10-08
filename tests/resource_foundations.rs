@@ -1,7 +1,7 @@
 #![cfg(all(feature = "interop-test", feature = "quic-transport"))]
 use quinn::AsyncUdpSocket;
 use std::{sync::Arc, time::Duration};
-use vcore::{
+use vole::{
     dialer::Dialer,
     dispatch::DatagramBudget,
     outbound::{DatagramRequest, DirectOutbound, EstablishContext, OutboundConnector},
@@ -13,7 +13,7 @@ use vcore::{
 #[tokio::test]
 async fn twenty_quic_lifetimes_return_owned_resources_to_zero_then_remain_quiet() {
     #[cfg(feature = "interop-test")]
-    let mut _case = vcore::resources::case_events::Case::new(
+    let mut _case = vole::resources::case_events::Case::new(
         "FOUNDATIONS-RESOURCES",
         "twenty_quic_lifetimes_return_owned_resources_to_zero_then_remain_quiet",
     );
@@ -68,7 +68,7 @@ async fn twenty_quic_lifetimes_return_owned_resources_to_zero_then_remain_quiet(
 #[tokio::test]
 async fn physical_tcp_guard_survives_connect_and_releases_on_stream_drop() {
     #[cfg(feature = "interop-test")]
-    let mut _case = vcore::resources::case_events::Case::new(
+    let mut _case = vole::resources::case_events::Case::new(
         "FOUNDATIONS-RESOURCES",
         "physical_tcp_guard_survives_connect_and_releases_on_stream_drop",
     );
@@ -97,7 +97,7 @@ async fn physical_tcp_guard_survives_connect_and_releases_on_stream_drop() {
 #[tokio::test]
 async fn twenty_stream_lifetimes_and_cancelled_setups_remain_quiet() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    let mut case = vcore::resources::case_events::Case::new(
+    let mut case = vole::resources::case_events::Case::new(
         "FOUNDATIONS-RESOURCES",
         "twenty_stream_lifetimes_and_cancelled_setups_remain_quiet",
     );
@@ -123,14 +123,14 @@ async fn twenty_stream_lifetimes_and_cancelled_setups_remain_quiet() {
                     });
                     let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
                     let (mut stream, owner) = if is_grpc {
-                        vcore::transport::grpc(
+                        vole::transport::grpc(
                             Box::new(client),
                             "https://fixture.invalid/s/Tun",
                             deadline,
                         )
                         .await
                     } else {
-                        vcore::transport::legacy_h2(
+                        vole::transport::legacy_h2(
                             Box::new(client),
                             "https://fixture.invalid/h2",
                             deadline,
@@ -158,7 +158,7 @@ async fn twenty_stream_lifetimes_and_cancelled_setups_remain_quiet() {
                 let (client, mut peer) = tokio::io::duplex(1024);
                 let result = tokio::time::timeout(
                     Duration::from_millis(2),
-                    vcore::transport::websocket(
+                    vole::transport::websocket(
                         Box::new(client),
                         "ws://fixture.invalid/",
                         tokio::time::Instant::now() + Duration::from_secs(2),

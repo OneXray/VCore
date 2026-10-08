@@ -23,7 +23,7 @@ use windows::{
 };
 
 use super::{
-    WINDOWS_VPN_MTU, log,
+    log,
     managed_processes::ManagedProcessSet,
     packet_channel::{
         ControlMessage, DATA_PIPE_READ_BUFFER_BYTES, MAX_PACKET_BATCH_PACKETS, PROTOCOL_VERSION,
@@ -37,7 +37,7 @@ use crate::{
     config::Config,
     dialer::{Dialer, SystemResolver},
     geodata::GeoDataManager,
-    platform::TunIo,
+    platform::{TunIo, validate_packet_channel_config},
     runtime::{PreparedCore, RunningCore},
 };
 
@@ -75,8 +75,8 @@ pub fn run() -> io::Result<()> {
 fn run_initialized() -> io::Result<()> {
     let (local_folder, installed_folder) = package_folders()?;
     log::append(&local_folder, "session", "Session Host starting");
-    let _runtime_thread = crate::ffi::RuntimeThreadGuard::enter();
-    let runtime = crate::ffi::engine_runtime_builder()
+    let _runtime_thread = crate::invoke::RuntimeThreadGuard::enter();
+    let runtime = crate::invoke::engine_runtime_builder()
         .enable_io()
         .enable_time()
         .build()?;
@@ -121,7 +121,7 @@ async fn run_async(local_folder: &Path, installed_folder: &Path) -> io::Result<(
                 &ControlMessage::RuntimeFailed {
                     version: PROTOCOL_VERSION,
                     code: "runtime-start-failed".to_owned(),
-                    redacted_message: "VCore runtime failed to start".to_owned(),
+                    redacted_message: "Vole runtime failed to start".to_owned(),
                 },
             )
             .await;
@@ -194,7 +194,7 @@ async fn run_async(local_folder: &Path, installed_folder: &Path) -> io::Result<(
                 &ControlMessage::RuntimeFailed {
                     version: PROTOCOL_VERSION,
                     code: "runtime-failed".to_owned(),
-                    redacted_message: "VCore runtime stopped unexpectedly".to_owned(),
+                    redacted_message: "Vole runtime stopped unexpectedly".to_owned(),
                 },
             )
             .await;
@@ -245,7 +245,7 @@ async fn start_session(
         .session_backend()
         .map(|backend| ManagedProcessSet::start(installed_folder, backend))
         .transpose()?;
-    let started = start_vcore(local_folder, snapshot.config_yaml(), binding, data).await;
+    let started = start_vole(local_folder, snapshot.config_yaml(), binding, data).await;
     let (running, mut data_tasks) = match started {
         Ok(started) => started,
         Err(error) => {
@@ -269,7 +269,7 @@ async fn start_session(
     Ok((running, data_tasks, managed_processes))
 }
 
-async fn start_vcore(
+async fn start_vole(
     local_folder: &Path,
     config_yaml: &str,
     binding: PhysicalBinding,
@@ -277,23 +277,24 @@ async fn start_vcore(
 ) -> io::Result<(RunningCore, JoinSet<io::Result<()>>)> {
     let config = Config::parse_yaml(config_yaml.as_bytes())
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+    let mtu = validate_packet_channel_config(&config.tun)?;
     let geodata = GeoDataManager::open(
-        local_folder.join("vcore/geodata"),
+        local_folder.join("vole/geodata"),
         Duration::from_secs(24 * 60 * 60),
     )
     .map_err(io::Error::other)?;
     let limits = ResourceLimits {
-        tun_max_datagram_size: WINDOWS_VPN_MTU,
+        tun_max_datagram_size: usize::from(mtu),
         ..ResourceLimits::default()
     };
     let prepared = PreparedCore::prepare_config(config, geodata, &SystemResolver, limits).await?;
 
     let wake = Arc::new(Notify::new());
     let observed = Arc::clone(&wake);
-    let (tun, packets) = TunIo::new(PACKET_QUEUE_CAPACITY, move || {
+    let (tun, packets) = TunIo::new(PACKET_QUEUE_CAPACITY, mtu, move || {
         observed.notify_one();
         Ok(())
-    });
+    })?;
     let (data_read, mut data_write) = tokio::io::split(data);
     let mut data_read = BufReader::with_capacity(DATA_PIPE_READ_BUFFER_BYTES, data_read);
     let mut tasks = JoinSet::new();
@@ -428,7 +429,7 @@ mod tests {
     #[tokio::test]
     async fn provider_cannot_bind_a_candidate_to_another_snapshot() {
         let candidate =
-            "vcore-session-v2:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+            "vole-session-v2:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
         let mut provider = Vec::new();
         write_control_async(
             &mut provider,

@@ -1,6 +1,6 @@
 #![cfg(feature = "outbound-trojan")]
 
-use vcore::{
+use vole::{
     outbound::trojan::{TrojanAuth, TrojanCommand},
     session::Destination,
 };
@@ -8,7 +8,7 @@ use vcore::{
 #[test]
 fn request_matches_the_official_sha224_and_socks_address_wire_format() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "TROJAN-CODEC",
         "request_matches_the_official_sha224_and_socks_address_wire_format",
     );
@@ -25,7 +25,7 @@ fn request_matches_the_official_sha224_and_socks_address_wire_format() {
 #[test]
 fn authentication_and_requests_are_strict_and_never_debug_credentials() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "TROJAN-CODEC",
         "authentication_and_requests_are_strict_and_never_debug_credentials",
     );
@@ -56,12 +56,12 @@ fn authentication_and_requests_are_strict_and_never_debug_credentials() {
 #[tokio::test]
 async fn invalid_truncated_and_oversized_frames_fail_closed_without_payload_leaks() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "TROJAN-CODEC",
         "invalid_truncated_and_oversized_frames_fail_closed_without_payload_leaks",
     );
     use tokio::io::AsyncWriteExt;
-    use vcore::{
+    use vole::{
         dispatch::{DatagramBudget, DatagramTransport},
         outbound::trojan::TrojanDatagram,
     };
@@ -88,13 +88,13 @@ async fn invalid_truncated_and_oversized_frames_fail_closed_without_payload_leak
 #[tokio::test]
 async fn datagram_limits_preserve_messages_and_drain_over_budget_responses() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "TROJAN-CODEC",
         "datagram_limits_preserve_messages_and_drain_over_budget_responses",
     );
     use bytes::Bytes;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use vcore::{
+    use vole::{
         dispatch::{DatagramBudget, DatagramTransport},
         outbound::trojan::{MAX_DATAGRAM_PAYLOAD, TrojanDatagram},
         session::Datagram,
@@ -141,13 +141,13 @@ async fn datagram_limits_preserve_messages_and_drain_over_budget_responses() {
 #[tokio::test]
 async fn datagram_sends_one_frame_and_receives_fragmented_consecutive_frames() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "TROJAN-CODEC",
         "datagram_sends_one_frame_and_receives_fragmented_consecutive_frames",
     );
     use bytes::Bytes;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use vcore::{
+    use vole::{
         dispatch::{DatagramBudget, DatagramTransport},
         outbound::trojan::TrojanDatagram,
         session::Datagram,
@@ -186,13 +186,13 @@ async fn datagram_sends_one_frame_and_receives_fragmented_consecutive_frames() {
 #[tokio::test]
 async fn cancelled_receive_preserves_partial_frames_and_does_not_block_send() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "TROJAN-CODEC",
         "cancelled_receive_preserves_partial_frames_and_does_not_block_send",
     );
     use bytes::Bytes;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use vcore::{
+    use vole::{
         dispatch::{DatagramBudget, DatagramTransport},
         outbound::trojan::TrojanDatagram,
         session::Datagram,
@@ -230,13 +230,13 @@ async fn cancelled_receive_preserves_partial_frames_and_does_not_block_send() {
 #[tokio::test]
 async fn cancelled_partial_send_poison_closes_without_replaying_or_waiting() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "TROJAN-CODEC",
         "cancelled_partial_send_poison_closes_without_replaying_or_waiting",
     );
     use bytes::Bytes;
     use tokio::io::AsyncReadExt;
-    use vcore::{
+    use vole::{
         dispatch::{DatagramBudget, DatagramTransport},
         outbound::trojan::TrojanDatagram,
         session::Datagram,

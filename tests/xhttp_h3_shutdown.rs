@@ -22,7 +22,7 @@ use tokio::{
     sync::mpsc,
     task::JoinSet,
 };
-use vcore::{
+use vole::{
     config::{Config, ProxyProtocol},
     dispatch::{DatagramBudget, DatagramTransport, DispatchError},
     outbound::{EstablishContext, OutboundConnector, UpstreamPath, VlessOutbound},
@@ -224,7 +224,7 @@ async fn run(mode: &str, closing: Closing, handshake_delay: Option<Duration>) {
         received
     });
     let config = serde_json::json!({
-        "socks-port":1080,
+        "mixed-port":1080,
         "proxies":[{
             "name":"peer", "type":"vless", "server":"192.0.2.1", "port":443,
             "uuid":"07070707-0707-0707-0707-070707070707",

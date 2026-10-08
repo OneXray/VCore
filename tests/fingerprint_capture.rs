@@ -6,7 +6,7 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use serde_json::{Value, json};
 use std::time::Duration;
 use tokio::io::AsyncReadExt;
-use vcore::{
+use vole::{
     config::{Config, ProxyProtocol},
     security::SecurityClient,
 };
@@ -49,7 +49,7 @@ fn configuration(profile: &str, context: &str, sni: &str) -> SecurityClient {
         _ => panic!("unknown capture context"),
     }
     let config = Config::parse_yaml(
-        json!({"port": 1080, "proxies": [node], "rules": ["MATCH,p"]})
+        json!({"mixed-port": 1080, "proxies": [node], "rules": ["MATCH,p"]})
             .to_string()
             .as_bytes(),
     )
@@ -125,7 +125,7 @@ async fn selected_public_profiles_emit_bounded_client_hellos() {
         }
     }
     assert_eq!(cases.len(), 168);
-    if let Ok(path) = std::env::var("VCORE_FINGERPRINT_CAPTURE") {
+    if let Ok(path) = std::env::var("VOLE_FINGERPRINT_CAPTURE") {
         std::fs::write(path, serde_json::to_vec_pretty(&cases).unwrap()).unwrap();
     }
 }

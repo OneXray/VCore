@@ -1,24 +1,24 @@
 #![cfg(feature = "outbound-trojan")]
 
 use serde_json::{Value, json};
-use vcore::config::{Config, ProxyProtocol};
+use vole::config::{Config, ProxyProtocol};
 
 fn document(extra: Value) -> Vec<u8> {
     let mut node = json!({"name":"edge", "type":"trojan", "server":"localhost", "port":443, "password":" 密码 "});
     node.as_object_mut()
         .unwrap()
         .extend(extra.as_object().unwrap().clone());
-    serde_json::to_vec(&json!({"socks-port":1080,"proxies":[node],"rules":["MATCH,edge"]})).unwrap()
+    serde_json::to_vec(&json!({"mixed-port":1080,"proxies":[node],"rules":["MATCH,edge"]})).unwrap()
 }
 
 #[test]
 fn trojan_tcp_configuration_and_node_graph_accept_the_approved_fields() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "TROJAN-CFG",
         "trojan_tcp_configuration_and_node_graph_accept_the_approved_fields",
     );
-    let yaml = b"socks-port: 1080\nproxies:\n  - name: edge\n    type: trojan\n    server: example.com\n    port: 443\n    password: ' password '\n    udp: true\n    sni: tls.example.com\n    alpn: [h2, http/1.1]\n    skip-cert-verify: false\n    fingerprint: '0000000000000000000000000000000000000000000000000000000000000000'\n    dialer-proxy: upstream\nproxy-groups:\n  - name: upstream\n    type: select\n    proxies: [DIRECT, REJECT]\nrules: ['MATCH,edge']\n";
+    let yaml = b"mixed-port: 1080\nproxies:\n  - name: edge\n    type: trojan\n    server: example.com\n    port: 443\n    password: ' password '\n    udp: true\n    sni: tls.example.com\n    alpn: [h2, http/1.1]\n    skip-cert-verify: false\n    fingerprint: '0000000000000000000000000000000000000000000000000000000000000000'\n    dialer-proxy: upstream\nproxy-groups:\n  - name: upstream\n    type: select\n    proxies: [DIRECT, REJECT]\nrules: ['MATCH,edge']\n";
     let config = Config::parse_yaml(yaml).expect("TROJAN Trojan TCP configuration");
     assert_eq!(config.proxies[0].address(), "example.com");
     assert_eq!(config.proxies[0].port(), 443);
@@ -29,7 +29,7 @@ fn trojan_tcp_configuration_and_node_graph_accept_the_approved_fields() {
 #[test]
 fn trojan_tcp_defaults_preserve_credentials_and_address_policy() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "TROJAN-CFG",
         "trojan_tcp_defaults_preserve_credentials_and_address_policy",
     );
@@ -58,7 +58,7 @@ fn trojan_tcp_defaults_preserve_credentials_and_address_policy() {
 #[test]
 fn trojan_invalid_configuration_is_rejected_without_exposing_credentials() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "TROJAN-CFG",
         "trojan_invalid_configuration_is_rejected_without_exposing_credentials",
     );
@@ -130,7 +130,7 @@ fn trojan_invalid_configuration_is_rejected_without_exposing_credentials() {
 #[test]
 fn trojan_ws_and_grpc_configuration_applies_transport_specific_defaults() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "TROJAN-CFG",
         "trojan_ws_and_grpc_configuration_applies_transport_specific_defaults",
     );
@@ -169,7 +169,7 @@ fn trojan_ws_and_grpc_configuration_applies_transport_specific_defaults() {
 #[test]
 fn trojan_transport_boundaries_fail_before_runtime_io() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "TROJAN-CFG",
         "trojan_transport_boundaries_fail_before_runtime_io",
     );
@@ -225,7 +225,7 @@ fn trojan_transport_boundaries_fail_before_runtime_io() {
         );
     }
     for max in [0, 1, 2048] {
-        for header in [None, Some("x-vcore-ed"), Some("")] {
+        for header in [None, Some("x-vole-ed"), Some("")] {
             if max == 0 && header.is_some() {
                 continue;
             }

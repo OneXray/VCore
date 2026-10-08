@@ -1,14 +1,14 @@
 use serde_json::{Value, json};
-use vcore::config::{Config, ProxyProtocol};
+use vole::config::{Config, ProxyProtocol};
 
 fn node() -> Value {
     json!({"name":"ss","type":"ss","server":"fixture.invalid","port":443,
         "cipher":"2022-blake3-aes-128-gcm","password":"BwcHBwcHBwcHBwcHBwcHBw==","udp":true})
 }
 
-fn parse(node: Value) -> vcore::Result<Config> {
+fn parse(node: Value) -> vole::Result<Config> {
     Config::parse_yaml(
-        json!({"port":1080,"proxies":[node],"rules":["MATCH,ss"]})
+        json!({"mixed-port":1080,"proxies":[node],"rules":["MATCH,ss"]})
             .to_string()
             .as_bytes(),
     )
@@ -17,7 +17,7 @@ fn parse(node: Value) -> vcore::Result<Config> {
 #[test]
 fn ss_uot_is_opt_in_and_accepts_only_explicit_or_default_v2() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new("UOT-CFG", "strict_v2");
+    let _case = vole::resources::case_events::Case::new("UOT-CFG", "strict_v2");
     if !cfg!(feature = "outbound-shadowsocks") {
         let mut n = node();
         n["udp-over-tcp"] = json!(true);

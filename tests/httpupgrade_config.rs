@@ -2,7 +2,7 @@
 
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use vcore::{
+use vole::{
     config::{Config, ProxyProtocol},
     transport::{WebSocketOptions, connect_websocket},
 };
@@ -21,7 +21,7 @@ fn document(protocol: &str, options: Value) -> Vec<u8> {
     } else {
         node["uuid"] = json!("07070707-0707-0707-0707-070707070707");
     }
-    serde_json::to_vec(&json!({"socks-port":1080,"proxies":[node],"rules":["MATCH,edge"]})).unwrap()
+    serde_json::to_vec(&json!({"mixed-port":1080,"proxies":[node],"rules":["MATCH,edge"]})).unwrap()
 }
 
 fn options(protocol: &str, value: Value) -> WebSocketOptions {
@@ -36,7 +36,7 @@ fn options(protocol: &str, value: Value) -> WebSocketOptions {
 #[test]
 fn httpupgrade_rejects_ambiguous_modes_and_early_data_before_io() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new("HTTPUPGRADE-UNIT", "config_bounds");
+    let _case = vole::resources::case_events::Case::new("HTTPUPGRADE-UNIT", "config_bounds");
     for &protocol in PROTOCOLS {
         for fast in [false, true] {
             for early in [0, 1, 2048] {
@@ -90,7 +90,7 @@ fn httpupgrade_rejects_ambiguous_modes_and_early_data_before_io() {
 #[tokio::test]
 async fn httpupgrade_configuration_selects_raw_upgrade_and_commits_prefix_once() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new("HTTPUPGRADE-UNIT", "config_dispatch");
+    let _case = vole::resources::case_events::Case::new("HTTPUPGRADE-UNIT", "config_dispatch");
     for &protocol in PROTOCOLS {
         for fast in [false, true] {
             let options = options(

@@ -6,12 +6,12 @@ use std::{
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_util::task::TaskTracker;
-use vcore::transport::xhttp::{XHttpClient, XHttpConfig, XHttpMode};
+use vole::transport::xhttp::{XHttpClient, XHttpConfig, XHttpMode};
 
 fn config(reuse: serde_json::Value) -> XHttpConfig {
-    let raw = serde_json::json!({"socks-port":1080,"proxies":[{"name":"peer","type":"vless","server":"example.com","port":443,"uuid":"07070707-0707-0707-0707-070707070707","network":"xhttp","tls":true,"xhttp-opts":{"mode":"stream-one","reuse-settings":reuse}}],"rules":["MATCH,peer"]});
-    let raw = vcore::config::Config::parse_yaml(raw.to_string().as_bytes()).unwrap();
-    let vcore::config::ProxyProtocol::Vless(node) = &raw.proxies[0].protocol else {
+    let raw = serde_json::json!({"mixed-port":1080,"proxies":[{"name":"peer","type":"vless","server":"example.com","port":443,"uuid":"07070707-0707-0707-0707-070707070707","network":"xhttp","tls":true,"xhttp-opts":{"mode":"stream-one","reuse-settings":reuse}}],"rules":["MATCH,peer"]});
+    let raw = vole::config::Config::parse_yaml(raw.to_string().as_bytes()).unwrap();
+    let vole::config::ProxyProtocol::Vless(node) = &raw.proxies[0].protocol else {
         unreachable!()
     };
     let mut config = XHttpConfig::new("example.com", "/x", XHttpMode::StreamOne).unwrap();
@@ -19,7 +19,7 @@ fn config(reuse: serde_json::Value) -> XHttpConfig {
     config
 }
 
-async fn ready(stream: &mut vcore::dispatch::BoxStream) {
+async fn ready(stream: &mut vole::dispatch::BoxStream) {
     let mut greeting = [0; 5];
     stream.read_exact(&mut greeting).await.unwrap();
     assert_eq!(&greeting, b"ready");
@@ -28,7 +28,7 @@ async fn ready(stream: &mut vcore::dispatch::BoxStream) {
 async fn peer(
     calls: &AtomicUsize,
     tasks: &TaskTracker,
-) -> std::io::Result<vcore::dispatch::BoxStream> {
+) -> std::io::Result<vole::dispatch::BoxStream> {
     calls.fetch_add(1, Ordering::Relaxed);
     let (io, remote) = tokio::io::duplex(16384);
     tasks.spawn(async move {
@@ -68,12 +68,12 @@ async fn peer(
 #[tokio::test]
 async fn enabled_reuse_shares_physical_h2_without_one_close_killing_its_sibling() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "enabled_reuse_shares_physical_h2_without_one_close_killing_its_sibling",
     );
     tokio::time::timeout(Duration::from_secs(3), async {
-        let probe = vcore::resources::observation::ResourceProbe::default();
+        let probe = vole::resources::observation::ResourceProbe::default();
         probe
             .scope(async {
                 let tasks = TaskTracker::new();
@@ -117,7 +117,7 @@ async fn enabled_reuse_shares_physical_h2_without_one_close_killing_its_sibling(
 #[tokio::test]
 async fn reuse_thresholds_expand_and_retire_without_closing_active_sessions() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "reuse_thresholds_expand_and_retire_without_closing_active_sessions",
     );
@@ -167,7 +167,7 @@ async fn reuse_thresholds_expand_and_retire_without_closing_active_sessions() {
 #[tokio::test]
 async fn expired_transport_is_not_assigned_again_while_old_session_stays_live() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "expired_transport_is_not_assigned_again_while_old_session_stays_live",
     );
@@ -206,7 +206,7 @@ async fn expired_transport_is_not_assigned_again_while_old_session_stays_live() 
 #[tokio::test]
 async fn pooled_packet_posts_do_not_each_consume_a_transport_lease() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "pooled_packet_posts_do_not_each_consume_a_transport_lease",
     );
@@ -250,7 +250,7 @@ async fn pooled_packet_posts_do_not_each_consume_a_transport_lease() {
                 requests.close();
                 requests.wait().await;
             });
-            async { Ok(Box::new(io) as vcore::dispatch::BoxStream) }
+            async { Ok(Box::new(io) as vole::dispatch::BoxStream) }
         };
         let mut options = config(serde_json::json!({"h-max-request-times":"1"}));
         options.mode = XHttpMode::PacketUp;
@@ -291,7 +291,7 @@ async fn pooled_packet_posts_do_not_each_consume_a_transport_lease() {
 #[tokio::test(start_paused = true)]
 async fn h2_keepalive_uses_default_explicit_and_disabled_idle_periods() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "h2_keepalive_uses_default_explicit_and_disabled_idle_periods",
     );
@@ -351,7 +351,7 @@ async fn h2_keepalive_uses_default_explicit_and_disabled_idle_periods() {
 #[tokio::test]
 async fn download_uses_its_own_reuse_counters_and_keeps_shared_sessions_alive() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "download_uses_its_own_reuse_counters_and_keeps_shared_sessions_alive",
     );
@@ -394,7 +394,7 @@ async fn download_uses_its_own_reuse_counters_and_keeps_shared_sessions_alive() 
 #[tokio::test]
 async fn h1_packet_upload_reuses_its_idle_connection_but_reopens_the_cancelled_get() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "h1_packet_upload_reuses_its_idle_connection_but_reopens_the_cancelled_get",
     );
@@ -448,11 +448,11 @@ async fn h1_packet_upload_reuses_its_idle_connection_but_reopens_the_cancelled_g
                         .unwrap();
                 }
             });
-            async { Ok(Box::new(io) as vcore::dispatch::BoxStream) }
+            async { Ok(Box::new(io) as vole::dispatch::BoxStream) }
         };
         let mut options = config(serde_json::json!({}));
         options.mode = XHttpMode::PacketUp;
-        options.http_version = vcore::config::XHttpVersion::Http1;
+        options.http_version = vole::config::XHttpVersion::Http1;
         let client = XHttpClient::new(options);
         for _ in 0..2 {
             let mut stream = client
@@ -478,7 +478,7 @@ async fn h1_packet_upload_reuses_its_idle_connection_but_reopens_the_cancelled_g
 #[tokio::test]
 async fn stopping_during_handshake_prevents_late_driver_admission() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "stopping_during_handshake_prevents_late_driver_admission",
     );
@@ -514,7 +514,7 @@ async fn stopping_during_handshake_prevents_late_driver_admission() {
 #[tokio::test]
 async fn stop_wakes_a_handshake_even_when_the_peer_never_responds() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "XHTTP-UNIT",
         "stop_wakes_a_handshake_even_when_the_peer_never_responds",
     );

@@ -1,6 +1,12 @@
 # Windows VPN 平台边界
 
-Windows 数据面只使用官方 `Windows.Networking.Vpn` 和 `windows-rs`，不使用 Wintun 或文件描述符模拟层。完整代理运行时位于每会话 Session Host；AppContainer Provider 只负责 Windows VPN 平台资源和失败关闭。
+本文维护 MSIX 安装包中的官方 `Windows.Networking.Vpn` / `windows-rs` 路径。完整代理运行时位于每会话 Session Host；AppContainer Provider 只负责 Windows VPN 平台资源和失败关闭。普通桌面进程的 Wintun 适配见 [TUN 平台层](tun-platform.md#windows-wintun)，两条路径共用内核且不互相降级。
+
+Windows 包构建显式启用 `ffi,windows-uwp`。`invoke` 提供共用业务 dispatcher，`ffi`
+仅包装 C ABI/JNI；`windows-uwp` 单独启用 WinRT VPN 功能、Provider/Session Host 与包集成。
+普通 CLI 使用 `cli,windows-wintun`，两种后端在 Windows 编译时互斥，UWP 不拉入
+tun-rs 的 Wintun 后端，也不依赖外置 `wintun.dll`。Wintun 的 interruptible I/O
+会间接使用 Windows Win32 bindings；这不启用 `Networking_Vpn` 等 WinRT 包功能。
 
 ## 安装包边界
 
@@ -15,7 +21,7 @@ Windows 数据面只使用官方 `Windows.Networking.Vpn` 和 `windows-rs`，不
 
 未安装的普通桌面进程没有 package identity，Windows VPN 桥接会失败关闭。
 
-`VCoreWindowsVpnInvoke` 当前在调用线程上初始化 MTA。调用线程必须尚未初始化 COM，或已经是 MTA；STA/ASTA 调用不受支持。
+`VoleWindowsVpnInvoke` 当前在调用线程上初始化 MTA。调用线程必须尚未初始化 COM，或已经是 MTA；STA/ASTA 调用不受支持。
 
 ## `IVpnPlugIn` 回调
 
@@ -31,7 +37,7 @@ Provider 实现：
 
 ### 缓冲区所有权
 
-- 回调内把 `IBuffer` 内容复制到 VCore 持有的内存；
+- 回调内把 `IBuffer` 内容复制到 Vole 持有的内存；
 - 不在回调之后保存裸 slice、`VpnPacketBuffer` 或系统列表；
 - 每个系统缓冲区只归还一次；成功取得缓冲区后，任何后续本地错误都必须先归还缓冲区再传播；归还 API 自身失败时传播平台错误并失败关闭；
 - 队列满时只丢当前包并计数，不能阻塞 Windows 回调。
@@ -44,7 +50,7 @@ Windows route
   -> Provider 有界入站队列
   -> 命名管道数据通道
   -> Session Host WindowsTunIo
-  -> vcore-netstack
+  -> vole-netstack
   -> DNS / 规则 / 出站图
   -> 命名管道数据通道
   -> Provider 有界出站队列
@@ -66,7 +72,10 @@ u16 大端序包长
 - Provider 两侧包队列容量均为 256；从空变为非空时只发一次唤醒；
 - `Decapsulate` 每次排空当前已就绪队列，队列满按包计数。
 
-`StartWithMainTransport` 按 WinRT 契约使用 1400 MTU 和 1412 最大 frame；Session Host netstack 同样使用 1400 MTU，并把 TUN/XUDP 与 DNS UDP 响应负载保守限制为 MTU 减 48，即 1352 字节。packet channel 的 1500 上限仍是帧解析的结构边界，不是 Windows L3 接口宣告值。
+`tun.mtu` 同时用于 Provider 的 `StartWithMainTransport`、Session Host netstack 和包校验，最大 frame 为 MTU 加 12。WinRT 接口 MTU 上限为 1400；配置必须显式填写受支持值，例如 `mtu: 1400`。内核通用默认 9000 在此路径会报错，不会被静默截断。TUN/XUDP 与 DNS UDP 响应负载保守限制为 MTU 减 48；MTU 1400 时为 1352 字节。packet channel 的 1500 上限仍是帧解析的结构边界，不是 Windows L3 接口宣告值。
+
+`tun.file-descriptor` 必须省略或为 0。`startVpn` 在发布 Session Snapshot 前拒绝非零值；
+Provider 和 Session Host 读取配置时执行相同的平台校验。通用配置校验仍允许 Unix fd。
 
 控制消息使用独立管道，避免包背压阻塞启动和停止。
 
@@ -107,7 +116,7 @@ Windows profile 固定覆盖所有应用，不使用 AppTriggers、traffic filte
 
 Provider 为后缀 `.` 安装外部 DNS 地址：
 
-- `dns.enable: true`：目标端口 53 由 VCore 运行时 DNS 处理；
+- `dns.enable: true`：目标端口 53 由 Vole 运行时 DNS 处理；
 - `dns.enable: false`：TCP/UDP 53 保留原 DNS 目标，作为普通业务流量执行规则。
 
 Windows DNS assignment 本身不提供解析器或 NAT。
@@ -153,18 +162,18 @@ Provider 是物理网络状态的唯一权威，并订阅 `NetworkStatusChanged`
 
 ```text
 HostApplication.exe
-vcore.dll
-vcore-windows-vpn-host.exe
-vcore-windows-session-host.exe
+vole.dll
+vole-windows-vpn-host.exe
+vole-windows-session-host.exe
 ```
 
 - manifest 只有一个主 Application，三个可执行参与者相互独立；产物架构一致，Rust 使用静态 CRT；
 - Session Host 是 `windows.fullTrustProcess` extension，不显示在应用列表，也不注册 StartupTask 或 URI；
 - Provider 的 `windows.backgroundTasks` extension 显式使用 `windowsApp + appContainer`；
-- Provider activation class 来自 `vcore.dll`；
-- 同一 package 只维护一个 `VCore` VPN profile；
+- Provider activation class 来自 `vole.dll`；
+- 同一 package 只维护一个 `Vole` VPN profile；
 - custom configuration 是最大 4 KiB 的严格 JSON，只含修订版 4、Session token、顶层 IPv6 开关、四个网络地址和完整 policy；
-- Session Snapshot 是 `LocalState/vcore/windows/sessions/<sha256>.json`，revision 2 覆盖完整 YAML、可选进程顺序、路径和参数；读取验证大小、普通文件、reparse point、规范 JSON、摘要和每个 executable。参数引用的文件由宿主保持存在且不可变，VCore 不读取其内容；
+- Session Snapshot 是 `LocalState/vole/windows/sessions/<sha256>.json`，revision 2 覆盖完整 YAML、可选进程顺序、路径和参数；读取验证大小、普通文件、reparse point、规范 JSON、摘要和每个 executable。参数引用的文件由宿主保持存在且不可变，Vole 不读取其内容；
 - 活动 Session token、IPv6 开关、网络地址或 policy 不同时必须先显式 Stop，不能热切换；
 - 安装包更新只能在 VPN 已断开时进行，并要求版本递增。
 
@@ -188,19 +197,19 @@ vcore-windows-session-host.exe
 
 ```text
 前台宿主（完全信任）
-  ├─ VCoreInvoke
-  └─ VCoreWindowsVpnInvoke
+  ├─ VoleInvoke
+  └─ VoleWindowsVpnInvoke
        ├─ Session Snapshot / profile
        └─ ConnectProfileAsync
               │ Windows 激活
               ▼
-vcore-windows-vpn-host.exe + vcore.dll（AppContainer）
+vole-windows-vpn-host.exe + vole.dll（AppContainer）
   ├─ VpnChannel / 路由 / DNS / 物理网络
   ├─ VpnPacketBuffer / 有界回调队列 / 失败关闭
   └─ FullTrustProcessLauncher
               │ 无参数激活
               ▼
-vcore-windows-session-host.exe
+vole-windows-session-host.exe
   ├─ 校验不可变 Session Snapshot
   ├─ 可选 Windows session backend / Job Object
   ├─ PreparedCore / RunningCore
@@ -215,9 +224,9 @@ vcore-windows-session-host.exe
 | --- | --- | --- |
 | 前台宿主 | 用户命令、会话记录、UI 状态 | TUN 运行时、包通道、Provider 状态 |
 | Windows 桥接 | Session Snapshot、profile、连接/断开命令 | 数据包、代理流、Session Host 进程 |
-| Session Host | 单次 VCore 运行时、可选 session backend、Controller、GeoData、包客户端 | `VpnChannel`、路由、进程业务配置 |
+| Session Host | 单次 Vole 运行时、可选 session backend、Controller、GeoData、包客户端 | `VpnChannel`、路由、进程业务配置 |
 | Provider | `VpnChannel`、WinRT 缓冲区、路由、物理绑定、管道服务端、网络监控、Session Host 激活 | YAML、代理图、Controller、GeoData、backend 描述 |
-| SOCKS 服务 | 自身监听器、外层 socket 和绕过策略 | VCore 代理图和 Windows profile |
+| SOCKS 服务 | 自身监听器、外层 socket 和绕过策略 | Vole 代理图和 Windows profile |
 
 Session Host 每次连接新建一个进程，不常驻、不复用运行时，也不处理 URI 或 StartupTask。
 
@@ -235,7 +244,7 @@ Session Host 每次连接新建一个进程，不常驻、不复用运行时，�
 9. Session Host 严格解析会合记录，把其中的 token 作为候选值，构造限定对象路径并连接两条管道。
 10. Session Host 发送 `SessionHello`；Provider 把候选 token 与 profile token 精确比较后返回 `ProviderHello` 和不可变物理绑定。
 11. Session Host 验证 `ProviderHello` 回传同一 token，之后才读取 Snapshot；若存在 backend，则用一个 kill-on-close Job Object 按顺序启动全部进程。
-12. Session Host 准备并启动完整 VCore 运行时、静态代理组状态和 Controller。
+12. Session Host 准备并启动完整 Vole 运行时、静态代理组状态和 Controller。
 13. Session Host 确认受管进程尚未退出后返回 `RuntimeReady`。
 14. Provider 调用 `StartWithMainTransport` 并启动失败关闭监视器。
 15. 连接成功后，桥接向前台宿主返回当前系统 VPN 状态。
@@ -247,15 +256,15 @@ Session Host 的路径读取和启动失败日志必须在同一次 WinRT 初始
 
 ## 会合记录
 
-`LocalState/vcore/windows/rendezvous.json` 最大 4 KiB：
+`LocalState/vole/windows/rendezvous.json` 最大 4 KiB：
 
 ```json
 {
   "protocolVersion": 1,
-  "snapshotToken": "vcore-session-v2:...",
+  "snapshotToken": "vole-session-v2:...",
   "objectPath": "AppContainerNamedObjects\\S-1-15-2-...",
-  "controlLeaf": "VCore.Vpn.Control.v1",
-  "dataLeaf": "VCore.Vpn.Data.v1"
+  "controlLeaf": "Vole.Vpn.Control.v1",
+  "dataLeaf": "Vole.Vpn.Data.v1"
 }
 ```
 
@@ -307,10 +316,10 @@ Stopped { version, packetCounters }
 - argv 项数、单项大小、总大小和最终 UTF-16 command line 均有界；
 - 不经过 shell，不展开环境变量，工作目录固定为 package installed location；
 - Session Host 使用 `CreateProcessW(CREATE_SUSPENDED)`，先加入设置了 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` 的 Job，再恢复主线程；
-- 所有进程都是关键进程；任一退出都会停止 VCore、终止同 Job 中的其余进程并使 Provider 失败关闭；
-- Stop 先停止 VCore，再终止 Job，确认活动进程归零后才返回 `Stopped`；
+- 所有进程都是关键进程；任一退出都会停止 Vole、终止同 Job 中的其余进程并使 Provider 失败关闭；
+- Stop 先停止 Vole，再终止 Job，确认活动进程归零后才返回 `Stopped`；
 - 第一版不提供 port、UDP、readiness、heartbeat、restart、environment、working directory 或单进程控制；
-- `RuntimeReady` 只表示进程仍存活且 VCore 已启动，不表示进程内部协议已就绪。
+- `RuntimeReady` 只表示进程仍存活且 Vole 已启动，不表示进程内部协议已就绪。
 
 
 ## Controller 与本地 SOCKS
@@ -324,7 +333,7 @@ Stopped { version, packetCounters }
 - 宿主如需跨 VPN session 保留选择，必须自行持久化，并在下次 `startVpn` 的 YAML 中注入对应 `default-selected`；
 - 前台宿主退出后 Controller 和运行时继续，重新启动后恢复查询；
 - Stop 关闭 Controller，销毁本次代理组选择；下一会话重新采用 YAML 初始选择并从零计数；
-- 回环 SOCKS5 是普通 VCore 出站；其服务可以由外部宿主管理，也可以恰好运行在 session backend 中，但 VCore 不从 backend 描述推断端口或 readiness；
+- 回环 SOCKS5 是普通 Vole 出站；其服务可以由外部宿主管理，也可以恰好运行在 session backend 中，但 Vole 不从 backend 描述推断端口或 readiness；
 - 单个 SOCKS 流失败不停止 VPN。
 
 

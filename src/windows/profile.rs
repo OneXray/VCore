@@ -176,7 +176,7 @@ mod tests {
     fn valid_json() -> String {
         let digest = "0123456789abcdef".repeat(4);
         format!(
-            r#"{{"version":4,"snapshotToken":"vcore-session-v2:{digest}","ipv6":true,"networkSettings":{{"ipv4Address":"192.168.8.1","ipv6Address":"fd00:8::2","dnsIpv4Address":"223.5.5.5","dnsIpv6Address":"2400:3200::1"}},"policy":{{"alwaysOn":false,"allowLocalNetwork":true,"excludedCidrs":[]}}}}"#
+            r#"{{"version":4,"snapshotToken":"vole-session-v2:{digest}","ipv6":true,"networkSettings":{{"ipv4Address":"192.168.8.1","ipv6Address":"fd00:8::2","dnsIpv4Address":"223.5.5.5","dnsIpv6Address":"2400:3200::1"}},"policy":{{"alwaysOn":false,"allowLocalNetwork":true,"excludedCidrs":[]}}}}"#
         )
     }
 
@@ -187,7 +187,7 @@ mod tests {
 
         assert_eq!(
             configuration.snapshot_token(),
-            format!("vcore-session-v2:{}", "0123456789abcdef".repeat(4))
+            format!("vole-session-v2:{}", "0123456789abcdef".repeat(4))
         );
         assert!(configuration.ipv6_enabled());
         assert_eq!(

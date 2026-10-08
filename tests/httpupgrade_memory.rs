@@ -5,7 +5,7 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     time::Instant,
 };
-use vcore::transport::{WebSocketEarlyData, WebSocketOptions, connect_websocket};
+use vole::transport::{WebSocketEarlyData, WebSocketOptions, connect_websocket};
 
 fn options(fast: bool) -> WebSocketOptions {
     WebSocketOptions::new("ws://cover.invalid/upgrade?q=1", Default::default(), None)
@@ -26,7 +26,7 @@ async fn head(peer: &mut tokio::io::DuplexStream) -> Vec<u8> {
 #[tokio::test]
 async fn httpupgrade_early_data_partial_writes_and_response_tail_keep_byte_order() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new("HTTPUPGRADE-UNIT", "early_data");
+    let _case = vole::resources::case_events::Case::new("HTTPUPGRADE-UNIT", "early_data");
     use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
     tokio::time::timeout(Duration::from_secs(5), async {
         for fast in [false, true] {
@@ -80,7 +80,7 @@ async fn httpupgrade_early_data_partial_writes_and_response_tail_keep_byte_order
 #[tokio::test]
 async fn httpupgrade_rejects_invalid_oversized_and_truncated_responses_without_replay() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new("HTTPUPGRADE-UNIT", "invalid_response");
+    let _case = vole::resources::case_events::Case::new("HTTPUPGRADE-UNIT", "invalid_response");
     let responses = [
         "HTTP/1.1 200 OK\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n".to_owned(),
         "HTTP/1.0 101 OK\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n".to_owned(),
@@ -133,7 +133,7 @@ async fn httpupgrade_rejects_invalid_oversized_and_truncated_responses_without_r
 #[tokio::test(start_paused = true)]
 async fn httpupgrade_waits_for_101_under_the_original_deadline_and_drops_cancelled_io() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new("HTTPUPGRADE-UNIT", "deadline_cancel");
+    let _case = vole::resources::case_events::Case::new("HTTPUPGRADE-UNIT", "deadline_cancel");
     for fast in [false, true] {
         let start = Instant::now();
         let deadline = start + Duration::from_millis(100);
@@ -167,7 +167,7 @@ async fn httpupgrade_waits_for_101_under_the_original_deadline_and_drops_cancell
 #[tokio::test]
 async fn expired_httpupgrade_deadline_writes_no_prefix_or_head() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new("HTTPUPGRADE-UNIT", "expired_deadline");
+    let _case = vole::resources::case_events::Case::new("HTTPUPGRADE-UNIT", "expired_deadline");
     for fast in [false, true] {
         let (io, mut peer) = tokio::io::duplex(4096);
         let result = connect_websocket(
@@ -187,7 +187,7 @@ async fn expired_httpupgrade_deadline_writes_no_prefix_or_head() {
 #[tokio::test(start_paused = true)]
 async fn httpupgrade_rejects_ready_101_after_waiting_past_setup_deadline() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new("HTTPUPGRADE-UNIT", "late_response");
+    let _case = vole::resources::case_events::Case::new("HTTPUPGRADE-UNIT", "late_response");
     for fast in [false, true] {
         let options = options(fast);
         let (io, mut peer) = tokio::io::duplex(4096);
@@ -222,7 +222,7 @@ async fn httpupgrade_rejects_ready_101_after_waiting_past_setup_deadline() {
 #[tokio::test(start_paused = true)]
 async fn httpupgrade_does_not_resume_a_blocked_prefix_after_setup_deadline() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new("HTTPUPGRADE-UNIT", "late_write");
+    let _case = vole::resources::case_events::Case::new("HTTPUPGRADE-UNIT", "late_write");
     const RESPONSE: &[u8] =
         b"HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n";
     tokio::time::timeout(Duration::from_secs(5), async {
@@ -273,7 +273,7 @@ async fn httpupgrade_does_not_resume_a_blocked_prefix_after_setup_deadline() {
 #[tokio::test(start_paused = true)]
 async fn established_httpupgrade_io_outlives_its_setup_deadline() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new("HTTPUPGRADE-UNIT", "established_io");
+    let _case = vole::resources::case_events::Case::new("HTTPUPGRADE-UNIT", "established_io");
     for fast in [false, true] {
         let (io, mut peer) = tokio::io::duplex(4096);
         peer.write_all(b"HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\ntail")

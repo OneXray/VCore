@@ -9,7 +9,7 @@ fn yaml(protocol: &str, fields: &str) -> String {
         "vless" => "uuid: 00000000-0000-4000-8000-000000000001\n    tls: true",
         _ => unreachable!(),
     };
-    format!("port: 1080\nrules: [MATCH,p]\nproxies:\n  - name: p\n    type: {protocol}\n    server: example.com\n    port: 443\n    {auth}\n    {fields}\n").replace("rules: [MATCH,p]", "rules: ['MATCH,p']")
+    format!("mixed-port: 1080\nrules: [MATCH,p]\nproxies:\n  - name: p\n    type: {protocol}\n    server: example.com\n    port: 443\n    {auth}\n    {fields}\n").replace("rules: [MATCH,p]", "rules: ['MATCH,p']")
 }
 
 fn profile(config: &Config) -> Option<ClientFingerprint> {

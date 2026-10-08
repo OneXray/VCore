@@ -83,7 +83,7 @@ payload 最多 8192 字节，待解析最多 8455 字节，并与调用方收发
 运行时先取消并 join 入站所有者，再等待节点 gRPC 驱动。
 Mihomo 的 Trojan listener 仅支持 IP 形式的 UDP 目标；域名互通另用原生 Xray。
 Mihomo IP 路径可传空包；Xray 不转发空包，且域名回复的 8192 字节总帧预算需扣除
-地址和帧头。这些是对端限制，不降低 VCore 的独立帧解析上限。
+地址和帧头。这些是对端限制，不降低 Vole 的独立帧解析上限。
 
 ## VMess AEAD
 
@@ -117,7 +117,7 @@ UDP packet-encoding 默认空串（raw），外层仍 TCP：
 
 UDP body 最多 15,000 字节；packetaddr 另扣 IPv4 7 / IPv6 19 字节，未解析域名按 19
 预检；超限一字节即写前失败，不拆业务包。对端可能更小，V2Ray 部分返回路径总缓冲
-仅 2048 字节，不能当作 VCore 上限。body wire 解析最多 16 KiB，响应头/XUDP 元数据有界。
+仅 2048 字节，不能当作 Vole 上限。body wire 解析最多 16 KiB，响应头/XUDP 元数据有界。
 三种 UDP 编码均不接受零长度业务包；HTTPUpgrade 不改变这个边界。
 TCP 写块最多 4 KiB 以适配 Mihomo 拷贝边界；UDP 不按此切块。16 位帧计数耗尽前关闭，
 不重复 nonce。半帧发送取消关闭，接收取消保留进度；认证/地址/标签错误使关联失效。
@@ -162,7 +162,7 @@ pacer；这是混淆不是认证，错误密钥由 QUIC 拒绝，短包有界丢
 关闭交换最多一秒。
 
 官方 Hysteria 已验证版本的 4096 字节回包缓冲包含头，更大回包可能在分片前丢弃。
-原生测试记录实际版本和限制，VCore 完整 4096 字节另对 Mihomo 验证，不修改第三方。
+原生测试记录实际版本和限制，Vole 完整 4096 字节另对 Mihomo 验证，不修改第三方。
 
 ## TUIC v5
 
@@ -269,12 +269,12 @@ UoT 对端使用 16 KiB 接收缓冲；容器数据验收覆盖该实际边界�
 依赖仅 crates.io 版本，不使用 Git/path/源码补丁。AWS-LC 仅允许沿 shadowsocks →
 shadowsocks-crypto 链使用，TLS/REALITY 不消费它，详见[TLS 依赖](tls-dependencies.md)。
 启用 SS 时通过 log 的 max_level_off/release_max_level_off 关闭整个依赖图该 facade，
-防止上游日志泄密；VCore tracing 不受影响。上游 Debug 不暴露。
+防止上游日志泄密；Vole tracing 不受影响。上游 Debug 不暴露。
 重放窗口派生代码的来源/完整许可保留在源码头，发布仍审计实际链接图。
 
 **已知风险：**原样上游空 TCP 首写/空 UDP padding 路径扩展长度而未显式初始化，
 存在把残留缓冲传给可解密对端的风险；普通 echo 或自有背压修复不代表此风险已解决。
-官方空 TCP 首写还可能随机生成零 padding，被其严格服务端拒绝；VCore 不修改或重试
+官方空 TCP 首写还可能随机生成零 padding，被其严格服务端拒绝；Vole 不修改或重试
 该上游行为。裸 SS、EIH 和外包 ShadowTLS v3 的 TCP 均受影响；入站转发先轮询读取时，
 即使业务计划随后发送请求，也可能触发空首写。TCP 数据验收使用已提交非空首段的
 client-first 路径，server-first/空首包列为已知限制，不计成功；其他协议的 server-first

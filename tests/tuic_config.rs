@@ -1,14 +1,14 @@
 use serde_json::{Value, json};
-use vcore::config::Config;
+use vole::config::Config;
 
 fn node() -> Value {
     json!({"name":"tuic","type":"tuic","server":"peer.invalid","port":443,
         "uuid":"01234567-89ab-cdef-0123-456789abcdef","password":""})
 }
 
-fn parse(node: Value) -> vcore::Result<Config> {
+fn parse(node: Value) -> vole::Result<Config> {
     Config::parse_yaml(
-        json!({"port":1080,"proxies":[node],"rules":["MATCH,tuic"]})
+        json!({"mixed-port":1080,"proxies":[node],"rules":["MATCH,tuic"]})
             .to_string()
             .as_bytes(),
     )
@@ -17,7 +17,7 @@ fn parse(node: Value) -> vcore::Result<Config> {
 #[test]
 fn explicit_v5_identity_accepts_empty_password_without_enabling_business_udp() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new("TUIC-CFG", "identity");
+    let _case = vole::resources::case_events::Case::new("TUIC-CFG", "identity");
     if !cfg!(feature = "outbound-tuic") {
         assert!(parse(node()).is_err());
         return;
@@ -35,7 +35,7 @@ fn explicit_v5_identity_accepts_empty_password_without_enabling_business_udp() {
 #[test]
 fn malformed_tuic_values_do_not_leak_input_in_errors() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new("TUIC-CFG", "redaction");
+    let _case = vole::resources::case_events::Case::new("TUIC-CFG", "redaction");
     for field in ["uuid", "port", "alpn", "congestion-controller"] {
         let mut n = node();
         n[field] = json!("synthetic-private-marker");
@@ -48,7 +48,7 @@ fn malformed_tuic_values_do_not_leak_input_in_errors() {
 #[test]
 fn v5_business_udp_accepts_exactly_native_or_quic() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new("TUIC-CFG", "udp");
+    let _case = vole::resources::case_events::Case::new("TUIC-CFG", "udp");
     let mut n = node();
     n["udp"] = json!(true);
     assert!(parse(n.clone()).is_ok());
@@ -72,9 +72,9 @@ fn v5_business_udp_accepts_exactly_native_or_quic() {
 #[cfg(feature = "outbound-tuic")]
 #[test]
 fn strict_v5_tls_and_identity_bounds_preserve_values() {
-    use vcore::config::{ProxyProtocol, TuicCongestion};
+    use vole::config::{ProxyProtocol, TuicCongestion};
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new("TUIC-CFG", "bounds");
+    let _case = vole::resources::case_events::Case::new("TUIC-CFG", "bounds");
     let extract = |n| {
         let c = parse(n).unwrap();
         let ProxyProtocol::Tuic(t) = c.proxies.into_iter().next().unwrap().protocol else {

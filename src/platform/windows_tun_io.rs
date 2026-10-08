@@ -1,5 +1,6 @@
+#[cfg(any(feature = "windows-uwp", test))]
+use std::collections::VecDeque;
 use std::{
-    collections::VecDeque,
     fmt,
     future::poll_fn,
     io,
@@ -12,20 +13,29 @@ use std::{
 
 use tokio::sync::{Mutex as AsyncMutex, mpsc};
 
-use crate::{IpVersion, Result, TunFraming, VCoreError};
+use crate::{IpVersion, Result, TunFraming, VoleError};
 
 use super::TUN_PACKET_BATCH_SIZE;
 
-const TUN_MTU: usize = 1_500;
+#[cfg(any(feature = "windows-uwp", test))]
+pub(super) const PACKET_CHANNEL_MAX_MTU: usize = 1_400;
 
+#[cfg(any(feature = "windows-uwp", test))]
 type Wake = Arc<dyn Fn() -> io::Result<()> + Send + Sync>;
 
 struct Shared {
+    mtu: usize,
+    // Only WinRT callbacks own queued egress; Wintun writes to its native ring.
+    #[cfg(any(feature = "windows-uwp", test))]
     egress: Mutex<VecDeque<Vec<u8>>>,
+    #[cfg(any(feature = "windows-uwp", test))]
     capacity: usize,
+    #[cfg(any(feature = "windows-uwp", test))]
     wake: Wake,
     ingress_dropped: AtomicU64,
     ingress_closed: AtomicU64,
+    ingress_failure: Mutex<Option<io::Error>>,
+    #[cfg(any(feature = "windows-uwp", test))]
     egress_dropped: AtomicU64,
 }
 
@@ -45,30 +55,51 @@ impl fmt::Debug for WindowsTunIo {
 impl WindowsTunIo {
     pub(crate) fn new(
         capacity: usize,
+        mtu: u16,
         wake: impl Fn() -> io::Result<()> + Send + Sync + 'static,
-    ) -> (Self, WindowsPacketAdapter) {
+    ) -> io::Result<(Self, WindowsPacketAdapter)> {
+        #[cfg(not(any(feature = "windows-uwp", test)))]
+        let _ = wake;
+        if capacity == 0 || mtu == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid Windows TUN queue capacity or MTU",
+            ));
+        }
         let (ingress, receiver) = mpsc::channel(capacity);
         let shared = Arc::new(Shared {
+            mtu: usize::from(mtu),
+            #[cfg(any(feature = "windows-uwp", test))]
             egress: Mutex::new(VecDeque::with_capacity(capacity)),
+            #[cfg(any(feature = "windows-uwp", test))]
             capacity,
+            #[cfg(any(feature = "windows-uwp", test))]
             wake: Arc::new(wake),
             ingress_dropped: AtomicU64::new(0),
             ingress_closed: AtomicU64::new(0),
+            ingress_failure: Mutex::new(None),
+            #[cfg(any(feature = "windows-uwp", test))]
             egress_dropped: AtomicU64::new(0),
         });
-        (
+        Ok((
             Self {
                 ingress: AsyncMutex::new(receiver),
                 shared: shared.clone(),
             },
             WindowsPacketAdapter { ingress, shared },
-        )
+        ))
     }
 
     #[cfg(test)]
     pub(crate) async fn read_packet(&self, packet: &mut Vec<u8>) -> Result<IpVersion> {
-        let received = self.ingress.lock().await.recv().await.ok_or_else(closed)?;
-        let version = packet_version(&received)?;
+        let received = self
+            .ingress
+            .lock()
+            .await
+            .recv()
+            .await
+            .ok_or_else(|| self.closed())?;
+        let version = packet_version(&received, self.shared.mtu)?;
         *packet = received;
         Ok(version)
     }
@@ -81,15 +112,15 @@ impl WindowsTunIo {
         outcomes.clear();
         validate_batch_size(packets.len())?;
         let mut ingress = self.ingress.lock().await;
-        packets[0] = ingress.recv().await.ok_or_else(closed)?;
-        outcomes.push(packet_version(&packets[0]));
+        packets[0] = ingress.recv().await.ok_or_else(|| self.closed())?;
+        outcomes.push(packet_version(&packets[0], self.shared.mtu));
         for packet in &mut packets[1..] {
             // Return the prefix instead of parking a worker or waiting for a
             // producer when the next receive is not immediately ready.
             match poll_fn(|cx| Poll::Ready(ingress.poll_recv(cx))).await {
                 Poll::Ready(Some(received)) => {
                     *packet = received;
-                    outcomes.push(packet_version(packet));
+                    outcomes.push(packet_version(packet, self.shared.mtu));
                 }
                 Poll::Ready(None) | Poll::Pending => break,
             }
@@ -97,6 +128,7 @@ impl WindowsTunIo {
         Ok(())
     }
 
+    #[cfg(any(feature = "windows-uwp", test))]
     pub(crate) async fn read_packet_batch(
         &self,
         packets: &mut Vec<Vec<u8>>,
@@ -105,12 +137,12 @@ impl WindowsTunIo {
         packets.clear();
         validate_batch_size(max_packets)?;
         let mut ingress = self.ingress.lock().await;
-        let first = ingress.recv().await.ok_or_else(closed)?;
-        push_valid_frame(packets, first)?;
+        let first = ingress.recv().await.ok_or_else(|| self.closed())?;
+        push_valid_frame(packets, first, self.shared.mtu)?;
         for _ in 1..max_packets {
             match poll_fn(|cx| Poll::Ready(ingress.poll_recv(cx))).await {
                 Poll::Ready(Some(packet)) => {
-                    push_valid_frame(packets, packet)?;
+                    push_valid_frame(packets, packet, self.shared.mtu)?;
                 }
                 Poll::Ready(None) | Poll::Pending => break,
             }
@@ -118,6 +150,7 @@ impl WindowsTunIo {
         Ok(())
     }
 
+    #[cfg(any(feature = "windows-uwp", test))]
     pub(crate) async fn write_packets(
         &self,
         packets: &[&[u8]],
@@ -128,11 +161,11 @@ impl WindowsTunIo {
         let wake = {
             let mut egress =
                 self.shared.egress.lock().map_err(|_| {
-                    VCoreError::Platform("Windows packet queue lock poisoned".into())
+                    VoleError::Platform("Windows packet queue lock poisoned".into())
                 })?;
             let mut wake = false;
             for packet in packets {
-                let version = match packet_version(packet) {
+                let version = match packet_version(packet, self.shared.mtu) {
                     Ok(version) => version,
                     Err(error) => {
                         outcomes.push(Err(error));
@@ -155,12 +188,13 @@ impl WindowsTunIo {
         Ok(())
     }
 
+    #[cfg(any(feature = "windows-uwp", test))]
     pub(crate) async fn write_packet(&self, packet: &[u8]) -> Result<IpVersion> {
-        let version = packet_version(packet)?;
+        let version = packet_version(packet, self.shared.mtu)?;
         let wake = {
             let mut egress =
                 self.shared.egress.lock().map_err(|_| {
-                    VCoreError::Platform("Windows packet queue lock poisoned".into())
+                    VoleError::Platform("Windows packet queue lock poisoned".into())
                 })?;
             if egress.len() == self.shared.capacity {
                 saturating_increment(&self.shared.egress_dropped);
@@ -175,9 +209,23 @@ impl WindowsTunIo {
         }
         Ok(version)
     }
+
+    fn closed(&self) -> VoleError {
+        if let Some(error) = self
+            .shared
+            .ingress_failure
+            .lock()
+            .ok()
+            .and_then(|mut failure| failure.take())
+        {
+            return VoleError::Io(error);
+        }
+        closed()
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[cfg(any(feature = "windows-uwp", test))]
 pub(crate) struct WindowsPacketStats {
     pub(crate) ingress_queue_dropped: u64,
     pub(crate) ingress_closed: u64,
@@ -191,6 +239,17 @@ pub(crate) struct WindowsPacketAdapter {
 }
 
 impl WindowsPacketAdapter {
+    // The producer must then drop its last sender. Queued packets remain
+    // readable before this terminal failure; no error occupies packet capacity.
+    #[cfg(any(feature = "windows-wintun", test))]
+    pub(super) fn fail_ingress(&self, error: io::Error) {
+        if let Ok(mut failure) = self.shared.ingress_failure.lock()
+            && failure.is_none()
+        {
+            *failure = Some(error);
+        }
+    }
+
     pub(crate) fn try_send(&self, packet: Vec<u8>) -> bool {
         match self.ingress.try_send(packet) {
             Ok(()) => true,
@@ -205,10 +264,12 @@ impl WindowsPacketAdapter {
         }
     }
 
+    #[cfg(any(feature = "windows-uwp", test))]
     pub(crate) fn pop_egress(&self) -> Option<Vec<u8>> {
         self.shared.egress.lock().ok()?.pop_front()
     }
 
+    #[cfg(any(feature = "windows-uwp", test))]
     pub(crate) fn stats(&self) -> WindowsPacketStats {
         WindowsPacketStats {
             ingress_queue_dropped: self.shared.ingress_dropped.load(Ordering::Relaxed),
@@ -218,41 +279,65 @@ impl WindowsPacketAdapter {
     }
 }
 
-fn packet_version(packet: &[u8]) -> Result<IpVersion> {
-    if packet.len() > TUN_MTU {
-        return Err(VCoreError::InvalidPacket(
+pub(super) fn packet_version(packet: &[u8], mtu: usize) -> Result<IpVersion> {
+    if packet.len() > mtu {
+        return Err(VoleError::InvalidPacket(
             "TUN packet exceeds configured MTU",
         ));
     }
     TunFraming::RawIp.decode(packet).map(|(version, _)| version)
 }
 
-fn validate_batch_size(size: usize) -> Result<()> {
+pub(super) fn validate_batch_size(size: usize) -> Result<()> {
     if !(1..=TUN_PACKET_BATCH_SIZE).contains(&size) {
-        return Err(VCoreError::Platform(
+        return Err(VoleError::Platform(
             "invalid Windows TUN packet batch size".into(),
         ));
     }
     Ok(())
 }
 
-fn push_valid_frame(packets: &mut Vec<Vec<u8>>, packet: Vec<u8>) -> Result<()> {
-    if packet.is_empty() || packet.len() > TUN_MTU {
-        return Err(VCoreError::Io(io::Error::new(
+#[cfg(any(feature = "windows-uwp", test))]
+fn push_valid_frame(packets: &mut Vec<Vec<u8>>, packet: Vec<u8>, mtu: usize) -> Result<()> {
+    if packet.is_empty() || packet.len() > mtu {
+        return Err(VoleError::Io(io::Error::new(
             io::ErrorKind::InvalidData,
             "invalid Windows packet frame size",
         )));
     }
-    match packet_version(&packet) {
+    match packet_version(&packet, mtu) {
         Ok(_) => packets.push(packet),
-        Err(VCoreError::InvalidPacket(_)) => {}
+        Err(VoleError::InvalidPacket(_)) => {}
         Err(error) => return Err(error),
     }
     Ok(())
 }
 
-fn closed() -> VCoreError {
-    VCoreError::Io(io::Error::new(
+#[cfg(any(feature = "windows-uwp", test))]
+pub(crate) fn validate_packet_channel_config(config: &crate::config::TunConfig) -> io::Result<u16> {
+    if config.file_descriptor != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "Windows VPN does not support nonzero tun.file-descriptor",
+        ));
+    }
+    validate_packet_channel_mtu(config.mtu)?;
+    Ok(config.mtu)
+}
+
+#[cfg(any(feature = "windows-uwp", test))]
+pub(super) fn validate_packet_channel_mtu(mtu: u16) -> io::Result<()> {
+    if mtu == 0 || usize::from(mtu) > PACKET_CHANNEL_MAX_MTU {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "Windows VPN packet channel supports MTU values from 1 through 1400",
+        ));
+    }
+    Ok(())
+}
+
+fn closed() -> VoleError {
+    VoleError::Io(io::Error::new(
         io::ErrorKind::UnexpectedEof,
         "Windows packet ingress closed",
     ))
@@ -273,6 +358,62 @@ mod tests {
 
     use super::*;
 
+    const TEST_MTU: usize = 1_500;
+
+    fn memory_io(
+        capacity: usize,
+        wake: impl Fn() -> io::Result<()> + Send + Sync + 'static,
+    ) -> (WindowsTunIo, WindowsPacketAdapter) {
+        WindowsTunIo::new(capacity, TEST_MTU as u16, wake).unwrap()
+    }
+
+    #[test]
+    fn packet_channel_rejects_unsupported_mtu_instead_of_clamping() {
+        assert!(validate_packet_channel_mtu(1400).is_ok());
+        for mtu in [0, 1401, 9000] {
+            assert_eq!(
+                validate_packet_channel_mtu(mtu).unwrap_err().kind(),
+                io::ErrorKind::Unsupported
+            );
+        }
+    }
+
+    #[test]
+    fn packet_channel_rejects_unix_descriptors_accepted_by_shared_config() {
+        for descriptor in [0, 1, i32::MAX] {
+            let yaml = format!(
+                "tun: {{enable: true, mtu: 1400, file-descriptor: {descriptor}}}\n\
+                 proxies: [{{name: proxy, type: socks5, server: 192.0.2.1, port: 1080}}]\n\
+                 rules: ['MATCH,proxy']\n"
+            );
+            let config = crate::config::Config::parse_yaml(yaml.as_bytes()).unwrap();
+            let result = validate_packet_channel_config(&config.tun);
+            if descriptor == 0 {
+                assert_eq!(result.unwrap(), 1400);
+            } else {
+                assert_eq!(result.unwrap_err().kind(), io::ErrorKind::Unsupported);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn queue_read_and_write_enforce_the_supplied_mtu() {
+        let (io, adapter) = WindowsTunIo::new(2, 40, || Ok(())).unwrap();
+        assert!(adapter.try_send(IPV4.to_vec()));
+        assert!(adapter.try_send(vec![0x45; 41]));
+        let mut packets = vec![Vec::new(); 2];
+        let mut outcomes = Vec::new();
+        io.read_packets(&mut packets, &mut outcomes).await.unwrap();
+        assert_eq!(outcomes.len(), 2);
+        assert!(outcomes[0].is_ok());
+        assert!(matches!(outcomes[1], Err(VoleError::InvalidPacket(_))));
+        assert!(matches!(
+            io.write_packet(&vec![0x45; 41]).await,
+            Err(VoleError::InvalidPacket(_))
+        ));
+        assert!(adapter.pop_egress().is_none());
+    }
+
     const IPV4: &[u8] = &[
         0x45, 0, 0, 20, 0, 0, 0, 0, 64, 17, 0, 0, 127, 0, 0, 1, 127, 0, 0, 1,
     ];
@@ -283,7 +424,7 @@ mod tests {
 
     #[tokio::test]
     async fn ingress_batch_waits_for_one_then_drains_only_ready_packets() {
-        let (io, adapter) = WindowsTunIo::new(3, || Ok(()));
+        let (io, adapter) = memory_io(3, || Ok(()));
         assert!(adapter.try_send(IPV4.to_vec()));
         assert!(adapter.try_send(IPV6.to_vec()));
         assert!(adapter.try_send(IPV4.to_vec()));
@@ -307,7 +448,7 @@ mod tests {
 
     #[tokio::test]
     async fn common_ingress_batch_keeps_invalid_packets_isolated_and_bounds_ready_drain() {
-        let (io, adapter) = WindowsTunIo::new(TUN_PACKET_BATCH_SIZE + 1, || Ok(()));
+        let (io, adapter) = memory_io(TUN_PACKET_BATCH_SIZE + 1, || Ok(()));
         for index in 0..=TUN_PACKET_BATCH_SIZE {
             let packet = match index {
                 1 => vec![0xff],
@@ -321,7 +462,7 @@ mod tests {
         io.read_packets(&mut packets, &mut outcomes).await.unwrap();
         assert_eq!(outcomes.len(), TUN_PACKET_BATCH_SIZE);
         assert!(matches!(outcomes[0], Ok(IpVersion::V4)));
-        assert!(matches!(outcomes[1], Err(VCoreError::InvalidPacket(_))));
+        assert!(matches!(outcomes[1], Err(VoleError::InvalidPacket(_))));
         assert!(matches!(outcomes[2], Ok(IpVersion::V6)));
         assert_eq!(packets[0], IPV4);
         assert_eq!(packets[1], [0xff]);
@@ -341,7 +482,7 @@ mod tests {
 
     #[tokio::test]
     async fn common_ingress_batch_keeps_received_prefix_before_channel_close() {
-        let (io, adapter) = WindowsTunIo::new(2, || Ok(()));
+        let (io, adapter) = memory_io(2, || Ok(()));
         assert!(adapter.try_send(IPV4.to_vec()));
         assert!(adapter.try_send(IPV6.to_vec()));
         drop(adapter);
@@ -353,7 +494,7 @@ mod tests {
         assert!(matches!(outcomes[1], Ok(IpVersion::V6)));
         assert!(matches!(
             io.read_packets(&mut packets, &mut outcomes).await,
-            Err(VCoreError::Io(error)) if error.kind() == io::ErrorKind::UnexpectedEof
+            Err(VoleError::Io(error)) if error.kind() == io::ErrorKind::UnexpectedEof
         ));
         assert!(outcomes.is_empty());
     }
@@ -362,7 +503,7 @@ mod tests {
     async fn common_egress_batch_wakes_once_and_keeps_drop_current_semantics() {
         let wakes = Arc::new(AtomicUsize::new(0));
         let observed = wakes.clone();
-        let (io, adapter) = WindowsTunIo::new(2, move || {
+        let (io, adapter) = memory_io(2, move || {
             observed.fetch_add(1, Ordering::Relaxed);
             Ok(())
         });
@@ -372,7 +513,7 @@ mod tests {
             .unwrap();
         assert_eq!(outcomes.len(), 4);
         assert!(matches!(outcomes[0], Ok(IpVersion::V4)));
-        assert!(matches!(outcomes[1], Err(VCoreError::InvalidPacket(_))));
+        assert!(matches!(outcomes[1], Err(VoleError::InvalidPacket(_))));
         assert!(matches!(outcomes[2], Ok(IpVersion::V6)));
         assert!(matches!(outcomes[3], Ok(IpVersion::V4)));
         assert_eq!(wakes.load(Ordering::Relaxed), 1);
@@ -390,17 +531,17 @@ mod tests {
 
     #[tokio::test]
     async fn common_egress_batch_reports_accepted_packets_before_wake_failure() {
-        let (io, adapter) = WindowsTunIo::new(3, || {
+        let (io, adapter) = memory_io(3, || {
             Err(io::Error::new(io::ErrorKind::BrokenPipe, "wake failed"))
         });
         let mut outcomes = Vec::new();
         assert!(matches!(
             io.write_packets(&[IPV4, &[0xff], IPV6], &mut outcomes).await,
-            Err(VCoreError::Io(error)) if error.kind() == io::ErrorKind::BrokenPipe
+            Err(VoleError::Io(error)) if error.kind() == io::ErrorKind::BrokenPipe
         ));
         assert_eq!(outcomes.len(), 3);
         assert!(matches!(outcomes[0], Ok(IpVersion::V4)));
-        assert!(matches!(outcomes[1], Err(VCoreError::InvalidPacket(_))));
+        assert!(matches!(outcomes[1], Err(VoleError::InvalidPacket(_))));
         assert!(matches!(outcomes[2], Ok(IpVersion::V6)));
         assert_eq!(adapter.pop_egress().as_deref(), Some(IPV4));
         assert_eq!(adapter.pop_egress().as_deref(), Some(IPV6));
@@ -409,7 +550,7 @@ mod tests {
 
     #[tokio::test]
     async fn packet_channel_ingress_skips_invalid_ip_with_a_bounded_attempt_count() {
-        let (io, adapter) = WindowsTunIo::new(4, || Ok(()));
+        let (io, adapter) = memory_io(4, || Ok(()));
         assert!(adapter.try_send(IPV4.to_vec()));
         assert!(adapter.try_send(vec![0xff]));
         assert!(adapter.try_send(IPV6.to_vec()));
@@ -430,40 +571,40 @@ mod tests {
 
     #[tokio::test]
     async fn packet_channel_ingress_rejects_invalid_frame_lengths() {
-        for packet in [Vec::new(), vec![0x45; TUN_MTU + 1]] {
-            let (io, adapter) = WindowsTunIo::new(1, || Ok(()));
+        for packet in [Vec::new(), vec![0x45; TEST_MTU + 1]] {
+            let (io, adapter) = memory_io(1, || Ok(()));
             assert!(adapter.try_send(packet));
             assert!(matches!(
                 io.read_packet_batch(&mut Vec::new(), TUN_PACKET_BATCH_SIZE).await,
-                Err(VCoreError::Io(error)) if error.kind() == io::ErrorKind::InvalidData
+                Err(VoleError::Io(error)) if error.kind() == io::ErrorKind::InvalidData
             ));
         }
     }
 
     #[tokio::test]
     async fn common_batches_reject_empty_and_oversized_slices_without_dequeuing() {
-        let (io, adapter) = WindowsTunIo::new(1, || Ok(()));
+        let (io, adapter) = memory_io(1, || Ok(()));
         assert!(adapter.try_send(IPV4.to_vec()));
         let mut outcomes = vec![Ok(IpVersion::V4)];
         assert!(matches!(
             io.read_packets(&mut [], &mut outcomes).await,
-            Err(VCoreError::Platform(_))
+            Err(VoleError::Platform(_))
         ));
         assert!(outcomes.is_empty());
         let mut packets = vec![Vec::new(); TUN_PACKET_BATCH_SIZE + 1];
         assert!(matches!(
             io.read_packets(&mut packets, &mut outcomes).await,
-            Err(VCoreError::Platform(_))
+            Err(VoleError::Platform(_))
         ));
         assert!(outcomes.is_empty());
         assert!(matches!(
             io.write_packets(&[], &mut outcomes).await,
-            Err(VCoreError::Platform(_))
+            Err(VoleError::Platform(_))
         ));
         assert!(matches!(
             io.write_packets(&[IPV4; TUN_PACKET_BATCH_SIZE + 1], &mut outcomes)
                 .await,
-            Err(VCoreError::Platform(_))
+            Err(VoleError::Platform(_))
         ));
         assert!(outcomes.is_empty());
         assert!(adapter.pop_egress().is_none());
@@ -479,7 +620,7 @@ mod tests {
     async fn packets_cross_the_windows_packet_adapter_and_wake_once() {
         let wakes = Arc::new(AtomicUsize::new(0));
         let observed = wakes.clone();
-        let (io, adapter) = WindowsTunIo::new(2, move || {
+        let (io, adapter) = memory_io(2, move || {
             observed.fetch_add(1, Ordering::Relaxed);
             Ok(())
         });

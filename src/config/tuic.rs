@@ -89,7 +89,7 @@ impl RawTuic {
             return invalid("TUIC outbound support is disabled at build time");
         }
         let uuid = super::parse_standard_uuid(&self.uuid).map_err(|_| {
-            crate::VCoreError::InvalidConfig("TUIC requires a standard hyphenated UUID".into())
+            crate::VoleError::InvalidConfig("TUIC requires a standard hyphenated UUID".into())
         })?;
         let config = TuicOutboundConfig {
             address: self.server.clone(),
@@ -120,7 +120,7 @@ impl RawTuic {
                         .map(super::vless::parse_pin)
                         .transpose()
                         .map_err(|_| {
-                            crate::VCoreError::InvalidConfig("invalid TUIC certificate pin".into())
+                            crate::VoleError::InvalidConfig("invalid TUIC certificate pin".into())
                         })?,
                 },
             },

@@ -1,9 +1,10 @@
-//! Strict parsing for the current VCore YAML configuration.
+//! Strict parsing for the current Vole YAML configuration.
 
 use std::{
     collections::{HashMap, VecDeque},
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     str::FromStr,
+    time::Duration,
 };
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -15,7 +16,7 @@ use serde_yaml_ng::Value as YamlValue;
 use url::{Host, Url};
 use uuid::Uuid;
 
-use crate::{Result, VCoreError};
+use crate::{Result, VoleError};
 
 mod credentials;
 pub use credentials::{ProxyAccess, ProxyCredentials};
@@ -39,10 +40,10 @@ mod vmess;
 pub use vmess::StreamTransport as VmessTransport;
 pub use vmess::{StreamTransport, VmessCipher, VmessOutboundConfig, VmessPacketEncoding};
 
-#[cfg(feature = "ffi")]
+#[cfg(feature = "invoke")]
 mod measure;
 
-#[cfg(feature = "ffi")]
+#[cfg(feature = "invoke")]
 pub(crate) use measure::MeasureConfig;
 
 pub const MAX_CONFIG_BYTES: usize = 256 * 1024;
@@ -65,8 +66,7 @@ pub struct Config {
     pub geodata_update: Option<GeoDataUpdateConfig>,
     pub external_controller: Option<ExternalControllerConfig>,
     pub inbounds: Vec<InboundConfig>,
-    pub http_port: Option<u16>,
-    pub socks_port: Option<u16>,
+    pub mixed_port: Option<u16>,
     pub tun: TunConfig,
     pub sniffer: SnifferConfig,
     pub dns: DnsConfig,
@@ -102,10 +102,38 @@ pub struct GeoDataUrls {
     pub geosite: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TunConfig {
     pub enable: bool,
     pub mtu: u16,
+    pub file_descriptor: i32,
+    pub device: String,
+    pub dns_hijack: Vec<SocketAddr>,
+    pub udp_timeout: Duration,
+}
+
+impl Default for TunConfig {
+    fn default() -> Self {
+        Self {
+            enable: false,
+            mtu: default_mtu(),
+            file_descriptor: 0,
+            device: String::new(),
+            dns_hijack: vec![SocketAddr::from((Ipv4Addr::UNSPECIFIED, 53))],
+            udp_timeout: Duration::from_secs(300),
+        }
+    }
+}
+
+impl TunConfig {
+    /// Match Mihomo's TUN DNS targets: exact endpoints, or any destination
+    /// on port 53 when a configured endpoint has an unspecified IP address.
+    #[must_use]
+    pub fn hijacks_dns(&self, destination: SocketAddr) -> bool {
+        self.dns_hijack.iter().any(|target| {
+            *target == destination || (target.ip().is_unspecified() && destination.port() == 53)
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -619,8 +647,7 @@ pub enum XHttpMode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InboundConfig {
     Tun(TunInboundConfig),
-    Http(HttpInboundConfig),
-    Socks5(Socks5InboundConfig),
+    Mixed(MixedInboundConfig),
 }
 
 impl InboundConfig {
@@ -628,8 +655,7 @@ impl InboundConfig {
     pub fn tag(&self) -> &str {
         match self {
             Self::Tun(config) => &config.tag,
-            Self::Http(config) => &config.tag,
-            Self::Socks5(config) => &config.tag,
+            Self::Mixed(config) => &config.tag,
         }
     }
 }
@@ -638,6 +664,14 @@ impl InboundConfig {
 pub struct TunInboundConfig {
     pub tag: String,
     pub mtu: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MixedInboundConfig {
+    pub tag: String,
+    pub port: u16,
+    pub access: ProxyAccess,
+    pub auth: Option<ProxyCredentials>,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -670,7 +704,7 @@ impl std::fmt::Debug for HttpInboundConfig {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct RawVCoreConfig {
+struct RawVoleConfig {
     #[serde(default = "default_true")]
     ipv6: bool,
     #[serde(
@@ -699,14 +733,12 @@ struct RawVCoreConfig {
     external_controller: Option<String>,
     #[serde(default, deserialize_with = "deserialize_present_option")]
     secret: Option<String>,
-    #[serde(default, deserialize_with = "deserialize_present_option")]
-    port: Option<u16>,
     #[serde(
-        rename = "socks-port",
+        rename = "mixed-port",
         default,
         deserialize_with = "deserialize_present_option"
     )]
-    socks_port: Option<u16>,
+    mixed_port: Option<u16>,
     #[serde(default, deserialize_with = "deserialize_present_credentials")]
     authentication: Option<Vec<String>>,
     #[serde(rename = "allow-lan", default)]
@@ -752,9 +784,69 @@ struct RawGeoDataUrls {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawTunConfig {
+    #[serde(default)]
     enable: bool,
-    #[serde(default = "default_mtu")]
+    #[serde(default)]
     mtu: u16,
+    #[serde(rename = "file-descriptor", default)]
+    file_descriptor: i32,
+    #[serde(default)]
+    device: String,
+    #[serde(
+        rename = "dns-hijack",
+        default = "default_dns_hijack",
+        deserialize_with = "deserialize_non_null_vec"
+    )]
+    dns_hijack: Vec<String>,
+    #[serde(rename = "udp-timeout", default)]
+    udp_timeout: u64,
+}
+
+impl RawTunConfig {
+    fn normalize(self) -> Result<TunConfig> {
+        let mtu = if self.mtu == 0 {
+            default_mtu()
+        } else {
+            self.mtu
+        };
+        if mtu < 1_280 {
+            return invalid("tun.mtu must be 0 or 1280..65535");
+        }
+        if self.file_descriptor < 0 {
+            return invalid("tun.file-descriptor must be a nonnegative descriptor");
+        }
+        if self.device.chars().any(char::is_control) {
+            return invalid("tun.device must not contain control characters");
+        }
+        let dns_hijack = self
+            .dns_hijack
+            .into_iter()
+            .map(|target| {
+                let endpoint = target
+                    .split_once("://")
+                    .map_or(target.as_str(), |(_, value)| value);
+                let endpoint = endpoint.replacen("any", "0.0.0.0", 1);
+                endpoint.parse::<SocketAddr>().map_err(|_| {
+                    VoleError::InvalidConfig(
+                        "tun.dns-hijack requires IP:port or any:port endpoints".into(),
+                    )
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let udp_timeout = Duration::from_secs(if self.udp_timeout == 0 {
+            300
+        } else {
+            self.udp_timeout
+        });
+        Ok(TunConfig {
+            enable: self.enable,
+            mtu,
+            file_descriptor: self.file_descriptor,
+            device: self.device,
+            dns_hijack,
+            udp_timeout,
+        })
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -1236,7 +1328,11 @@ struct PendingProxyConfig {
 }
 
 fn default_mtu() -> u16 {
-    1_500
+    9_000
+}
+
+fn default_dns_hijack() -> Vec<String> {
+    vec!["0.0.0.0:53".into()]
 }
 
 fn default_true() -> bool {
@@ -1317,22 +1413,22 @@ impl Config {
             ));
         }
         let input = std::str::from_utf8(input)
-            .map_err(|_| VCoreError::InvalidConfig("configuration is not UTF-8".to_owned()))?;
+            .map_err(|_| VoleError::InvalidConfig("configuration is not UTF-8".to_owned()))?;
 
         reject_yaml_anchors_and_aliases(input)?;
         let yaml: YamlValue = serde_yaml_ng::from_str(input)
-            .map_err(|error| VCoreError::InvalidConfig(error.to_string()))?;
+            .map_err(|error| VoleError::InvalidConfig(error.to_string()))?;
         validate_json_compatible_yaml(&yaml)?;
         // Deserialize from the YAML value directly. Mapping order is part of
         // nameserver-policy semantics and would be lost by the intermediate
         // serde_json map representation.
-        let raw: RawVCoreConfig = serde_yaml_ng::from_value(yaml)
-            .map_err(|error| VCoreError::InvalidConfig(error.to_string()))?;
+        let raw: RawVoleConfig = serde_yaml_ng::from_value(yaml)
+            .map_err(|error| VoleError::InvalidConfig(error.to_string()))?;
         raw.normalize()
     }
 }
 
-impl RawVCoreConfig {
+impl RawVoleConfig {
     fn normalize(self) -> Result<Config> {
         let geodata_update = normalize_geodata_update(
             self.geox_url,
@@ -1340,34 +1436,17 @@ impl RawVCoreConfig {
             self.geo_update_interval,
         )?;
 
-        let http_port = self.port.filter(|port| *port != 0);
-        let socks_port = self.socks_port.filter(|port| *port != 0);
+        let mixed_port = self.mixed_port.filter(|port| *port != 0);
         let authentication = normalize_proxy_authentication(self.authentication)?;
-        if http_port.is_none()
-            && socks_port.is_none()
-            && (authentication.is_some() || self.allow_lan)
-        {
-            return invalid("authentication or allow-lan requires an enabled proxy port");
-        }
-        if self.allow_lan && authentication.is_none() {
-            return invalid("allow-lan requires authentication");
+        if mixed_port.is_none() && (authentication.is_some() || self.allow_lan) {
+            return invalid("authentication or allow-lan requires an enabled mixed-port");
         }
 
-        let tun = self.tun.map_or(
-            TunConfig {
-                enable: false,
-                mtu: default_mtu(),
-            },
-            |tun| TunConfig {
-                enable: tun.enable,
-                mtu: tun.mtu,
-            },
-        );
-        if tun.mtu != default_mtu() {
-            return invalid("TUN only supports mtu: 1500");
-        }
-        if http_port.is_none() && socks_port.is_none() && !tun.enable {
-            return invalid("configuration requires port, socks-port or tun.enable: true");
+        let tun = self
+            .tun
+            .map_or_else(|| Ok(TunConfig::default()), RawTunConfig::normalize)?;
+        if mixed_port.is_none() && !tun.enable {
+            return invalid("configuration requires mixed-port or tun.enable: true");
         }
         let sniffer = self.sniffer.map_or_else(
             || Ok(SnifferConfig::disabled()),
@@ -1401,21 +1480,10 @@ impl RawVCoreConfig {
         drop(proxy_ids);
         drop(route_targets);
 
-        let mut inbounds = Vec::with_capacity(3);
-        if let Some(port) = http_port {
-            inbounds.push(InboundConfig::Http(HttpInboundConfig {
-                tag: "http-in".to_owned(),
-                port,
-                access: ProxyAccess {
-                    allow_lan: self.allow_lan,
-                    ipv6: self.ipv6,
-                },
-                auth: authentication.clone(),
-            }));
-        }
-        if let Some(port) = socks_port {
-            inbounds.push(InboundConfig::Socks5(Socks5InboundConfig {
-                tag: "socks-in".to_owned(),
+        let mut inbounds = Vec::with_capacity(2);
+        if let Some(port) = mixed_port {
+            inbounds.push(InboundConfig::Mixed(MixedInboundConfig {
+                tag: "mixed-in".to_owned(),
                 port,
                 access: ProxyAccess {
                     allow_lan: self.allow_lan,
@@ -1439,8 +1507,7 @@ impl RawVCoreConfig {
             geodata_update,
             external_controller,
             inbounds,
-            http_port,
-            socks_port,
+            mixed_port,
             tun,
             sniffer,
             dns,
@@ -1468,7 +1535,7 @@ fn normalize_external_controller(
         return invalid("secret is required when external-controller manages proxy-groups");
     }
     let listen = listen.parse::<SocketAddr>().map_err(|_| {
-        VCoreError::InvalidConfig(
+        VoleError::InvalidConfig(
             "external-controller must be an IP socket address with an explicit port".to_owned(),
         )
     })?;
@@ -1523,7 +1590,7 @@ fn normalize_geox_url(raw: String, field: &str) -> Result<String> {
         ));
     }
     let url = Url::parse(&raw)
-        .map_err(|error| VCoreError::InvalidConfig(format!("{field} is invalid: {error}")))?;
+        .map_err(|error| VoleError::InvalidConfig(format!("{field} is invalid: {error}")))?;
     let allowed_scheme = url.scheme() == "https";
     #[cfg(feature = "benchmark-geodata-http")]
     let allowed_scheme = allowed_scheme || url.scheme() == "http";
@@ -1650,7 +1717,7 @@ fn parse_sniffer_port_string(value: &str, protocol: &str) -> Result<u16> {
         ));
     }
     let parsed = value.parse::<u64>().map_err(|_| {
-        VCoreError::InvalidConfig(format!(
+        VoleError::InvalidConfig(format!(
             "sniffer.sniff.{protocol}.ports contains invalid port `{value}`"
         ))
     })?;
@@ -1662,7 +1729,7 @@ fn parse_sniffer_port_number(value: u64, protocol: &str) -> Result<u16> {
         .ok()
         .filter(|port| *port != 0)
         .ok_or_else(|| {
-            VCoreError::InvalidConfig(format!(
+            VoleError::InvalidConfig(format!(
                 "sniffer.sniff.{protocol}.ports values must be between 1 and 65535"
             ))
         })
@@ -1722,16 +1789,16 @@ fn normalize_proxy_authentication(
                 return invalid("authentication must contain exactly one user:password entry");
             };
             let (username, password) = credential.split_once(':').ok_or_else(|| {
-                VCoreError::InvalidConfig("authentication entry must use user:password".to_owned())
+                VoleError::InvalidConfig("authentication entry must use user:password".to_owned())
             })?;
             ProxyCredentials::new(username, password)
                 .map(Some)
-                .map_err(|error| VCoreError::InvalidConfig(error.to_string()))
+                .map_err(|error| VoleError::InvalidConfig(error.to_string()))
         }
     }
 }
 
-#[cfg(feature = "ffi")]
+#[cfg(feature = "invoke")]
 fn normalize_proxy_graph(
     raw_proxies: Vec<RawOutbound>,
 ) -> Result<(Vec<ProxyConfig>, ProxyIdsByTag)> {
@@ -1777,7 +1844,7 @@ fn normalize_proxy_graph_with_groups(
                         return Ok(RouteTargetId::Group(*id));
                     }
                     proxy_ids.get(tag).copied().map(RouteTargetId::Proxy).ok_or_else(|| {
-                        VCoreError::InvalidConfig(format!(
+                        VoleError::InvalidConfig(format!(
                             "proxy `{}` dialer-proxy `{tag}` does not reference a configured proxy or group name",
                             proxy.tag
                         ))
@@ -1871,7 +1938,7 @@ fn normalize_proxy_groups(
                             .copied()
                             .map(ProxyGroupMemberTarget::Route)
                             .ok_or_else(|| {
-                                VCoreError::InvalidConfig(format!(
+                                VoleError::InvalidConfig(format!(
                                     "proxy group `{}` member `{name}` does not reference a configured proxy, proxy group, DIRECT, or REJECT",
                                     group.name
                                 ))
@@ -1885,7 +1952,7 @@ fn normalize_proxy_groups(
                     .iter()
                     .position(|member| member.name == default)
                     .ok_or_else(|| {
-                        VCoreError::InvalidConfig(format!(
+                        VoleError::InvalidConfig(format!(
                             "proxy group `{}` default-selected `{default}` must name a direct member",
                             group.name
                         ))
@@ -2057,9 +2124,9 @@ impl RawRealitySettings {
     fn normalize(self, server_name: String) -> Result<RealityConfig> {
         let decoded = URL_SAFE_NO_PAD
             .decode(self.public_key.as_bytes())
-            .map_err(|_| VCoreError::InvalidConfig("invalid REALITY public-key".to_owned()))?;
+            .map_err(|_| VoleError::InvalidConfig("invalid REALITY public-key".to_owned()))?;
         let public_key: [u8; 32] = decoded.try_into().map_err(|_| {
-            VCoreError::InvalidConfig("invalid REALITY public-key length".to_owned())
+            VoleError::InvalidConfig("invalid REALITY public-key length".to_owned())
         })?;
         if URL_SAFE_NO_PAD.encode(public_key) != self.public_key {
             return invalid("REALITY public-key must use canonical unpadded base64url");
@@ -2072,7 +2139,7 @@ impl RawRealitySettings {
         for pair in self.short_id.as_bytes().as_chunks::<2>().0 {
             let pair = std::str::from_utf8(pair).expect("hex input is UTF-8");
             let byte = u8::from_str_radix(pair, 16)
-                .map_err(|_| VCoreError::InvalidConfig("invalid REALITY short-id".to_owned()))?;
+                .map_err(|_| VoleError::InvalidConfig("invalid REALITY short-id".to_owned()))?;
             short_id.push(byte);
         }
 
@@ -2602,7 +2669,7 @@ fn normalize_dns_nameserver_policies(
             .selector
             .strip_prefix("geosite:")
             .ok_or_else(|| {
-                VCoreError::InvalidConfig(format!(
+                VoleError::InvalidConfig(format!(
                     "invalid dns.nameserver-policy selector `{}`; expected geosite:<code>[,<code>...]",
                     raw_policy.selector
                 ))
@@ -2681,7 +2748,7 @@ fn parse_dns_nameserver(
     };
 
     let (address, port) = parse_dns_endpoint(endpoint).ok_or_else(|| {
-        VCoreError::InvalidConfig(format!(
+        VoleError::InvalidConfig(format!(
             "invalid DNS nameserver `{input}`; hostnames and URL paths are not supported"
         ))
     })?;
@@ -2717,7 +2784,7 @@ fn parse_dns_route_fragment(
             .copied()
             .map(DnsRoute::Route)
             .ok_or_else(|| {
-                VCoreError::InvalidConfig(format!(
+                VoleError::InvalidConfig(format!(
                     "invalid DNS nameserver `{input}`; route fragment must be exactly DIRECT, RULES, or a configured proxy or proxy group name"
                 ))
             }),
@@ -2754,7 +2821,7 @@ fn derive_default_route_target_from_rules(
     route_targets: &RouteTargetsByName,
 ) -> Result<RouteTargetId> {
     let final_rule = rules.last().ok_or_else(|| {
-        VCoreError::InvalidConfig(
+        VoleError::InvalidConfig(
             "rules must end with MATCH targeting an exact proxy or proxy group name".to_owned(),
         )
     })?;
@@ -2766,7 +2833,7 @@ fn derive_default_route_target_from_rules(
         return invalid("rules must end with MATCH targeting an exact proxy or proxy group name");
     }
     route_targets.get(fields[1]).copied().ok_or_else(|| {
-        VCoreError::InvalidConfig(format!(
+        VoleError::InvalidConfig(format!(
             "final MATCH target must be an exact configured proxy or proxy group name; found `{}`",
             fields[1]
         ))
@@ -2794,7 +2861,7 @@ fn normalize_rules(
         }
         total_bytes = total_bytes
             .checked_add(rule.len())
-            .ok_or_else(|| VCoreError::InvalidConfig("rules byte length overflowed".to_owned()))?;
+            .ok_or_else(|| VoleError::InvalidConfig("rules byte length overflowed".to_owned()))?;
         if total_bytes > MAX_RULES_TOTAL_BYTES {
             return invalid(format!(
                 "rules exceeds the {MAX_RULES_TOTAL_BYTES}-byte cumulative limit"
@@ -2829,7 +2896,7 @@ fn parse_rule(input: &str, route_targets: &RouteTargetsByName) -> Result<RuleSpe
     let rule_type = fields
         .first()
         .filter(|field| !field.is_empty())
-        .ok_or_else(|| VCoreError::InvalidConfig("rule type must not be empty".to_owned()))?
+        .ok_or_else(|| VoleError::InvalidConfig("rule type must not be empty".to_owned()))?
         .to_ascii_uppercase();
 
     match rule_type.as_str() {
@@ -2914,7 +2981,7 @@ fn parse_rule_action(action: &str, route_targets: &RouteTargetsByName) -> Result
             .copied()
             .map(RuleAction::Route)
             .ok_or_else(|| {
-                VCoreError::InvalidConfig(format!(
+                VoleError::InvalidConfig(format!(
                     "rule target must be exactly DIRECT, REJECT, or a configured proxy or proxy group name; found `{action}`"
                 ))
             }),
@@ -2924,7 +2991,7 @@ fn parse_rule_action(action: &str, route_targets: &RouteTargetsByName) -> Result
 fn normalize_rule_domain(input: &str, rule_type: &str) -> Result<String> {
     let input = input.strip_suffix('.').unwrap_or(input);
     crate::routing::normalize_domain_name(input)
-        .map_err(|_| VCoreError::InvalidConfig(format!("invalid {rule_type} domain")))
+        .map_err(|_| VoleError::InvalidConfig(format!("invalid {rule_type} domain")))
 }
 
 fn normalize_rule_keyword(input: &str) -> Result<String> {
@@ -2945,22 +3012,22 @@ fn normalize_geo_code(input: &str, rule_type: &str) -> Result<String> {
         crate::geodata::GeoDataKind::GeoSite
     };
     crate::geodata::normalize_selector(kind, input)
-        .map_err(|_| VCoreError::InvalidConfig(format!("invalid {rule_type} selector")))
+        .map_err(|_| VoleError::InvalidConfig(format!("invalid {rule_type} selector")))
 }
 
 fn parse_ip_cidr(input: &str, require_v6: bool) -> Result<IpCidr> {
     let (address, prefix) = input
         .split_once('/')
-        .ok_or_else(|| VCoreError::InvalidConfig("CIDR must include a prefix length".to_owned()))?;
+        .ok_or_else(|| VoleError::InvalidConfig("CIDR must include a prefix length".to_owned()))?;
     if prefix.contains('/') {
         return invalid("CIDR must contain exactly one `/`");
     }
     let address = address
         .parse::<IpAddr>()
-        .map_err(|_| VCoreError::InvalidConfig(format!("invalid CIDR address `{address}`")))?;
+        .map_err(|_| VoleError::InvalidConfig(format!("invalid CIDR address `{address}`")))?;
     let prefix_len = prefix
         .parse::<u8>()
-        .map_err(|_| VCoreError::InvalidConfig(format!("invalid CIDR prefix `{prefix}`")))?;
+        .map_err(|_| VoleError::InvalidConfig(format!("invalid CIDR prefix `{prefix}`")))?;
 
     let network = match (require_v6, address) {
         (false, IpAddr::V4(address)) if prefix_len <= 32 => {
@@ -3017,7 +3084,7 @@ fn parse_port_ranges(input: &str) -> Result<Vec<PortRange>> {
 fn parse_destination_port(input: &str) -> Result<u16> {
     let port = input
         .parse::<u16>()
-        .map_err(|_| VCoreError::InvalidConfig(format!("invalid destination port `{input}`")))?;
+        .map_err(|_| VoleError::InvalidConfig(format!("invalid destination port `{input}`")))?;
     if port == 0 {
         return invalid("destination port must be between 1 and 65535");
     }
@@ -3095,7 +3162,7 @@ fn validate_port(port: u16, kind: &str) -> Result<()> {
 
 fn parse_standard_uuid(input: &str) -> Result<Uuid> {
     let id = Uuid::parse_str(input)
-        .map_err(|_| VCoreError::InvalidConfig("invalid VLESS settings.id UUID".to_owned()))?;
+        .map_err(|_| VoleError::InvalidConfig("invalid VLESS settings.id UUID".to_owned()))?;
     if id.hyphenated().to_string() != input.to_ascii_lowercase() {
         return invalid("VLESS settings.id must use standard hyphenated UUID form");
     }
@@ -3199,14 +3266,14 @@ fn is_yaml_node_boundary(bytes: &[u8], index: usize) -> bool {
 }
 
 fn invalid<T>(message: impl Into<String>) -> Result<T> {
-    Err(VCoreError::InvalidConfig(message.into()))
+    Err(VoleError::InvalidConfig(message.into()))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    const CURRENT_TLS: &str = r#"port: 1080
+    const CURRENT_TLS: &str = r#"mixed-port: 1080
 authentication:
   - measure:secret
 tun:
@@ -3262,7 +3329,7 @@ proxies:
     password: password
 "#;
 
-    const CURRENT_ANYTLS: &str = r#"port: 1080
+    const CURRENT_ANYTLS: &str = r#"mixed-port: 1080
 authentication:
   - measure:secret
 rules:
@@ -3293,7 +3360,7 @@ proxies:
 
     fn with_geodata(fields: &str) -> String {
         current_yaml(&format!(
-            "{fields}\nport: 1080\nauthentication:\n  - measure:secret"
+            "{fields}\nmixed-port: 1080\nauthentication:\n  - measure:secret"
         ))
     }
 
@@ -4039,8 +4106,12 @@ geo-update-interval: 24"#,
     #[test]
     fn rejects_unknown_fields_at_every_depth() {
         for yaml in [
-            CURRENT_TLS.replacen("port: 1080\n", "log: {}\nport: 1080\n", 1),
-            CURRENT_TLS.replacen("port: 1080\n", "ipv6-mode: true\nport: 1080\n", 1),
+            CURRENT_TLS.replacen("mixed-port: 1080\n", "log: {}\nmixed-port: 1080\n", 1),
+            CURRENT_TLS.replacen(
+                "mixed-port: 1080\n",
+                "ipv6-mode: true\nmixed-port: 1080\n",
+                1,
+            ),
             CURRENT_TLS.replace("tun:\n", "tun:\n  typo: true\n"),
             with_sniffer("  enable: true\n  typo: true\n  sniff:\n    HTTP: {}"),
             with_sniffer("  enable: true\n  override-destination: false\n  sniff:\n    HTTP: {}"),
@@ -4088,13 +4159,13 @@ geo-update-interval: 24"#,
     }
 
     #[test]
-    fn rejects_removed_version_and_default_proxy_fields() {
-        for yaml in [
-            CURRENT_TLS.replacen("port: 1080\n", "configVersion: 9\nport: 1080\n", 1),
-            CURRENT_TLS.replacen("port: 1080\n", "default-proxy: proxy\nport: 1080\n", 1),
-        ] {
-            assert!(Config::parse_yaml(yaml.as_bytes()).is_err());
-        }
+    fn rejects_removed_default_proxy_and_inbound_outbound_fields() {
+        let yaml = CURRENT_TLS.replacen(
+            "mixed-port: 1080\n",
+            "default-proxy: proxy\nmixed-port: 1080\n",
+            1,
+        );
+        assert!(Config::parse_yaml(yaml.as_bytes()).is_err());
 
         let old = r#"inbounds: []
 outbounds: []
@@ -4105,19 +4176,19 @@ outbounds: []
     #[test]
     fn validates_listener_and_tun_constraints() {
         for yaml in [
-            CURRENT_TLS.replace("mtu: 1500", "mtu: 1400"),
+            CURRENT_TLS.replace("mtu: 1500", "mtu: 1279"),
             CURRENT_TLS.replace(
-                "port: 1080
+                "mixed-port: 1080
 authentication:
   - measure:secret",
-                "port: 0
+                "mixed-port: 0
 authentication:
   - measure:secret",
             ),
             CURRENT_TLS
                 .replace("enable: true", "enable: false")
                 .replace(
-                    "port: 1080
+                    "mixed-port: 1080
 authentication:
   - measure:secret\n",
                     "",
@@ -4175,11 +4246,11 @@ tun:
     fn rejects_unsafe_or_misplaced_traffic_controller_config() {
         for (fields, expected) in [
             (
-                "port: 1080\nauthentication:\n  - measure:secret\nsecret: token",
+                "mixed-port: 1080\nauthentication:\n  - measure:secret\nsecret: token",
                 "secret requires external-controller",
             ),
             (
-                "port: 1080\nauthentication:\n  - measure:secret\nexternal-controller: \"127.0.0.1:19090\"",
+                "mixed-port: 1080\nauthentication:\n  - measure:secret\nexternal-controller: \"127.0.0.1:19090\"",
                 "external-controller requires tun.enable",
             ),
             (
@@ -4220,18 +4291,19 @@ tun:
     }
 
     #[test]
-    fn validates_strict_http_port_authentication_contract() {
+    fn validates_strict_mixed_port_authentication_contract() {
         let yaml = current_yaml(
-            r#"port: 1080
+            r#"mixed-port: 1080
 authentication:
   - "用户:密:码""#,
         );
         let config = Config::parse_yaml(yaml.as_bytes()).unwrap();
-        let [InboundConfig::Http(http)] = config.inbounds.as_slice() else {
-            panic!("HTTP-only config must normalize exactly one HTTP inbound");
+        let [InboundConfig::Mixed(mixed)] = config.inbounds.as_slice() else {
+            panic!("mixed-only config must normalize exactly one mixed inbound");
         };
         assert!(
-            http.auth
+            mixed
+                .auth
                 .as_ref()
                 .unwrap()
                 .matches("用户".as_bytes(), "密:码".as_bytes())
@@ -4240,33 +4312,29 @@ authentication:
         let max_user = "u".repeat(usize::from(u8::MAX));
         let max_password = "p".repeat(usize::from(u8::MAX));
         let max = current_yaml(&format!(
-            "port: 1080\nauthentication:\n  - \"{max_user}:{max_password}\""
+            "mixed-port: 1080\nauthentication:\n  - \"{max_user}:{max_password}\""
         ));
         assert!(Config::parse_yaml(max.as_bytes()).is_ok());
 
         for (fields, expected) in [
             (
                 "authentication:\n  - measure:secret\ntun:\n  enable: true",
-                "authentication or allow-lan requires an enabled proxy port",
+                "authentication or allow-lan requires an enabled mixed-port",
             ),
             (
-                "port: 1080\nallow-lan: true\nauthentication: []",
-                "allow-lan requires authentication",
-            ),
-            (
-                "port: 1080\nauthentication:\n  - one:secret\n  - two:secret",
+                "mixed-port: 1080\nauthentication:\n  - one:secret\n  - two:secret",
                 "authentication must contain exactly one",
             ),
             (
-                "port: 1080\nauthentication:\n  - missing-separator",
+                "mixed-port: 1080\nauthentication:\n  - missing-separator",
                 "authentication entry must use user:password",
             ),
             (
-                "port: 1080\nauthentication:\n  - \":secret\"",
+                "mixed-port: 1080\nauthentication:\n  - \":secret\"",
                 "authentication user must contain between 1 and 255",
             ),
             (
-                "port: 1080\nauthentication:\n  - \"measure:\"",
+                "mixed-port: 1080\nauthentication:\n  - \"measure:\"",
                 "authentication password must contain between 1 and 255",
             ),
         ] {
@@ -4278,15 +4346,14 @@ authentication:
         }
 
         for yaml in [
-            current_yaml("port: 1080\nauthentication: null"),
-            current_yaml("port: 1080\nauthentication: measure:secret"),
-            current_yaml("mixed-port: 1080\ntun:\n  enable: true"),
+            current_yaml("mixed-port: 1080\nauthentication: null"),
+            current_yaml("mixed-port: 1080\nauthentication: measure:secret"),
             current_yaml(&format!(
-                "port: 1080\nauthentication:\n  - \"{}:secret\"",
+                "mixed-port: 1080\nauthentication:\n  - \"{}:secret\"",
                 "u".repeat(usize::from(u8::MAX) + 1)
             )),
             current_yaml(&format!(
-                "port: 1080\nauthentication:\n  - \"measure:{}\"",
+                "mixed-port: 1080\nauthentication:\n  - \"measure:{}\"",
                 "p".repeat(usize::from(u8::MAX) + 1)
             )),
         ] {
@@ -4295,101 +4362,117 @@ authentication:
     }
 
     #[test]
-    fn socks5_port_and_shared_credentials_support_all_client_runtime_shapes() {
+    fn mixed_port_supports_local_and_tun_runtime_shapes() {
         for fields in [
-            "socks-port: 1080",
-            "port: 0\nsocks-port: 65535\nauthentication: []",
-            "port: 8080\nsocks-port: 1080\nallow-lan: true\nauthentication: ['用户:密:码']",
-            "socks-port: 1080\ntun: {enable: true}",
+            "mixed-port: 1080",
+            "mixed-port: 65535\nauthentication: []",
+            "mixed-port: 1080\nallow-lan: true\nauthentication: ['用户:密:码']",
+            "mixed-port: 1080\ntun: {enable: true}",
         ] {
             let config = Config::parse_yaml(current_yaml(fields).as_bytes()).unwrap();
-            assert!(config.socks_port.is_some());
-            let socks = config
+            assert!(config.mixed_port.is_some());
+            let mixed = config
                 .inbounds
                 .iter()
                 .find_map(|inbound| match inbound {
-                    InboundConfig::Socks5(config) => Some(config),
-                    _ => None,
+                    InboundConfig::Mixed(config) => Some(config),
+                    InboundConfig::Tun(_) => None,
                 })
                 .unwrap();
-            if let Some(http) = config.inbounds.iter().find_map(|inbound| match inbound {
-                InboundConfig::Http(config) => Some(config),
-                _ => None,
-            }) {
-                assert_eq!(socks.auth, http.auth);
-                assert_eq!(socks.access, http.access);
-            }
+            assert_eq!(mixed.tag, "mixed-in");
+            assert_eq!(Some(mixed.port), config.mixed_port);
+            assert_eq!(config.inbounds.len(), if config.tun.enable { 2 } else { 1 });
         }
-        for fields in [
-            "socks-port: 0",
-            "socks-port: null",
-            "socks-port: -1",
-            "socks-port: 65536",
-            "socks-port: 1080\nallow-lan: true",
-            "socks-port: 0\nauthentication: [u:p]\ntun: {enable: true}",
-        ] {
-            assert!(
-                Config::parse_yaml(current_yaml(fields).as_bytes()).is_err(),
-                "{fields}"
-            );
-        }
-        let config =
-            Config::parse_yaml(current_yaml("socks-port: 0\ntun: {enable: true}").as_bytes())
-                .unwrap();
-        assert!(config.socks_port.is_none());
     }
 
     #[test]
-    fn client_listener_defaults_disabled_ports_and_lan_authentication() {
-        for fields in ["port: 1", "port: 65535", "port: 1080\nauthentication: []"] {
-            let config = Config::parse_yaml(current_yaml(fields).as_bytes()).unwrap();
-            let [InboundConfig::Http(http)] = config.inbounds.as_slice() else {
-                panic!("HTTP listener")
-            };
-            assert!(http.auth.is_none());
-            assert!(!http.access.allow_lan);
-            assert!(http.access.ipv6);
+    fn mixed_port_rejects_retired_ports_and_independent_listener_settings() {
+        for (field, value) in [
+            ("port", "1080"),
+            ("socks-port", "1080"),
+            ("mix-port", "1080"),
+            ("listeners", "[]"),
+            ("udp", "true"),
+            ("udp", "false"),
+            ("mixed-udp", "false"),
+        ] {
+            let fields = format!("mixed-port: 1080\n{field}: {value}");
+            let error = Config::parse_yaml(current_yaml(&fields).as_bytes()).unwrap_err();
+            assert!(
+                error.to_string().contains("unknown field"),
+                "{field}: {error}"
+            );
         }
-        for fields in ["tun: {enable: true}", "port: 0\ntun: {enable: true}"] {
+    }
+
+    #[test]
+    fn mixed_port_lan_access_does_not_require_credentials() {
+        for authentication in ["", "\nauthentication: []"] {
+            let fields = format!("mixed-port: 1080\nallow-lan: true{authentication}");
+            let config = Config::parse_yaml(current_yaml(&fields).as_bytes()).unwrap();
+            let [InboundConfig::Mixed(mixed)] = config.inbounds.as_slice() else {
+                panic!("mixed listener");
+            };
+            assert!(mixed.access.allow_lan);
+            assert!(mixed.auth.is_none());
+        }
+    }
+
+    #[test]
+    fn mixed_listener_defaults_disabled_port_and_optional_lan_authentication() {
+        for fields in [
+            "mixed-port: 1",
+            "mixed-port: 65535",
+            "mixed-port: 1080\nauthentication: []",
+        ] {
             let config = Config::parse_yaml(current_yaml(fields).as_bytes()).unwrap();
-            assert_eq!(config.http_port, None);
+            let [InboundConfig::Mixed(mixed)] = config.inbounds.as_slice() else {
+                panic!("mixed listener")
+            };
+            assert!(mixed.auth.is_none());
+            assert!(!mixed.access.allow_lan);
+            assert!(mixed.access.ipv6);
+        }
+        for fields in ["tun: {enable: true}", "mixed-port: 0\ntun: {enable: true}"] {
+            let config = Config::parse_yaml(current_yaml(fields).as_bytes()).unwrap();
+            assert_eq!(config.mixed_port, None);
             assert!(
                 !config
                     .inbounds
                     .iter()
-                    .any(|inbound| matches!(inbound, InboundConfig::Http(_)))
+                    .any(|inbound| matches!(inbound, InboundConfig::Mixed(_)))
             );
         }
         let yaml = current_yaml(
-            "port: 1080\nipv6: false\nallow-lan: true\nauthentication: ['用户:密:码']",
+            "mixed-port: 1080\nipv6: false\nallow-lan: true\nauthentication: ['用户:密:码']",
         );
         let config = Config::parse_yaml(yaml.as_bytes()).unwrap();
-        let [InboundConfig::Http(http)] = config.inbounds.as_slice() else {
-            panic!("HTTP listener")
+        let [InboundConfig::Mixed(mixed)] = config.inbounds.as_slice() else {
+            panic!("mixed listener")
         };
         assert_eq!(
-            http.access,
+            mixed.access,
             ProxyAccess {
                 allow_lan: true,
                 ipv6: false
             }
         );
         assert!(
-            http.auth
+            mixed
+                .auth
                 .as_ref()
                 .unwrap()
                 .matches("用户".as_bytes(), "密:码".as_bytes())
         );
         for fields in [
-            "port: 0",
-            "port: -1",
-            "port: 65536",
-            "port: 1.0",
-            "port: null",
-            "port: 1080\nallow-lan: true",
+            "mixed-port: 0",
+            "mixed-port: -1",
+            "mixed-port: 65536",
+            "mixed-port: 1.0",
+            "mixed-port: null",
             "allow-lan: true\ntun: {enable: true}",
-            "port: 0\nauthentication: [u:p]\ntun: {enable: true}",
-            "port: 1080\nallow-lan: null",
+            "mixed-port: 0\nauthentication: [u:p]\ntun: {enable: true}",
+            "mixed-port: 1080\nallow-lan: null",
         ] {
             assert!(
                 Config::parse_yaml(current_yaml(fields).as_bytes()).is_err(),
@@ -4398,7 +4481,7 @@ authentication:
         }
         for length in [85, 86] {
             let yaml = current_yaml(&format!(
-                "port: 1080\nauthentication: ['{}:{}']",
+                "mixed-port: 1080\nauthentication: ['{}:{}']",
                 "用".repeat(length),
                 "密".repeat(length)
             ));
@@ -4407,9 +4490,9 @@ authentication:
     }
 
     #[test]
-    fn http_inbound_debug_redacts_credentials() {
-        let inbound = HttpInboundConfig {
-            tag: "http-in".to_owned(),
+    fn mixed_inbound_debug_redacts_credentials() {
+        let inbound = MixedInboundConfig {
+            tag: "mixed-in".to_owned(),
             port: 1080,
             access: ProxyAccess {
                 allow_lan: false,
@@ -4418,8 +4501,8 @@ authentication:
             auth: Some(ProxyCredentials::new("private-user", "private-password").unwrap()),
         };
         let debug = format!("{inbound:?}");
-        assert!(debug.contains("HttpInboundConfig"));
-        assert!(debug.contains("http-in"));
+        assert!(debug.contains("MixedInboundConfig"));
+        assert!(debug.contains("mixed-in"));
         assert!(debug.contains("1080"));
         assert!(!debug.contains("private-user"));
         assert!(!debug.contains("private-password"));
@@ -4430,7 +4513,10 @@ authentication:
             "[123]",
         ] {
             let error = Config::parse_yaml(
-                current_yaml(&format!("port: 1080\nauthentication: {authentication}")).as_bytes(),
+                current_yaml(&format!(
+                    "mixed-port: 1080\nauthentication: {authentication}"
+                ))
+                .as_bytes(),
             )
             .unwrap_err();
             assert!(!error.to_string().contains("private-auth-fixture"));
@@ -4712,7 +4798,7 @@ authentication:
     #[test]
     fn parses_and_normalizes_current_config() {
         let yaml = current_yaml(
-            r#"port: 1080
+            r#"mixed-port: 1080
 authentication:
   - measure:secret
 tun:
@@ -4745,7 +4831,7 @@ rules:
         assert!(matches!(
             &config.inbounds[..],
             [
-                InboundConfig::Http(HttpInboundConfig {
+                InboundConfig::Mixed(MixedInboundConfig {
                     access: ProxyAccess {
                         allow_lan: false,
                         ipv6: true
@@ -4756,17 +4842,18 @@ rules:
                 InboundConfig::Tun(TunInboundConfig { mtu: 1500, .. })
             ]
         ));
-        let InboundConfig::Http(http) = &config.inbounds[0] else {
-            unreachable!("first inbound is the normalized HTTP listener");
+        let InboundConfig::Mixed(mixed) = &config.inbounds[0] else {
+            unreachable!("first inbound is the normalized mixed listener");
         };
-        assert!(http.auth.as_ref().unwrap().matches(b"measure", b"secret"));
+        assert!(mixed.auth.as_ref().unwrap().matches(b"measure", b"secret"));
 
-        assert_eq!(config.http_port, Some(1080));
+        assert_eq!(config.mixed_port, Some(1080));
         assert_eq!(
             config.tun,
             TunConfig {
                 enable: true,
-                mtu: 1500
+                mtu: 1500,
+                ..TunConfig::default()
             }
         );
         assert!(!config.dns.ipv6);
@@ -4856,7 +4943,7 @@ rules:
     #[test]
     fn current_rules_share_runtime_domain_normalization() {
         let yaml = current_yaml(
-            "port: 1080
+            "mixed-port: 1080
 authentication:
   - measure:secret\nrules:\n  - DOMAIN,XN--WCVS22D1M.HK,DIRECT\n  - DOMAIN-SUFFIX,例子.中国,proxy\n  - MATCH,proxy",
         );
@@ -4873,10 +4960,78 @@ authentication:
     }
 
     #[test]
+    fn tun_config_uses_mihomo_defaults_and_zero_sentinels() {
+        for fields in ["", "  mtu: 0\n  udp-timeout: 0"] {
+            let yaml = current_yaml(&format!("tun:\n  enable: true\n{fields}"));
+            let config = Config::parse_yaml(yaml.as_bytes()).unwrap();
+            assert_eq!(
+                config.tun,
+                TunConfig {
+                    enable: true,
+                    ..TunConfig::default()
+                }
+            );
+            assert_eq!(config.tun.mtu, 9000);
+            assert_eq!(config.tun.udp_timeout, Duration::from_secs(300));
+        }
+    }
+
+    #[test]
+    fn tun_config_normalizes_config_owned_resources_and_dns_targets() {
+        let yaml = current_yaml(
+            "tun:\n  enable: true\n  mtu: 1400\n  file-descriptor: 23\n  device: host-tun\n  dns-hijack: [any:5353, 'tcp://192.0.2.53:5353', '[2001:db8::53]:53']\n  udp-timeout: 7",
+        );
+        let tun = Config::parse_yaml(yaml.as_bytes()).unwrap().tun;
+        assert_eq!(tun.file_descriptor, 23);
+        assert_eq!(tun.device, "host-tun");
+        assert_eq!(tun.mtu, 1400);
+        assert_eq!(tun.udp_timeout, Duration::from_secs(7));
+        assert!(tun.hijacks_dns("[2001:db8::1]:53".parse().unwrap()));
+        assert!(tun.hijacks_dns("192.0.2.53:5353".parse().unwrap()));
+        assert!(!tun.hijacks_dns("192.0.2.54:5353".parse().unwrap()));
+        let disabled =
+            Config::parse_yaml(current_yaml("tun:\n  enable: true\n  dns-hijack: []").as_bytes())
+                .unwrap();
+        assert!(!disabled.tun.hijacks_dns("1.1.1.1:53".parse().unwrap()));
+    }
+
+    #[test]
+    fn tun_config_rejects_invalid_values_and_unimplemented_mihomo_fields() {
+        for fields in [
+            "mtu: 1279",
+            "mtu: 65536",
+            "file-descriptor: -1",
+            "file-descriptor: 2147483648",
+            "device: null",
+            "device: \"bad\\nname\"",
+            "udp-timeout: -1",
+            "udp-timeout: null",
+            "dns-hijack: [name.example:53]",
+            "dns-hijack: null",
+            "framing: rawIp",
+            "auto-route: false",
+            "auto-redirect: false",
+            "auto-detect-interface: false",
+            "stack: mips",
+            "inet4-address: [198.18.0.1/30]",
+            "inet6-address: ['fd00::1/126']",
+            "route-address: [0.0.0.0/1]",
+            "strict-route: false",
+            "gso: false",
+        ] {
+            let yaml = current_yaml(&format!("tun:\n  enable: true\n  {fields}"));
+            assert!(
+                Config::parse_yaml(yaml.as_bytes()).is_err(),
+                "invalid TUN field accepted: {fields}"
+            );
+        }
+    }
+
+    #[test]
     fn current_config_defaults_disabled_dns_and_tun() {
         let config = Config::parse_yaml(
             current_yaml(
-                "port: 1080
+                "mixed-port: 1080
 authentication:
   - measure:secret",
             )
@@ -4888,7 +5043,7 @@ authentication:
             config.tun,
             TunConfig {
                 enable: false,
-                mtu: 1500
+                ..TunConfig::default()
             }
         );
         assert_eq!(config.dns, DnsConfig::disabled().unwrap());
@@ -4911,7 +5066,7 @@ authentication:
     fn current_config_combines_global_and_dns_ipv6_switches() {
         let global_disabled = Config::parse_yaml(
             current_yaml(
-                "ipv6: false\nport: 1080\nauthentication:\n  - measure:secret\ndns:\n  enable: true\n  ipv6: true\n  nameserver: [1.1.1.1]",
+                "ipv6: false\nmixed-port: 1080\nauthentication:\n  - measure:secret\ndns:\n  enable: true\n  ipv6: true\n  nameserver: [1.1.1.1]",
             )
             .as_bytes(),
         )
@@ -4921,7 +5076,7 @@ authentication:
 
         let dns_disabled = Config::parse_yaml(
             current_yaml(
-                "ipv6: true\nport: 1080\nauthentication:\n  - measure:secret\ndns:\n  enable: true\n  ipv6: false\n  nameserver: [1.1.1.1]",
+                "ipv6: true\nmixed-port: 1080\nauthentication:\n  - measure:secret\ndns:\n  enable: true\n  ipv6: false\n  nameserver: [1.1.1.1]",
             )
             .as_bytes(),
         )
@@ -4933,21 +5088,21 @@ authentication:
     #[test]
     fn current_config_requires_listener_rules_and_nonempty_proxies() {
         for yaml in [
-            current_yaml("port: 0\nauthentication:\n  - measure:secret"),
+            current_yaml("mixed-port: 0\nauthentication:\n  - measure:secret"),
             current_yaml("tun:\n  enable: false"),
-            current_yaml("tun:\n  enable: true\n  mtu: 1400"),
+            current_yaml("tun:\n  enable: true\n  mtu: 1279"),
             current_yaml(
-                "port: 1080
+                "mixed-port: 1080
 authentication:
   - measure:secret\nrules: []",
             ),
             current_yaml(
-                "port: 1080
+                "mixed-port: 1080
 authentication:
   - measure:secret\ntypo: true",
             ),
             current_yaml(
-                "port: 1080
+                "mixed-port: 1080
 authentication:
   - measure:secret",
             )
@@ -4958,18 +5113,18 @@ authentication:
             assert!(Config::parse_yaml(yaml.as_bytes()).is_err(), "{yaml}");
         }
 
-        let missing_proxy = "port: 1080
+        let missing_proxy = "mixed-port: 1080
 authentication:
   - measure:secret\nrules:\n  - MATCH,proxy\n";
         assert!(Config::parse_yaml(missing_proxy.as_bytes()).is_err());
-        let empty_proxies = "port: 1080
+        let empty_proxies = "mixed-port: 1080
 authentication:
   - measure:secret\nrules:\n  - MATCH,proxy\nproxies: []\n";
         assert!(Config::parse_yaml(empty_proxies.as_bytes()).is_err());
         assert!(
             Config::parse_yaml(
                 two_proxy_yaml(
-                    "port: 1080
+                    "mixed-port: 1080
 authentication:
   - measure:secret"
                 )
@@ -4982,7 +5137,7 @@ authentication:
     #[test]
     fn parses_strict_socks5_settings_and_utf8_credentials() {
         let yaml = two_proxy_yaml(
-            "port: 1080
+            "mixed-port: 1080
 authentication:
   - measure:secret\nrules:\n  - MATCH,socks-hop",
         );
@@ -5001,7 +5156,7 @@ authentication:
         assert_eq!(socks5.password.as_deref(), Some("password"));
 
         let no_auth = two_proxy_yaml(
-            "port: 1080
+            "mixed-port: 1080
 authentication:
   - measure:secret",
         )
@@ -5018,7 +5173,7 @@ authentication:
         let username = "用".repeat(85);
         let password = "密".repeat(85);
         let utf8 = two_proxy_yaml(
-            "port: 1080
+            "mixed-port: 1080
 authentication:
   - measure:secret",
         )
@@ -5032,67 +5187,67 @@ authentication:
         let oversized = "a".repeat(256);
         for yaml in [
             two_proxy_yaml(
-                "port: 1080
+                "mixed-port: 1080
 authentication:
   - measure:secret",
             )
             .replace("    password: password\n", ""),
             two_proxy_yaml(
-                "port: 1080
+                "mixed-port: 1080
 authentication:
   - measure:secret",
             )
             .replace("    username: user\n", ""),
             two_proxy_yaml(
-                "port: 1080
+                "mixed-port: 1080
 authentication:
   - measure:secret",
             )
             .replace("username: user", "username: ''"),
             two_proxy_yaml(
-                "port: 1080
+                "mixed-port: 1080
 authentication:
   - measure:secret",
             )
             .replace("password: password", "password: ''"),
             two_proxy_yaml(
-                "port: 1080
+                "mixed-port: 1080
 authentication:
   - measure:secret",
             )
             .replace("username: user", "username: null"),
             two_proxy_yaml(
-                "port: 1080
+                "mixed-port: 1080
 authentication:
   - measure:secret",
             )
             .replace("password: password", "password: null"),
             two_proxy_yaml(
-                "port: 1080
+                "mixed-port: 1080
 authentication:
   - measure:secret",
             )
             .replace("type: socks5", "type: socks"),
             two_proxy_yaml(
-                "port: 1080
+                "mixed-port: 1080
 authentication:
   - measure:secret",
             )
             .replace("username: user", &format!("username: '{oversized}'")),
             two_proxy_yaml(
-                "port: 1080
+                "mixed-port: 1080
 authentication:
   - measure:secret",
             )
             .replace("    port: 1080", "    port: 0"),
             two_proxy_yaml(
-                "port: 1080
+                "mixed-port: 1080
 authentication:
   - measure:secret",
             )
             .replace("server: socks.example.com", "server: 'bad host'"),
             two_proxy_yaml(
-                "port: 1080
+                "mixed-port: 1080
 authentication:
   - measure:secret",
             )
@@ -5101,7 +5256,7 @@ authentication:
                 "    typo: true\n    server: socks.example.com",
             ),
             two_proxy_yaml(
-                "port: 1080
+                "mixed-port: 1080
 authentication:
   - measure:secret",
             )
@@ -5110,7 +5265,7 @@ authentication:
                 "    streamSettings: {}\n    server: socks.example.com",
             ),
             two_proxy_yaml(
-                "port: 1080
+                "mixed-port: 1080
 authentication:
   - measure:secret",
             )
@@ -5123,7 +5278,7 @@ authentication:
     #[test]
     fn resolves_default_rules_tags_and_dialer_proxy_graph() {
         let yaml = two_proxy_yaml(
-            "port: 1080
+            "mixed-port: 1080
 authentication:
   - measure:secret\nrules:\n  - DOMAIN-SUFFIX,example.com,proxy\n  - NETWORK,UDP,socks-hop\n  - MATCH,socks-hop",
         )
@@ -5155,7 +5310,7 @@ authentication:
         );
 
         let proxy_default = two_proxy_yaml(
-            "port: 1080
+            "mixed-port: 1080
 authentication:
   - measure:secret",
         );
@@ -5181,7 +5336,7 @@ authentication:
     type: select
     proxies: [proxy, proxy, DIRECT]
     default-selected: proxy"#,
-            r#"port: 1080
+            r#"mixed-port: 1080
 authentication:
   - measure:secret
 dns:
@@ -5240,7 +5395,8 @@ rules:
 
     #[test]
     fn strictly_rejects_invalid_select_group_shapes_and_graphs() {
-        let fields = "port: 1080\nauthentication:\n  - measure:secret\nrules:\n  - MATCH,主线路";
+        let fields =
+            "mixed-port: 1080\nauthentication:\n  - measure:secret\nrules:\n  - MATCH,主线路";
         for groups in [
             r#"  - name: 主线路
     type: url-test
@@ -5298,15 +5454,12 @@ rules:
             r#"  - name: proxy
     type: select
     proxies: [DIRECT]"#,
-            "port: 1080\nauthentication:\n  - measure:secret\nrules:\n  - MATCH,proxy",
+            "mixed-port: 1080\nauthentication:\n  - measure:secret\nrules:\n  - MATCH,proxy",
         );
         assert!(Config::parse_yaml(shared_name.as_bytes()).is_err());
 
-        let null_groups = current_yaml("port: 1080\nauthentication:\n  - measure:secret").replacen(
-            "\nproxies:",
-            "\nproxy-groups: null\nproxies:",
-            1,
-        );
+        let null_groups = current_yaml("mixed-port: 1080\nauthentication:\n  - measure:secret")
+            .replacen("\nproxies:", "\nproxy-groups: null\nproxies:", 1);
         assert!(Config::parse_yaml(null_groups.as_bytes()).is_err());
     }
 
@@ -5317,7 +5470,7 @@ rules:
     proxies: [proxy, DIRECT]"#;
         let dialer_group = with_proxy_groups(
             groups,
-            "port: 1080\nauthentication:\n  - measure:secret\nrules:\n  - MATCH,主线路",
+            "mixed-port: 1080\nauthentication:\n  - measure:secret\nrules:\n  - MATCH,主线路",
         )
         .replacen(
             "    server: edge.example.com\n",
@@ -5337,13 +5490,13 @@ rules:
 
         let no_controller = with_proxy_groups(
             groups,
-            "port: 1080\nauthentication:\n  - measure:secret\nrules:\n  - MATCH,主线路",
+            "mixed-port: 1080\nauthentication:\n  - measure:secret\nrules:\n  - MATCH,主线路",
         );
         assert!(Config::parse_yaml(no_controller.as_bytes()).is_ok());
 
         let controller = with_proxy_groups(
             groups,
-            "port: 1080\nauthentication:\n  - measure:secret\nexternal-controller: '127.0.0.1:19090'\nsecret: token\nrules:\n  - MATCH,主线路",
+            "mixed-port: 1080\nauthentication:\n  - measure:secret\nexternal-controller: '127.0.0.1:19090'\nsecret: token\nrules:\n  - MATCH,主线路",
         );
         assert!(Config::parse_yaml(controller.as_bytes()).is_ok());
 
@@ -5355,7 +5508,7 @@ rules:
     #[test]
     fn accepts_many_proxies_and_resolves_rule_and_dns_tags() {
         let yaml = format!(
-            r#"port: 1080
+            r#"mixed-port: 1080
 authentication:
   - measure:secret
 dns:
@@ -5412,7 +5565,7 @@ proxies:
     fn validates_long_proxy_chains_beyond_u8_indices() {
         let entries = socks_proxy_entries(300, true);
         let yaml = format!(
-            "port: 1080\nauthentication:\n  - measure:secret\n\
+            "mixed-port: 1080\nauthentication:\n  - measure:secret\n\
              rules:\n  - MATCH,node-299\nproxies:\n{entries}"
         );
         assert!(yaml.len() <= MAX_CONFIG_BYTES);
@@ -5433,7 +5586,7 @@ proxies:
             1,
         );
         let cycle = format!(
-            "port: 1080\nauthentication:\n  - measure:secret\n\
+            "mixed-port: 1080\nauthentication:\n  - measure:secret\n\
              rules:\n  - MATCH,node-299\nproxies:\n{cycle_entries}"
         );
         let error = Config::parse_yaml(cycle.as_bytes()).unwrap_err();
@@ -5476,7 +5629,7 @@ proxies:
         assert!(Config::parse_yaml(yaml.as_bytes()).is_err());
 
         let duplicate = two_proxy_yaml(
-            "port: 1080
+            "mixed-port: 1080
 authentication:
   - measure:secret",
         )
@@ -5484,7 +5637,7 @@ authentication:
         assert!(Config::parse_yaml(duplicate.as_bytes()).is_err());
 
         let unknown = two_proxy_yaml(
-            "port: 1080
+            "mixed-port: 1080
 authentication:
   - measure:secret",
         )
@@ -5497,7 +5650,7 @@ authentication:
 
         for invalid_reference in ["''", "null", "'bad#name'"] {
             let yaml = two_proxy_yaml(
-                "port: 1080
+                "mixed-port: 1080
 authentication:
   - measure:secret",
             )
@@ -5510,7 +5663,7 @@ authentication:
         }
 
         let self_reference = two_proxy_yaml(
-            "port: 1080
+            "mixed-port: 1080
 authentication:
   - measure:secret",
         )
@@ -5522,7 +5675,7 @@ authentication:
         assert!(Config::parse_yaml(self_reference.as_bytes()).is_err());
 
         let cycle = two_proxy_yaml(
-            "port: 1080
+            "mixed-port: 1080
 authentication:
   - measure:secret",
         )
@@ -5541,7 +5694,7 @@ authentication:
     #[test]
     fn accepts_all_two_hop_protocol_combinations() {
         let vless_socks = two_proxy_yaml(
-            "port: 1080
+            "mixed-port: 1080
 authentication:
   - measure:secret",
         )
@@ -5553,7 +5706,7 @@ authentication:
         assert!(Config::parse_yaml(vless_socks.as_bytes()).is_ok());
 
         let socks_vless = two_proxy_yaml(
-            "port: 1080
+            "mixed-port: 1080
 authentication:
   - measure:secret\nrules:\n  - MATCH,socks-hop",
         )
@@ -5566,7 +5719,7 @@ authentication:
         let vless_vless = format!(
             "{}{}",
             current_yaml(
-                "port: 1080
+                "mixed-port: 1080
 authentication:
   - measure:secret"
             ),
@@ -5587,7 +5740,7 @@ authentication:
                 "    dialer-proxy: socks-hop\n    server: first.example.com\n",
             );
         let socks_socks = format!(
-            "port: 1080
+            "mixed-port: 1080
 authentication:
   - measure:secret\nrules:\n  - MATCH,socks-one\nproxies:\n{first_socks}{SOCKS_PROXY_ENTRY}"
         );
@@ -5597,7 +5750,7 @@ authentication:
     #[test]
     fn current_config_validates_dns_schema_and_fixed_ip_nameservers() {
         let valid = current_yaml(
-            r#"port: 1080
+            r#"mixed-port: 1080
 authentication:
   - measure:secret
 dns:
@@ -5610,28 +5763,28 @@ dns:
         assert_eq!(dns.nameservers[0].route, DnsRoute::Direct);
 
         for fields in [
-            "port: 1080
+            "mixed-port: 1080
 authentication:
   - measure:secret\ndns:\n  nameserver: []",
-            "port: 1080
+            "mixed-port: 1080
 authentication:
   - measure:secret\ndns:\n  enable: true\n  nameserver: []",
-            "port: 1080
+            "mixed-port: 1080
 authentication:
   - measure:secret\ndns:\n  enable: false\n  nameserver: [1.1.1.1]",
-            "port: 1080
+            "mixed-port: 1080
 authentication:
   - measure:secret\ndns:\n  enable: true\n  enhanced-mode: fake-ip\n  nameserver: [1.1.1.1]",
-            "port: 1080
+            "mixed-port: 1080
 authentication:
   - measure:secret\ndns:\n  enable: true\n  nameserver: [udp://dns.example:53]",
-            "port: 1080
+            "mixed-port: 1080
 authentication:
   - measure:secret\ndns:\n  enable: true\n  nameserver: [https://1.1.1.1/dns-query]",
-            "port: 1080
+            "mixed-port: 1080
 authentication:
   - measure:secret\ndns:\n  enable: true\n  nameserver: [tcp://1.1.1.1:0]",
-            "port: 1080
+            "mixed-port: 1080
 authentication:
   - measure:secret\ndns:\n  enable: true\n  nameserver: [1.1.1.1, 8.8.8.8, 9.9.9.9, 4.4.4.4, 208.67.222.222]",
         ] {
@@ -5643,7 +5796,7 @@ authentication:
     #[test]
     fn current_config_normalizes_dns_nameserver_routes() {
         let yaml = current_yaml(
-            r#"port: 1080
+            r#"mixed-port: 1080
 authentication:
   - measure:secret
 dns:
@@ -5670,14 +5823,14 @@ dns:
         );
 
         let yaml = current_yaml(
-            "port: 1080
+            "mixed-port: 1080
 authentication:
   - measure:secret\ndns:\n  enable: true\n  nameserver: [udp://1.1.1.1:53#PROXY]",
         );
         assert!(Config::parse_yaml(yaml.as_bytes()).is_err());
 
         let yaml = current_yaml(
-            "port: 1080
+            "mixed-port: 1080
 authentication:
   - measure:secret\ndns:\n  enable: true\n  nameserver: [udp://1.1.1.1:53#PROXY]",
         )
@@ -5690,7 +5843,7 @@ authentication:
         );
 
         let yaml = two_proxy_yaml(
-            "port: 1080
+            "mixed-port: 1080
 authentication:
   - measure:secret\nrules:\n  - MATCH,socks-hop\ndns:\n  enable: true\n  nameserver: [8.8.8.8#proxy, 9.9.9.9#socks-hop, 4.4.4.4#RULES]",
         );
@@ -5713,7 +5866,7 @@ authentication:
     #[test]
     fn current_config_parses_ordered_geosite_nameserver_policies() {
         let yaml = current_yaml(
-            r#"port: 1080
+            r#"mixed-port: 1080
 authentication:
   - measure:secret
 dns:
@@ -5760,7 +5913,7 @@ dns:
     #[test]
     fn current_config_parses_geodata_attributes_and_inversion() {
         let yaml = current_yaml(
-            r#"port: 1080
+            r#"mixed-port: 1080
 authentication:
   - measure:secret
 dns:
@@ -5805,7 +5958,7 @@ rules:
             r#"    "geosite:cn": ["tcp://dns.example"]"#,
         ] {
             let yaml = current_yaml(&format!(
-                "port: 1080
+                "mixed-port: 1080
 authentication:
   - measure:secret\ndns:\n  enable: true\n  nameserver: [1.1.1.1]\n  nameserver-policy:\n{policy}"
             ));
@@ -5813,7 +5966,7 @@ authentication:
         }
 
         let duplicate = current_yaml(
-            r#"port: 1080
+            r#"mixed-port: 1080
 authentication:
   - measure:secret
 dns:
@@ -5830,7 +5983,7 @@ dns:
             .collect::<Vec<_>>()
             .join(",");
         let yaml = current_yaml(&format!(
-            "port: 1080
+            "mixed-port: 1080
 authentication:
   - measure:secret\ndns:\n  enable: true\n  nameserver: [1.1.1.1]\n  nameserver-policy:\n    \"geosite:{many_codes}\": [tcp://223.5.5.5]"
         ));
@@ -5849,7 +6002,7 @@ authentication:
             .collect::<Vec<_>>()
             .join("\n");
         let yaml = current_yaml(&format!(
-            "port: 1080
+            "mixed-port: 1080
 authentication:
   - measure:secret\ndns:\n  enable: true\n  nameserver: [1.1.1.1]\n  nameserver-policy:\n{many_policies}"
         ));
@@ -5863,7 +6016,7 @@ authentication:
         );
 
         let disabled = current_yaml(
-            r#"port: 1080
+            r#"mixed-port: 1080
 authentication:
   - measure:secret
 dns:
@@ -5874,7 +6027,7 @@ dns:
         assert!(Config::parse_yaml(disabled.as_bytes()).is_err());
 
         let missing_main = current_yaml(
-            r#"port: 1080
+            r#"mixed-port: 1080
 authentication:
   - measure:secret
 dns:
@@ -5896,7 +6049,7 @@ dns:
             "udp://1.1.1.1:53#DIRECT#RULES",
         ] {
             let yaml = current_yaml(&format!(
-                "port: 1080
+                "mixed-port: 1080
 authentication:
   - measure:secret\ndns:\n  enable: true\n  nameserver: [\"{nameserver}\"]"
             ));
@@ -5905,7 +6058,7 @@ authentication:
 
         for reserved_tag in ["DIRECT", "REJECT", "RULES"] {
             let yaml = current_yaml(
-                "port: 1080
+                "mixed-port: 1080
 authentication:
   - measure:secret",
             )
@@ -5917,19 +6070,19 @@ authentication:
     #[test]
     fn current_config_rejects_removed_dns_switches() {
         for fields in [
-            "port: 1080
+            "mixed-port: 1080
 authentication:
   - measure:secret\ndns:\n  enable: true\n  enhanced-mode: normal\n  nameserver: [1.1.1.1]",
-            "port: 1080
+            "mixed-port: 1080
 authentication:
   - measure:secret\ndns:\n  enable: true\n  enhanced-mode: redir-host\n  nameserver: [1.1.1.1]",
-            "port: 1080
+            "mixed-port: 1080
 authentication:
   - measure:secret\ndns:\n  enable: true\n  respect-rules: false\n  nameserver: [1.1.1.1]",
-            "port: 1080
+            "mixed-port: 1080
 authentication:
   - measure:secret\ndns:\n  enable: true\n  respect-rules: true\n  nameserver: [1.1.1.1]",
-            "port: 1080
+            "mixed-port: 1080
 authentication:
   - measure:secret\ndns:\n  enable: true\n  respectRules: false\n  nameserver: [1.1.1.1]",
         ] {
@@ -5959,7 +6112,7 @@ authentication:
             "  - DOMAIN,example.com,DIRECT",
         ] {
             let yaml = current_yaml(&format!(
-                "port: 1080
+                "mixed-port: 1080
 authentication:
   - measure:secret\nrules:\n{rules}"
             ));
@@ -5967,14 +6120,14 @@ authentication:
         }
 
         let explicit_empty = current_yaml(
-            "port: 1080
+            "mixed-port: 1080
 authentication:
   - measure:secret\nrules: []",
         );
         assert!(Config::parse_yaml(explicit_empty.as_bytes()).is_err());
 
         let non_ascii_whitespace = current_yaml(
-            "port: 1080
+            "mixed-port: 1080
 authentication:
   - measure:secret\nrules:\n  - MATCH,\u{a0}PROXY",
         );
@@ -5987,7 +6140,7 @@ authentication:
             .map(|_| "  - NETWORK,TCP,proxy\n")
             .collect::<String>();
         let yaml = current_yaml(&format!(
-            "port: 1080
+            "mixed-port: 1080
 authentication:
   - measure:secret\nrules:\n{too_many}  - MATCH,proxy"
         ));
@@ -5995,7 +6148,7 @@ authentication:
 
         let oversized = "a".repeat(MAX_RULE_BYTES + 1);
         let yaml = current_yaml(&format!(
-            "port: 1080
+            "mixed-port: 1080
 authentication:
   - measure:secret\nrules:\n  - {oversized}\n  - MATCH,proxy"
         ));
@@ -6006,7 +6159,7 @@ authentication:
             .map(|_| format!("  - DOMAIN-KEYWORD,{keyword},proxy\n"))
             .collect::<String>();
         let yaml = current_yaml(&format!(
-            "port: 1080
+            "mixed-port: 1080
 authentication:
   - measure:secret\nrules:\n{many_rules}  - MATCH,proxy"
         ));

@@ -9,7 +9,7 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     sync::mpsc,
 };
-use vcore::{
+use vole::{
     config::{Config, ProxyProtocol, TuicCongestion, TuicOutboundConfig},
     dispatch::{DatagramBudget, DatagramTransport, DispatchError},
     outbound::{
@@ -123,7 +123,7 @@ fn fixture_parts(
         Arc::new(quinn::TokioRuntime),
     )
     .unwrap();
-    let yaml = serde_json::json!({"socks-port":1080,"proxies":[{"name":"peer","type":"tuic","server":"192.0.2.1","port":443,"uuid":"07070707-0707-0707-0707-070707070707","password":" raw\u{0000}context ","sni":"fixture.invalid","skip-cert-verify":true,"congestion-controller":congestion,"udp":true,"udp-relay-mode":mode}],"rules":["MATCH,peer"]});
+    let yaml = serde_json::json!({"mixed-port":1080,"proxies":[{"name":"peer","type":"tuic","server":"192.0.2.1","port":443,"uuid":"07070707-0707-0707-0707-070707070707","password":" raw\u{0000}context ","sni":"fixture.invalid","skip-cert-verify":true,"congestion-controller":congestion,"udp":true,"udp-relay-mode":mode}],"rules":["MATCH,peer"]});
     let parsed = Config::parse_yaml(yaml.to_string().as_bytes()).unwrap();
     let ProxyProtocol::Tuic(config) = &parsed.proxies[0].protocol else {
         panic!("TUIC");
@@ -420,7 +420,7 @@ async fn both_udp_modes_preserve_empty_and_u16_packets_and_dissociate() {
             .scope(async {
                 let mut udp = outbound
                     .open_datagram(
-                        vcore::outbound::DatagramRequest::new(DatagramSession::new(
+                        vole::outbound::DatagramRequest::new(DatagramSession::new(
                             InboundKind::Socks5,
                             "127.0.0.1:1".parse().unwrap(),
                         ))
@@ -488,7 +488,7 @@ async fn unused_association_close_does_not_create_peer_state_or_control_tasks() 
     });
     let mut unused = outbound
         .open_datagram(
-            vcore::outbound::DatagramRequest::new(DatagramSession::new(
+            vole::outbound::DatagramRequest::new(DatagramSession::new(
                 InboundKind::Socks5,
                 "127.0.0.1:1".parse().unwrap(),
             )),
@@ -825,7 +825,7 @@ async fn cancelled_uni_credit_wait_does_not_replay_or_close_sibling_tcp() {
 #[tokio::test]
 async fn physical_protection_failure_stops_before_udp_or_tcp_fallback() {
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use vcore::dialer::{Dialer, ResolvedEndpoint, SocketProtector};
+    use vole::dialer::{Dialer, ResolvedEndpoint, SocketProtector};
     struct Reject(AtomicUsize);
     impl SocketProtector for Reject {
         fn protect(&self, _: i32) -> std::io::Result<()> {
@@ -931,7 +931,7 @@ async fn heartbeat_and_full_delivery_queue_remain_owned_until_synchronous_stop()
                 let queue = probe
                     .queues()
                     .into_iter()
-                    .find(|q| q.kind == vcore::resources::observation::QueueKind::TuicUdp)
+                    .find(|q| q.kind == vole::resources::observation::QueueKind::TuicUdp)
                     .unwrap();
                 assert_eq!((queue.peak, queue.capacity), (32, 32));
                 let before = tokio::time::Instant::now();
@@ -982,7 +982,7 @@ async fn receive_flow_control_bounds_unread_streams_and_connection_then_stop_rel
                 1024 * 1024
             };
             // Successful peer writes include its bounded 64 KiB send buffer,
-            // not just acknowledged bytes retained in the VCore receive window.
+            // not just acknowledged bytes retained in the Vole receive window.
             assert!(
                 accepted >= window && accepted <= window + 64 * 1024,
                 "{streams} streams accepted {accepted}"

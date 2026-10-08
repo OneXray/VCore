@@ -41,7 +41,7 @@ async fn hundred_active_stops_release_activities_graph_and_protect_owner() {
             let proxy = reserved.local_addr().unwrap();
             let yaml = format!(
                 r#"
-socks-port: {}
+mixed-port: {}
 ipv6: false
 proxies:
   - {{name: unused, type: socks5, server: 127.0.0.1, port: 9, udp: true}}

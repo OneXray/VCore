@@ -10,7 +10,7 @@ use tokio::{
     io::{AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader},
     net::{TcpListener, TcpStream},
     task::JoinSet,
-    time::timeout,
+    time::{Instant, timeout, timeout_at},
 };
 use tokio_util::sync::CancellationToken;
 
@@ -35,7 +35,7 @@ use super::{
     parser::{RequestHead, parse_request_head},
 };
 
-pub(crate) const MEASURE_DIAGNOSTIC_HEADER: &str = "X-VCore-Measure-Diagnostic";
+pub(crate) const MEASURE_DIAGNOSTIC_HEADER: &str = "X-Vole-Measure-Diagnostic";
 pub(crate) const MEASURE_DIAGNOSTIC_REQUEST: &str = "v1";
 const MAX_MEASURE_DIAGNOSTIC_HEADER_BYTES: usize = 512;
 const MAX_INFORMATIONAL_RESPONSES: usize = 16;
@@ -72,12 +72,6 @@ impl HttpServerConfig {
     }
 
     pub fn proxy(port: u16, access: ProxyAccess, auth: Option<HttpBasicAuth>) -> io::Result<Self> {
-        if access.allow_lan && auth.is_none() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "shared proxy requires authentication",
-            ));
-        }
         Ok(Self {
             listen: SocketAddr::from((
                 if access.allow_lan {
@@ -109,7 +103,6 @@ impl HttpServer {
         dispatcher: Arc<dyn Dispatcher>,
     ) -> io::Result<Self> {
         if (!config.listen.ip().is_loopback() && !config.listen.ip().is_unspecified())
-            || (config.listen.ip().is_unspecified() && config.auth.is_none())
             || !(1024..=DEFAULT_HEADER_LIMIT).contains(&config.header_limit)
         {
             return Err(io::Error::new(
@@ -178,21 +171,36 @@ impl HttpServer {
 }
 
 pub(crate) async fn handle_connection(
-    mut inbound: TcpStream,
+    inbound: TcpStream,
     peer: SocketAddr,
     dispatcher: Arc<dyn Dispatcher>,
     config: HttpServerConfig,
     cancellation: CancellationToken,
 ) -> io::Result<()> {
+    let deadline = Instant::now() + config.header_timeout;
+    handle_connection_with_deadline(inbound, peer, dispatcher, config, cancellation, deadline).await
+}
+
+pub(crate) async fn handle_connection_with_deadline<S>(
+    inbound: S,
+    peer: SocketAddr,
+    dispatcher: Arc<dyn Dispatcher>,
+    config: HttpServerConfig,
+    cancellation: CancellationToken,
+    deadline: Instant,
+) -> io::Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
     // This cancellation boundary covers every read, write, handshake and tunnel,
     // including error responses to a client that has stopped reading.
     tokio::select! {
         biased;
         () = cancellation.cancelled() => Ok(()),
         result = async {
-            let (read, mut write) = inbound.split();
+            let (read, mut write) = tokio::io::split(inbound);
             let mut reader = BufReader::with_capacity(framing::COPY_BUFFER, read);
-            serve_requests(&mut reader, &mut write, peer, &dispatcher, &config).await
+            serve_requests(&mut reader, &mut write, peer, &dispatcher, &config, deadline).await
         } => result,
     }
 }
@@ -203,20 +211,24 @@ async fn serve_requests<R, W>(
     peer: SocketAddr,
     dispatcher: &Arc<dyn Dispatcher>,
     config: &HttpServerConfig,
+    first_deadline: Instant,
 ) -> io::Result<()>
 where
     R: AsyncBufRead + Unpin,
     W: AsyncWrite + Unpin,
 {
+    let mut deadline = first_deadline;
     loop {
-        let request = timeout_io(config.header_timeout, async {
+        let request = timeout_at(deadline, async {
             if reader.fill_buf().await?.is_empty() {
                 return Ok(None);
             }
             let bytes = read_head(reader, config.header_limit).await?;
             parse_request_head(&bytes, Vec::new()).map(Some)
         })
-        .await;
+        .await
+        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "HTTP operation timed out"))
+        .and_then(|request| request);
         let request = match request {
             Ok(Some(request)) => request,
             Ok(None) => return Ok(()),
@@ -267,6 +279,7 @@ where
             if !forward_request(reader, writer, outbound, &request, plan, config).await? {
                 return Ok(());
             }
+            deadline = Instant::now() + config.header_timeout;
         } else {
             write_timed(
                 writer,
@@ -485,7 +498,7 @@ async fn write_error<W: AsyncWrite + Unpin>(stream: &mut W, status: u16) -> io::
 }
 
 async fn write_auth_required<W: AsyncWrite + Unpin>(stream: &mut W) -> io::Result<()> {
-    write_timed(stream, b"HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"VCore\"\r\nConnection: close\r\nContent-Length: 0\r\n\r\n", Duration::from_secs(10)).await
+    write_timed(stream, b"HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"Vole\"\r\nConnection: close\r\nContent-Length: 0\r\n\r\n", Duration::from_secs(10)).await
 }
 
 async fn write_error_with_diagnostic<W: AsyncWrite + Unpin>(
@@ -713,7 +726,7 @@ mod tests {
             client.read_to_end(&mut response).await.unwrap();
             assert_eq!(
                 response,
-                b"HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"VCore\"\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"
+                b"HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"Vole\"\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"
             );
         }
 

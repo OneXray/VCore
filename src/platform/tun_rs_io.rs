@@ -2,24 +2,24 @@ use std::{fmt, io, os::fd::IntoRawFd};
 
 use tokio::io::unix::AsyncFd;
 
-use crate::{IpVersion, Result, TunFraming, VCoreError};
+use crate::{IpVersion, Result, TunFraming, VoleError};
 
 use super::{TUN_PACKET_BATCH_SIZE, TunFd};
 
-// The current config protocol accepts only MTU 1500. Caller-owned buffers
-// expose raw IP; tun-rs handles the separate Apple packet-information header.
-pub(super) const TUN_MTU: usize = 1_500;
+#[cfg(test)]
+const TUN_MTU: usize = 1_500;
 
 /// Non-blocking raw-IP packet I/O backed by tun-rs.
 ///
-/// VCore validates and duplicates the borrowed host descriptor before this
+/// Vole validates and duplicates the borrowed host descriptor before this
 /// type is constructed. The duplicate is then owned and closed by tun-rs.
 /// We deliberately wrap tun-rs's `SyncDevice` in Tokio's `AsyncFd` instead
 /// of using its async constructor: a duplicated descriptor shares file-status
-/// flags with the host descriptor, and VCore must never change those flags.
+/// flags with the host descriptor, and Vole must never change those flags.
 pub struct TunRsIo {
     device: AsyncFd<tun_rs::SyncDevice>,
     framing: TunFraming,
+    mtu: usize,
 }
 
 impl fmt::Debug for TunRsIo {
@@ -33,6 +33,11 @@ impl fmt::Debug for TunRsIo {
 
 impl TunRsIo {
     pub fn new(fd: TunFd, framing: TunFraming) -> Result<Self> {
+        Self::new_with_mtu(fd, framing, 1500)
+    }
+
+    pub fn new_with_mtu(fd: TunFd, framing: TunFraming, mtu: u16) -> Result<Self> {
+        validate_mtu(mtu)?;
         #[cfg(target_os = "linux")]
         if framing != TunFraming::RawIp {
             return Err(io::Error::new(
@@ -49,7 +54,50 @@ impl TunRsIo {
         Ok(Self {
             device: AsyncFd::new(device)?,
             framing,
+            mtu: usize::from(mtu),
         })
+    }
+
+    /// Open a core-owned local TUN without configuring addresses or routes.
+    /// Owned descriptors may be made nonblocking; borrowed ones are never changed.
+    pub fn open(name: &str, mtu: u16) -> Result<Self> {
+        validate_mtu(mtu)?;
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        {
+            let mut builder = tun_rs::DeviceBuilder::new().mtu(mtu);
+            #[cfg(target_os = "linux")]
+            {
+                builder = builder.name(if name.is_empty() { "Vole" } else { name });
+            }
+            #[cfg(target_os = "macos")]
+            {
+                if !name.is_empty() {
+                    builder = builder.name(name);
+                }
+                builder = builder.associate_route(false).packet_information(true);
+            }
+            let device = builder.build_sync()?;
+            device.set_nonblocking(true)?;
+            #[cfg(target_os = "macos")]
+            let framing = TunFraming::Utun;
+            #[cfg(target_os = "linux")]
+            let framing = TunFraming::RawIp;
+            configure_platform_framing(&device, framing);
+            Ok(Self {
+                device: AsyncFd::new(device)?,
+                framing,
+                mtu: usize::from(mtu),
+            })
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        {
+            let _ = name;
+            Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "platform requires a host TUN file descriptor",
+            )
+            .into())
+        }
     }
 
     #[must_use]
@@ -61,7 +109,7 @@ impl TunRsIo {
     /// exposes raw IP on every supported fd platform.
     pub async fn read_packet(&self, packet: &mut Vec<u8>) -> Result<IpVersion> {
         packet.clear();
-        packet.resize(TUN_MTU, 0);
+        packet.resize(self.mtu, 0);
         let size = loop {
             let mut ready = self.device.readable().await?;
             match ready.try_io(|inner| inner.get_ref().recv(packet)) {
@@ -70,7 +118,7 @@ impl TunRsIo {
             }
         };
         if size == 0 {
-            return Err(VCoreError::Io(io::Error::new(
+            return Err(VoleError::Io(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
                 "TUN closed",
             )));
@@ -95,7 +143,7 @@ impl TunRsIo {
             loop {
                 let packet = &mut packets[outcomes.len()];
                 packet.clear();
-                packet.resize(TUN_MTU, 0);
+                packet.resize(self.mtu, 0);
                 match ready.try_io(|inner| inner.get_ref().recv(packet)) {
                     Ok(Ok(0)) => {
                         return Err(
@@ -130,7 +178,7 @@ impl TunRsIo {
         outcomes.clear();
         let mut readiness = None;
         for packet in packets {
-            let version = match validate_write_packet(packet) {
+            let version = match validate_write_packet(packet, self.mtu) {
                 Ok(version) => version,
                 Err(error) => {
                     outcomes.push(Err(error));
@@ -168,7 +216,7 @@ impl TunRsIo {
     /// Writes one complete packet. Partial writes are rejected because retrying
     /// a suffix would create a second malformed TUN packet.
     pub async fn write_packet(&self, packet: &[u8]) -> Result<IpVersion> {
-        let version = validate_write_packet(packet)?;
+        let version = validate_write_packet(packet, self.mtu)?;
         let written = loop {
             let mut ready = self.device.writable().await?;
             match ready.try_io(|inner| inner.get_ref().send(packet)) {
@@ -186,7 +234,7 @@ impl TunRsIo {
             }
         };
         if written != packet.len() {
-            return Err(VCoreError::Io(io::Error::new(
+            return Err(VoleError::Io(io::Error::new(
                 io::ErrorKind::WriteZero,
                 "partial TUN packet write",
             )));
@@ -195,9 +243,16 @@ impl TunRsIo {
     }
 }
 
-fn validate_write_packet(packet: &[u8]) -> Result<IpVersion> {
-    if packet.len() > TUN_MTU {
-        return Err(VCoreError::InvalidPacket(
+fn validate_mtu(mtu: u16) -> Result<()> {
+    if mtu < 1280 {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid TUN MTU").into());
+    }
+    Ok(())
+}
+
+fn validate_write_packet(packet: &[u8], mtu: usize) -> Result<IpVersion> {
+    if packet.len() > mtu {
+        return Err(VoleError::InvalidPacket(
             "TUN packet exceeds configured MTU",
         ));
     }
@@ -270,7 +325,7 @@ mod tests {
 
         assert_eq!(outcomes.len(), 3);
         assert_eq!(outcomes[0].as_ref().unwrap(), &IpVersion::V4);
-        assert!(matches!(outcomes[1], Err(VCoreError::InvalidPacket(_))));
+        assert!(matches!(outcomes[1], Err(VoleError::InvalidPacket(_))));
         assert_eq!(outcomes[2].as_ref().unwrap(), &IpVersion::V6);
         assert_eq!(packets[0], IPV4);
         assert_eq!(packets[1], [0x70]);
@@ -347,7 +402,7 @@ mod tests {
         let mut outcomes = Vec::new();
         assert!(matches!(
             io.read_packets(&mut packets, &mut outcomes).await,
-            Err(VCoreError::Io(ref error)) if error.kind() == io::ErrorKind::UnexpectedEof
+            Err(VoleError::Io(ref error)) if error.kind() == io::ErrorKind::UnexpectedEof
         ));
         assert_eq!(outcomes.len(), 1);
         assert_eq!(outcomes[0].as_ref().unwrap(), &IpVersion::V4);
@@ -371,8 +426,8 @@ mod tests {
             .unwrap();
         assert_eq!(outcomes.len(), 4);
         assert_eq!(outcomes[0].as_ref().unwrap(), &IpVersion::V4);
-        assert!(matches!(outcomes[1], Err(VCoreError::InvalidPacket(_))));
-        assert!(matches!(outcomes[2], Err(VCoreError::InvalidPacket(_))));
+        assert!(matches!(outcomes[1], Err(VoleError::InvalidPacket(_))));
+        assert!(matches!(outcomes[2], Err(VoleError::InvalidPacket(_))));
         assert_eq!(outcomes[3].as_ref().unwrap(), &IpVersion::V6);
         let mut received = [0_u8; TUN_MTU];
         for packet in [&IPV4[..], &IPV6[..]] {
@@ -425,11 +480,11 @@ mod tests {
         peer.send(&[0x70]).unwrap();
         assert!(matches!(
             io.read_packet(&mut Vec::new()).await,
-            Err(VCoreError::InvalidPacket("unsupported IP version"))
+            Err(VoleError::InvalidPacket("unsupported IP version"))
         ));
         assert!(matches!(
             io.write_packet(&vec![0x45; TUN_MTU + 1]).await,
-            Err(VCoreError::InvalidPacket(
+            Err(VoleError::InvalidPacket(
                 "TUN packet exceeds configured MTU"
             ))
         ));
@@ -446,7 +501,7 @@ mod tests {
         let error = io.read_packet(&mut Vec::new()).await.unwrap_err();
         assert!(matches!(
             error,
-            VCoreError::Io(ref error) if error.kind() == io::ErrorKind::UnexpectedEof
+            VoleError::Io(ref error) if error.kind() == io::ErrorKind::UnexpectedEof
         ));
     }
 

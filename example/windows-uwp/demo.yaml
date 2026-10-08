@@ -2,7 +2,7 @@
 # 没有监听在 127.0.0.1:1080 的 SOCKS5 服务时，VPN 仍可连接，但业务流量会失败。
 tun:
   enable: true
-  mtu: 1500
+  mtu: 1400
 
 proxies:
   - name: local-socks

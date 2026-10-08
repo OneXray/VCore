@@ -1,0 +1,45 @@
+# CLI
+
+`vole` 是前台入口。CLI 解析参数并调用 Invoke；配置读取、初始化、信号与清理由
+Invoke 的 `foreground` 操作处理，运行时复用同一个内核。
+
+```sh
+vole -f /path/to/config.yaml
+vole -d /path/to/data -f ./config.yaml
+vole -t -f ./config.yaml
+cat config.yaml | vole -f -
+```
+
+| 参数 | 作用 |
+| --- | --- |
+| `-d <dir>` | 配置及数据目录，默认用户目录下的 `.config/vole` |
+| `-f <file>` | 配置路径；默认 `<data-dir>/config.yaml`，`-f -` 从标准输入读取 |
+| `-t` | 校验配置后退出，不初始化数据、联网或启动 TUN |
+| `-v` | 输出内核版本及构建身份 |
+| `-h` | 输出帮助 |
+
+语法与 Mihomo 的 Go flag 一致：支持 `-f file`、`-f=file`、`--f=file` 和 `-t=true`；
+遇到位置参数或 `--` 停止解析。`-h`/`--help` 立即输出帮助，`-v` 优先于 `-t`。
+参数错误返回 2，配置、启动或运行失败返回 1。
+
+`-d` 与 `-f` 独立。与 Mihomo 一致，相对路径从启动工作目录解析并折叠 `.`/`..`；
+绝对路径原样交给文件系统，保留符号链接后的 `..` 语义。路径支持空格及平台原生字符。
+`VOLE_HOME_DIR`、`VOLE_CONFIG_FILE` 提供环境默认值，显式参数优先。
+Unix 用户目录取 `HOME`，Windows 取 `USERPROFILE`，缺失时使用工作目录。
+默认 `.config/vole` 不存在或不可访问时，若设置 `XDG_CONFIG_HOME`，使用其中的 `vole` 目录。
+配置文件必须是普通文件，文件和标准输入上限均为 256 KiB，CLI 不写回配置。
+
+正常运行执行 `initialize → createInstance → start(configYaml)`，等待退出后
+`stop → destroyInstance`。Unix 支持 SIGINT/SIGTERM，Windows 支持 Ctrl+C/Ctrl+Break；
+退出等待内核清理完成。诊断写入有界 stderr，不包含配置正文或凭据。
+具体请求格式见 [Invoke API](invoke-api.md)。
+
+## TUN 与发布
+
+TUN 完全由 YAML 配置。Unix 的 `tun.file-descriptor > 0` 借用宿主 fd，内核只关闭自己的副本；
+省略或为 0 时 Linux/macOS 可根据 `tun.device` 创建或打开原生 TUN。
+Windows CLI 固定使用 Wintun，DLL 由宿主提供；Windows FFI 编译时可选择 Wintun 或 UWP。
+接口地址、DNS、系统路由及物理出口隔离由宿主管理，CLI 直接把配置交给内核。
+平台接入见 [TUN](tun-platform.md) 和 [Windows VPN](windows-vpn.md)。
+
+构建命令、tag 发布矩阵和归档内容统一见 [编译与发布](../scripts/README.md)。

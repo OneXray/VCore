@@ -9,7 +9,7 @@ use std::{
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_util::task::TaskTracker;
-use vcore::{config::GrpcOptions, dispatch::BoxStream, transport::GrpcPool};
+use vole::{config::GrpcOptions, dispatch::BoxStream, transport::GrpcPool};
 
 struct ObservedIo {
     io: tokio::io::DuplexStream,
@@ -68,7 +68,7 @@ fn ping_count(wire: &[u8]) -> usize {
 #[tokio::test]
 async fn grpc_idle_ping_is_observable_disabled_by_zero_and_joined_at_stop() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "VLESS-UNIT",
         "grpc_idle_ping_is_observable_disabled_by_zero_and_joined_at_stop",
     );
@@ -152,7 +152,7 @@ async fn memory_peer(count: Arc<AtomicUsize>, tasks: TaskTracker) -> io::Result<
 #[tokio::test]
 async fn grpc_pool_matches_both_threshold_policies_and_keeps_other_streams_alive() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "VLESS-UNIT",
         "grpc_pool_matches_both_threshold_policies_and_keeps_other_streams_alive",
     );

@@ -1,5 +1,5 @@
-module LibVCore {
-  header "vcore.h"
+module LibVole {
+  header "vole.h"
   link "c++"
   export *
 }

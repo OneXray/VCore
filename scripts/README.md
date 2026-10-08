@@ -1,83 +1,69 @@
-# 平台编译
+# 编译与发布
 
-`vcore-scripts` 只负责编译 Apple、Android、Windows 产物及记录交付身份。
-命令从 VCore 根目录运行，或通过 `--project` 显式指定本仓库 scripts；Python 工程由
-uv / uv.lock 管理，不推断外部工程。Rust 的定向离线回归见 [tests](../tests/README.md)。
-
-## 入口
+在 Vole 根目录执行。需要 Rust、uv、C/C++、CMake、Perl 和 libclang，以及对应平台工具链。
 
 ```sh
-uv run --project scripts --locked vcore-scripts build apple
-uv run --project scripts --locked vcore-scripts build android
-uv run --project scripts --locked vcore-scripts build windows
-
-# 交付记录要求干净、已提交的 checkout；在对应构建宿主执行。
-uv run --project scripts --locked vcore-scripts build apple --delivery
-uv run --project scripts --locked vcore-scripts build android --delivery
-uv run --project scripts --locked vcore-scripts build windows --delivery
+uv run --project scripts --locked vole-scripts build cli
+uv run --project scripts --locked vole-scripts build cli --profile debug
+uv run --project scripts --locked vole-scripts build cli --target aarch64-apple-darwin
+uv run --project scripts --locked vole-scripts build apple
+uv run --project scripts --locked vole-scripts build android
+uv run --project scripts --locked vole-scripts build linux
+uv run --project scripts --locked vole-scripts build windows --backend wintun
+uv run --project scripts --locked vole-scripts build windows --backend uwp
 ```
 
-原生依赖需要 C/C++、CMake、Perl 和 libclang；Rust 目标须预先安装。
-平台构建拒绝 `interop-test` / `benchmark-geodata-http` 等测试 feature。
+CLI 默认构建当前宿主的 Release，Windows 固定 Wintun；Windows FFI 默认 UWP。
+脚本输出产物路径，编译失败直接返回失败。
 
-## 平台产物
-
-| 平台 | 构建环境与产物 |
+| 目标 | 工具链与输出 |
 | --- | --- |
-| Apple | macOS / Xcode；`dist/apple/LibVCore.xcframework`，含 iOS 真机/模拟器、macOS、tvOS 真机/模拟器五切片 |
-| Android | macOS 或 Linux / Android NDK；`dist/android` 的 ARM64、x86_64 库及同 ABI / NDK 的 `libc++_shared.so` |
-| Windows | 原生 ARM64 或 x64 Windows / Visual Studio C++；`dist/windows/<architecture>` 的 DLL、Provider Host、Session Host 及身份摘要 |
+| CLI | Linux/macOS/Windows amd64、arm64；`target/<triple>/<profile>/vole[.exe]` |
+| Apple FFI | macOS/Xcode；`dist/apple/LibVole.xcframework`，iOS/tvOS ARM64 真机及模拟器、macOS universal 共五切片 |
+| Android FFI | macOS/Linux + NDK 30；`dist/android/<abi>`，ARM64、x86_64 的 `libvole.so` 与匹配的 `libc++_shared.so` |
+| Linux FFI | 原生 GNU 工具链；`dist/linux/<architecture>` 的静态库、动态库和头文件 |
+| Windows FFI | 原生 Visual Studio C++；`dist/windows/<architecture>/<backend>` 的 DLL/import library 和头文件；UWP 另含两个 host 程序 |
 
-Apple 的 iOS/tvOS 真机和模拟器仅 ARM64，macOS 为 ARM64/x86_64 universal。
-iOS 最低 13.0、macOS 10.15、tvOS 17.0；ARM64 iOS 模拟器/macOS 切片分别至少
-14.0/11.0。构建检查每个 Rust/原生库对象的 Mach-O 平台、架构和最低版本。
-最终链接 libc++；module map 已声明，直接 C 链接需 `-lc++`。
+Apple 最低版本为 iOS 13、macOS 10.15、tvOS 17；ARM64 iOS 模拟器/macOS 分别至少
+14/11。原生消费者需链接 libc++，module map 已声明。Windows ARM64 还需要 LLVM 与 Ninja。
+Android 优先使用 `ANDROID_NDK_HOME`，否则在 `ANDROID_HOME/ndk` 中选择 NDK 30 的最新已安装正式版。
+`VOLE_ANDROID_NDK_VERSION` 可指定版本，`VOLE_ANDROID_API` 默认 24。
+`CARGO_TARGET_DIR` 按 Cargo 约定覆盖中间产物目录；其余本地覆盖见 `builds.py`。
 
-Android NDK 优先使用 `ANDROID_NDK_HOME`；否则从 `ANDROID_HOME/ndk` 选择
-`VCORE_ANDROID_NDK_VERSION` 指定的完整版本或主版本内最新已安装正式版，默认主版本
-为 30，排除预览版。Windows ARM64 还需要 clang-cl / clang 和 Ninja，并保留
-BoringSSL 汇编；Windows 构建固定使用 Release 和完整生产 feature 集合。
+## 发布
 
-Android 的 C/C++、CMake 与 bindgen 使用同一 API level（默认 24）；绑定生成显式
-传入带 API 版本的 clang target，兼容 NDK 30 的版本要求，并保留生效的额外 clang 参数。
+[Release workflow](../.github/workflows/release.yml) 在 `vX.Y.Z` tag push 时构建并发布，
+tag 必须匹配 Cargo 版本。PR 使用同一构建矩阵，全部构建成功后汇总十四个归档。
+CLI 构建后执行 `-h/-v/-t` 检查。
+Apple FFI 的六个 Rust 目标分别在独立 job 并行编译并缓存；`FFI Apple` 等待全部目标
+成功后合并 macOS 双架构、生成五切片 XCFramework 并打包。
+CI 的依赖来源检查见 [TLS 依赖](../docs/tls-dependencies.md)。
 
-普通 Apple/Android 构建可通过 `VCORE_BUILD_PROFILE`、`VCORE_FEATURES` 和各平台
-输出/部署目标/NDK/API/ABI 环境变量定制，具体默认值以 `builds.py` 为准。
-`CARGO_TARGET_DIR` 改变普通构建的中间产物位置，相对路径从本 VCore checkout 解析；
-交付模式禁用这些隐藏输出、编译选项和 feature 覆盖。
+| 归档 | 内容 |
+| --- | --- |
+| `vole-{linux,darwin}-{amd64,arm64}.gz` | 单个 CLI 可执行文件 |
+| `vole-windows-{amd64,arm64}.zip` | `vole.exe`，Wintun 后端 |
+| `vole-ffi-apple.tar.gz` | XCFramework，含 headers/module maps |
+| `vole-ffi-android.tar.gz` | 两种 ABI 的核心库、C++ runtime 和 C 头文件 |
+| `vole-ffi-linux-{amd64,arm64}.tar.gz` | `libvole.so`、`libvole.a` 和 C 头文件 |
+| `vole-ffi-windows-{wintun,uwp}-{amd64,arm64}.zip` | `vole.dll`、`vole.dll.lib` 和 C 头文件；UWP 另含 Provider Host、Session Host |
 
-Linux 使用原生 GNU/glibc 工具链，不属于上述打包交付入口：
+公共 C 接口由 `vole.h` 提供；UWP 另附 `vole_windows_uwp.h`，声明 Windows 安装包桥接接口。
+文件名不带版本号，不附带 checksums 或 `wintun.dll`。
+发布脚本不收集许可证；CLI、FFI、XCFramework 与归档不额外内嵌或打包许可证内容。
 
-```sh
-cargo build --locked --release --lib --features ffi
-```
-
-## 交付边界
-
-`--delivery` 在标准输出目录生成 `vcore-delivery.json`，绑定 VCore commit/tree、
-lockfile、API/schema、完整 features、工具链/SDK/NDK 和全部产物的大小/hash。
-本地 boring path 开发态要求 fork 同样干净并记录 commit/tree；PR/发布仍须切回
-Git release 依赖，按 [TLS 来源契约](../docs/tls-dependencies.md) 审查。
-
-交付前拒绝输出路径中的符号链接/reparse point，清除旧记录；Android 同时清空标准
-输出以隔离旧 ABI。构建后的内部完整性检查核对文件集合、源码身份、架构与平台元数据，
-包括 Android C++ runtime、Apple 全部切片和 Windows 配套进程。
-检查失败不保留交付 manifest。它不执行原生 C/Swift 消费者，不证明设备 VPN、
-签名安装、许可证审核或正式发布；这些按 [验收边界](../docs/acceptance.md) 独立取证。
-
-## 独立容器验证
-
-互通与压力编排位于公开的 [container-benchmark](https://github.com/YuanDevTeam/container-benchmark)，
-始终显式提供 VCore checkout；VCore 编译入口不导入该工程或猜测相邻路径。
+Linux/macOS 的 CLI 使用 gzip 单文件归档，解压后需设置执行权限。下载匹配系统与架构的
+归档后执行（以 Linux amd64 为例）：
 
 ```sh
-uv run --project /path/to/container-benchmark --locked container-benchmark interop --list
-uv run --project /path/to/container-benchmark --locked container-benchmark interop --source vcore=/path/to/VCore
-uv run --project /path/to/container-benchmark --locked container-benchmark stress --source vcore=/path/to/VCore --geodata-records 1280000
+gzip -dc vole-linux-amd64.gz > vole
+chmod +x vole
+./vole -v
 ```
 
-`interop` 保留 Mihomo listener 和 Xray-core / Hysteria2 / V2Ray / Caddy 补充对端；
-`stress` 使用原生 Linux TUN、GeoData 与混合吞吐/DNS 负载，二者独立执行。
-所有服务端在隔离容器运行，规则见 [测试隔离](../docs/testing-isolation.md)。
-依赖身份、用例、指标与清理方式由 benchmark 维护；迁移代码或离线测试通过不等于
-当次网络互通或压力测试已经通过。
+发布入口为 `python -m vole_scripts.release`，参数见 `--help`；
+`build-apple-target` 构建单个 Apple 静态库，`assemble-apple --inputs <目录> --output <目录>`
+从 `<inputs>/<Rust target>/libvole.a` 汇总六个目标并打包，不重复编译。
+省略 `--tag` 可在本地验证打包。`builds.py` 负责平台编译，`release.py` 负责打包与汇总。
+
+CLI 参数见 [CLI](../docs/cli.md)，测试命令见 [tests](../tests/README.md)。

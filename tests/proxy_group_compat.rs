@@ -1,9 +1,9 @@
-use vcore::config::{
+use vole::config::{
     Config, DnsRoute, ProxyGroupId, ProxyGroupMemberTarget, RouteTargetId, RuleAction,
 };
 
 const COMMON_PREFIX: &str = r#"
-port: 1080
+mixed-port: 1080
 authentication: [user:password]
 proxies:
   - name: node-a
@@ -68,7 +68,7 @@ rules:
 }
 
 #[test]
-fn keeps_vcore_stricter_than_mihomo_at_the_documented_boundaries() {
+fn keeps_vole_stricter_than_mihomo_at_the_documented_boundaries() {
     for groups in [
         r#"
 proxy-groups:
@@ -132,7 +132,7 @@ rules:
 #[test]
 fn validates_config_sized_mixed_graphs_iteratively() {
     let mut yaml =
-        String::from("port: 1080\nauthentication: [u:p]\nrules: ['MATCH,n0']\nproxies:\n");
+        String::from("mixed-port: 1080\nauthentication: [u:p]\nrules: ['MATCH,n0']\nproxies:\n");
     for index in 0..1700 {
         yaml.push_str(&format!("  - {{name: n{index}, type: socks5, server: 192.0.2.1, port: 1080, dialer-proxy: g{index}}}\n"));
     }

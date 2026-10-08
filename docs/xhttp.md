@@ -38,7 +38,7 @@ H1/H2 可使用明文、标准 TLS 1.3、REALITY（经典默认、显式混合�
 
 session/sequence 均支持 path/query/header/cookie。键使用至多 64 字节的 HTTP 安全 token，禁止互相冲突以及覆盖 padding、payload 或既有 query/header。字符表预定义值包括 `ALPHABET`、`Alphabet`、`alphabet`、`BASE36`、`base36`、`Base62`、`HEX`、`hex`、`number`。
 
-路径遵循 Mihomo：session 或 sequence 任一放在 path 时补尾斜杠，否则保留显式路径。原生 Xray 的 handler 始终补尾斜杠；因此与 Xray 互通且两项均不在 path 时，须显式配置带尾斜杠的路径（例如 `/proxy/`）。这是对端路径配置差异，不通过修改 VCore 的默认规范化规则解决。
+路径遵循 Mihomo：session 或 sequence 任一放在 path 时补尾斜杠，否则保留显式路径。原生 Xray 的 handler 始终补尾斜杠；因此与 Xray 互通且两项均不在 path 时，须显式配置带尾斜杠的路径（例如 `/proxy/`）。这是对端路径配置差异，不通过修改 Vole 的默认规范化规则解决。
 
 header/cookie payload 使用无填充 Base64URL，并按实际请求预算拆块；完整请求（URI、生成字段和自定义头）不超过 16 KiB / 128 项。业务数据按有界块处理，不把整个 POST 限额、对端声明或业务流读入无界 Vec。
 

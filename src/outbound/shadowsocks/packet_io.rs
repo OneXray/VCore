@@ -1,4 +1,4 @@
-//! One bounded packet handoff between the official codec and VCore async IO.
+//! One bounded packet handoff between the official codec and Vole async IO.
 //! This adapter owns no socket, task, or retry queue.
 use bytes::Bytes;
 use shadowsocks::relay::udprelay::{DatagramReceive, DatagramSend};

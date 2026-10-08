@@ -75,7 +75,7 @@ impl Drop for SnapshotRelease {
 }
 
 /// Lock-free routing matcher whose immutable snapshot can be replaced without
-/// stopping readers or the owning VCore instance.
+/// stopping readers or the owning Vole instance.
 pub struct DynamicGeoData {
     current: ArcSwap<GeoData>,
 }

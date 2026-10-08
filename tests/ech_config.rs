@@ -2,7 +2,7 @@
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde_json::json;
-use vcore::{
+use vole::{
     config::{Config, ProxyProtocol, SecurityConfig, VlessOutboundConfig},
     security::SecurityClient,
 };
@@ -26,10 +26,10 @@ fn node() -> serde_json::Value {
         "ech-opts":{"enable":true, "config":STANDARD.encode(ech_list())}})
 }
 
-fn parse(node: serde_json::Value) -> vcore::Result<VlessOutboundConfig> {
+fn parse(node: serde_json::Value) -> vole::Result<VlessOutboundConfig> {
     let config = Config::parse_yaml(
         &serde_json::to_vec(&json!({
-            "socks-port":1080, "proxies":[node], "rules":["MATCH,edge"]
+            "mixed-port":1080, "proxies":[node], "rules":["MATCH,edge"]
         }))
         .unwrap(),
     )?;
@@ -42,7 +42,7 @@ fn parse(node: serde_json::Value) -> vcore::Result<VlessOutboundConfig> {
 #[test]
 fn static_ech_builds_both_tls_backends_without_dns_or_io() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "SECURITY-CONFIG-TLS",
         "static_ech_builds_both_tls_backends_without_dns_or_io",
     );
@@ -58,7 +58,7 @@ fn static_ech_builds_both_tls_backends_without_dns_or_io() {
 #[test]
 fn static_ech_is_strict_and_never_enables_dynamic_lookup() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "SECURITY-CONFIG-TLS",
         "static_ech_is_strict_and_never_enables_dynamic_lookup",
     );
@@ -100,7 +100,7 @@ fn static_ech_is_strict_and_never_enables_dynamic_lookup() {
 #[test]
 fn unsupported_ech_configs_fail_at_parse_before_a_client_can_emit_inner_sni() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "SECURITY-CONFIG-TLS",
         "unsupported_ech_configs_fail_at_parse_before_a_client_can_emit_inner_sni",
     );
@@ -138,11 +138,11 @@ fn unsupported_ech_configs_fail_at_parse_before_a_client_can_emit_inner_sni() {
 #[test]
 fn ech_selection_skips_unknown_or_mandatory_configs_and_keeps_exact_supported_bytes() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "SECURITY-CONFIG-TLS",
         "ech_selection_skips_unknown_or_mandatory_configs_and_keeps_exact_supported_bytes",
     );
-    use vcore::config::StaticEchConfig;
+    use vole::config::StaticEchConfig;
     let valid = ech_list();
     let expected = StaticEchConfig::from_config_list(&valid).unwrap();
     let mut unknown_version = valid[2..].to_vec();
@@ -181,7 +181,7 @@ fn ech_selection_skips_unknown_or_mandatory_configs_and_keeps_exact_supported_by
 #[test]
 fn download_ech_inherits_replaces_or_clears_as_a_whole() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "SECURITY-CONFIG-TLS",
         "download_ech_inherits_replaces_or_clears_as_a_whole",
     );
@@ -215,7 +215,7 @@ fn download_ech_inherits_replaces_or_clears_as_a_whole() {
 #[test]
 fn ech_is_standard_tls_only_with_explicit_download_clear_and_dns_inner_name() {
     #[cfg(feature = "interop-test")]
-    let _case = vcore::resources::case_events::Case::new(
+    let _case = vole::resources::case_events::Case::new(
         "SECURITY-CONFIG-TLS",
         "ech_is_standard_tls_only_with_explicit_download_clear_and_dns_inner_name",
     );

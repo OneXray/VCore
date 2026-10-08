@@ -20,7 +20,7 @@ use windows::{
     ApplicationModel::{
         Background::{IBackgroundTask, IBackgroundTask_Impl, IBackgroundTaskInstance},
         Core::CoreApplication,
-        FullTrustProcessLauncher,
+        FullTrustProcessLauncher, Package,
     },
     Networking::{
         Connectivity::{ConnectionProfile, NetworkInformation, NetworkStatusChangedEventHandler},
@@ -61,19 +61,22 @@ use windows_collections::IVectorView;
 use windows_core::{AgileReference, IUnknownImpl as _};
 
 use super::{
-    WINDOWS_VPN_MTU, log,
+    log,
     packet_channel::{
         AddressBindingV4, AddressBindingV6, PacketCounters, PhysicalBinding, ProviderPacketSession,
         remove_rendezvous,
     },
     policy::{WindowsVpnCidr, WindowsVpnPolicy},
     profile::{WindowsNetworkSettings, WindowsProfileConfiguration},
+    snapshot::SessionReference,
 };
-use crate::platform::{TunIo, WindowsPacketAdapter, WindowsPacketStats};
+use crate::{
+    config::Config,
+    platform::{TunIo, WindowsPacketAdapter, WindowsPacketStats, validate_packet_channel_config},
+};
 
-const CLASS_NAME: &str = "VCore.VpnBackgroundTask";
+const CLASS_NAME: &str = "Vole.VpnBackgroundTask";
 const PACKET_QUEUE_CAPACITY: usize = 256;
-const WINDOWS_VPN_MAX_FRAME_SIZE: u32 = WINDOWS_VPN_MTU as u32 + 12;
 const FAIL_CLOSED_IDLE: u8 = 0;
 const FAIL_CLOSED_STOPPING: u8 = 1;
 const FAIL_CLOSED_CANCELLED: u8 = 2;
@@ -152,7 +155,7 @@ impl FailClosedStop {
         let worker_signal = signal.clone();
         let (startup_tx, startup_rx) = std::sync::mpsc::sync_channel(1);
         let thread = thread::Builder::new()
-            .name("vcore-windows-fail-closed".into())
+            .name("vole-windows-fail-closed".into())
             .stack_size(256 * 1024)
             .spawn(move || {
                 let initialized = unsafe { RoInitialize(RO_INIT_MULTITHREADED) };
@@ -644,6 +647,12 @@ impl VpnProvider {
             &channel.Configuration()?.CustomField()?.to_string(),
         )?;
         let token = profile.snapshot_token().to_owned();
+        let installed_folder =
+            PathBuf::from(Package::Current()?.InstalledLocation()?.Path()?.to_string());
+        let snapshot = SessionReference::parse(&token)?.read(&local_folder, &installed_folder)?;
+        let config = Config::parse_yaml(snapshot.config_yaml().as_bytes())
+            .map_err(|_| Error::new(E_FAIL, "invalid Vole configuration"))?;
+        let mtu = validate_packet_channel_config(&config.tun).map_err(windows_error)?;
         let physical = PhysicalNetwork::current()?;
 
         let transport_address = physical
@@ -676,9 +685,10 @@ impl VpnProvider {
         let dns = vpn_dns_assignment(profile.network_settings(), ipv6)?;
 
         let wake_output = AgileReference::new(&output)?;
-        let (tun, packets) = TunIo::new(PACKET_QUEUE_CAPACITY, move || {
+        let (tun, packets) = TunIo::new(PACKET_QUEUE_CAPACITY, mtu, move || {
             write_dummy(&wake_output.resolve().map_err(io::Error::other)?).map_err(io::Error::other)
-        });
+        })
+        .map_err(windows_error)?;
         let (fail_closed, fail_closed_handle) = FailClosedStop::start(channel, physical.clone())?;
 
         {
@@ -724,8 +734,8 @@ impl VpnProvider {
             None::<&VpnInterfaceId>,
             &routes,
             &dns,
-            WINDOWS_VPN_MTU as u32,
-            WINDOWS_VPN_MAX_FRAME_SIZE,
+            u32::from(mtu),
+            u32::from(mtu) + 12,
             false,
             &transport,
         )?;
@@ -899,10 +909,7 @@ impl IVpnPlugIn_Impl for VpnProvider_Impl {
                     (state.packets.clone(), state.encapsulated == 1)
                 };
                 if first {
-                    log(&format!(
-                        "first VCore ingress packet: {} bytes",
-                        bytes.len()
-                    ));
+                    log(&format!("first Vole ingress packet: {} bytes", bytes.len()));
                 }
                 _ = adapter.is_some_and(|adapter| adapter.try_send(bytes));
             }
@@ -945,7 +952,7 @@ impl IVpnPlugIn_Impl for VpnProvider_Impl {
                     state.decapsulated == 1
                 };
                 if first {
-                    log(&format!("first VCore egress packet: {} bytes", bytes.len()));
+                    log(&format!("first Vole egress packet: {} bytes", bytes.len()));
                 }
             }
             Ok(())
@@ -1402,7 +1409,7 @@ mod tests {
         let _winrt = WinRtGuard::enter();
         let digest = "0123456789abcdef".repeat(4);
         let profile = WindowsProfileConfiguration::parse(&format!(
-            r#"{{"version":4,"snapshotToken":"vcore-session-v2:{digest}","ipv6":true,"networkSettings":{{"ipv4Address":"192.168.8.1","ipv6Address":"fd00:8::2","dnsIpv4Address":"223.5.5.5","dnsIpv6Address":"2400:3200::1"}},"policy":{{"alwaysOn":false,"allowLocalNetwork":true,"excludedCidrs":[]}}}}"#
+            r#"{{"version":4,"snapshotToken":"vole-session-v2:{digest}","ipv6":true,"networkSettings":{{"ipv4Address":"192.168.8.1","ipv6Address":"fd00:8::2","dnsIpv4Address":"223.5.5.5","dnsIpv6Address":"2400:3200::1"}},"policy":{{"alwaysOn":false,"allowLocalNetwork":true,"excludedCidrs":[]}}}}"#
         ))
         .unwrap();
 
@@ -1441,7 +1448,7 @@ mod tests {
         let _winrt = WinRtGuard::enter();
         let digest = "0123456789abcdef".repeat(4);
         let profile = WindowsProfileConfiguration::parse(&format!(
-            r#"{{"version":4,"snapshotToken":"vcore-session-v2:{digest}","ipv6":true,"networkSettings":{{"ipv4Address":"192.168.8.1","ipv6Address":"fd00:8::2","dnsIpv4Address":"223.5.5.5","dnsIpv6Address":"2400:3200::1"}},"policy":{{"alwaysOn":true,"allowLocalNetwork":false,"excludedCidrs":["192.0.2.0/24","2001:db8::/64"]}}}}"#
+            r#"{{"version":4,"snapshotToken":"vole-session-v2:{digest}","ipv6":true,"networkSettings":{{"ipv4Address":"192.168.8.1","ipv6Address":"fd00:8::2","dnsIpv4Address":"223.5.5.5","dnsIpv6Address":"2400:3200::1"}},"policy":{{"alwaysOn":true,"allowLocalNetwork":false,"excludedCidrs":["192.0.2.0/24","2001:db8::/64"]}}}}"#
         ))
         .unwrap();
 
@@ -1514,7 +1521,7 @@ mod tests {
         let _winrt = WinRtGuard::enter();
         let digest = "0123456789abcdef".repeat(4);
         let profile = WindowsProfileConfiguration::parse(&format!(
-            r#"{{"version":4,"snapshotToken":"vcore-session-v2:{digest}","ipv6":true,"networkSettings":{{"ipv4Address":"192.168.8.1","ipv6Address":"fd00:8::2","dnsIpv4Address":"223.5.5.5","dnsIpv6Address":"2400:3200::1"}},"policy":{{"alwaysOn":false,"allowLocalNetwork":false,"excludedCidrs":[]}}}}"#
+            r#"{{"version":4,"snapshotToken":"vole-session-v2:{digest}","ipv6":true,"networkSettings":{{"ipv4Address":"192.168.8.1","ipv6Address":"fd00:8::2","dnsIpv4Address":"223.5.5.5","dnsIpv6Address":"2400:3200::1"}},"policy":{{"alwaysOn":false,"allowLocalNetwork":false,"excludedCidrs":[]}}}}"#
         ))
         .unwrap();
         let physical = physical_network_with_subnets(
@@ -1580,7 +1587,7 @@ mod tests {
         let _winrt = WinRtGuard::enter();
         let digest = "0123456789abcdef".repeat(4);
         let profile = WindowsProfileConfiguration::parse(&format!(
-            r#"{{"version":4,"snapshotToken":"vcore-session-v2:{digest}","ipv6":true,"networkSettings":{{"ipv4Address":"192.168.8.1","ipv6Address":"fd00:8::2","dnsIpv4Address":"223.5.5.5","dnsIpv6Address":"2400:3200::1"}},"policy":{{"alwaysOn":false,"allowLocalNetwork":false,"excludedCidrs":["198.51.100.0/25","198.51.100.192/26","2001:db8:1::/65","2001:db8:1:0:c000::/66"]}}}}"#
+            r#"{{"version":4,"snapshotToken":"vole-session-v2:{digest}","ipv6":true,"networkSettings":{{"ipv4Address":"192.168.8.1","ipv6Address":"fd00:8::2","dnsIpv4Address":"223.5.5.5","dnsIpv6Address":"2400:3200::1"}},"policy":{{"alwaysOn":false,"allowLocalNetwork":false,"excludedCidrs":["198.51.100.0/25","198.51.100.192/26","2001:db8:1::/65","2001:db8:1:0:c000::/66"]}}}}"#
         ))
         .unwrap();
         let physical = physical_network(
@@ -1633,7 +1640,7 @@ mod tests {
         let _winrt = WinRtGuard::enter();
         let digest = "0123456789abcdef".repeat(4);
         let profile = WindowsProfileConfiguration::parse(&format!(
-            r#"{{"version":4,"snapshotToken":"vcore-session-v2:{digest}","ipv6":false,"networkSettings":{{"ipv4Address":"192.168.8.1","ipv6Address":"fd00:8::2","dnsIpv4Address":"223.5.5.5","dnsIpv6Address":"2400:3200::1"}},"policy":{{"alwaysOn":false,"allowLocalNetwork":true,"excludedCidrs":[]}}}}"#
+            r#"{{"version":4,"snapshotToken":"vole-session-v2:{digest}","ipv6":false,"networkSettings":{{"ipv4Address":"192.168.8.1","ipv6Address":"fd00:8::2","dnsIpv4Address":"223.5.5.5","dnsIpv6Address":"2400:3200::1"}},"policy":{{"alwaysOn":false,"allowLocalNetwork":true,"excludedCidrs":[]}}}}"#
         ))
         .unwrap();
 

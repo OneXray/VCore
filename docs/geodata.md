@@ -1,6 +1,6 @@
 # GeoData 规则与资产
 
-VCore 管理 `dataDir/geodata` 下的 `geosite.dat` 和 `geoip.dat`，只为当前配置实际引用的
+Vole 管理 `dataDir/geodata` 下的 `geosite.dat` 和 `geoip.dat`，只为当前配置实际引用的
 分类与属性交集构建匹配器。所有平台均不设 GeoData 条数上限，不按数量截断记录，
 也不设总内存预算。资产缺失或加载失败时，对应种类不可用，跳过相应 Geo 规则并继续
 普通选路；卸载前的下载或结构校验失败保留当前快照。配置、格式、整数表示和
@@ -80,7 +80,7 @@ geo-update-interval: 24
 - `validateConfig` 和 `prepare` 不下载。实例启动后，只有自动更新已开启且规则实际需要资产时才运行更新任务。
 - 下载固定使用最终 `MATCH` route target。若它是代理组，每次新建下载物理 transport 时沿嵌套组解析到当时选中的具体节点、`DIRECT` 或 `REJECT`；失败不自动换成员，也不隐式回退 DIRECT 或系统代理。
 - 缺失资产立即检查；失败后按 1 分钟、5 分钟、15 分钟、1 小时退避，之后保持 1 小时上限。成功后恢复 24 小时周期。
-- ETag、SHA-256、源 URL 和下次检查时间保存在 VCore 管理的状态中。合法 304 在匹配器
+- ETag、SHA-256、源 URL 和下次检查时间保存在 Vole 管理的状态中。合法 304 在匹配器
   已可用时只推进调度；有必需种类不可用时，先按相同重载流程从本地资产恢复匹配器。
 - 下载以固定大小缓冲流式写入同目录暂存文件，不限制资产总字节；保留 90 秒期限、取消、HTTPS/HTTP 解析边界和字节计数溢出检查。流式落盘期间保留当前快照；文件大小、wire 结构和 staging 检查通过后，先卸载并排空旧匹配器，再构建候选。分类需求校验成功后原子替换文件，SHA-256 随状态保存；失败保留上一份磁盘资产，不保证恢复旧内存快照。
 - 跨进程更新锁和原子重命名只保护共享数据目录，不提供多实例调度协议。
@@ -123,7 +123,7 @@ A-label，保持现有 IDN 匹配；转换失败则保留小写 UTF-8 字面值�
 这些静态值不会直接传入 DNS、TLS 或连接接口；能加载不代表每个值都能成为合法的
 运行时目标。实际目标的现有规范化、DNS wire 长度检查和 TLS 身份验证不受此调整影响。
 Mihomo 也不以严格 DNS 主机名语法校验 GeoSite 值；其 Unicode/尾点模式行为不同，
-本次保留 VCore 现有的合法 IDN 和单尾点规范化，不宣称所有模式语义完全一致。
+Vole 使用合法 IDN 和单尾点规范化，不宣称所有模式语义完全一致。
 
 支持的 Domain 记录：
 
@@ -141,9 +141,9 @@ Domain/Full 在加载时原地排序紧凑记录，运行时对完整名称及�
 选中的 `Regex` 只接受 ASCII 源和 RE2 类子集，不支持 look-around、backreference 或
 额外内联模式，不宣称完整 Go 正则兼容。每条正则编译为共享的
 `regex::bytes::Regex`，使用 `RegexBuilder::unicode(false)` 保持 ASCII 匹配语义；
-不显式构建 dense DFA，也不在 VCore 中配置 NFA、DFA 或 determinization 额度。
+不显式构建 dense DFA，也不在 Vole 中配置 NFA、DFA 或 determinization 额度。
 保留 `regex` 库默认的编译大小、语法嵌套和搜索缓存保护，超出库边界的所选表达式
-使候选加载失败，而不是丢弃记录。VCore 不设置正则条数、累计源码或总内存预算。
+使候选加载失败，而不是丢弃记录。Vole 不设置正则条数、累计源码或总内存预算。
 正则的编译与搜索状态由库管理；搜索可能分配 scratch、增长缓存或竞争共享缓存，
 不再承诺 Regex 热路径无分配。Domain/Full 的紧凑无分配查找保持不变。
 库的局部保护不是全部正则合计内存或整进程峰值的上界。
@@ -219,7 +219,7 @@ fallible Vec 扩容、合法 protobuf 帧/长度、code、选中匹配值的 UTF
 前缀并合并对齐 sibling。分配失败可能返回错误；系统 OOM 或第三方不可恢复分配失败
 不保证可恢复。
 
-容量账本仅作诊断：统计 VCore 自有 matcher/index/value/临时 Vec 的可见容量，扩容时
+容量账本仅作诊断：统计 Vole 自有 matcher/index/value/临时 Vec 的可见容量，扩容时
 记录新旧缓冲可能重叠的容量；没有最大值、不控制准入。`regex::bytes::Regex` 不提供
 完整内部状态的准确 `memory_usage`，所以账本**不包含正则内部编译状态、搜索缓存、
 动态 scratch、配置需求集合、allocator 开销或整个进程 footprint**。这些未计入的
@@ -227,8 +227,8 @@ fallible Vec 扩容、合法 protobuf 帧/长度、code、选中匹配值的 UTF
 50,000,000 bytes 是限定输入与联合负载下的进程实测验收目标，不是加载器保证。
 
 互通和内存/吞吐压力由公开 [container-benchmark](https://github.com/YuanDevTeam/container-benchmark)
-维护；`interop`、`stress` 和 `compare` 以 `--source vcore=PATH` 显式指定被测 checkout。
-VCore 自有脚本仅负责编译。压力与横向比较固定只引用完整 `geosite:cn` / `geoip:cn`，
+维护；`interop`、`stress` 和 `compare` 以 `--source vole=PATH` 显式指定被测 checkout。
+Vole 自有脚本仅负责编译。压力与横向比较固定只引用完整 `geosite:cn` / `geoip:cn`，
 更新下载保留原始增强 DAT，但不因此加载其他分类。真实资产的类型分布、明确标识的四类型/复杂正则合成用例、
 属性/反选见证、加载与真实更新期间的峰值、联合吞吐/DNS/RSS 结果以 benchmark 的本轮文字结论为准。
 历史 Domain/Full 子集或单纯离线加载不能替代完整真实资产的 fd-TUN 压力，也不能证明

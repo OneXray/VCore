@@ -2623,7 +2623,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "vcore"
+name = "vole"
 version = "0.1.0"
 dependencies = [
  "aes",
@@ -2677,8 +2677,8 @@ dependencies = [
  "tun-rs",
  "url",
  "uuid",
- "vcore-blake3-raw",
- "vcore-netstack",
+ "vole-blake3-raw",
+ "vole-netstack",
  "webpki-roots",
  "windows 0.62.2",
  "windows-collections 0.3.2",
@@ -2688,7 +2688,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "vcore-blake3-raw"
+name = "vole-blake3-raw"
 version = "0.1.0"
 dependencies = [
  "blake3",
@@ -2697,7 +2697,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "vcore-netstack"
+name = "vole-netstack"
 version = "0.1.0"
 dependencies = [
  "bytes",

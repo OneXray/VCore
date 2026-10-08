@@ -198,7 +198,7 @@ mod tests {
         let (mut writer, mut reader) = tokio::io::duplex(2048);
         writer
             .write_all(
-                b"POST http://example.com/a?q=1 HTTP/1.1\r\nHost: old\r\nProxy-Authorization: secret\r\nX-VCore-Measure-Diagnostic: v1\r\nConnection: X-Remove\r\nX-Remove: yes\r\nContent-Length: 3\r\n\r\nabc",
+                b"POST http://example.com/a?q=1 HTTP/1.1\r\nHost: old\r\nProxy-Authorization: secret\r\nX-Vole-Measure-Diagnostic: v1\r\nConnection: X-Remove\r\nX-Remove: yes\r\nContent-Length: 3\r\n\r\nabc",
             )
             .await
             .unwrap();
@@ -212,7 +212,7 @@ mod tests {
         assert!(rewritten.starts_with("POST /a?q=1 HTTP/1.1\r\n"));
         assert!(rewritten.contains("Host: example.com:80\r\n"));
         assert!(!rewritten.contains("Proxy-Authorization"));
-        assert!(!rewritten.contains("X-VCore-Measure-Diagnostic"));
+        assert!(!rewritten.contains("X-Vole-Measure-Diagnostic"));
         assert!(!rewritten.contains("X-Remove"));
         assert_eq!(buffered, b"abc");
     }

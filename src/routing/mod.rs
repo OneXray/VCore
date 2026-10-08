@@ -1,4 +1,4 @@
-//! Allocation-free runtime matching for VCore routing rules.
+//! Allocation-free runtime matching for Vole routing rules.
 //!
 //! Rule parsing and structural validation belong to [`crate::config`]. This
 //! module performs a second, deliberately small compilation step: textual
