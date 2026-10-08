@@ -16,7 +16,11 @@ from pathlib import Path, PurePosixPath
 
 from . import builds
 
-GROUPS = {"apple", "android", "windows-arm64", "windows-x64"}
+GROUPS = {"apple", "android", "linux-arm64", "linux-x64"} | {
+    f"windows-{architecture}-{backend}"
+    for architecture in ("arm64", "x64")
+    for backend in builds.WINDOWS_BACKENDS
+}
 APPLE_LIBRARIES = {
     "ios-arm64": ("ios", None, {"arm64"}),
     "ios-arm64-simulator": ("ios", "simulator", {"arm64"}),
@@ -73,23 +77,29 @@ def _check_delivery(manifests: list[Path]) -> None:
         raise ValueError("empty manifest set cannot pass")
     for manifest in manifests:
         record = json.loads(manifest.read_text(encoding="utf-8"))
+        group = record.get("group")
+        if group not in GROUPS or group in groups:
+            raise ValueError("duplicate or unsupported delivery group")
+        backend = record.get("backend")
+        if group.startswith("windows-"):
+            if backend not in builds.WINDOWS_BACKENDS or not group.endswith(
+                "-" + backend
+            ):
+                raise ValueError("incompatible Windows backend identity")
+            features = builds.windows_features(backend)
+        else:
+            if backend is not None:
+                raise ValueError("unexpected Windows backend metadata")
+            features = builds.DEFAULT_FEATURES
         if (
             record.get("formatVersion") != 1
             or record.get("profile") != "release"
-            or record.get("features")
-            != (
-                builds.WINDOWS_FEATURES
-                if str(record.get("group", "")).startswith("windows-")
-                else builds.DEFAULT_FEATURES
-            ).split(",")
+            or record.get("features") != features.split(",")
             or record.get("buildIdentity") != builds.EXPECTED_IDENTITY.decode()
         ):
             raise ValueError("incompatible production artifact metadata")
         if record.get("source") != source:
             raise ValueError("artifact source/lock identity does not match checkout")
-        group = record.get("group")
-        if group not in GROUPS or group in groups:
-            raise ValueError("duplicate delivery group")
         groups.add(group)
         toolchain = record.get("toolchain", {})
         required = {"rustc", "cargo"} | (
@@ -107,6 +117,8 @@ def _check_delivery(manifests: list[Path]) -> None:
                 "tvosDeploymentTarget",
             }
             if group == "apple"
+            else {"cc", "cmake"}
+            if group.startswith("linux-")
             else {"msvc", "windowsSdk"}
         )
         if not all(
@@ -215,32 +227,70 @@ def _check_delivery(manifests: list[Path]) -> None:
                     path, target_os, variant, architectures, minimum
                 )
                 builds._require_identity(path, "Apple")
+        elif group.startswith("linux-"):
+            arch = group.removeprefix("linux-")
+            expected = {"libvole.so", "libvole.a", "include/vole.h"}
+            if names != expected:
+                raise ValueError("incomplete Linux artifact set")
+            target = {
+                "x64": "x86_64-unknown-linux-gnu",
+                "arm64": "aarch64-unknown-linux-gnu",
+            }[arch]
+            if (
+                record.get("target") != target
+                or record.get("host", {}).get("os") != "Linux"
+                or record["host"].get("architecture") != arch
+            ):
+                raise ValueError("Linux delivery requires native GNU target evidence")
+            for name in ("libvole.so", "libvole.a"):
+                path = manifest.parent / name
+                builds._require_linux_architecture(path, arch)
+                builds._require_identity(path, "Linux")
+            if _sha(manifest.parent / "include/vole.h") != _sha(
+                builds.CORE_DIR / "include/vole.h"
+            ):
+                raise ValueError("Linux header does not match source checkout")
         else:
-            arch = group.removeprefix("windows-")
-            expected = {
-                "vole.dll",
-                "vole-windows-vpn-host.exe",
-                "vole-windows-session-host.exe",
-            }
+            arch = group.split("-")[1]
+            expected = {"vole.dll", "vole.dll.lib"}
+            if backend == "uwp":
+                expected |= {
+                    "vole-windows-vpn-host.exe",
+                    "vole-windows-session-host.exe",
+                }
             if names != expected | {"vole-windows-artifacts.json"}:
                 raise ValueError("incomplete Windows artifact set")
             if (
                 record.get("host", {}).get("os") != "Windows"
                 or record["host"].get("architecture") != arch
+                or record.get("target")
+                != {
+                    "arm64": "aarch64-pc-windows-msvc",
+                    "x64": "x86_64-pc-windows-msvc",
+                }[arch]
             ):
                 raise ValueError(
                     "Windows delivery requires native OS architecture evidence"
                 )
             for name in expected:
-                builds._require_windows_architecture(manifest.parent / name, arch)
+                if name.endswith(".lib"):
+                    builds._require_windows_import_library(manifest.parent / name, arch)
+                else:
+                    builds._require_windows_architecture(manifest.parent / name, arch)
             builds._require_identity(manifest.parent / "vole.dll", "Windows")
             package = json.loads(
                 (manifest.parent / "vole-windows-artifacts.json").read_text()
             )
+            revision_valid = (
+                package.get("windowsPackageIntegrationRevision") == 3
+                if backend == "uwp"
+                else "windowsPackageIntegrationRevision" not in package
+            )
             if (
                 package.get("formatVersion") != 1
                 or package.get("architecture") != arch
-                or package.get("windowsPackageIntegrationRevision") != 3
+                or package.get("backend") != backend
+                or not revision_valid
                 or package.get("buildIdentity") != record["buildIdentity"]
                 or package.get("artifacts")
                 != {
@@ -249,17 +299,32 @@ def _check_delivery(manifests: list[Path]) -> None:
                     if row["path"] in expected
                 }
             ):
-                raise ValueError("Windows package integration identity mismatch")
+                raise ValueError(
+                    "Windows backend/artifact integration identity mismatch"
+                )
         print(
             f"PASS {record['group']} artifact integrity (not device/release acceptance)"
         )
 
 
-def build_delivery(platform_name: str) -> None:
-    if os.environ.get("VOLE_BUILD_PROFILE", "release") != "release":
+def build_delivery(
+    platform_name: str,
+    *,
+    backend: str = "uwp",
+    target: str | None = None,
+    env: dict[str, str] | None = None,
+) -> Path:
+    if platform_name not in {"apple", "android", "linux", "windows"}:
+        raise ValueError("unsupported delivery platform")
+    if platform_name == "windows":
+        builds.windows_features(backend)
+    elif target is not None and platform_name != "linux":
+        raise ValueError("target applies only to Windows or Linux delivery")
+    environment = dict(os.environ) | (env or {})
+    if environment.get("VOLE_BUILD_PROFILE", "release") != "release":
         raise ValueError("delivery requires the release profile")
     if (
-        os.environ.get("VOLE_FEATURES", builds.DEFAULT_FEATURES)
+        environment.get("VOLE_FEATURES", builds.DEFAULT_FEATURES)
         != builds.DEFAULT_FEATURES
     ):
         raise ValueError("delivery requires the complete production feature set")
@@ -267,7 +332,7 @@ def build_delivery(platform_name: str) -> None:
     # allow customization, but acceptance must not inherit hidden overrides.
     overrides = [
         name
-        for name in os.environ
+        for name in environment
         if (
             name
             in {
@@ -280,7 +345,7 @@ def build_delivery(platform_name: str) -> None:
             }
             or name.startswith("CARGO_PROFILE_")
         )
-        and os.environ[name]
+        and environment[name]
     ]
     if overrides:
         raise ValueError(
@@ -297,7 +362,14 @@ def build_delivery(platform_name: str) -> None:
         if os.name != "nt":
             raise ValueError("Windows delivery must run on native Windows")
         architecture = builds._windows_architecture()
-        group += "-" + architecture
+        native = {
+            "arm64": "aarch64-pc-windows-msvc",
+            "x64": "x86_64-pc-windows-msvc",
+        }[architecture]
+        target = native if target is None else target
+        if target != native:
+            raise ValueError("Windows delivery requires the native MSVC Rust target")
+        group += "-" + architecture + "-" + backend
         environment = builds._windows_msvc_environment(architecture)
         # Windows env names are case insensitive, even when a subprocess returns
         # a plain Python dict. Never persist the full environment (credentials).
@@ -311,6 +383,17 @@ def build_delivery(platform_name: str) -> None:
                 [normalized["VOLE_WINDOWS_ARM64_CLANG"], "--version"], builds.CORE_DIR
             )
             toolchain["assembly"] = "enabled"
+    elif platform_name == "linux":
+        if platform.system() != "Linux":
+            raise ValueError("Linux delivery must run on native Linux")
+        native = builds.native_target()
+        target = native if target is None else target
+        if target != native:
+            raise ValueError("Linux delivery requires the native GNU Rust target")
+        architecture = builds.CLI_TARGETS[target][1]
+        group += "-" + architecture
+        toolchain["cc"] = _output(["cc", "--version"], builds.CORE_DIR)
+        toolchain["cmake"] = _output(["cmake", "--version"], builds.CORE_DIR)
     elif platform_name == "apple":
         toolchain["xcode"] = _output(["xcodebuild", "-version"], builds.CORE_DIR)
         for sdk in (
@@ -340,6 +423,8 @@ def build_delivery(platform_name: str) -> None:
         toolchain["androidApi"] = os.environ.get("VOLE_ANDROID_API", "24")
     output = builds.CORE_DIR / "dist" / platform_name
     if platform_name == "windows":
+        output = output / architecture / backend
+    elif platform_name == "linux":
         output /= architecture
     # Check the lexical path before resolving, unlinking a manifest, or letting
     # a builder clean output. CORE_DIR is the canonical, trusted checkout root;
@@ -367,11 +452,15 @@ def build_delivery(platform_name: str) -> None:
     else:
         manifest.unlink(missing_ok=True)
     started = datetime.now(UTC).isoformat()
-    {
-        "apple": builds.build_apple,
-        "android": builds.build_android,
-        "windows": builds.build_windows,
-    }[platform_name]()
+    build_environment = {"env": env} if env is not None else {}
+    if platform_name == "windows":
+        builds.build_windows(backend=backend, **build_environment)
+    elif platform_name == "linux":
+        builds.build_linux(target=target, **build_environment)
+    else:
+        {"apple": builds.build_apple, "android": builds.build_android}[platform_name](
+            **build_environment
+        )
     if _source(builds.CORE_DIR) != source:
         raise ValueError("source changed during delivery build")
     record = {
@@ -380,7 +469,7 @@ def build_delivery(platform_name: str) -> None:
         "profile": "release",
         "source": source,
         "features": (
-            builds.WINDOWS_FEATURES
+            builds.windows_features(backend)
             if platform_name == "windows"
             else builds.DEFAULT_FEATURES
         ).split(","),
@@ -403,6 +492,10 @@ def build_delivery(platform_name: str) -> None:
             if path.is_file()
         ],
     }
+    if platform_name == "windows":
+        record["backend"] = backend
+    if platform_name in {"linux", "windows"}:
+        record["target"] = target
     manifest.write_text(
         json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
@@ -412,3 +505,5 @@ def build_delivery(platform_name: str) -> None:
         manifest.unlink(missing_ok=True)
         raise
     print(manifest)
+
+    return manifest

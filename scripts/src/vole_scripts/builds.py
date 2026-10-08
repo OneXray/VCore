@@ -10,10 +10,17 @@ import re
 import shutil
 import subprocess
 import tempfile
+import tomllib
+from collections.abc import Iterator
 from pathlib import Path
 
 CORE_DIR = Path(__file__).resolve().parents[3]
-EXPECTED_IDENTITY = b"Vole;engine=rust;coreVersion=0.1.0"
+EXPECTED_IDENTITY = (
+    "Vole;engine=rust;coreVersion="
+    + tomllib.loads((CORE_DIR / "Cargo.toml").read_text(encoding="utf-8"))["package"][
+        "version"
+    ]
+).encode("ascii")
 DEFAULT_FEATURES = (
     "ffi,tun,inbound-http,inbound-socks5,outbound-anytls,"
     "outbound-socks5,outbound-shadowsocks,outbound-trojan,outbound-vmess,outbound-vless,"
@@ -21,6 +28,48 @@ DEFAULT_FEATURES = (
 )
 
 WINDOWS_FEATURES = DEFAULT_FEATURES + ",windows-uwp"
+WINDOWS_BACKENDS = {"wintun", "uwp"}
+CLI_TARGETS = {
+    "x86_64-unknown-linux-gnu": ("Linux", "x64"),
+    "aarch64-unknown-linux-gnu": ("Linux", "arm64"),
+    "x86_64-apple-darwin": ("Darwin", "x64"),
+    "aarch64-apple-darwin": ("Darwin", "arm64"),
+    "x86_64-pc-windows-msvc": ("Windows", "x64"),
+    "aarch64-pc-windows-msvc": ("Windows", "arm64"),
+}
+
+
+def windows_features(backend: str = "uwp") -> str:
+    if backend not in WINDOWS_BACKENDS:
+        raise ValueError("Windows backend must be wintun or uwp")
+    return DEFAULT_FEATURES + ",windows-" + backend
+
+
+def native_target() -> str:
+    system = platform.system()
+    machine = platform.machine().lower()
+    architecture = (
+        _windows_architecture()
+        if system == "Windows"
+        else {
+            "x86_64": "x64",
+            "amd64": "x64",
+            "aarch64": "arm64",
+            "arm64": "arm64",
+        }.get(machine)
+    )
+    for target, identity in CLI_TARGETS.items():
+        if identity == (system, architecture):
+            return target
+    raise RuntimeError("unsupported native build platform or architecture")
+
+
+def cli_features(target: str) -> str:
+    if target not in CLI_TARGETS:
+        raise ValueError("unsupported CLI Rust target")
+    if CLI_TARGETS[target][0] == "Windows":
+        return "cli,windows-wintun"
+    return "cli"
 
 
 def tvos_deployment_target() -> str:
@@ -221,6 +270,193 @@ def _require_identity(artifact: Path, platform_name: str) -> None:
         )
 
 
+def _archive_object_headers(artifact: Path) -> Iterator[bytes]:
+    """Read bounded object prefixes, accepting normal GNU/LLVM/BSD ar names."""
+    total = artifact.stat().st_size
+    with artifact.open("rb") as stream:
+        if stream.read(8) != b"!<arch>\n":
+            raise RuntimeError(f"invalid object archive: {artifact}")
+        while header := stream.read(60):
+            if len(header) != 60 or header[58:] != b"`\n":
+                raise RuntimeError(f"invalid archive member: {artifact}")
+            try:
+                size = int(header[48:58])
+            except ValueError as error:
+                raise RuntimeError(
+                    f"invalid archive member size: {artifact}"
+                ) from error
+            if size < 0:
+                raise RuntimeError(f"invalid archive member size: {artifact}")
+            start = stream.tell()
+            end = start + size + size % 2
+            if end > total:
+                raise RuntimeError(f"truncated object archive: {artifact}")
+            name = header[:16].strip()
+            if name not in {b"/", b"//", b"/SYM64/", b"__.SYMDEF/"}:
+                if name.startswith(b"#1/"):
+                    try:
+                        length = int(name[3:])
+                    except ValueError as error:
+                        raise RuntimeError("invalid archive member name") from error
+                    if not 0 <= length <= size:
+                        raise RuntimeError("invalid archive member name")
+                    stream.seek(length, 1)
+                yield stream.read(min(20, start + size - stream.tell()))
+            stream.seek(end)
+
+
+def _require_linux_architecture(artifact: Path, architecture: str) -> None:
+    expected = {"x64": 62, "arm64": 183}[architecture]
+
+    def check(header: bytes) -> None:
+        if (
+            len(header) < 20
+            or header[:7] != b"\x7fELF\x02\x01\x01"
+            or int.from_bytes(header[18:20], "little") != expected
+        ):
+            raise RuntimeError(f"invalid Linux artifact architecture: {artifact}")
+
+    if artifact.suffix != ".a":
+        with artifact.open("rb") as stream:
+            header = stream.read(20)
+        check(header)
+        if int.from_bytes(header[16:18], "little") not in {2, 3}:
+            raise RuntimeError(f"invalid Linux executable/shared library: {artifact}")
+        return
+    objects = 0
+    for header in _archive_object_headers(artifact):
+        check(header)
+        if int.from_bytes(header[16:18], "little") != 1:
+            raise RuntimeError(f"invalid Linux archive object type: {artifact}")
+        objects += 1
+    if not objects:
+        raise RuntimeError(f"Linux static archive contains no objects: {artifact}")
+
+
+def _require_windows_import_library(artifact: Path, architecture: str) -> None:
+    expected = {"arm64": 0xAA64, "x64": 0x8664}[architecture]
+    objects = 0
+    for header in _archive_object_headers(artifact):
+        if len(header) < 20:
+            raise RuntimeError(f"invalid Windows import library object: {artifact}")
+        offset = 6 if header[:4] == b"\x00\x00\xff\xff" else 0
+        if int.from_bytes(header[offset : offset + 2], "little") != expected:
+            raise RuntimeError(
+                f"Windows import library has wrong architecture: {artifact}"
+            )
+        objects += 1
+    if not objects:
+        raise RuntimeError(f"Windows import library contains no objects: {artifact}")
+
+
+def build_cli(
+    target: str | None = None,
+    profile: str = "release",
+    *,
+    env: dict[str, str] | None = None,
+) -> Path:
+    target = native_target() if target is None else target
+    features = cli_features(target)
+    system, architecture = CLI_TARGETS[target]
+    if platform.system() != system:
+        raise RuntimeError("CLI target must use the build host operating system")
+    if profile not in {"debug", "release"}:
+        raise ValueError("CLI profile must be debug or release")
+    environment = (
+        _windows_msvc_environment(architecture)
+        if system == "Windows"
+        else os.environ.copy()
+    ) | (env or {})
+    _production_features(environment.get("VOLE_FEATURES", DEFAULT_FEATURES))
+    _require_targets([target])
+    if system == "Darwin":
+        minimum = "11.0" if architecture == "arm64" else "10.15"
+        environment.setdefault("MACOSX_DEPLOYMENT_TARGET", minimum)
+    _run(
+        [
+            "cargo",
+            "build",
+            "--locked",
+            "--manifest-path",
+            str(CORE_DIR / "Cargo.toml"),
+            "--target",
+            target,
+            *(["--release"] if profile == "release" else []),
+            "--no-default-features",
+            "--features",
+            features,
+            "--bin",
+            "vole",
+        ],
+        env=environment,
+    )
+    artifact = (
+        _cargo_target_dir(environment)
+        / target
+        / profile
+        / ("vole.exe" if system == "Windows" else "vole")
+    )
+    _require_identity(artifact, "CLI")
+    if system == "Windows":
+        _require_windows_architecture(artifact, architecture)
+    elif system == "Linux":
+        _require_linux_architecture(artifact, architecture)
+    else:
+        check_apple_binary(
+            artifact,
+            "macos",
+            None,
+            {"arm64" if architecture == "arm64" else "x86_64"},
+            minimum,
+        )
+    print(artifact)
+    return artifact
+
+
+def build_linux(
+    target: str | None = None, *, env: dict[str, str] | None = None
+) -> Path:
+    if platform.system() != "Linux":
+        raise RuntimeError("Linux artifacts must be built on native Linux")
+    native = native_target()
+    target = native if target is None else target
+    if target != native:
+        raise ValueError("Linux FFI delivery requires the native GNU Rust target")
+    architecture = CLI_TARGETS[target][1]
+    environment = os.environ.copy() | (env or {})
+    _production_features(environment.get("VOLE_FEATURES", DEFAULT_FEATURES))
+    _require_targets([target])
+    _run(
+        [
+            "cargo",
+            "build",
+            "--locked",
+            "--release",
+            "--manifest-path",
+            str(CORE_DIR / "Cargo.toml"),
+            "--target",
+            target,
+            "--no-default-features",
+            "--features",
+            DEFAULT_FEATURES,
+            "--lib",
+        ],
+        env=environment,
+    )
+    release = _cargo_target_dir(environment) / target / "release"
+    for name in ("libvole.so", "libvole.a"):
+        _require_linux_architecture(release / name, architecture)
+        _require_identity(release / name, "Linux")
+    output = CORE_DIR / "dist/linux" / architecture
+    shutil.rmtree(output, ignore_errors=True)
+    (output / "include").mkdir(parents=True)
+    for name in ("libvole.so", "libvole.a"):
+        shutil.copy2(release / name, output / name)
+    shutil.copy2(CORE_DIR / "include/vole.h", output / "include/vole.h")
+    print(output)
+    return output
+
+
 def _android_target(target: str, api: str) -> tuple[str, str, str]:
     targets = {
         "aarch64-linux-android": (
@@ -299,7 +535,7 @@ def _android_ndk_home() -> Path:
     return max(candidates, key=lambda candidate: candidate[0])[1].resolve()
 
 
-def build_android() -> None:
+def build_android(*, env: dict[str, str] | None = None) -> None:
     if os.name == "nt":
         raise RuntimeError("Android artifacts must be built on macOS or Linux")
     ndk_home = _android_ndk_home()
@@ -317,7 +553,7 @@ def build_android() -> None:
     toolchain = _android_toolchain(ndk_home)
     _require_targets(targets)
 
-    base_env = os.environ.copy()
+    base_env = os.environ.copy() | (env or {})
     base_env.update(
         {
             "ANDROID_NDK_HOME": str(ndk_home),
@@ -386,7 +622,7 @@ def build_android() -> None:
     print(output)
 
 
-def build_apple() -> None:
+def build_apple(*, env: dict[str, str] | None = None) -> None:
     if platform.system() != "Darwin":
         raise RuntimeError("Apple artifacts must be built on macOS")
     dist = Path(_env("VOLE_APPLE_DIST_DIR", CORE_DIR / "dist" / "apple")).resolve()
@@ -403,7 +639,7 @@ def build_apple() -> None:
     ]
     _require_targets(targets)
 
-    env = os.environ.copy()
+    env = os.environ.copy() | (env or {})
     env["IPHONEOS_DEPLOYMENT_TARGET"] = _env("VOLE_IOS_DEPLOYMENT_TARGET", "13.0")
     env["MACOSX_DEPLOYMENT_TARGET"] = _env("VOLE_MACOS_DEPLOYMENT_TARGET", "10.15")
     env["TVOS_DEPLOYMENT_TARGET"] = tvos_deployment_target()
@@ -621,12 +857,14 @@ def check_windows_wintun_cli() -> None:
     )
 
 
-def build_windows() -> None:
+def build_windows(backend: str = "uwp", *, env: dict[str, str] | None = None) -> Path:
     if os.name != "nt":
         raise RuntimeError("Windows artifacts must be built on Windows")
-    _production_features(_env("VOLE_FEATURES", DEFAULT_FEATURES))
+    features = windows_features(backend)
     architecture = _windows_architecture()
-    output = CORE_DIR / "dist" / "windows" / architecture
+    env = _windows_msvc_environment(architecture) | (env or {})
+    _production_features(env.get("VOLE_FEATURES", DEFAULT_FEATURES))
+    output = CORE_DIR / "dist" / "windows" / architecture / backend
     shutil.rmtree(output, ignore_errors=True)
     output.mkdir(parents=True)
     targets = {
@@ -634,7 +872,6 @@ def build_windows() -> None:
         "x64": "x86_64-pc-windows-msvc",
     }
     target = targets[architecture]
-    env = _windows_msvc_environment(architecture)
     _run(["cargo", "fmt", "--all", "--", "--check"], env=env)
     base = [
         "cargo",
@@ -645,18 +882,19 @@ def build_windows() -> None:
         target,
         "--no-default-features",
         "--features",
-        WINDOWS_FEATURES,
+        features,
     ]
-    _run([*base, "--lib", "--bins"], env=env)
+    _run([*base, "--lib", *(["--bins"] if backend == "uwp" else [])], env=env)
 
     release = _cargo_target_dir(env) / target / "release"
-    artifacts = [
-        "vole.dll",
-        "vole-windows-vpn-host.exe",
-        "vole-windows-session-host.exe",
-    ]
+    artifacts = ["vole.dll", "vole.dll.lib"]
+    if backend == "uwp":
+        artifacts += ["vole-windows-vpn-host.exe", "vole-windows-session-host.exe"]
     for name in artifacts:
-        _require_windows_architecture(release / name, architecture)
+        if name.endswith(".lib"):
+            _require_windows_import_library(release / name, architecture)
+        else:
+            _require_windows_architecture(release / name, architecture)
     _require_identity(release / "vole.dll", "Windows")
     for name in artifacts:
         shutil.copy2(release / name, output / name)
@@ -670,7 +908,10 @@ def build_windows() -> None:
         json.dumps(
             {
                 "formatVersion": 1,
-                "windowsPackageIntegrationRevision": 3,
+                **(
+                    {"windowsPackageIntegrationRevision": 3} if backend == "uwp" else {}
+                ),
+                "backend": backend,
                 "architecture": architecture,
                 "buildIdentity": EXPECTED_IDENTITY.decode("ascii"),
                 "artifacts": digests,
@@ -681,3 +922,5 @@ def build_windows() -> None:
         + "\n",
         encoding="utf-8",
     )
+
+    return output

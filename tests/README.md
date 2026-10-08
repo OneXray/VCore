@@ -50,8 +50,8 @@ Rust 依赖缓存区分检查种类、工具链、锁文件和 runner 镜像/SDK
   worker，以及 stderr 上限和运行工作器日志继承；Unix 非 Unicode 字节文件的真实读写只在
   Linux 执行，其他 Unix 仍校验元数据往返。`runtime::shutdown_tests::` 覆盖取消后任务
   join 和核心错误保留，不启动宿主监听器。CLI 的完整生产 feature 通过独立 `cli` 编译，
-  不能以 `ffi` 的隐式激活代替。发布 helper 的离线回归由 `scripts/tests/test_cli_release.py`
-  执行；六目标 tag 工作流配置不等于已运行通过。
+  不能以 `ffi` 的隐式激活代替。CLI / FFI 发布 helper 与统一工作流的离线回归由
+  `scripts/tests` 执行；六项 CLI、八项 FFI 的 tag 工作流配置不等于已运行通过。
 
 - Invoke：共享入口位于 `src/invoke/`，C ABI/JNI 只是传输层。无版本字段的请求可查询核心
   身份和 stopped 实例；精确响应对象、初始化幂等、缺失 method/payload 与未知字段拒绝由

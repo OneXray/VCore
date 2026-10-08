@@ -1,18 +1,19 @@
 # CLI 与 tag 发布
 
 `vole` 是前台命令行入口，所有内核功能通过与库相同的 Invoke 请求处理器调用。
-tag 发布工作流见 [CLI release](../.github/workflows/cli-release.yml)。工作流存在不代表
-六个平台的发布已在当前环境执行；真实驱动和设备数据面仍须独立验证。
+tag 发布工作流见 [Release](../.github/workflows/release.yml)，统一发布 CLI 与 FFI。
+工作流存在不代表发布矩阵已在当前环境执行；真实驱动和设备数据面仍须独立验证。
 库接口见 [Invoke API](invoke-api.md)，平台边界见 [TUN 平台层](tun-platform.md)
 与 [Windows VPN](windows-vpn.md)。
 
 ```sh
-cargo build --locked --release --no-default-features --features cli --bin vole
-./target/release/vole -f /path/to/config.yaml
-./target/release/vole -d /path/to/data -f ./config.yaml
-./target/release/vole -t -f ./config.yaml
-# Windows 桌面 TUN 构建选择 Wintun 后端：
-cargo build --locked --release --no-default-features --features cli,windows-wintun --bin vole
+# macOS ARM64 示例；其他平台的输出路径由脚本显示。
+uv run --project scripts --locked vole-scripts build cli --target aarch64-apple-darwin
+./target/aarch64-apple-darwin/release/vole -f /path/to/config.yaml
+./target/aarch64-apple-darwin/release/vole -d /path/to/data -f ./config.yaml
+./target/aarch64-apple-darwin/release/vole -t -f ./config.yaml
+# Windows CLI 自动使用 Wintun：
+uv run --project scripts --locked vole-scripts build cli
 ```
 
 ## 薄入口与参数
@@ -75,9 +76,15 @@ TUN 完全由配置驱动。`tun.file-descriptor > 0` 时，内核借用宿主 f
 CLI 不增添 fd 参数或 TUN 专用错误，也不忽略、改写 TUN 配置。移动平台所需的宿主 fd
 和 Android protect 仍遵守平台契约，系统接口地址、DNS、路由与物理出口隔离由宿主管理。
 
-Windows 编译时选择互斥的 `windows-wintun` / `windows-uwp`，桌面 CLI 发布选择前者。
+Windows FFI 编译时选择互斥的 `windows-wintun` / `windows-uwp`；Windows CLI 的本地
+编译与发布均固定使用 Wintun。
 已启用 TUN 的业务 Invoke 自动启动该 Wintun 后端；UWP Provider、Session Host
-和库交付独立维护，不放入 CLI 归档，也不作为桌面 CLI 的后备启动路径。
+和库交付使用独立 FFI 归档，与 CLI 在同一个 Release 发布。
+
+本地 `build cli` 不提供后端选择参数。`build windows --backend wintun|uwp` 编译 FFI，
+默认 UWP；两种后端分别编译，不同时启用。
+`build cli --target <Rust target> --profile debug|release` 可指定目标和
+编译模式，默认当前宿主和 Release；这些是构建脚本参数，不增加运行时 CLI 参数。
 
 Wintun DLL 由宿主提供，与可执行程序目标架构一致。Windows CLI 包不携带 `wintun.dll`。
 首版的接口地址、DNS、路由和防递归物理出口配置由宿主承担，Vole 不自动配置系统网络，
@@ -87,7 +94,7 @@ Wintun 的设备名与 MTU 来自 `tun.device` / `tun.mtu`；默认 MTU 为 9000
 
 ## 发布矩阵与文件
 
-正式版本 tag 自动编译并发布 Linux、Windows、macOS 的 amd64 与 arm64，共六项。
+正式版本 tag 自动编译并发布 Linux、Windows、macOS 的 amd64 与 arm64，共六项 CLI。
 Linux 使用 GNU/glibc 目标，Windows 使用 MSVC，macOS 分别构建两个架构。
 归档名称固定如下；文件名不带版本号：
 
@@ -101,22 +108,24 @@ Linux 使用 GNU/glibc 目标，Windows 使用 MSVC，macOS 分别构建两个�
 | macOS | arm64 | `aarch64-apple-darwin` | `vole-darwin-arm64.gz` |
 
 Linux/macOS 仅 gzip 压缩 `vole` 可执行文件，Windows zip 包含 `vole.exe`。
-CI 从实际锁定的目标依赖图收集许可证及原生第三方通知，并将完整文本嵌入可执行文件；
+CI 从实际锁定的目标依赖图收集许可证及原生第三方通知，并收集 Rust 标准库的原始通知，
+将完整文本嵌入可执行文件；
 打包前逐字节验证保留，Release 描述保留来源说明。不增加通知归档、CLI 参数或额外发布资产。
 不生成或发布独立 checksums 文件。版本由 release tag 与核心 `coreVersion` 标识，
 构建仍在 CI 内记录 commit、Cargo.lock、目标架构、feature 集、工具链和 artifact hash。
 构建身份保持 `Vole;engine=rust;coreVersion=<Cargo package version>`，不增加 API
 或配置 revision 字段，也不把版本号写进可执行文件名或归档文件名。
 
-CLI 发布采用独立工作流；现有 [平台库编译](../scripts/README.md) 的 Apple、Android、
-Windows 交付约束继续生效。六项 CLI 均使用 locked 依赖和正式 Release 配置，
-完整保留生产代理协议；Windows 的 TUN 平台选择为 Wintun。
+同一工作流还发布八项 FFI：Apple XCFramework、Android 双 ABI、Linux 两个架构，
+以及 Windows 两个架构各自的 Wintun、UWP 包。FFI 包内容与固定名称见
+[编译与发布脚本](../scripts/README.md)。六项 CLI 均使用 locked 依赖和正式 Release 配置，
+完整保留生产代理协议；Windows CLI 的 TUN 平台选择为 Wintun。
 
 ## tag 触发与验证
 
 以 `v<major>.<minor>.<patch>` 正式版本 tag 的 push 触发，先检查 tag 与 Cargo
-package version 一致，再并行完成六项构建。全部构建和检查成功后才创建对应 GitHub
-Release 并上传六个归档；某项失败则不发布残缺的 release。
+package version 一致，再并行完成 CLI 与 FFI 构建。全部构建和检查成功后才创建对应
+GitHub Release 并上传十四个归档；某项失败则不发布残缺的 release。
 发布身份来自同一 tag 的 commit 与 lockfile，不从工作目录或旧产物推断。
 
 五个参数、请求转换和输出由 `cli::tests::` 覆盖；路径、读取、纯校验与启动中退出由

@@ -18,6 +18,317 @@ from vole_scripts.cli import main
 
 
 class PlatformDeliveryTest(unittest.TestCase):
+    def test_linux_delivery_checks_native_target_libraries_header_and_environment(self):
+        for architecture, target, machine in (
+            ("x64", "x86_64-unknown-linux-gnu", 62),
+            ("arm64", "aarch64-unknown-linux-gnu", 183),
+        ):
+            with (
+                self.subTest(architecture=architecture),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                root = Path(directory)
+                (root / "include").mkdir()
+                (root / "include/vole.h").write_bytes(b"C header fixture")
+                source = {"commit": "a" * 40, "tree": "b" * 40, "lockSha256": "c" * 64}
+
+                def compile(command, *, env, root=root, target=target, machine=machine):
+                    self.assertEqual(env["VOLE_RELEASE_NOTICES"], "fixture")
+                    release = root / "target" / target / "release"
+                    release.mkdir(parents=True)
+                    header = b"\x7fELF\x02\x01\x01" + bytes(9)
+                    elf = (
+                        header
+                        + b"\x03\x00"
+                        + machine.to_bytes(2, "little")
+                        + bytes(44)
+                        + builds.EXPECTED_IDENTITY
+                    )
+                    (release / "libvole.so").write_bytes(elf)
+                    obj = elf[:16] + b"\x01\x00" + elf[18:]
+                    archive = (
+                        b"!<arch>\n"
+                        + b"vole.o/".ljust(16)
+                        + b"0".ljust(12)
+                        + b"0".ljust(6) * 2
+                        + b"644".ljust(8)
+                        + str(len(obj)).encode().ljust(10)
+                        + b"`\n"
+                        + obj
+                        + (b"\n" if len(obj) % 2 else b"")
+                    )
+                    (release / "libvole.a").write_bytes(archive)
+
+                with (
+                    patch.dict(os.environ, {}, clear=True),
+                    patch.object(builds, "CORE_DIR", root),
+                    patch.object(builds.platform, "system", return_value="Linux"),
+                    patch.object(builds, "native_target", return_value=target),
+                    patch.object(builds, "_require_targets"),
+                    patch.object(builds, "_run", side_effect=compile) as run,
+                    patch.object(platform_delivery, "_source", return_value=source),
+                    patch.object(platform_delivery, "_output", return_value="fixture"),
+                ):
+                    manifest = platform_delivery.build_delivery(
+                        "linux", env={"VOLE_RELEASE_NOTICES": "fixture"}
+                    )
+                    run.assert_called_once()
+                    self.assertNotIn("VOLE_RELEASE_NOTICES", os.environ)
+                    record = json.loads(manifest.read_text())
+                    self.assertEqual(record["group"], "linux-" + architecture)
+                    self.assertEqual(record["target"], target)
+                    self.assertEqual(record["host"]["architecture"], architecture)
+                    self.assertEqual(
+                        {row["path"] for row in record["artifacts"]},
+                        {"libvole.so", "libvole.a", "include/vole.h"},
+                    )
+                    for mutation in (
+                        "target",
+                        "host",
+                        "header",
+                        "toolchain",
+                        "features",
+                        "missing",
+                    ):
+                        bad = copy.deepcopy(record)
+                        if mutation == "target":
+                            bad["target"] = "x86_64-unknown-linux-musl"
+                        elif mutation == "host":
+                            bad["host"]["architecture"] = (
+                                "arm64" if architecture == "x64" else "x64"
+                            )
+                        elif mutation == "header":
+                            (root / "include/vole.h").write_bytes(
+                                b"changed source header"
+                            )
+                        elif mutation == "toolchain":
+                            del bad["toolchain"]["cc"]
+                        elif mutation == "features":
+                            bad["features"].append("benchmark-geodata-http")
+                        elif mutation == "missing":
+                            bad["artifacts"].pop()
+                        manifest.write_text(json.dumps(bad))
+                        with (
+                            self.subTest(mutation=mutation),
+                            self.assertRaises((ValueError, RuntimeError)),
+                        ):
+                            platform_delivery._check_delivery([manifest])
+                        (root / "include/vole.h").write_bytes(b"C header fixture")
+                    manifest.write_text(json.dumps(record))
+                    platform_delivery._check_delivery([manifest])
+
+    def test_windows_delivery_checks_backend_target_import_library_and_package_hashes(
+        self,
+    ):
+        for architecture, target, machine in (
+            ("x64", "x86_64-pc-windows-msvc", 0x8664),
+            ("arm64", "aarch64-pc-windows-msvc", 0xAA64),
+        ):
+            for backend in ("wintun", "uwp"):
+                with (
+                    self.subTest(architecture=architecture, backend=backend),
+                    tempfile.TemporaryDirectory() as directory,
+                ):
+                    root = Path(directory)
+                    source = {
+                        "commit": "a" * 40,
+                        "tree": "b" * 40,
+                        "lockSha256": "c" * 64,
+                    }
+                    environment = {
+                        "VCToolsVersion": "fixture",
+                        "WindowsSDKVersion": "fixture\\",
+                        "VOLE_WINDOWS_ARM64_CLANG": "fixture-clang",
+                    }
+
+                    def compile(
+                        command, *, env, root=root, target=target, machine=machine
+                    ):
+                        self.assertEqual(env["VOLE_RELEASE_NOTICES"], "fixture")
+                        if command[1] == "fmt":
+                            return
+                        release = root / "target" / target / "release"
+                        release.mkdir(parents=True)
+                        pe = bytearray(512)
+                        pe[:2] = b"MZ"
+                        pe[0x3C:0x40] = (0x80).to_bytes(4, "little")
+                        pe[0x80:0x84] = b"PE\0\0"
+                        pe[0x84:0x86] = machine.to_bytes(2, "little")
+                        pe[0x100 : 0x100 + len(builds.EXPECTED_IDENTITY)] = (
+                            builds.EXPECTED_IDENTITY
+                        )
+                        (release / "vole.dll").write_bytes(pe)
+                        obj = machine.to_bytes(2, "little") + bytes(18)
+                        (release / "vole.dll.lib").write_bytes(
+                            b"!<arch>\n"
+                            + b"vole.obj/".ljust(16)
+                            + b"0".ljust(12)
+                            + b"0".ljust(6) * 2
+                            + b"644".ljust(8)
+                            + b"20".ljust(10)
+                            + b"`\n"
+                            + obj
+                        )
+                        if "--bins" in command:
+                            for name in (
+                                "vole-windows-vpn-host.exe",
+                                "vole-windows-session-host.exe",
+                            ):
+                                (release / name).write_bytes(pe)
+
+                    with (
+                        patch.dict(os.environ, {}, clear=True),
+                        patch.object(builds, "CORE_DIR", root),
+                        patch.object(
+                            builds,
+                            "os",
+                            SimpleNamespace(
+                                name="nt", environ=os.environ, fspath=os.fspath
+                            ),
+                        ),
+                        patch.object(
+                            platform_delivery,
+                            "os",
+                            SimpleNamespace(name="nt", environ=os.environ),
+                        ),
+                        patch.object(builds.platform, "system", return_value="Windows"),
+                        patch.object(
+                            builds, "_windows_architecture", return_value=architecture
+                        ),
+                        patch.object(
+                            builds,
+                            "_windows_msvc_environment",
+                            return_value=environment,
+                        ),
+                        patch.object(builds, "_run", side_effect=compile),
+                        patch.object(platform_delivery, "_source", return_value=source),
+                        patch.object(
+                            platform_delivery, "_output", return_value="fixture"
+                        ),
+                    ):
+                        manifest = platform_delivery.build_delivery(
+                            "windows",
+                            backend=backend,
+                            target=target,
+                            env={"VOLE_RELEASE_NOTICES": "fixture"},
+                        )
+                        self.assertEqual(
+                            manifest.parent,
+                            root / "dist/windows" / architecture / backend,
+                        )
+                        record = json.loads(manifest.read_text())
+                        self.assertEqual(
+                            record["group"], "windows-" + architecture + "-" + backend
+                        )
+                        self.assertEqual(record["target"], target)
+                        self.assertEqual(record["backend"], backend)
+                        self.assertEqual(
+                            record["features"],
+                            builds.windows_features(backend).split(","),
+                        )
+                        self.assertEqual(
+                            len(record["artifacts"]), 5 if backend == "uwp" else 3
+                        )
+                        for mutation in (
+                            "backend",
+                            "target",
+                            "features",
+                            "missing",
+                            "package",
+                        ):
+                            bad = copy.deepcopy(record)
+                            package_path = (
+                                manifest.parent / "vole-windows-artifacts.json"
+                            )
+                            original_package = package_path.read_bytes()
+                            if mutation == "backend":
+                                bad["backend"] = (
+                                    "uwp" if backend == "wintun" else "wintun"
+                                )
+                            elif mutation == "target":
+                                bad["target"] = (
+                                    "aarch64-pc-windows-msvc"
+                                    if architecture == "x64"
+                                    else "x86_64-pc-windows-msvc"
+                                )
+                            elif mutation == "features":
+                                bad["features"] = builds.windows_features(
+                                    "uwp" if backend == "wintun" else "wintun"
+                                ).split(",")
+                            elif mutation == "missing":
+                                bad["artifacts"] = [
+                                    row
+                                    for row in bad["artifacts"]
+                                    if row["path"] != "vole.dll.lib"
+                                ]
+                            else:
+                                package = json.loads(original_package)
+                                package["artifacts"]["vole.dll.lib"] = "0" * 64
+                                package_path.write_text(json.dumps(package))
+                                for row in bad["artifacts"]:
+                                    if row["path"] == package_path.name:
+                                        row["size"] = package_path.stat().st_size
+                                        row["sha256"] = platform_delivery._sha(
+                                            package_path
+                                        )
+                            manifest.write_text(json.dumps(bad))
+                            with (
+                                self.subTest(mutation=mutation),
+                                self.assertRaises((ValueError, RuntimeError)),
+                            ):
+                                platform_delivery._check_delivery([manifest])
+                            package_path.write_bytes(original_package)
+                        manifest.write_text(json.dumps(record))
+                        platform_delivery._check_delivery([manifest])
+
+    def test_delivery_rejects_cross_native_targets_and_removes_failed_manifest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with (
+                patch.dict(os.environ, {}, clear=True),
+                patch.object(builds, "CORE_DIR", root),
+                patch.object(builds.platform, "system", return_value="Linux"),
+                patch.object(
+                    builds, "native_target", return_value="x86_64-unknown-linux-gnu"
+                ),
+                patch.object(
+                    platform_delivery, "_source", return_value={"fixture": True}
+                ),
+                patch.object(platform_delivery, "_output", return_value="fixture"),
+                patch.object(builds, "build_linux") as build,
+            ):
+                with self.assertRaisesRegex(ValueError, "native GNU"):
+                    platform_delivery.build_delivery(
+                        "linux", target="aarch64-unknown-linux-gnu"
+                    )
+                build.assert_not_called()
+                output = root / "dist/linux/x64"
+                output.mkdir(parents=True)
+                (output / "libvole.so").write_bytes(b"invalid")
+                with self.assertRaises((ValueError, RuntimeError)):
+                    platform_delivery.build_delivery("linux")
+                self.assertFalse((output / "vole-delivery.json").exists())
+            with (
+                patch.dict(os.environ, {}, clear=True),
+                patch.object(
+                    platform_delivery,
+                    "os",
+                    SimpleNamespace(name="nt", environ=os.environ),
+                ),
+                patch.object(builds, "CORE_DIR", root),
+                patch.object(builds, "_windows_architecture", return_value="x64"),
+                patch.object(
+                    platform_delivery, "_source", return_value={"fixture": True}
+                ),
+                patch.object(platform_delivery, "_output", return_value="fixture"),
+                patch.object(builds, "build_windows") as build,
+            ):
+                with self.assertRaisesRegex(ValueError, "native MSVC"):
+                    platform_delivery.build_delivery(
+                        "windows", target="aarch64-pc-windows-msvc"
+                    )
+                build.assert_not_called()
+
     def test_delivery_rejects_benchmark_http_feature_before_reading_source_or_building(
         self,
     ):
@@ -36,9 +347,11 @@ class PlatformDeliveryTest(unittest.TestCase):
             build.assert_not_called()
 
     def test_all_delivery_platforms_reject_linked_output_before_mutation(self):
-        for platform_name in ("apple", "windows", "android"):
+        for platform_name in ("apple", "windows", "android", "linux"):
             relative = Path("dist") / platform_name
             if platform_name == "windows":
+                relative = relative / "x64" / "uwp"
+            elif platform_name == "linux":
                 relative /= "x64"
             for depth in range(1, len(relative.parts) + 1):
                 with (
@@ -84,6 +397,18 @@ class PlatformDeliveryTest(unittest.TestCase):
                             ),
                         ),
                         patch.object(builds, "CORE_DIR", root),
+                        patch.object(
+                            platform_delivery.platform,
+                            "system",
+                            return_value="Windows"
+                            if platform_name == "windows"
+                            else "Linux",
+                        ),
+                        patch.object(
+                            builds,
+                            "native_target",
+                            return_value="x86_64-unknown-linux-gnu",
+                        ),
                         patch.object(
                             builds, "_windows_architecture", return_value="x64"
                         ),

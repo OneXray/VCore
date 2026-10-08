@@ -2,9 +2,6 @@
 mod cli;
 
 fn main() -> std::process::ExitCode {
-    std::hint::black_box(include_bytes!(concat!(
-        env!("OUT_DIR"),
-        "/vole-cli-notices.txt"
-    )));
+    vole::release_notices::retain();
     cli::entry()
 }

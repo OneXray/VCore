@@ -244,12 +244,17 @@ jobs:
           cargo check --locked --lib
           # Compilation only: historical listener fixtures must not execute on CI hosts.
           cargo test --locked --all-features --all-targets --no-run
-          # The platform delivery matrix builds the complete production feature
-          # set with the unchanged release profile, including both macOS targets.
+          # The unified release matrix builds CLI and FFI with the unchanged
+          # production release profile, including both macOS targets.
       - name: Memory-only netstack tests
         if: matrix.profile == 'features'
         run: cargo test --locked --manifest-path crates/vole-netstack/Cargo.toml --all-targets
 
-  platform-build:
-    name: Release builds and artifact identity
-    uses: ./.github/workflows/platform-delivery.yml
+  release-build:
+    name: CLI and FFI release builds and artifact identity
+    # Reusable-workflow permissions are statically bounded by the caller, even
+    # for skipped jobs. Build/assemble jobs downgrade to read; only a direct
+    # release.yml tag push can execute the callee's write-permission publish job.
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release.yml

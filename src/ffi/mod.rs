@@ -19,6 +19,7 @@ mod android;
 #[unsafe(no_mangle)]
 #[allow(non_snake_case)]
 pub unsafe extern "C" fn VoleInvoke(request_json: *const c_char) -> *mut c_char {
+    crate::release_notices::retain();
     if is_runtime_thread() {
         return allocate_response(runtime_thread_response());
     }
@@ -45,6 +46,7 @@ pub unsafe extern "C" fn VoleInvoke(request_json: *const c_char) -> *mut c_char 
 #[unsafe(no_mangle)]
 #[allow(non_snake_case)]
 pub unsafe extern "C" fn VoleFree(response: *mut c_char) {
+    crate::release_notices::retain();
     if !response.is_null() {
         // SAFETY: ownership is returned by the caller under the contract above.
         drop(unsafe { CString::from_raw(response) });

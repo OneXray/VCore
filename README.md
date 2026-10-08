@@ -80,7 +80,7 @@ Library hosts start an instance with inline `configYaml`; TUN device, file descr
 
 ## CLI
 
-Build the foreground executable with `cargo build --locked --release --no-default-features --features cli --bin vole`; add `windows-wintun` to the feature list for desktop Windows TUN support.
+Build the foreground executable with `uv run --project scripts --locked vole-scripts build cli`. Windows CLI builds always use Wintun; FFI builds use `build windows --backend wintun|uwp` (default: UWP). Tagged releases publish CLI and FFI together, with Windows CLI using Wintun and FFI offering both backends. See [build scripts](scripts/README.md) for targets and package contents.
 
 ```sh
 vole -f /path/to/config.yaml

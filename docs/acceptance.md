@@ -19,6 +19,18 @@ CLI、共享 Invoke、配置、平台、TUN、路由、两个本地 crate 的纯
 146 项 Python 回归及离线 Go 分类回归通过；Windows 四个 backend 依赖图检查通过。
 本轮不重跑容器压力、原生 Windows 构建、设备或正式发布。
 
+2026-10-08 统一 CLI / FFI 编译与发布脚本的开发验证在 macOS ARM64 执行：
+新的 `vole-scripts build cli --target aarch64-apple-darwin --profile release`
+实际构建通过，二进制架构、版本身份、完整嵌入通知与 `-h/-v/-t` 离线检查通过。
+FFI 的实际目标依赖图审计、Release 静态库/动态库构建与完整通知保留通过；动态库
+调用 `VoleInvoke` / `VoleFree` 查询版本成功，C 消费者以 `-Wl,-dead_strip` 链接
+静态库后同样保留完整通知并成功调用。Rust 全目标测试编译、Clippy、格式检查、
+CLI 参数与 FFI 输入所有权回归通过。Windows x64/ARM64 的 CLI Wintun、
+FFI Wintun/UWP 六个实际 locked/offline 依赖图通过准入和 TLS 来源检查。
+发布与平台脚本的离线回归另行检查矩阵、归档内容、架构、源码身份、后端、通知及
+篡改拒绝；这些夹具不代表原生平台构建。十四项完整 CI 构建、正式 tag 发布、
+Windows DLL / 设备和容器压力本轮均未执行。
+
 ## 核心压力测试
 
 独立 benchmark 的 `stress` 面向指定 Vole 的原生 Linux TUN，默认 2 Gbps /

@@ -80,7 +80,7 @@ rules:
 
 ## CLI
 
-Сборка исполняемого файла: `cargo build --locked --release --no-default-features --features cli --bin vole`; для настольного TUN в Windows добавьте `windows-wintun` в список features.
+Сборка исполняемого файла: `uv run --project scripts --locked vole-scripts build cli`. Windows CLI всегда использует Wintun; для выбора backend FFI используйте `build windows --backend wintun|uwp` (по умолчанию UWP). Релизы по тегам публикуют CLI и FFI вместе: Windows CLI использует Wintun, а FFI предлагает оба backend. Цели и состав архивов описаны в [скриптах сборки](../scripts/README.md).
 
 ```sh
 vole -f /path/to/config.yaml

@@ -32,9 +32,8 @@ if (-not (Test-Path $PfxPath -PathType Leaf)) {
 }
 $PfxPath = (Resolve-Path $PfxPath).Path
 
-$target = if ($Architecture -eq 'arm64') { 'aarch64-pc-windows-msvc' } else { 'x86_64-pc-windows-msvc' }
-$voleDist = Join-Path $root "dist\windows\$Architecture"
-$importLibrary = Join-Path $root "target\$target\release\vole.dll.lib"
+$voleDist = Join-Path $root "dist\windows\$Architecture\uwp"
+$importLibrary = Join-Path $voleDist 'vole.dll.lib'
 $build = Join-Path $root "target\windows-uwp-demo\$Architecture"
 $stage = Join-Path $build 'stage'
 $packageDir = Join-Path $root 'dist\windows-uwp-demo'
@@ -48,7 +47,7 @@ try {
     $vcTarget = if ($Architecture -eq 'arm64') { 'amd64_arm64' } else { 'amd64' }
 
     if (-not $SkipVoleBuild) {
-        & uv run --project (Join-Path $root 'scripts') --locked vole-scripts build windows
+        & uv run --project (Join-Path $root 'scripts') --locked vole-scripts build windows --backend uwp
         if ($LASTEXITCODE) { throw "Vole build failed: $LASTEXITCODE" }
     }
     foreach ($artifact in @('vole.dll', 'vole-windows-vpn-host.exe', 'vole-windows-session-host.exe')) {

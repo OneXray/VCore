@@ -80,7 +80,7 @@ rules:
 
 ## CLI
 
-通过 `cargo build --locked --release --no-default-features --features cli --bin vole` 构建前台程序；Windows 桌面 TUN 构建在 feature 列表中加入 `windows-wintun`。
+通过 `uv run --project scripts --locked vole-scripts build cli` 构建前台程序。Windows CLI 固定使用 Wintun；FFI 使用 `build windows --backend wintun|uwp` 选择后端，默认 UWP。tag Release 同时发布 CLI 和 FFI，Windows CLI 仅 Wintun，FFI 提供两种后端。目标与包内容见[编译脚本](../scripts/README.md)。
 
 ```sh
 vole -f /path/to/config.yaml

@@ -57,7 +57,7 @@ powershell -ExecutionPolicy Bypass -File example/windows-uwp/build.ps1 `
   -Install
 ```
 
-脚本从 Windows 系统注册表自动选择原生 ARM64 或 x64 架构，不接受架构参数。默认通过 `uv run --project scripts --locked vole-scripts build windows` 构建 Vole；已经生成当前架构产物时可以加 `-SkipVoleBuild`。输出位于：
+脚本从 Windows 系统注册表自动选择原生 ARM64 或 x64 架构，不接受架构参数。默认通过 `uv run --project scripts --locked vole-scripts build windows --backend uwp` 构建 Vole，读取 `dist/windows/<arch>/uwp` 中的产物；已经生成当前架构产物时可以加 `-SkipVoleBuild`。输出位于：
 
 ```text
 dist/windows-uwp-demo/Vole.UwpDemo.Dev_<version>_<arch>.msix

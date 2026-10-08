@@ -96,7 +96,15 @@ def record(source: dict, target: str, payload: bytes, archive: Path) -> dict:
             "architecture": release.TARGETS[target][1],
         },
         "toolchain": {"rustc": "fixture", "cargo": "fixture"},
-        "dependencies": [{"name": "linked-fixture", "version": "1.0.0"}],
+        "dependencies": [
+            {"name": "linked-fixture", "version": "1.0.0"},
+            {
+                "name": "Rust standard library",
+                "version": "1.99.0",
+                "rustc": "fixture",
+                "notices": [{"path": "COPYRIGHT-library.html"}],
+            },
+        ],
         "binary": {
             "name": binary_name,
             "sha256": hashlib.sha256(payload).hexdigest(),
@@ -132,6 +140,56 @@ def archive_set(incoming: Path, source: dict) -> list[Path]:
 
 
 class CliReleaseTest(unittest.TestCase):
+    def test_rust_runtime_collects_original_library_report_and_terms_only(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            sysroot = Path(temporary)
+            docs = sysroot / "share/doc/rust"
+            terms = docs / "licenses"
+            terms.mkdir(parents=True)
+            report = docs / "COPYRIGHT-library.html"
+            report.write_bytes(
+                b"<html>Original Rust library copyright and terms.</html>"
+            )
+            (docs / "COPYRIGHT.html").write_bytes(
+                b"Whole toolchain report must be excluded"
+            )
+            (terms / "MIT.txt").write_bytes(b"Original MIT terms")
+            (terms / "Apache-2.0.txt").write_bytes(b"Original Apache terms")
+            rustc = "rustc 1.99.0\nrelease: 1.99.0\ncommit-hash: " + "a" * 40
+            with patch.object(release, "_output", side_effect=[rustc, str(sysroot)]):
+                content, row = release.collect_rust_notices(sysroot)
+            self.assertIn(report.read_bytes(), content)
+            self.assertIn(b"Original MIT terms", content)
+            self.assertIn(b"Original Apache terms", content)
+            self.assertNotIn(b"Whole toolchain report", content)
+            self.assertEqual(row["rustc"], rustc)
+            self.assertEqual(row["version"], "1.99.0")
+            self.assertEqual(
+                {item["path"] for item in row["notices"]},
+                {
+                    "COPYRIGHT-library.html",
+                    "licenses/MIT.txt",
+                    "licenses/Apache-2.0.txt",
+                },
+            )
+            report.unlink()
+            with (
+                patch.object(release, "_output", side_effect=[rustc, str(sysroot)]),
+                self.assertRaisesRegex(ValueError, "rust-docs component"),
+            ):
+                release.collect_rust_notices(sysroot)
+            with (
+                patch.object(
+                    release,
+                    "_output",
+                    return_value=rustc.replace(
+                        "release: 1.99.0", "release: 1.99.0-nightly"
+                    ),
+                ),
+                self.assertRaisesRegex(ValueError, "stable Rust toolchain"),
+            ):
+                release.collect_rust_notices(sysroot)
+
     def test_tag_matches_dynamic_cargo_version_and_exact_committed_source(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "checkout"
@@ -157,6 +215,12 @@ class CliReleaseTest(unittest.TestCase):
             )
             subprocess.run(["git", "-C", str(root), "tag", "v1.2.3"], check=True)
             source = release._source(root, "v1.2.3")
+            untagged = release._source(root, None)
+            self.assertIsNone(untagged["tag"])
+            self.assertEqual(
+                {key: value for key, value in source.items() if key != "tag"},
+                {key: value for key, value in untagged.items() if key != "tag"},
+            )
             self.assertEqual(source["version"], VERSION)
             self.assertEqual(
                 source["lockSha256"], hashlib.sha256(b"fixture lock\n").hexdigest()
@@ -196,6 +260,27 @@ class CliReleaseTest(unittest.TestCase):
                     path.write_bytes(executable(target, notices=b"truncated"))
                     with self.assertRaisesRegex(ValueError, "exact linked notice"):
                         release.verify_binary(path, target, VERSION, NOTICES)
+
+    def test_windows_cli_archive_rejects_symlink_mode_before_unpacking(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "checkout"
+            project(root)
+            source = {"version": VERSION, "commit": "a" * 40}
+            manifests = archive_set(root / "dist/incoming", source)
+            manifest = next(
+                path for path in manifests if "aarch64-pc-windows" in path.parent.name
+            )
+            target = "aarch64-pc-windows-msvc"
+            archive = manifest.parent / release.archive_name(target)
+            with zipfile.ZipFile(archive, "w") as stream:
+                member = zipfile.ZipInfo("vole.exe")
+                member.external_attr = 0o120777 << 16
+                stream.writestr(member, executable(target))
+            manifest.write_text(
+                json.dumps(record(source, target, executable(target), archive))
+            )
+            with self.assertRaisesRegex(ValueError, "regular executable"):
+                release.inspect_release(manifest, source, root)
 
     def test_assemble_requires_complete_source_and_exact_binary_only_archives(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -616,7 +701,7 @@ class CliReleaseTest(unittest.TestCase):
             "RUSTFLAGS",
             "CARGO_PROFILE_RELEASE_LTO",
             "BORING_BSSL_PATH",
-            "VOLE_CLI_RELEASE_NOTICES",
+            "VOLE_RELEASE_NOTICES",
         ):
             with (
                 self.subTest(override=override),
@@ -671,7 +756,7 @@ class CliReleaseTest(unittest.TestCase):
                     self.assertEqual(command, expected)
                     self.assertEqual(cwd, root)
                     self.assertTrue(check)
-                    notices = Path(env["VOLE_CLI_RELEASE_NOTICES"])
+                    notices = Path(env["VOLE_RELEASE_NOTICES"])
                     self.assertTrue(notices.is_absolute())
                     self.assertEqual(notices.read_bytes(), NOTICES)
                     owned_inputs.append(notices)
@@ -701,6 +786,18 @@ class CliReleaseTest(unittest.TestCase):
                         release,
                         "collect_notices",
                         return_value=(NOTICES, [{"name": "fixture"}]),
+                    ),
+                    patch.object(
+                        release,
+                        "collect_rust_notices",
+                        return_value=(
+                            b"",
+                            {
+                                "name": "Rust standard library",
+                                "rustc": "{}",
+                                "notices": [{"path": "fixture"}],
+                            },
+                        ),
                     ),
                     patch.object(release, "_smoke") as smoke,
                     patch.object(subprocess, "run", side_effect=compiler),

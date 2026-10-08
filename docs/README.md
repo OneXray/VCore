@@ -25,7 +25,7 @@
 ## 开发与验证
 
 - [平台编译](../scripts/README.md)、[离线回归与独立容器入口](../tests/README.md)。
-- [CLI 与 tag 发布](cli.md)：五个参数、配置路径、共用内核入口和六目标发布归档。
+- [CLI 与 tag 发布](cli.md)：五个参数、配置路径、共用内核入口和 CLI / FFI 统一发布。
 - [测试隔离](testing-isolation.md)：所有网络服务端必须容器化。
 - [验收边界](acceptance.md)：本地、CI、设备和发布证据分别记录。
 - [领域上下文](../CONTEXT.md)、[架构决策](adr/)。

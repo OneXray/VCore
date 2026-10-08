@@ -28,6 +28,9 @@ pub mod packet;
 pub mod platform;
 #[cfg(any(feature = "tun", test))]
 mod quic_sniffer;
+#[cfg(any(feature = "cli", feature = "ffi"))]
+#[doc(hidden)]
+pub mod release_notices;
 pub mod resources;
 pub mod routing;
 #[cfg(all(

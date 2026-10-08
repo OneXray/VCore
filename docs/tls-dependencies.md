@@ -73,6 +73,13 @@ Android 必须随库打包同 ABI/同 NDK 的 libc++_shared.so；只生成 libvo
 补丁 hash、toolchain、架构、产物 hash 和签名。许可证审核覆盖实际 release graph、
 boring MIT/Apache-2.0、BoringSSL 随源通知及 Android C++ runtime，不能只看 crate license。
 
+统一 [Release 工作流](../.github/workflows/release.yml) 对 CLI 与 FFI 的实际目标依赖图
+执行上述审计。完整许可证与原生通知嵌入可执行程序和核心库，UWP 配套进程同样保留；
+还收集实际 Rust 工具链的标准库通知，Android 同时收集随包 C++ runtime 所属 NDK
+的通知。汇总时核对各包与同一源码、锁文件
+和嵌入文本的身份，不以旧库产物或另一后端的依赖图代替。发布包不附带独立 license
+文件，构建内部记录不作为 Release 资产。打包入口与范围见 [编译脚本](../scripts/README.md)。
+
 ## 升级与回退
 
 1. 选择官方最新稳定依赖；fork 同步上游并先完成普通 TLS 回归。
