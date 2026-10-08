@@ -29,7 +29,7 @@ fn node() -> serde_json::Value {
 fn parse(node: serde_json::Value) -> vcore::Result<VlessOutboundConfig> {
     let config = Config::parse_yaml(
         &serde_json::to_vec(&json!({
-            "socks-port":1080, "proxies":[node], "rules":["MATCH,edge"]
+            "mixed-port":1080, "proxies":[node], "rules":["MATCH,edge"]
         }))
         .unwrap(),
     )?;

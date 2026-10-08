@@ -34,7 +34,7 @@ fn document(extra: Value) -> Vec<u8> {
     node.as_object_mut()
         .unwrap()
         .extend(extra.as_object().unwrap().clone());
-    serde_json::to_vec(&json!({"socks-port":1080,"proxies":[node],"rules":["MATCH,edge"]})).unwrap()
+    serde_json::to_vec(&json!({"mixed-port":1080,"proxies":[node],"rules":["MATCH,edge"]})).unwrap()
 }
 
 #[test]

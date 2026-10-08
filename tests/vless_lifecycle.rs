@@ -61,7 +61,7 @@ async fn vless_all_handshakes_keep_the_original_deadline_and_join_cancelled_io()
             _ => {}
         }
         let parsed = Config::parse_yaml(
-            serde_json::json!({"socks-port":1080,"proxies":[node],"rules":["MATCH,edge"]})
+            serde_json::json!({"mixed-port":1080,"proxies":[node],"rules":["MATCH,edge"]})
                 .to_string()
                 .as_bytes(),
         )
@@ -127,7 +127,7 @@ fn split_xhttp_construction_uses_default_stack_and_protect_failure_has_no_fallba
     std::thread::Builder::new().spawn(|| {
         tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(async {
             for alpn in ["h3", "h2", "http/1.1"] {
-                let raw=serde_json::json!({"socks-port":1080,"proxies":[{"name":"edge","type":"vless","server":"192.0.2.1","port":443,"uuid":"07070707-0707-0707-0707-070707070707","network":"xhttp","tls":true,"alpn":[alpn],"xhttp-opts":{"mode":"packet-up","reuse-settings":{},"download-settings":{"reuse-settings":{}}}}],"rules":["MATCH,edge"]});
+                let raw=serde_json::json!({"mixed-port":1080,"proxies":[{"name":"edge","type":"vless","server":"192.0.2.1","port":443,"uuid":"07070707-0707-0707-0707-070707070707","network":"xhttp","tls":true,"alpn":[alpn],"xhttp-opts":{"mode":"packet-up","reuse-settings":{},"download-settings":{"reuse-settings":{}}}}],"rules":["MATCH,edge"]});
                 let parsed=Config::parse_yaml(raw.to_string().as_bytes()).unwrap();
                 let ProxyProtocol::Vless(config)=&parsed.proxies[0].protocol else {unreachable!()};
                 let protect=Arc::new(RejectProtect(AtomicUsize::new(0)));
@@ -149,7 +149,7 @@ async fn vless_expired_deadline_and_protect_failure_never_fall_back() {
         "VLESS-CANCEL",
         "vless_expired_deadline_and_protect_failure_never_fall_back",
     );
-    let parsed = Config::parse_yaml(b"socks-port: 1080\nproxies: [{name: edge, type: vless, server: 192.0.2.1, port: 443, uuid: 07070707-0707-0707-0707-070707070707}]\nrules: ['MATCH,edge']").unwrap();
+    let parsed = Config::parse_yaml(b"mixed-port: 1080\nproxies: [{name: edge, type: vless, server: 192.0.2.1, port: 443, uuid: 07070707-0707-0707-0707-070707070707}]\nrules: ['MATCH,edge']").unwrap();
     let ProxyProtocol::Vless(config) = &parsed.proxies[0].protocol else {
         unreachable!()
     };

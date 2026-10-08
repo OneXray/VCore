@@ -49,7 +49,7 @@ fn configuration(profile: &str, context: &str, sni: &str) -> SecurityClient {
         _ => panic!("unknown capture context"),
     }
     let config = Config::parse_yaml(
-        json!({"port": 1080, "proxies": [node], "rules": ["MATCH,p"]})
+        json!({"mixed-port": 1080, "proxies": [node], "rules": ["MATCH,p"]})
             .to_string()
             .as_bytes(),
     )

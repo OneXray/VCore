@@ -155,7 +155,7 @@ async fn completed_fragment_id_can_be_reused_without_losing_the_next_datagram() 
         endpoint.close(0_u32.into(), b"");
         endpoint.wait_idle().await;
     });
-    let config = Config::parse_yaml(br#"{"socks-port":1080,"proxies":[{"name":"peer","type":"hysteria2","server":"192.0.2.1","port":443,"udp":true,"skip-cert-verify":true,"sni":"fixture.invalid"}],"rules":["MATCH,peer"]}"#).unwrap();
+    let config = Config::parse_yaml(br#"{"mixed-port":1080,"proxies":[{"name":"peer","type":"hysteria2","server":"192.0.2.1","port":443,"udp":true,"skip-cert-verify":true,"sni":"fixture.invalid"}],"rules":["MATCH,peer"]}"#).unwrap();
     let ProxyProtocol::Hysteria2(config) = &config.proxies[0].protocol else {
         panic!("protocol")
     };

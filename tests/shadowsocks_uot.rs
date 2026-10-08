@@ -62,7 +62,7 @@ fn packet(size: usize) -> Datagram {
 fn fixture(cipher: &str, capacity: usize) -> (ShadowsocksOutbound, tokio::io::DuplexStream) {
     let key = vec![7; if cipher.contains("aes-128") { 16 } else { 32 }];
     let yaml = serde_json::json!({
-        "port":1080,"proxies":[{"name":"ss","type":"ss","server":"fixture.invalid",
+        "mixed-port":1080,"proxies":[{"name":"ss","type":"ss","server":"fixture.invalid",
         "port":443,"cipher":cipher,"password":STANDARD.encode(key),"udp":true,
         "udp-over-tcp":true,"udp-over-tcp-version":2}],"rules":["MATCH,ss"]
     });
@@ -423,7 +423,7 @@ async fn zero_length_first_datagram_initializes_ss_once_without_an_empty_write()
     #[cfg(feature = "interop-test")]
     let _case = vcore::resources::case_events::Case::new("UOT-SS", "first_packet");
     let config = Config::parse_yaml(br#"
-port: 1080
+mixed-port: 1080
 proxies:
   - {name: ss, type: ss, server: fixture.invalid, port: 443, cipher: 2022-blake3-aes-128-gcm, password: BwcHBwcHBwcHBwcHBwcHBw==, udp: true, udp-over-tcp: true}
 rules: ['MATCH,ss']

@@ -5,7 +5,7 @@ use vcore::config::{Config, ProxyProtocol};
 
 fn document(options: Value) -> Vec<u8> {
     serde_json::to_vec(&json!({
-        "socks-port":1080,
+        "mixed-port":1080,
         "proxies":[{"name":"edge","type":"vless","server":"example.com","port":443,
             "uuid":"07070707-0707-0707-0707-070707070707","network":"xhttp","tls":true,
             "xhttp-opts":options}],

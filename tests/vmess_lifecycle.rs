@@ -77,7 +77,7 @@ async fn vmess_all_handshakes_keep_the_original_deadline_and_join_cancelled_io()
             _ => {}
         }
         let parsed = Config::parse_yaml(
-            serde_json::json!({"socks-port":1080,"proxies":[node],"rules":["MATCH,edge"]})
+            serde_json::json!({"mixed-port":1080,"proxies":[node],"rules":["MATCH,edge"]})
                 .to_string()
                 .as_bytes(),
         )
@@ -143,7 +143,7 @@ async fn vmess_expired_deadline_and_protect_failure_never_fall_back() {
         "VMESS-CANCEL",
         "vmess_expired_deadline_and_protect_failure_never_fall_back",
     );
-    let parsed = Config::parse_yaml(b"socks-port: 1080\nproxies: [{name: edge, type: vmess, server: 192.0.2.1, port: 443, uuid: 07070707-0707-0707-0707-070707070707}]\nrules: ['MATCH,edge']").unwrap();
+    let parsed = Config::parse_yaml(b"mixed-port: 1080\nproxies: [{name: edge, type: vmess, server: 192.0.2.1, port: 443, uuid: 07070707-0707-0707-0707-070707070707}]\nrules: ['MATCH,edge']").unwrap();
     let ProxyProtocol::Vmess(config) = &parsed.proxies[0].protocol else {
         unreachable!()
     };

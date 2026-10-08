@@ -9,7 +9,7 @@ use tokio_util::task::TaskTracker;
 use vcore::transport::xhttp::{XHttpClient, XHttpConfig, XHttpMode};
 
 fn config(reuse: serde_json::Value) -> XHttpConfig {
-    let raw = serde_json::json!({"socks-port":1080,"proxies":[{"name":"peer","type":"vless","server":"example.com","port":443,"uuid":"07070707-0707-0707-0707-070707070707","network":"xhttp","tls":true,"xhttp-opts":{"mode":"stream-one","reuse-settings":reuse}}],"rules":["MATCH,peer"]});
+    let raw = serde_json::json!({"mixed-port":1080,"proxies":[{"name":"peer","type":"vless","server":"example.com","port":443,"uuid":"07070707-0707-0707-0707-070707070707","network":"xhttp","tls":true,"xhttp-opts":{"mode":"stream-one","reuse-settings":reuse}}],"rules":["MATCH,peer"]});
     let raw = vcore::config::Config::parse_yaml(raw.to_string().as_bytes()).unwrap();
     let vcore::config::ProxyProtocol::Vless(node) = &raw.proxies[0].protocol else {
         unreachable!()

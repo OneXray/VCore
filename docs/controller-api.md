@@ -10,7 +10,7 @@ secret: "vcore-runtime-secret"
 ```
 
 - 省略 `external-controller` 表示不启动 Controller，此时不能单独配置 `secret`。含代理组但没有 Controller 的配置合法，组在本次 session 内保持初始选择。
-- `external-controller` 只接受带显式非零端口的回环 IP 地址。它要求启用 TUN 或至少定义一个 `proxy-groups`；非 TUN 配置须通过 `port` 或 `socks-port` 满足运行配置的入站要求。
+- `external-controller` 只接受带显式非零端口的回环 IP 地址。它要求启用 TUN 或至少定义一个 `proxy-groups`；非 TUN 配置须通过 `mixed-port` 满足运行配置的入站要求。
 - 只要同时配置代理组与 Controller，`secret` 就必填；仅有 TUN 流量接口时可省略。`secret` 出现时必须为 1–255 UTF-8 字节，并保护本文定义的全部路由。
 - `measureDelay` 的 node-only 配置不能包含 Controller 或代理组字段。
 - `validateConfig` 只校验字段；`prepare` 不监听端口；`start` 绑定端口，绑定失败则启动失败。`stop` 和 `destroyInstance` 关闭监听器。

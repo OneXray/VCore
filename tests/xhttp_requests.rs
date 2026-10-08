@@ -271,7 +271,7 @@ async fn response_codes_follow_mihomo_streaming_and_packet_rules() {
 
 async fn observe_stream_request(options: serde_json::Value) -> http::Request<()> {
     tokio::time::timeout(Duration::from_secs(2), async {
-        let document = serde_json::json!({"socks-port":1080,"proxies":[{
+        let document = serde_json::json!({"mixed-port":1080,"proxies":[{
             "name":"edge","type":"vless","server":"example.com","port":443,
             "uuid":"07070707-0707-0707-0707-070707070707","network":"xhttp","tls":true,
             "xhttp-opts":options
@@ -410,7 +410,7 @@ async fn observe_packet(
     payload: &[u8],
 ) -> Vec<(http::Request<()>, Vec<u8>)> {
     tokio::time::timeout(Duration::from_secs(3), async {
-        let doc = serde_json::json!({"socks-port":1080,"proxies":[{
+        let doc = serde_json::json!({"mixed-port":1080,"proxies":[{
             "name":"edge","type":"vless","server":"example.com","port":443,
             "uuid":"07070707-0707-0707-0707-070707070707","network":"xhttp","tls":true,
             "xhttp-opts":options}],"rules":["MATCH,edge"]});
@@ -795,7 +795,7 @@ async fn custom_request_headers_reach_the_http_peer_without_changing_body() {
         "custom_request_headers_reach_the_http_peer_without_changing_body",
     );
     tokio::time::timeout(Duration::from_secs(2), async {
-        let document = serde_json::json!({"socks-port":1080,"proxies":[{
+        let document = serde_json::json!({"mixed-port":1080,"proxies":[{
             "name":"edge","type":"vless","server":"example.com","port":443,
             "uuid":"07070707-0707-0707-0707-070707070707","network":"xhttp","tls":true,
             "xhttp-opts":{"mode":"stream-one","headers":{"X-Custom":"private-value"}}

@@ -8,7 +8,7 @@ use {
 
 fn yaml(extra: &str) -> String {
     format!(
-        "port: 1080\nproxies:\n  - name: ss\n    type: ss\n    server: fixture.invalid\n    port: 443\n    cipher: 2022-blake3-aes-128-gcm\n    password: BwcHBwcHBwcHBwcHBwcHBw==\n    udp: true\n{extra}\nrules: ['MATCH,ss']\n"
+        "mixed-port: 1080\nproxies:\n  - name: ss\n    type: ss\n    server: fixture.invalid\n    port: 443\n    cipher: 2022-blake3-aes-128-gcm\n    password: BwcHBwcHBwcHBwcHBwcHBw==\n    udp: true\n{extra}\nrules: ['MATCH,ss']\n"
     )
 }
 
@@ -23,7 +23,7 @@ fn node() -> Value {
 #[cfg(feature = "shadow-tls-v3")]
 fn parse(node: Value) -> vcore::Result<Config> {
     Config::parse_yaml(
-        &serde_json::to_vec(&json!({"socks-port":1080,
+        &serde_json::to_vec(&json!({"mixed-port":1080,
         "proxies":[node], "rules":["MATCH,ss"]}))
         .unwrap(),
     )

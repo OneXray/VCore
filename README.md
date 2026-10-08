@@ -39,10 +39,10 @@ SS2022 uses the unmodified official Rust library; its known empty-first-write/se
 
 ## Mihomo-style configuration
 
-Use the familiar `proxies`, `proxy-groups`, `rules`, `dns`, `port`, `socks-port` and `tun` structures. For example:
+Use the familiar `proxies`, `proxy-groups`, `rules`, `dns`, `mixed-port` and `tun` structures. For example:
 
 ```yaml
-socks-port: 1080
+mixed-port: 1080
 allow-lan: false
 
 proxies:
@@ -71,6 +71,8 @@ rules:
 ```
 
 Replace the example endpoint and credentials. GeoSite/GeoIP rules require the corresponding assets under `<dataDir>/geodata`; missing assets leave those rule types unavailable. See the [complete configuration reference](docs/config.yaml) and [GeoData behavior](docs/geodata.md).
+
+`mixed-port` shares one TCP port between HTTP and SOCKS5 and enables SOCKS5 UDP on the same port. `allow-lan` controls binding independently of `authentication`: omitting `authentication` or using `[]` allows unauthenticated access on either loopback or wildcard addresses; configured credentials are checked by both HTTP and SOCKS5. Top-level `port`, `socks-port`, `udp` and `listeners` are rejected; proxy-node `port` and `udp` keep their outbound meanings.
 
 Compatibility is scoped to documented fields and behavior, not arbitrary Mihomo configurations. Groups currently support static `select`; DNS nameservers use literal IPs over UDP/TCP. Providers, automatic group selection, encrypted DNS and fake-IP are outside the current feature set. Unknown fields and invalid combinations are rejected rather than silently ignored; VCore-specific semantics are called out in the relevant contracts.
 

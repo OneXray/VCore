@@ -238,7 +238,7 @@ mod tests {
             let key = STANDARD.encode(vec![7; cipher.key_len()]);
             for password in [key.clone(), key.trim_end_matches('=').to_owned()] {
                 let yaml = format!(
-                    "port: 1080\nproxies: [{{name: ss, type: ss, server: fixture.invalid, port: 443, cipher: {}, password: '{password}', udp: true}}]\nrules: ['MATCH,ss']",
+                    "mixed-port: 1080\nproxies: [{{name: ss, type: ss, server: fixture.invalid, port: 443, cipher: {}, password: '{password}', udp: true}}]\nrules: ['MATCH,ss']",
                     cipher.as_str()
                 );
                 let config = Config::parse_yaml(yaml.as_bytes()).unwrap();
@@ -313,7 +313,7 @@ mod tests {
             "{{name: ss, type: ss, server: fixture.invalid, port: 443, cipher: 2022-blake3-chacha8-poly1305, password: '{}' }}",
             STANDARD.encode([7; 32])
         );
-        let runtime = format!("port: 1080\nproxies: [{node}]\nrules: ['MATCH,ss']");
+        let runtime = format!("mixed-port: 1080\nproxies: [{node}]\nrules: ['MATCH,ss']");
         assert!(Config::parse_yaml(runtime.as_bytes()).is_err());
         #[cfg(feature = "ffi")]
         assert!(

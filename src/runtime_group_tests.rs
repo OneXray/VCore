@@ -33,7 +33,7 @@ impl Resolver for RecordingResolver {
 
 fn grouped_config(members: &str) -> String {
     format!(
-        r#"port: 18080
+        r#"mixed-port: 18080
 authentication: [u:p]
 ipv6: false
 proxies:
@@ -270,8 +270,8 @@ async fn group_start_failure_and_repeated_stop_release_ports_and_graph_owners() 
     let yaml = format!(
         "{}\nexternal-controller: {controller}\nsecret: fixture-token\n",
         grouped_config("root, DIRECT").replacen(
-            "port: 18080",
-            &format!("port: {}", http.port()),
+            "mixed-port: 18080",
+            &format!("mixed-port: {}", http.port()),
             1
         )
     );
@@ -339,7 +339,7 @@ async fn http_dual_stack_and_controller_conflicts_roll_back_all_listeners() {
     let yaml = format!(
         "{}\nexternal-controller: {controller}\nsecret: fixture-token\n",
         grouped_config("root, DIRECT")
-            .replacen("port: 18080", &format!("port: {port}"), 1)
+            .replacen("mixed-port: 18080", &format!("mixed-port: {port}"), 1)
             .replace("ipv6: false", "ipv6: true")
     );
     // Controller conflict fails before any business listener can begin serving.
@@ -523,7 +523,7 @@ mod wire {
         let first = SocksFixture::start(b'A').await;
         let second = SocksFixture::start(b'B').await;
         let yaml = format!(
-            r#"port: 18080
+            r#"mixed-port: 18080
 authentication: [u:p]
 proxies:
   - {{name: child, type: socks5, server: 127.0.0.1, port: {}, udp: true, dialer-proxy: path}}

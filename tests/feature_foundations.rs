@@ -11,8 +11,8 @@ fn feature_skeletons_do_not_open_unimplemented_yaml_or_measurement_protocols() {
     let yaml = "proxies:\n  - name: node\n    type: wireguard\n    server: example.com\n    port: 443\nrules:\n  - MATCH,node\n";
     assert!(Config::parse_yaml(yaml.as_bytes()).is_err());
     assert_eq!(vcore::INVOKE_API_VERSION, 5);
-    assert_eq!(vcore::CONFIG_VERSION, 31);
-    assert!(vcore::BUILD_IDENTITY.ends_with("invokeApiVersion=5;configVersion=31"));
+    assert_eq!(vcore::CONFIG_VERSION, 32);
+    assert!(vcore::BUILD_IDENTITY.ends_with("invokeApiVersion=5;configVersion=32"));
 }
 
 #[test]
@@ -49,7 +49,7 @@ fn selected_fingerprints_follow_protocol_feature_admission() {
             "safari16",
         ] {
             let yaml = format!(
-                "socks-port: 1080\nproxies: [{{name: node, type: {protocol}, server: localhost, port: 443, {authentication}, client-fingerprint: {name}}}]\nrules: ['MATCH,node']\n"
+                "mixed-port: 1080\nproxies: [{{name: node, type: {protocol}, server: localhost, port: 443, {authentication}, client-fingerprint: {name}}}]\nrules: ['MATCH,node']\n"
             );
             assert_eq!(
                 Config::parse_yaml(yaml.as_bytes()).is_ok(),
@@ -68,7 +68,7 @@ fn selected_fingerprints_follow_protocol_feature_admission() {
 
 #[test]
 fn vless_yaml_follows_its_own_feature() {
-    let yaml=b"socks-port: 1080\nproxies: [{name: node, type: vless, server: localhost, port: 443, uuid: 07070707-0707-0707-0707-070707070707}]\nrules: ['MATCH,node']\n";
+    let yaml=b"mixed-port: 1080\nproxies: [{name: node, type: vless, server: localhost, port: 443, uuid: 07070707-0707-0707-0707-070707070707}]\nrules: ['MATCH,node']\n";
     assert_eq!(
         Config::parse_yaml(yaml).is_ok(),
         cfg!(feature = "outbound-vless")
@@ -77,7 +77,7 @@ fn vless_yaml_follows_its_own_feature() {
 
 #[test]
 fn vmess_yaml_follows_its_own_feature() {
-    let yaml=b"socks-port: 1080\nproxies: [{name: node, type: vmess, server: localhost, port: 443, uuid: 07070707-0707-0707-0707-070707070707}]\nrules: ['MATCH,node']\n";
+    let yaml=b"mixed-port: 1080\nproxies: [{name: node, type: vmess, server: localhost, port: 443, uuid: 07070707-0707-0707-0707-070707070707}]\nrules: ['MATCH,node']\n";
     assert_eq!(
         Config::parse_yaml(yaml).is_ok(),
         cfg!(feature = "outbound-vmess")
@@ -86,7 +86,7 @@ fn vmess_yaml_follows_its_own_feature() {
 
 #[test]
 fn trojan_yaml_follows_its_own_feature() {
-    let yaml = b"socks-port: 1080\nproxies: [{name: node, type: trojan, server: localhost, port: 443, password: fixture}]\nrules: ['MATCH,node']\n";
+    let yaml = b"mixed-port: 1080\nproxies: [{name: node, type: trojan, server: localhost, port: 443, password: fixture}]\nrules: ['MATCH,node']\n";
     assert_eq!(
         Config::parse_yaml(yaml).is_ok(),
         cfg!(feature = "outbound-trojan")

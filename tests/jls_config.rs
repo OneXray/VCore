@@ -15,7 +15,7 @@ fn public_jls_builds_an_authenticated_security_client_without_exposing_credentia
     );
     let config = Config::parse_yaml(
         &serde_json::to_vec(&json!({
-            "socks-port":1080,
+            "mixed-port":1080,
             "proxies":[{"name":"edge", "type":"vless", "server":"example.invalid", "port":443,
                 "uuid":"07070707-0707-0707-0707-070707070707", "tls":true,
                 "jls-opts":{"username":"synthetic-jls-user", "password":"synthetic-jls-password"}}],
@@ -43,7 +43,7 @@ fn node() -> serde_json::Value {
 fn parse(node: serde_json::Value) -> vcore::Result<VlessOutboundConfig> {
     let config = Config::parse_yaml(
         &serde_json::to_vec(&json!({
-            "socks-port":1080, "proxies":[node], "rules":["MATCH,edge"]
+            "mixed-port":1080, "proxies":[node], "rules":["MATCH,edge"]
         }))
         .unwrap(),
     )?;

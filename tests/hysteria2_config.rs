@@ -7,7 +7,7 @@ fn hysteria2_configuration_follows_its_protocol_feature() {
         "HYSTERIA2-CFG",
         "hysteria2_configuration_follows_its_protocol_feature",
     );
-    let yaml = b"socks-port: 1080\nproxies: [{name: edge, type: hysteria2, server: localhost, port: 443}]\nrules: ['MATCH,edge']\n";
+    let yaml = b"mixed-port: 1080\nproxies: [{name: edge, type: hysteria2, server: localhost, port: 443}]\nrules: ['MATCH,edge']\n";
     let result = Config::parse_yaml(yaml);
     assert_eq!(result.is_ok(), cfg!(feature = "outbound-hysteria2"));
     if let Ok(config) = result {
@@ -25,7 +25,7 @@ fn hysteria2_accepts_the_approved_tls_bandwidth_obfs_and_hopping_configuration()
         "HYSTERIA2-CFG",
         "hysteria2_accepts_the_approved_tls_bandwidth_obfs_and_hopping_configuration",
     );
-    let yaml = b"socks-port: 1080\nproxies:\n  - name: edge\n    type: hysteria2\n    server: localhost\n    ports: 443,8443-8445,8443\n    password: ' credential '\n    udp: true\n    up: 2 Mbps\n    down: 125 KBps\n    udp-mtu: 1200\n    hop-interval: 5-7\n    obfs: salamander\n    obfs-password: ' independent secret '\n    sni: tls.example.com\n    alpn: [custom-h3]\n    skip-cert-verify: true\n    dialer-proxy: upstream\nproxy-groups: [{name: upstream, type: select, proxies: [DIRECT, REJECT]}]\nrules: ['MATCH,edge']\n";
+    let yaml = b"mixed-port: 1080\nproxies:\n  - name: edge\n    type: hysteria2\n    server: localhost\n    ports: 443,8443-8445,8443\n    password: ' credential '\n    udp: true\n    up: 2 Mbps\n    down: 125 KBps\n    udp-mtu: 1200\n    hop-interval: 5-7\n    obfs: salamander\n    obfs-password: ' independent secret '\n    sni: tls.example.com\n    alpn: [custom-h3]\n    skip-cert-verify: true\n    dialer-proxy: upstream\nproxy-groups: [{name: upstream, type: select, proxies: [DIRECT, REJECT]}]\nrules: ['MATCH,edge']\n";
     let config = Config::parse_yaml(yaml).expect("approved Hysteria2 fields");
     assert_eq!(config.proxies[0].port(), 443);
     assert!(config.proxies[0].udp);
@@ -47,7 +47,7 @@ fn hysteria2_fields_are_strict_normalized_and_credentials_are_not_trimmed() {
     let base = json!({"name":"edge", "type":"hysteria2", "server":"localhost", "port":443});
     let parse = |raw: Value| {
         Config::parse_yaml(
-            json!({"socks-port":1080, "proxies":[raw], "rules":["MATCH,edge"]})
+            json!({"mixed-port":1080, "proxies":[raw], "rules":["MATCH,edge"]})
                 .to_string()
                 .as_bytes(),
         )

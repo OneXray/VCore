@@ -157,7 +157,11 @@ proxies:
         assert_eq!(config.default_proxy.index(), 0);
 
         for extra in [
+            "mixed-port: 18080",
             "port: 18080",
+            "socks-port: 18080",
+            "listeners: []",
+            "udp: true",
             "authentication: [measure:secret]",
             "tun: { enable: false }",
             "sniffer: { enable: false }",

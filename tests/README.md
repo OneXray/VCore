@@ -41,6 +41,10 @@ Rust 依赖缓存区分检查种类、工具链、锁文件和 runner 镜像/SDK
 
 ## 必要回归与独立输入
 
+- 混合入站：`cargo test --locked --lib inbound::mixed::tests::` 在纯内存中覆盖
+  HTTP/SOCKS5 分流、首字节与流水业务保留、LAN 免认证、认证拒绝、共同握手期限和
+  取消后的双向释放；`inbound::socks5::association::tests::` 覆盖 UDP 来源、代次和
+  边界。真实 TCP/UDP 同端口绑定、启动回滚和 Stop 后端口释放在隔离容器中验证。
 - Dialer 物理初始化：client-only TCP/UDP 的快速创建、64 个未完成提交、共享阻塞池
   占用、慢 protect 故障注入、调用方取消、Stop 等待和新作用域恢复。mock protect
   在 connect 前拒绝，不启动宿主 listener 或发送业务；有限负载回归不证明任意

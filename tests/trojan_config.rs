@@ -8,7 +8,7 @@ fn document(extra: Value) -> Vec<u8> {
     node.as_object_mut()
         .unwrap()
         .extend(extra.as_object().unwrap().clone());
-    serde_json::to_vec(&json!({"socks-port":1080,"proxies":[node],"rules":["MATCH,edge"]})).unwrap()
+    serde_json::to_vec(&json!({"mixed-port":1080,"proxies":[node],"rules":["MATCH,edge"]})).unwrap()
 }
 
 #[test]
@@ -18,7 +18,7 @@ fn trojan_tcp_configuration_and_node_graph_accept_the_approved_fields() {
         "TROJAN-CFG",
         "trojan_tcp_configuration_and_node_graph_accept_the_approved_fields",
     );
-    let yaml = b"socks-port: 1080\nproxies:\n  - name: edge\n    type: trojan\n    server: example.com\n    port: 443\n    password: ' password '\n    udp: true\n    sni: tls.example.com\n    alpn: [h2, http/1.1]\n    skip-cert-verify: false\n    fingerprint: '0000000000000000000000000000000000000000000000000000000000000000'\n    dialer-proxy: upstream\nproxy-groups:\n  - name: upstream\n    type: select\n    proxies: [DIRECT, REJECT]\nrules: ['MATCH,edge']\n";
+    let yaml = b"mixed-port: 1080\nproxies:\n  - name: edge\n    type: trojan\n    server: example.com\n    port: 443\n    password: ' password '\n    udp: true\n    sni: tls.example.com\n    alpn: [h2, http/1.1]\n    skip-cert-verify: false\n    fingerprint: '0000000000000000000000000000000000000000000000000000000000000000'\n    dialer-proxy: upstream\nproxy-groups:\n  - name: upstream\n    type: select\n    proxies: [DIRECT, REJECT]\nrules: ['MATCH,edge']\n";
     let config = Config::parse_yaml(yaml).expect("TROJAN Trojan TCP configuration");
     assert_eq!(config.proxies[0].address(), "example.com");
     assert_eq!(config.proxies[0].port(), 443);

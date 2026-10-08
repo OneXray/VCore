@@ -123,7 +123,7 @@ fn fixture_parts(
         Arc::new(quinn::TokioRuntime),
     )
     .unwrap();
-    let yaml = serde_json::json!({"socks-port":1080,"proxies":[{"name":"peer","type":"tuic","server":"192.0.2.1","port":443,"uuid":"07070707-0707-0707-0707-070707070707","password":" raw\u{0000}context ","sni":"fixture.invalid","skip-cert-verify":true,"congestion-controller":congestion,"udp":true,"udp-relay-mode":mode}],"rules":["MATCH,peer"]});
+    let yaml = serde_json::json!({"mixed-port":1080,"proxies":[{"name":"peer","type":"tuic","server":"192.0.2.1","port":443,"uuid":"07070707-0707-0707-0707-070707070707","password":" raw\u{0000}context ","sni":"fixture.invalid","skip-cert-verify":true,"congestion-controller":congestion,"udp":true,"udp-relay-mode":mode}],"rules":["MATCH,peer"]});
     let parsed = Config::parse_yaml(yaml.to_string().as_bytes()).unwrap();
     let ProxyProtocol::Tuic(config) = &parsed.proxies[0].protocol else {
         panic!("TUIC");

@@ -1,6 +1,12 @@
 #![cfg_attr(not(feature = "ffi"), allow(dead_code))]
 
-#[cfg(all(test, unix, feature = "inbound-socks5", feature = "outbound-socks5"))]
+#[cfg(all(
+    test,
+    unix,
+    feature = "inbound-http",
+    feature = "inbound-socks5",
+    feature = "outbound-socks5"
+))]
 #[path = "runtime_lifecycle_tests.rs"]
 mod lifecycle_tests;
 
@@ -30,10 +36,8 @@ type RuntimeController = ();
 use crate::config::MeasureConfig;
 #[cfg(test)]
 use crate::config::ProxyId;
-#[cfg(feature = "inbound-http")]
-use crate::inbound::http::{HttpServer, HttpServerConfig};
-#[cfg(feature = "inbound-socks5")]
-use crate::inbound::socks5::Socks5Server;
+#[cfg(all(feature = "inbound-http", feature = "inbound-socks5"))]
+use crate::inbound::mixed::MixedServer;
 use crate::{
     ResourceLimits,
     config::{
@@ -1152,54 +1156,27 @@ impl RunningCore {
                 + usize::from(controller.is_some())
                 + usize::from(geodata_updater.is_some()),
         );
-        #[cfg(not(any(feature = "inbound-http", feature = "inbound-socks5")))]
+        #[cfg(not(all(feature = "inbound-http", feature = "inbound-socks5")))]
         let _ = &dispatcher;
 
         // Bind every listener before spawning anything. All acquired sockets,
         // the already-bound Controller and the untouched graph roll back by RAII.
-        #[cfg(feature = "inbound-http")]
-        let mut http_servers = Vec::new();
-        #[cfg(feature = "inbound-socks5")]
-        let mut socks_servers = Vec::new();
+        #[cfg(all(feature = "inbound-http", feature = "inbound-socks5"))]
+        let mut mixed_servers = Vec::new();
 
         for inbound in inbounds {
             match inbound {
-                InboundConfig::Http(config) => {
-                    #[cfg(not(feature = "inbound-http"))]
-                    {
-                        let _ = config;
-                        cancellation.cancel();
-                        abort_and_join(&mut tasks).await;
-                        return Err(io::Error::new(
-                            io::ErrorKind::Unsupported,
-                            "HTTP listener support is disabled at build time",
-                        ));
-                    }
-                    #[cfg(feature = "inbound-http")]
-                    {
-                        let server = HttpServer::bind(
-                            HttpServerConfig::proxy(
-                                config.port,
-                                config.access,
-                                config.auth.clone(),
-                            )?,
-                            dispatcher.clone(),
-                        )
-                        .await?;
-                        http_servers.push(server);
-                    }
-                }
-                InboundConfig::Socks5(config) => {
-                    #[cfg(not(feature = "inbound-socks5"))]
+                InboundConfig::Mixed(config) => {
+                    #[cfg(not(all(feature = "inbound-http", feature = "inbound-socks5")))]
                     {
                         let _ = config;
                         return Err(io::Error::new(
                             io::ErrorKind::Unsupported,
-                            "SOCKS5 listener support is disabled at build time",
+                            "mixed listener requires HTTP and SOCKS5 support at build time",
                         ));
                     }
-                    #[cfg(feature = "inbound-socks5")]
-                    socks_servers.push(Socks5Server::bind(config.clone(), dispatcher.clone())?);
+                    #[cfg(all(feature = "inbound-http", feature = "inbound-socks5"))]
+                    mixed_servers.push(MixedServer::bind(config.clone(), dispatcher.clone())?);
                 }
                 InboundConfig::Tun(_) => {
                     if tun_runtime.is_none() {
@@ -1214,13 +1191,8 @@ impl RunningCore {
             }
         }
 
-        #[cfg(feature = "inbound-http")]
-        for server in http_servers {
-            let child = cancellation.clone();
-            tasks.push(crate::resources::observation::spawn(server.serve(child)));
-        }
-        #[cfg(feature = "inbound-socks5")]
-        for server in socks_servers {
+        #[cfg(all(feature = "inbound-http", feature = "inbound-socks5"))]
+        for server in mixed_servers {
             let child = cancellation.clone();
             tasks.push(crate::resources::observation::spawn(server.serve(child)));
         }
@@ -1339,7 +1311,12 @@ async fn abort_and_join(tasks: &mut Vec<JoinHandle<io::Result<()>>>) {
 #[path = "runtime_group_tests.rs"]
 mod group_tests;
 
-#[cfg(all(test, feature = "inbound-socks5", feature = "outbound-socks5"))]
+#[cfg(all(
+    test,
+    feature = "inbound-http",
+    feature = "inbound-socks5",
+    feature = "outbound-socks5"
+))]
 #[path = "runtime_socks_tests.rs"]
 mod socks_tests;
 
@@ -1414,7 +1391,7 @@ mod tests {
         for (protocol, fields, enabled) in variants {
             let _case = crate::resources::case_events::Case::new("INTEGRATION-FEATURE", protocol);
             let yaml = format!(
-                "socks-port: 1080\nproxies:\n  - {{name: peer, type: {protocol}, server: 127.0.0.1, port: 443{fields}}}\nrules: ['MATCH,peer']\n"
+                "mixed-port: 1080\nproxies:\n  - {{name: peer, type: {protocol}, server: 127.0.0.1, port: 443{fields}}}\nrules: ['MATCH,peer']\n"
             );
             let result = match PreparedCore::prepare(
                 yaml.as_bytes(),
@@ -1490,7 +1467,7 @@ mod tests {
         }
     }
 
-    const CONFIG: &str = r#"port: 18080
+    const CONFIG: &str = r#"mixed-port: 18080
 authentication:
   - measure:secret
 proxies:
@@ -1780,12 +1757,16 @@ geo-update-interval: 24
             );
             if geodata_rule {
                 config_with_rules("rules:\n  - GEOSITE,cn,proxy\n  - MATCH,proxy\n").replacen(
-                    "port: 18080\n",
-                    &format!("{fields}port: 18080\n"),
+                    "mixed-port: 18080\n",
+                    &format!("{fields}mixed-port: 18080\n"),
                     1,
                 )
             } else {
-                CONFIG.replacen("port: 18080\n", &format!("{fields}port: 18080\n"), 1)
+                CONFIG.replacen(
+                    "mixed-port: 18080\n",
+                    &format!("{fields}mixed-port: 18080\n"),
+                    1,
+                )
             }
         }
 
@@ -1830,8 +1811,8 @@ geo-update-interval: 24
 "#
             );
             config_with_rules(&format!("rules:\n  - {rule},proxy\n  - MATCH,proxy\n")).replacen(
-                "port: 18080\n",
-                &format!("{fields}port: 18080\n"),
+                "mixed-port: 18080\n",
+                &format!("{fields}mixed-port: 18080\n"),
                 1,
             )
         }
@@ -1872,7 +1853,7 @@ geo-update-interval: 24
             ""
         };
         format!(
-            r#"port: 18080
+            r#"mixed-port: 18080
 authentication:
   - measure:secret
 proxies:
@@ -1930,7 +1911,7 @@ rules:
     #[cfg(all(feature = "outbound-socks5", feature = "outbound-vless"))]
     #[tokio::test]
     async fn split_vless_behind_dialer_proxy_does_not_resolve_either_child_leg() {
-        let yaml = r#"port: 18080
+        let yaml = r#"mixed-port: 18080
 authentication:
   - measure:secret
 proxies:
@@ -2270,7 +2251,7 @@ rules:
         let reserved = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let address = reserved.local_addr().unwrap();
         let yaml = format!(
-            "socks-port: {}\nipv6: false\n{CURRENT_TUN_CONFIG}",
+            "mixed-port: {}\nipv6: false\n{CURRENT_TUN_CONFIG}",
             address.port()
         );
         drop(reserved);

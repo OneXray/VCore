@@ -68,7 +68,7 @@ fn client_with(profile: &str, list: &[u8], pin: &str, extra: serde_json::Value) 
         .extend(extra.as_object().unwrap().clone());
     let config = Config::parse_yaml(
         &serde_json::to_vec(&json!({
-            "socks-port":1080,
+            "mixed-port":1080,
             "proxies":[node],
             "rules":["MATCH,edge"]
         }))

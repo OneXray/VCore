@@ -167,7 +167,7 @@ impl OutboundConnector for MemoryPeer {
 }
 fn outbound(peer: Arc<MemoryPeer>, options: &str) -> VlessOutbound {
     let raw = format!(
-        "socks-port: 1080\nproxies:\n- name: edge\n  type: vless\n  server: example.com\n  port: 443\n  uuid: 07070707-0707-0707-0707-070707070707\n  smux: {{enabled: true, {options}}}\nrules: [MATCH,edge]\n"
+        "mixed-port: 1080\nproxies:\n- name: edge\n  type: vless\n  server: example.com\n  port: 443\n  uuid: 07070707-0707-0707-0707-070707070707\n  smux: {{enabled: true, {options}}}\nrules: [MATCH,edge]\n"
     );
     let raw = raw.replace("rules: [MATCH,edge]", "rules: ['MATCH,edge']");
     let config = Config::parse_yaml(raw.as_bytes()).unwrap();
@@ -318,7 +318,7 @@ async fn h2mux_sends_idle_ping_and_retires_a_peer_that_never_acknowledges() {
         "XHTTP-UNIT",
         "h2mux_sends_idle_ping_and_retires_a_peer_that_never_acknowledges",
     );
-    let raw = serde_json::json!({"socks-port":1080,"proxies":[{"name":"edge","type":"vless","server":"example.com","port":443,"uuid":"07070707-0707-0707-0707-070707070707","smux":{"enabled":true,"max-connections":1}}],"rules":["MATCH,edge"]});
+    let raw = serde_json::json!({"mixed-port":1080,"proxies":[{"name":"edge","type":"vless","server":"example.com","port":443,"uuid":"07070707-0707-0707-0707-070707070707","smux":{"enabled":true,"max-connections":1}}],"rules":["MATCH,edge"]});
     let config = Config::parse_yaml(raw.to_string().as_bytes()).unwrap();
     let ProxyProtocol::Vless(config) = &config.proxies[0].protocol else {
         unreachable!()
@@ -388,7 +388,7 @@ async fn only_tcp_preserves_all_three_vless_udp_wire_commands() {
     tokio::time::timeout(Duration::from_secs(3), async {
         for protocol in ["h2mux", "smux", "yamux"] {
             for (codec, command) in [("xudp", 3), ("none", 2), ("packetaddr", 2)] {
-                let raw = serde_json::json!({"socks-port":1080,"proxies":[{"name":"edge","type":"vless","server":"example.com","port":443,"uuid":"07070707-0707-0707-0707-070707070707","udp":true,"packet-encoding":codec,"smux":{"enabled":true,"protocol":protocol,"padding":true,"only-tcp":true}}],"rules":["MATCH,edge"]});
+                let raw = serde_json::json!({"mixed-port":1080,"proxies":[{"name":"edge","type":"vless","server":"example.com","port":443,"uuid":"07070707-0707-0707-0707-070707070707","udp":true,"packet-encoding":codec,"smux":{"enabled":true,"protocol":protocol,"padding":true,"only-tcp":true}}],"rules":["MATCH,edge"]});
                 let config = Config::parse_yaml(raw.to_string().as_bytes()).unwrap();
                 let ProxyProtocol::Vless(config) = &config.proxies[0].protocol else { unreachable!() };
                 let (io, mut peer) = tokio::io::duplex(4096);

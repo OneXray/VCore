@@ -36,7 +36,7 @@ impl OutboundConnector for Supplied {
     }
 }
 fn node(io: BoxStream, encoding: &str) -> VlessOutbound {
-    let config=Config::parse_yaml(format!("socks-port: 1080\nproxies: [{{name: edge, type: vless, server: example.com, port: 443, uuid: 07070707-0707-0707-0707-070707070707, udp: true, packet-encoding: {encoding}}}]\nrules: ['MATCH,edge']").as_bytes()).unwrap();
+    let config=Config::parse_yaml(format!("mixed-port: 1080\nproxies: [{{name: edge, type: vless, server: example.com, port: 443, uuid: 07070707-0707-0707-0707-070707070707, udp: true, packet-encoding: {encoding}}}]\nrules: ['MATCH,edge']").as_bytes()).unwrap();
     let ProxyProtocol::Vless(config) = &config.proxies[0].protocol else {
         unreachable!()
     };

@@ -21,7 +21,7 @@ fn document(protocol: &str, options: Value) -> Vec<u8> {
     } else {
         node["uuid"] = json!("07070707-0707-0707-0707-070707070707");
     }
-    serde_json::to_vec(&json!({"socks-port":1080,"proxies":[node],"rules":["MATCH,edge"]})).unwrap()
+    serde_json::to_vec(&json!({"mixed-port":1080,"proxies":[node],"rules":["MATCH,edge"]})).unwrap()
 }
 
 fn options(protocol: &str, value: Value) -> WebSocketOptions {

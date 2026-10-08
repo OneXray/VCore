@@ -39,10 +39,10 @@ SS2022 使用未经修改的官方 Rust 库；已知的空首写入、服务端�
 
 ## Mihomo 风格配置
 
-使用熟悉的 `proxies`、`proxy-groups`、`rules`、`dns`、`port`、`socks-port` 和 `tun` 结构。例如：
+使用熟悉的 `proxies`、`proxy-groups`、`rules`、`dns`、`mixed-port` 和 `tun` 结构。例如：
 
 ```yaml
-socks-port: 1080
+mixed-port: 1080
 allow-lan: false
 
 proxies:
@@ -71,6 +71,8 @@ rules:
 ```
 
 请替换示例中的服务器地址与凭据。GeoSite/GeoIP 规则需要 `<dataDir>/geodata` 下的对应数据文件；缺失文件时，相应规则类型不可用。详见[完整配置参考](../docs/config.yaml)与 [GeoData 行为](../docs/geodata.md)。
+
+`mixed-port` 在同一 TCP 端口接入 HTTP 与 SOCKS5，并在同端口启用 SOCKS5 UDP。`allow-lan` 控制绑定地址，与 `authentication` 独立：`authentication` 省略或为 `[]` 时，回环与通配绑定均免认证；配置凭据后 HTTP 与 SOCKS5 均校验。顶层 `port`、`socks-port`、`udp` 和 `listeners` 都会拒绝；代理节点的 `port` 与 `udp` 保留出站含义。
 
 兼容范围限于文档列出的字段和行为，不覆盖任意 Mihomo 配置。代理组目前支持静态 `select`；DNS 上游使用固定 IP，通过 UDP/TCP 查询。Providers、自动代理组选择、加密 DNS 和 fake-IP 不在当前功能范围内。未知字段与无效组合会被拒绝，不会静默忽略；VCore 特有的语义会在相应契约中说明。
 

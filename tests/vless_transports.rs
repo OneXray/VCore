@@ -41,7 +41,7 @@ fn node(io: BoxStream, extra: serde_json::Value) -> VlessOutbound {
         .extend(extra.as_object().unwrap().clone());
     let config = Config::parse_yaml(
         &serde_json::to_vec(
-            &serde_json::json!({"socks-port":1080,"proxies":[node],"rules":["MATCH,edge"]}),
+            &serde_json::json!({"mixed-port":1080,"proxies":[node],"rules":["MATCH,edge"]}),
         )
         .unwrap(),
     )

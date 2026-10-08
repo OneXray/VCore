@@ -7,7 +7,7 @@
 - [配置协议](config.yaml)：严格 YAML、节点、静态 select 组、DNS 与规则。
 - [Invoke API](invoke-api.md)：请求格式、生命周期、平台回调与内联配置。
 - [Controller](controller-api.md)：认证、运行中组选择和 TUN 流量。
-- [入站](inbounds.md)：HTTP 转发/隧道、SOCKS5 TCP/授权 UDP、监听及认证。
+- [混合入站](inbounds.md)：同端口 HTTP 转发/隧道、SOCKS5 TCP/授权 UDP、监听及认证。
 - [出站](outbounds.md)：SOCKS5、AnyTLS、Trojan、VMess AEAD、Hysteria2、SS 2022。
 - [VLESS](vless.md)：传输、Vision、Encryption、REALITY、JLS、静态 ECH。
 - [XHTTP 与 sing-mux](xhttp.md)：双腿、H1/H2/H3、连接池及复用。

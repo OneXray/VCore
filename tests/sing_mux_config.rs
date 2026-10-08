@@ -5,7 +5,7 @@ use vcore::config::Config;
 fn parse(options: serde_json::Value, vision: bool) -> bool {
     Config::parse_yaml(
         &serde_json::to_vec(&json!({
-            "socks-port":1080,
+            "mixed-port":1080,
             "proxies":[{"name":"edge","type":"vless","server":"example.com","port":443,
                 "uuid":"07070707-0707-0707-0707-070707070707","tls":true,
                 "flow":if vision {"xtls-rprx-vision"} else {""},"smux":options}],

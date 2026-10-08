@@ -1748,10 +1748,10 @@ mod tests {
         }
     }
 
-    fn config_with_outbound(http_port: Option<u16>, tun: bool, outbound_port: u16) -> String {
-        let listener = match (http_port, tun) {
+    fn config_with_outbound(mixed_port: Option<u16>, tun: bool, outbound_port: u16) -> String {
+        let listener = match (mixed_port, tun) {
             (Some(port), false) => format!(
-                "port: {port}
+                "mixed-port: {port}
 authentication:
   - measure:secret\n"
             ),
@@ -1785,13 +1785,13 @@ rules:
         config_with_outbound(None, true, 443)
     }
 
-    fn http_config(port: u16) -> String {
+    fn mixed_config(port: u16) -> String {
         config_with_outbound(Some(port), false, 443)
     }
 
-    fn current_config(http_port: u16, rules: &str) -> String {
+    fn current_config(mixed_port: u16, rules: &str) -> String {
         format!(
-            r#"port: {http_port}
+            r#"mixed-port: {mixed_port}
 authentication:
   - measure:secret
 proxies:
@@ -2235,7 +2235,7 @@ rules:
         let uninitialized = request(
             "validateConfig",
             None,
-            json!({"configYaml": http_config(free_ports(1)[0])}),
+            json!({"configYaml": mixed_config(free_ports(1)[0])}),
         );
         assert_failure(&uninitialized);
         assert!(
@@ -2365,7 +2365,7 @@ rules:
         let _guard = TEST_LOCK.lock().unwrap();
         reset_registry();
         let _directory = initialize_test_data_directory();
-        let config_yaml = http_config(free_ports(1)[0]);
+        let config_yaml = mixed_config(free_ports(1)[0]);
         let request = Arc::new(
             json!({
                 "apiVersion": INVOKE_API_VERSION,
@@ -2580,7 +2580,7 @@ rules:
         let _guard = TEST_LOCK.lock().unwrap();
         reset_registry();
         let _directory = initialize_test_data_directory();
-        let config_yaml = http_config(free_ports(1)[0]);
+        let config_yaml = mixed_config(free_ports(1)[0]);
 
         for cycle in 0..20 {
             let instance_id = create_instance();
@@ -2609,7 +2609,7 @@ rules:
         reset_registry();
         let _directory = initialize_test_data_directory();
         let port = free_ports(1)[0];
-        let config_yaml = http_config(port);
+        let config_yaml = mixed_config(port);
         let first = create_instance();
 
         let rejected = request("createInstance", None, json!({}));
@@ -2734,7 +2734,7 @@ rules:
         let _guard = TEST_LOCK.lock().unwrap();
         reset_registry();
         let _directory = initialize_test_data_directory();
-        let config_yaml = http_config(free_ports(1)[0]);
+        let config_yaml = mixed_config(free_ports(1)[0]);
         let first = create_instance();
         assert_eq!(
             request("prepare", Some(&first), json!({"configYaml": config_yaml}),)["success"],

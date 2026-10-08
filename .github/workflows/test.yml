@@ -182,6 +182,8 @@ jobs:
           # Keep this explicit allowlist: unfiltered legacy tests may open host listeners.
           filters=(
             geodata:: routing:: security:: outbound::vless::encryption config::
+            inbound::mixed::tests:: inbound::socks5::association::tests::
+            inbound::http::parser::tests:: inbound::http::framing::tests::
             outbound::hysteria2:: outbound::shadowsocks::tests::official_tcp_
             outbound::anytls:: outbound::uot:: outbound::tuic:: transport::h2_write::tests::
             transport::sing_mux::smux_driver::tests:: transport::sing_mux::tests::
@@ -224,7 +226,7 @@ jobs:
             cargo check --locked --no-default-features --features "outbound-$protocol" --lib
             run_test 1 --features "outbound-$protocol" --lib runtime::tests::integration_feature_admission_is_explicit_without_opening_sockets -- --exact
           done
-          for feature in stream-transport quic-transport shadow-tls-v3 tun ffi; do
+          for feature in inbound-http inbound-socks5 stream-transport quic-transport shadow-tls-v3 tun ffi; do
             cargo check --locked --no-default-features --features "$feature" --lib
           done
           run_test 2 --test feature_foundations --test hysteria2_config

@@ -11,7 +11,7 @@ fn node() -> Value {
 fn parse(node: Value) -> vcore::Result<Config> {
     Config::parse_yaml(
         &serde_json::to_vec(&json!({
-            "socks-port":1080, "proxies":[node], "rules":["MATCH,edge"]
+            "mixed-port":1080, "proxies":[node], "rules":["MATCH,edge"]
         }))
         .unwrap(),
     )

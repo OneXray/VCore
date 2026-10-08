@@ -14,7 +14,7 @@ fn public_encryption_accepts_all_six_modes_without_exposing_key_material() {
     for appearance in ["native", "xorpub", "random"] {
         for rtt in ["1rtt", "0rtt"] {
             let config=Config::parse_yaml(&serde_json::to_vec(&json!({
-                "socks-port":1080,
+                "mixed-port":1080,
                 "proxies":[{"name":"edge", "type":"vless", "server":"example.invalid", "port":443,
                     "uuid":"07070707-0707-0707-0707-070707070707",
                     "encryption":format!("mlkem768x25519plus.{appearance}.{rtt}.{key}.100-35-35")}],
@@ -47,7 +47,7 @@ fn vision_encryption_is_independent_of_outer_tls_but_keeps_transport_and_udp_lim
             let parse = |node| {
                 Config::parse_yaml(
                     &serde_json::to_vec(&json!({
-                        "socks-port":1080,"proxies":[node],"rules":["MATCH,edge"]
+                        "mixed-port":1080,"proxies":[node],"rules":["MATCH,edge"]
                     }))
                     .unwrap(),
                 )

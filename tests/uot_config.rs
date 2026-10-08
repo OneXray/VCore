@@ -8,7 +8,7 @@ fn node() -> Value {
 
 fn parse(node: Value) -> vcore::Result<Config> {
     Config::parse_yaml(
-        json!({"port":1080,"proxies":[node],"rules":["MATCH,ss"]})
+        json!({"mixed-port":1080,"proxies":[node],"rules":["MATCH,ss"]})
             .to_string()
             .as_bytes(),
     )

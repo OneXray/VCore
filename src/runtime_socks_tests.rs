@@ -6,10 +6,9 @@ use tokio::{
     time::timeout,
 };
 
-fn yaml(port: u16, controller: SocketAddr, http: Option<u16>) -> String {
+fn yaml(port: u16, controller: SocketAddr) -> String {
     format!(
-        "socks-port: {port}\nipv6: false\nexternal-controller: {controller}\nsecret: fixture-token\n{}\nproxies:\n  - {{name: node, type: socks5, server: 127.0.0.1, port: 9, udp: true}}\nproxy-groups:\n  - {{name: local, type: select, proxies: [DIRECT, REJECT]}}\nrules: ['MATCH,local']\n",
-        http.map_or(String::new(), |port| format!("port: {port}"))
+        "mixed-port: {port}\nipv6: false\nexternal-controller: {controller}\nsecret: fixture-token\nproxies:\n  - {{name: node, type: socks5, server: 127.0.0.1, port: 9, udp: true}}\nproxy-groups:\n  - {{name: local, type: select, proxies: [DIRECT, REJECT]}}\nrules: ['MATCH,local']\n"
     )
 }
 
@@ -31,12 +30,12 @@ async fn query(address: SocketAddr, route: &str) -> String {
 }
 
 #[tokio::test]
-async fn pure_socks5_controller_and_repeated_stop_release_all_resources() {
+async fn mixed_socks5_controller_and_repeated_stop_release_all_resources() {
     let socks = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let socks_address = socks.local_addr().unwrap();
     let controller = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let controller_address = controller.local_addr().unwrap();
-    let config = yaml(socks_address.port(), controller_address, None);
+    let config = yaml(socks_address.port(), controller_address);
     drop((socks, controller));
     for _ in 0..3 {
         let prepared = prepared(&config).await;
@@ -75,40 +74,32 @@ async fn pure_socks5_controller_and_repeated_stop_release_all_resources() {
 
 #[cfg(feature = "inbound-http")]
 #[tokio::test]
-async fn http_socks5_controller_start_is_atomic_including_udp_and_tcp_conflicts() {
+async fn mixed_controller_start_is_atomic_including_udp_and_tcp_conflicts() {
     let socks = UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let socks_address = socks.local_addr().unwrap();
-    let http = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let http_address = http.local_addr().unwrap();
     let controller = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let controller_address = controller.local_addr().unwrap();
-    let config = yaml(
-        socks_address.port(),
-        controller_address,
-        Some(http_address.port()),
-    );
-    drop((http, controller));
+    let config = yaml(socks_address.port(), controller_address);
+    drop(controller);
     let error = prepared(&config)
         .await
         .start_local(Dialer::default())
         .await
         .unwrap_err();
     assert_eq!(error.kind(), io::ErrorKind::AddrInUse);
-    for address in [socks_address, http_address, controller_address] {
+    for address in [socks_address, controller_address] {
         drop(TcpListener::bind(address).await.unwrap());
     }
     drop(socks);
-    let conflict = yaml(
-        socks_address.port(),
-        controller_address,
-        Some(socks_address.port()),
-    );
-    let error = prepared(&conflict)
+    let conflict = TcpListener::bind(socks_address).await.unwrap();
+    let error = prepared(&config)
         .await
         .start_local(Dialer::default())
         .await
         .unwrap_err();
     assert_eq!(error.kind(), io::ErrorKind::AddrInUse);
+    drop(TcpListener::bind(controller_address).await.unwrap());
+    drop(conflict);
     let running = prepared(&config)
         .await
         .start_local(Dialer::default())
@@ -118,7 +109,7 @@ async fn http_socks5_controller_start_is_atomic_including_udp_and_tcp_conflicts(
         .await
         .unwrap()
         .unwrap();
-    for address in [socks_address, http_address, controller_address] {
+    for address in [socks_address, controller_address] {
         drop(TcpListener::bind(address).await.unwrap());
     }
     drop(UdpSocket::bind(socks_address).await.unwrap());
