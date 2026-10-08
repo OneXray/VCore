@@ -268,7 +268,8 @@ Stop 关闭本次持有的 fd、session 和原生句柄；Wintun 不承诺移除
 对应环境值并恢复默认。默认数据目录为 Unix `HOME` / Windows `USERPROFILE` 下的
 `.config/vole`，用户目录缺失时从启动工作目录计算。该默认目录元数据读取失败时，
 若定义 `XDG_CONFIG_HOME`，使用 `<XDG_CONFIG_HOME>/vole`。相对数据目录和显式
-配置路径分别从启动工作目录解析；配置默认 `<dataDir>/config.yaml`。
+配置路径分别从启动工作目录解析并折叠 `.`/`..`，绝对路径原样保留；
+配置默认 `<dataDir>/config.yaml`。
 `configPath: "-"` 从标准输入读取。文件必须是普通文件，文件和标准输入均最多 256 KiB；
 不会下载、创建模板或改写配置。详细命令行映射见 [CLI](cli.md)。
 

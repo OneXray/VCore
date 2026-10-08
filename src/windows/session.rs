@@ -30,7 +30,6 @@ use super::{
         PhysicalBinding, Rendezvous, read_control_async, read_packet_frame_async, read_rendezvous,
         write_control_async, write_packet_batch_async,
     },
-    packet_channel_mtu,
     snapshot::SessionReference,
 };
 use crate::{
@@ -38,7 +37,7 @@ use crate::{
     config::Config,
     dialer::{Dialer, SystemResolver},
     geodata::GeoDataManager,
-    platform::TunIo,
+    platform::{TunIo, validate_packet_channel_config},
     runtime::{PreparedCore, RunningCore},
 };
 
@@ -278,7 +277,7 @@ async fn start_vole(
 ) -> io::Result<(RunningCore, JoinSet<io::Result<()>>)> {
     let config = Config::parse_yaml(config_yaml.as_bytes())
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
-    let mtu = packet_channel_mtu(&config)?;
+    let mtu = validate_packet_channel_config(&config.tun)?;
     let geodata = GeoDataManager::open(
         local_folder.join("vole/geodata"),
         Duration::from_secs(24 * 60 * 60),

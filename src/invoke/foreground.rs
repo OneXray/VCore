@@ -335,7 +335,7 @@ impl Paths {
         }
         let absolute = |path: &Path| {
             if path.is_absolute() {
-                clean_path(path)
+                path.to_path_buf()
             } else {
                 clean_path(&launch_dir.join(path))
             }
@@ -709,6 +709,43 @@ mod tests {
         )
         .unwrap();
         assert_eq!(defaults.config_file, dir.path().join("state/config.yaml"));
+    }
+    #[cfg(unix)]
+    #[test]
+    fn absolute_paths_preserve_symlink_parent_resolution() {
+        let dir = tempfile::tempdir().unwrap();
+        let launch = dir.path().join("launch");
+        let target = dir.path().join("target");
+        fs::create_dir(&launch).unwrap();
+        fs::create_dir_all(target.join("child")).unwrap();
+        std::os::unix::fs::symlink(target.join("child"), launch.join("link")).unwrap();
+        fs::write(launch.join("config.yaml"), b"launch").unwrap();
+        fs::write(target.join("config.yaml"), b"target").unwrap();
+
+        let data = launch.join("link/..");
+        let config = data.join("config.yaml");
+        let absolute = Paths::resolve(
+            &options(Some(data.clone()), Some(config.clone())),
+            &launch,
+            &PathDefaults::default(),
+        )
+        .unwrap();
+        assert_eq!(absolute.data_dir, data);
+        assert_eq!(absolute.config_file, config);
+        assert_eq!(read_config(&absolute.config_file).unwrap(), b"target");
+        assert_eq!(
+            read_config(&absolute.data_dir.join("config.yaml")).unwrap(),
+            b"target"
+        );
+
+        let relative = Paths::resolve(
+            &options(Some("link/..".into()), Some("link/../config.yaml".into())),
+            &launch,
+            &PathDefaults::default(),
+        )
+        .unwrap();
+        assert_eq!(relative.data_dir, launch);
+        assert_eq!(read_config(&relative.config_file).unwrap(), b"launch");
     }
     #[test]
     fn home_and_xdg_defaults_do_not_create_directories() {

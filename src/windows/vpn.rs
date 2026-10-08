@@ -66,14 +66,13 @@ use super::{
         AddressBindingV4, AddressBindingV6, PacketCounters, PhysicalBinding, ProviderPacketSession,
         remove_rendezvous,
     },
-    packet_channel_mtu,
     policy::{WindowsVpnCidr, WindowsVpnPolicy},
     profile::{WindowsNetworkSettings, WindowsProfileConfiguration},
     snapshot::SessionReference,
 };
 use crate::{
     config::Config,
-    platform::{TunIo, WindowsPacketAdapter, WindowsPacketStats},
+    platform::{TunIo, WindowsPacketAdapter, WindowsPacketStats, validate_packet_channel_config},
 };
 
 const CLASS_NAME: &str = "Vole.VpnBackgroundTask";
@@ -653,7 +652,7 @@ impl VpnProvider {
         let snapshot = SessionReference::parse(&token)?.read(&local_folder, &installed_folder)?;
         let config = Config::parse_yaml(snapshot.config_yaml().as_bytes())
             .map_err(|_| Error::new(E_FAIL, "invalid Vole configuration"))?;
-        let mtu = packet_channel_mtu(&config).map_err(windows_error)?;
+        let mtu = validate_packet_channel_config(&config.tun).map_err(windows_error)?;
         let physical = PhysicalNetwork::current()?;
 
         let transport_address = physical

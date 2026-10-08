@@ -74,6 +74,9 @@ u16 大端序包长
 
 `tun.mtu` 同时用于 Provider 的 `StartWithMainTransport`、Session Host netstack 和包校验，最大 frame 为 MTU 加 12。WinRT 接口 MTU 上限为 1400；配置必须显式填写受支持值，例如 `mtu: 1400`。内核通用默认 9000 在此路径会报错，不会被静默截断。TUN/XUDP 与 DNS UDP 响应负载保守限制为 MTU 减 48；MTU 1400 时为 1352 字节。packet channel 的 1500 上限仍是帧解析的结构边界，不是 Windows L3 接口宣告值。
 
+`tun.file-descriptor` 必须省略或为 0。`startVpn` 在发布 Session Snapshot 前拒绝非零值；
+Provider 和 Session Host 读取配置时执行相同的平台校验。通用配置校验仍允许 Unix fd。
+
 控制消息使用独立管道，避免包背压阻塞启动和停止。
 
 ## 回包唤醒

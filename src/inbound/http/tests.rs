@@ -330,7 +330,7 @@ async fn keep_alive_requests_reenter_the_real_rule_dispatcher() {
         peers.streams.lock().unwrap().push_back(local);
         remotes.push(BufReader::new(remote));
     }
-    let config = Config::parse_yaml(b"port: 1080\nproxies:\n  - {name: first, type: socks5, server: 192.0.2.1, port: 1080}\n  - {name: second, type: socks5, server: 192.0.2.2, port: 1080}\nrules: ['DOMAIN,one.test,first', 'MATCH,second']\n").unwrap();
+    let config = Config::parse_yaml(b"mixed-port: 1080\nproxies:\n  - {name: first, type: socks5, server: 192.0.2.1, port: 1080}\n  - {name: second, type: socks5, server: 192.0.2.2, port: 1080}\nrules: ['DOMAIN,one.test,first', 'MATCH,second']\n").unwrap();
     let router = RoutingDispatcher::new(
         ProxyDispatchers::new(vec![first.clone(), second.clone()]).unwrap(),
         Arc::new(Peers::default()),

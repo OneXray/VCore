@@ -48,6 +48,16 @@ CI 的依赖来源检查见 [TLS 依赖](../docs/tls-dependencies.md)。
 
 公共 C 接口由 `vole.h` 提供；UWP 另附 `vole_windows_uwp.h`，声明 Windows 安装包桥接接口。
 文件名不带版本号，不附带独立 license、checksums 或 `wintun.dll`。
+
+Linux/macOS 的 CLI 使用 gzip 单文件归档，解压后需设置执行权限。下载匹配系统与架构的
+归档后执行（以 Linux amd64 为例）：
+
+```sh
+gzip -dc vole-linux-amd64.gz > vole
+chmod +x vole
+./vole -v
+```
+
 发布入口为 `python -m vole_scripts.release build-cli|build-ffi|assemble`，参数见 `--help`；
 省略 `--tag` 可在本地验证打包。`builds.py` 负责平台编译，`release.py` 负责打包与汇总，
 `notices.py` 负责许可证收集。

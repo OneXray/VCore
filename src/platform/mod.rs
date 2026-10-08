@@ -50,7 +50,7 @@ pub use tun_rs_io::TunRsIo as TunIo;
 pub(crate) use windows_io::TunIo;
 #[cfg(all(windows, feature = "tun", feature = "windows-uwp"))]
 pub(crate) use windows_tun_io::{
-    WindowsPacketAdapter, WindowsPacketStats, validate_packet_channel_mtu,
+    WindowsPacketAdapter, WindowsPacketStats, validate_packet_channel_config,
 };
 #[cfg(all(windows, feature = "tun", feature = "windows-wintun"))]
 pub(crate) use windows_wintun_io::WindowsWintunIo;

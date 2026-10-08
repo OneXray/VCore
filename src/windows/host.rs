@@ -29,7 +29,7 @@ use super::{
     profile::{WindowsNetworkSettings, WindowsProfileConfiguration},
     snapshot::SessionReference,
 };
-use crate::config::Config;
+use crate::{config::Config, platform::validate_packet_channel_config};
 
 const BRIDGE_VERSION: u32 = 3;
 const MAX_REQUEST_BYTES: usize = 1024 * 1024;
@@ -186,8 +186,7 @@ fn start_vpn(payload: StartPayload) -> Result<Value, String> {
     if !config.tun.enable {
         return Err("Windows VPN configuration must enable TUN".to_owned());
     }
-    super::packet_channel_mtu(&config)
-        .map_err(|_| "Windows VPN TUN MTU must be at most 1400".to_owned())?;
+    validate_packet_channel_config(&config.tun).map_err(display_error)?;
     policy
         .validate_for(
             config.ipv6,

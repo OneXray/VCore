@@ -314,6 +314,18 @@ fn push_valid_frame(packets: &mut Vec<Vec<u8>>, packet: Vec<u8>, mtu: usize) -> 
 }
 
 #[cfg(any(feature = "windows-uwp", test))]
+pub(crate) fn validate_packet_channel_config(config: &crate::config::TunConfig) -> io::Result<u16> {
+    if config.file_descriptor != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "Windows VPN does not support nonzero tun.file-descriptor",
+        ));
+    }
+    validate_packet_channel_mtu(config.mtu)?;
+    Ok(config.mtu)
+}
+
+#[cfg(any(feature = "windows-uwp", test))]
 pub(super) fn validate_packet_channel_mtu(mtu: u16) -> io::Result<()> {
     if mtu == 0 || usize::from(mtu) > PACKET_CHANNEL_MAX_MTU {
         return Err(io::Error::new(
@@ -363,6 +375,24 @@ mod tests {
                 validate_packet_channel_mtu(mtu).unwrap_err().kind(),
                 io::ErrorKind::Unsupported
             );
+        }
+    }
+
+    #[test]
+    fn packet_channel_rejects_unix_descriptors_accepted_by_shared_config() {
+        for descriptor in [0, 1, i32::MAX] {
+            let yaml = format!(
+                "tun: {{enable: true, mtu: 1400, file-descriptor: {descriptor}}}\n\
+                 proxies: [{{name: proxy, type: socks5, server: 192.0.2.1, port: 1080}}]\n\
+                 rules: ['MATCH,proxy']\n"
+            );
+            let config = crate::config::Config::parse_yaml(yaml.as_bytes()).unwrap();
+            let result = validate_packet_channel_config(&config.tun);
+            if descriptor == 0 {
+                assert_eq!(result.unwrap(), 1400);
+            } else {
+                assert_eq!(result.unwrap_err().kind(), io::ErrorKind::Unsupported);
+            }
         }
     }
 
