@@ -45,8 +45,9 @@ def _require(condition: bool, message: str) -> None:
 
 
 def _output(arguments: list[str], root: Path, env: dict | None = None) -> str:
+    # Cargo metadata can fetch dependencies; the build job owns its timeout.
     return subprocess.check_output(
-        arguments, cwd=root, env=env, text=True, timeout=60
+        arguments, cwd=root, env=env, encoding="utf-8"
     ).strip()
 
 

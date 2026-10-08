@@ -1,13 +1,29 @@
 """Keep original license text and collect only linked runtime dependencies."""
 
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from vole_scripts import notices
 
 
 class NoticeTests(unittest.TestCase):
+    def test_command_output_uses_utf8_with_windows_locale(self):
+        text = '{"name": "Ł"}'
+        command = [
+            sys.executable,
+            "-c",
+            f"import sys; sys.stdout.buffer.write({text.encode('utf-8')!r})",
+        ]
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch.object(subprocess, "_text_encoding", return_value="cp1252"),
+        ):
+            self.assertEqual(notices._output(command, Path(directory)), text)
+
     def test_runtime_graph_skips_build_dependencies_and_proc_macros(self):
         packages = [
             {"id": name, "targets": [{"kind": [kind]}]}
