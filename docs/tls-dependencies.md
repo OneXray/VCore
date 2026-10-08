@@ -30,12 +30,9 @@ BoringSSL 子模块保持原样，fork 补丁通过 feature 控制。
 Encryption 的二进制 context 使用 [薄 FFI](../crates/vole-blake3-raw/README.md) 中未修改的
 官方 BLAKE3 C 源码，保留其来源、许可证和符号隔离。
 
-## 原生依赖与许可证
+## 原生构建
 
 构建需要 C/C++、CMake、Perl 和 libclang。Apple 最终链接 libc++；Android 随库打包
 同 ABI、同 NDK 的 `libc++_shared.so`。
 
-发布脚本收集实际链接的依赖许可证、BoringSSL/AWS-LC 原生通知、Rust 标准库通知，
-Android 另收集 NDK runtime 通知，并嵌入 CLI、核心库及 UWP hosts。
-通知来自依赖原文；crate 缺少打包文本时按其 registry VCS revision 读取上游原文。
-发布包不附带独立 license 文件。入口见 [编译与发布](../scripts/README.md)。
+构建与发布入口见 [编译与发布](../scripts/README.md)。

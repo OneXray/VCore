@@ -58,12 +58,10 @@ mod app {
 
 #[cfg(windows)]
 fn main() -> windows::core::Result<()> {
-    vole::release_notices::retain();
     app::run()
 }
 
 #[cfg(not(windows))]
 fn main() {
-    vole::release_notices::retain();
     eprintln!("vole-windows-vpn-host is only available on Windows");
 }

@@ -13,6 +13,14 @@ CORE_DIR = Path(__file__).resolve().parents[3]
 # Both transports enable the production core through invoke -> tun in Cargo.toml.
 DEFAULT_FEATURES = "ffi"
 
+APPLE_TARGETS = (
+    "aarch64-apple-ios",
+    "aarch64-apple-ios-sim",
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+    "aarch64-apple-tvos",
+    "aarch64-apple-tvos-sim",
+)
 WINDOWS_BACKENDS = {"wintun", "uwp"}
 CLI_TARGETS = {
     "x86_64-unknown-linux-gnu": ("Linux", "x64"),
@@ -130,12 +138,7 @@ def _cargo_build(
     return _cargo_target_dir(env) / target / profile
 
 
-def build_cli(
-    target: str | None = None,
-    profile: str = "release",
-    *,
-    env: dict[str, str] | None = None,
-) -> Path:
+def build_cli(target: str | None = None, profile: str = "release") -> Path:
     target = native_target() if target is None else target
     features = cli_features(target)
     system, architecture = CLI_TARGETS[target]
@@ -147,7 +150,7 @@ def build_cli(
         _windows_msvc_environment(architecture)
         if system == "Windows"
         else os.environ.copy()
-    ) | (env or {})
+    )
     if system == "Darwin":
         minimum = "11.0" if architecture == "arm64" else "10.15"
         environment.setdefault("MACOSX_DEPLOYMENT_TARGET", minimum)
@@ -163,9 +166,7 @@ def build_cli(
     return artifact
 
 
-def build_linux(
-    target: str | None = None, *, env: dict[str, str] | None = None
-) -> Path:
+def build_linux(target: str | None = None) -> Path:
     if platform.system() != "Linux":
         raise RuntimeError("Linux artifacts must be built on native Linux")
     native = native_target()
@@ -173,7 +174,7 @@ def build_linux(
     if target != native:
         raise ValueError("Linux FFI build requires the native GNU Rust target")
     architecture = CLI_TARGETS[target][1]
-    environment = os.environ.copy() | (env or {})
+    environment = os.environ.copy()
     release = _cargo_build(target, ["--release"], DEFAULT_FEATURES, environment)
     output = CORE_DIR / "dist/linux" / architecture
     shutil.rmtree(output, ignore_errors=True)
@@ -263,7 +264,7 @@ def _android_ndk_home() -> Path:
     return max(candidates, key=lambda candidate: candidate[0])[1].resolve()
 
 
-def build_android(*, env: dict[str, str] | None = None) -> Path:
+def build_android() -> Path:
     if platform.system() not in {"Darwin", "Linux"}:
         raise RuntimeError("Android artifacts must be built on macOS or Linux")
     ndk_home = _android_ndk_home()
@@ -280,7 +281,7 @@ def build_android(*, env: dict[str, str] | None = None) -> Path:
     ).resolve()
     toolchain = _android_toolchain(ndk_home)
 
-    base_env = os.environ.copy() | (env or {})
+    base_env = os.environ.copy()
     base_env.update(
         {
             "ANDROID_NDK_HOME": str(ndk_home),
@@ -349,29 +350,28 @@ def build_android(*, env: dict[str, str] | None = None) -> Path:
     return output
 
 
-def build_apple(*, env: dict[str, str] | None = None) -> Path:
+def build_apple_target(target: str) -> Path:
     if platform.system() != "Darwin":
         raise RuntimeError("Apple artifacts must be built on macOS")
-    dist = Path(_env("VOLE_APPLE_DIST_DIR", CORE_DIR / "dist" / "apple")).resolve()
-    work = _cargo_target_dir() / "vole-apple"
+    if target not in APPLE_TARGETS:
+        raise ValueError("unsupported Apple Rust target")
     profile_name, profile_flags = _profile()
     features = _production_features(_env("VOLE_FEATURES", DEFAULT_FEATURES))
-    targets = [
-        "aarch64-apple-ios",
-        "aarch64-apple-ios-sim",
-        "aarch64-apple-darwin",
-        "x86_64-apple-darwin",
-        "aarch64-apple-tvos",
-        "aarch64-apple-tvos-sim",
-    ]
-
-    env = os.environ.copy() | (env or {})
+    env = os.environ.copy()
     env["IPHONEOS_DEPLOYMENT_TARGET"] = _env("VOLE_IOS_DEPLOYMENT_TARGET", "13.0")
     env["MACOSX_DEPLOYMENT_TARGET"] = _env("VOLE_MACOS_DEPLOYMENT_TARGET", "10.15")
     env["TVOS_DEPLOYMENT_TARGET"] = tvos_deployment_target()
     if profile_name == "release":
         env["CARGO_PROFILE_RELEASE_PANIC"] = "unwind"
+    return _cargo_build(target, profile_flags, features, env) / "libvole.a"
 
+
+def assemble_apple(artifacts: dict[str, Path]) -> Path:
+    if platform.system() != "Darwin":
+        raise RuntimeError("Apple artifacts must be assembled on macOS")
+    env = os.environ.copy()
+    dist = Path(_env("VOLE_APPLE_DIST_DIR", CORE_DIR / "dist" / "apple")).resolve()
+    work = _cargo_target_dir(env) / "vole-apple"
     shutil.rmtree(work, ignore_errors=True)
     shutil.rmtree(dist / "LibVole.xcframework", ignore_errors=True)
     for directory in (
@@ -387,13 +387,6 @@ def build_apple(*, env: dict[str, str] | None = None) -> Path:
     for name in ("vole.h", "module.modulemap"):
         shutil.copy2(CORE_DIR / "include" / name, headers / name)
     dist.mkdir(parents=True, exist_ok=True)
-
-    for target in targets:
-        _cargo_build(target, profile_flags, features, env)
-    artifacts = {
-        target: _cargo_target_dir(env) / target / profile_name / "libvole.a"
-        for target in targets
-    }
 
     shutil.copy2(artifacts["aarch64-apple-ios"], work / "ios-device/libvole.a")
     shutil.copy2(artifacts["aarch64-apple-ios-sim"], work / "ios-simulator/libvole.a")
@@ -443,6 +436,11 @@ def build_apple(*, env: dict[str, str] | None = None) -> Path:
     )
     print(output)
     return dist
+
+
+def build_apple() -> Path:
+    artifacts = {target: build_apple_target(target) for target in APPLE_TARGETS}
+    return assemble_apple(artifacts)
 
 
 def _windows_architecture() -> str:
@@ -535,12 +533,12 @@ def _windows_msvc_environment(architecture: str) -> dict[str, str]:
     return env
 
 
-def build_windows(backend: str = "uwp", *, env: dict[str, str] | None = None) -> Path:
+def build_windows(backend: str = "uwp") -> Path:
     if platform.system() != "Windows":
         raise RuntimeError("Windows artifacts must be built on Windows")
     features = windows_features(backend)
     architecture = _windows_architecture()
-    env = _windows_msvc_environment(architecture) | (env or {})
+    env = _windows_msvc_environment(architecture)
     output = CORE_DIR / "dist" / "windows" / architecture / backend
     shutil.rmtree(output, ignore_errors=True)
     output.mkdir(parents=True)

@@ -25,7 +25,7 @@ uv run --project scripts --locked ruff format --check scripts
 协议独立向量见 [protocols](protocols/README.md)，ClientHello 输入见 [fingerprints](fingerprints/README.md)。
 
 脚本测试保留平台文件输出、Windows 后端选择、Android ABI/runtime、Apple 切片、
-真实归档读写和许可证收集。外部编译命令由夹具替代，原生编译由 CI 平台矩阵执行。
+真实归档读写。外部编译命令由夹具替代，原生编译由 CI 平台矩阵执行。
 CI 的核心回归分别使用 Debug 和 `ci-release`；后者继承 Release 优化并关闭 LTO，
 正式产物使用标准 `release`。Quality 负责格式、Clippy、feature 编译和依赖来源检查。
 

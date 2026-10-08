@@ -34,7 +34,9 @@ Android 优先使用 `ANDROID_NDK_HOME`，否则在 `ANDROID_HOME/ndk` 中选择
 
 [Release workflow](../.github/workflows/release.yml) 在 `vX.Y.Z` tag push 时构建并发布，
 tag 必须匹配 Cargo 版本。PR 使用同一构建矩阵，全部构建成功后汇总十四个归档。
-CLI 构建后执行 `-h/-v/-t` 检查；实际依赖许可证和原生通知在编译时嵌入二进制。
+CLI 构建后执行 `-h/-v/-t` 检查。
+Apple FFI 的六个 Rust 目标分别在独立 job 并行编译并缓存；`FFI Apple` 等待全部目标
+成功后合并 macOS 双架构、生成五切片 XCFramework 并打包。
 CI 的依赖来源检查见 [TLS 依赖](../docs/tls-dependencies.md)。
 
 | 归档 | 内容 |
@@ -47,7 +49,8 @@ CI 的依赖来源检查见 [TLS 依赖](../docs/tls-dependencies.md)。
 | `vole-ffi-windows-{wintun,uwp}-{amd64,arm64}.zip` | `vole.dll`、`vole.dll.lib` 和 C 头文件；UWP 另含 Provider Host、Session Host |
 
 公共 C 接口由 `vole.h` 提供；UWP 另附 `vole_windows_uwp.h`，声明 Windows 安装包桥接接口。
-文件名不带版本号，不附带独立 license、checksums 或 `wintun.dll`。
+文件名不带版本号，不附带 checksums 或 `wintun.dll`。
+发布脚本不收集许可证；CLI、FFI、XCFramework 与归档不额外内嵌或打包许可证内容。
 
 Linux/macOS 的 CLI 使用 gzip 单文件归档，解压后需设置执行权限。下载匹配系统与架构的
 归档后执行（以 Linux amd64 为例）：
@@ -58,8 +61,9 @@ chmod +x vole
 ./vole -v
 ```
 
-发布入口为 `python -m vole_scripts.release build-cli|build-ffi|assemble`，参数见 `--help`；
-省略 `--tag` 可在本地验证打包。`builds.py` 负责平台编译，`release.py` 负责打包与汇总，
-`notices.py` 负责许可证收集。
+发布入口为 `python -m vole_scripts.release`，参数见 `--help`；
+`build-apple-target` 构建单个 Apple 静态库，`assemble-apple --inputs <目录> --output <目录>`
+从 `<inputs>/<Rust target>/libvole.a` 汇总六个目标并打包，不重复编译。
+省略 `--tag` 可在本地验证打包。`builds.py` 负责平台编译，`release.py` 负责打包与汇总。
 
 CLI 参数见 [CLI](../docs/cli.md)，测试命令见 [tests](../tests/README.md)。

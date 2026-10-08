@@ -9,7 +9,7 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
-from vole_scripts import builds, notices, release
+from vole_scripts import builds, release
 
 INFO = {"version": "1.2.3", "commit": "a" * 40}
 
@@ -22,9 +22,6 @@ class ReleaseTests(unittest.TestCase):
         self.enterContext(patch.object(builds, "CORE_DIR", self.root))
         self.enterContext(patch.dict(os.environ, {}, clear=True))
         self.enterContext(patch.object(release, "release_info", return_value=INFO))
-        self.enterContext(
-            patch.object(notices, "collect", return_value=b"license terms\r\n")
-        )
 
     def write(self, relative):
         path = self.root / relative
@@ -43,9 +40,7 @@ class ReleaseTests(unittest.TestCase):
                 patch.object(builds, "build_cli", return_value=binary),
                 patch.object(release, "_smoke"),
             ):
-                archive = release.build_cli(
-                    target, None, "YuanDevTeam/Vole", Path("dist/cli")
-                )
+                archive = release.build_cli(target, None, Path("dist/cli"))
             if archive.suffix == ".zip":
                 with zipfile.ZipFile(archive) as stream:
                     self.assertEqual(stream.namelist(), ["vole.exe"])
@@ -94,31 +89,18 @@ class ReleaseTests(unittest.TestCase):
             built = self.root / "build" / key
             for name in expected | {"wintun.dll", "old-output"}:
                 self.write(built / name)
-            captured = []
-
-            def compile(*args, built=built, captured=captured, **kwargs):
-                notice = Path(kwargs["env"]["VOLE_RELEASE_NOTICES"])
-                self.assertEqual(notice.read_bytes(), b"license terms\r\n")
-                captured.append(notice)
-                return built
-
             with (
                 self.subTest(key=key),
                 patch.object(builds, "native_target", return_value=target),
-                patch.object(
-                    builds, "_android_ndk_home", return_value=self.root / "ndk"
-                ),
-                patch.object(builds, "build_" + platform, side_effect=compile),
+                patch.object(builds, "build_" + platform, return_value=built),
             ):
                 archive = release.build_ffi(
                     platform,
                     target,
                     backend,
                     None,
-                    "YuanDevTeam/Vole",
                     Path("dist/package"),
                 )
-            self.assertFalse(captured[0].exists())
             if archive.suffix == ".zip":
                 with zipfile.ZipFile(archive) as stream:
                     contents = {name: stream.read(name) for name in stream.namelist()}
@@ -146,3 +128,34 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "fourteen"):
             release.assemble_release(None, incoming, output, notes)
         self.assertEqual(len(list(output.iterdir())), 14)
+
+    def test_apple_assembly_consumes_independently_built_targets(self):
+        incoming = self.root / "dist/apple-targets"
+
+        def compile(target):
+            library = self.write(Path("native") / target / "libvole.a")
+            library.write_bytes(target.encode())
+            return library
+
+        with patch.object(
+            builds, "build_apple_target", side_effect=compile
+        ) as compiler:
+            for target in builds.APPLE_TARGETS:
+                library = release.build_apple_target(target, None, incoming / target)
+                self.assertEqual(library.read_bytes(), target.encode())
+            self.assertEqual(compiler.call_count, 6)
+
+        built = self.root / "dist/apple"
+        for name in release.ffi_files("apple", None):
+            self.write(built / name)
+        with patch.object(builds, "assemble_apple", return_value=built) as assemble:
+            archive = release.assemble_apple(incoming, Path("dist/release/ffi-apple"))
+            assemble.assert_called_once_with(
+                {
+                    target: incoming / target / "libvole.a"
+                    for target in builds.APPLE_TARGETS
+                }
+            )
+        self.assertEqual(archive.name, "vole-ffi-apple.tar.gz")
+        with tarfile.open(archive) as stream:
+            self.assertEqual(set(stream.getnames()), release.ffi_files("apple", None))

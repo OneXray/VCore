@@ -159,6 +159,22 @@ class BuildTests(unittest.TestCase):
             self.commands[-1][0][:2], ["xcodebuild", "-create-xcframework"]
         )
 
+        # A separate runner only has downloaded libraries, not Cargo outputs.
+        downloaded = {
+            target: self.write(f"incoming/{target}/libvole.a", target.encode())
+            for target in builds.APPLE_TARGETS
+        }
+        self.commands.clear()
+        with patch.object(builds.platform, "system", return_value="Darwin"):
+            builds.assemble_apple(downloaded)
+        self.assertEqual(
+            [command[:2] for command, _ in self.commands],
+            [["xcrun", "lipo"], ["xcodebuild", "-create-xcframework"]],
+        )
+        self.assertEqual(
+            (work / "ios-simulator/libvole.a").read_bytes(), b"aarch64-apple-ios-sim"
+        )
+
     def test_ndk_selection_uses_latest_installed_stable_revision(self):
         for version in ("30.2.9", "30.2.10", "30.10.1", "30.99.1-beta1"):
             folder = version.removesuffix("-beta1")

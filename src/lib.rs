@@ -28,9 +28,6 @@ pub mod packet;
 pub mod platform;
 #[cfg(any(feature = "tun", test))]
 mod quic_sniffer;
-#[cfg(any(feature = "cli", feature = "ffi"))]
-#[doc(hidden)]
-pub mod release_notices;
 pub mod resources;
 pub mod routing;
 #[cfg(all(
@@ -104,8 +101,5 @@ pub use packet::{IpVersion, TunFraming};
 pub const ENGINE: &str = "rust";
 
 /// Implementation identity embedded in every native artifact.
-///
-/// This is deliberately independent from a source revision. Release tooling
-/// records the immutable Git revision and artifact hash separately.
 pub const BUILD_IDENTITY: &str =
     concat!("Vole;engine=rust;coreVersion=", env!("CARGO_PKG_VERSION"));

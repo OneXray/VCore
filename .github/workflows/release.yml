@@ -72,8 +72,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-          # Original std/compiler-runtime terms live in COPYRIGHT-library.html.
-          components: rust-docs
       - uses: astral-sh/setup-uv@v10.2.0
         with:
           version: "0.12"
@@ -92,7 +90,7 @@ jobs:
       - name: Cache native Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          key: release-${{ matrix.name }}-${{ hashFiles('scripts/src/vole_scripts/*.py', 'scripts/cmake/**', 'build.rs') }}
+          key: release-${{ matrix.name }}-${{ hashFiles('scripts/src/vole_scripts/*.py', 'scripts/cmake/**') }}
           workspaces: ". -> target"
           env-vars: ImageOS ImageVersion SDKROOT DEVELOPER_DIR BORING AWS_LC LIBCLANG BINDGEN
           cache-bin: "false"
@@ -104,8 +102,7 @@ jobs:
           VOLE_ARCHIVE: ${{ matrix.archive }}
         run: |
           set -euo pipefail
-          args=(build-cli --target "$VOLE_TARGET" --output "dist/release/$VOLE_GROUP"
-            --repository "$VOLE_RELEASE_REPOSITORY")
+          args=(build-cli --target "$VOLE_TARGET" --output "dist/release/$VOLE_GROUP")
           if [[ -n "$VOLE_RELEASE_TAG" ]]; then args+=(--tag "$VOLE_RELEASE_TAG"); fi
           # The CLI helper selects windows-wintun on MSVC, never UWP or FFI.
           uv run --project scripts --locked python -m vole_scripts.release "${args[@]}"
@@ -126,14 +123,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: ffi-apple
-            label: Apple
-            platform: apple
-            runner: macos-26
-            targets: aarch64-apple-ios,aarch64-apple-ios-sim,aarch64-apple-darwin,x86_64-apple-darwin,aarch64-apple-tvos,aarch64-apple-tvos-sim
-            target: ""
-            backend: ""
-            archive: vole-ffi-apple.tar.gz
           - name: ffi-android
             label: Android
             platform: android
@@ -199,7 +188,6 @@ jobs:
         with:
           toolchain: stable
           targets: ${{ matrix.targets }}
-          components: rustfmt, rust-docs
       - uses: astral-sh/setup-uv@v10.2.0
         with:
           version: "0.12"
@@ -236,7 +224,7 @@ jobs:
       - name: Cache native Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          key: release-${{ matrix.name }}-${{ hashFiles('scripts/src/vole_scripts/*.py', 'scripts/cmake/**', 'build.rs') }}
+          key: release-${{ matrix.name }}-${{ hashFiles('scripts/src/vole_scripts/*.py', 'scripts/cmake/**') }}
           workspaces: ". -> target"
           env-vars: ImageOS ImageVersion SDKROOT DEVELOPER_DIR ANDROID_NDK_HOME VOLE BORING AWS_LC LIBCLANG BINDGEN
           cache-bin: "false"
@@ -250,8 +238,7 @@ jobs:
           VOLE_ARCHIVE: ${{ matrix.archive }}
         run: |
           set -euo pipefail
-          args=(build-ffi --platform "$VOLE_PLATFORM" --output "dist/release/$VOLE_GROUP"
-            --repository "$VOLE_RELEASE_REPOSITORY")
+          args=(build-ffi --platform "$VOLE_PLATFORM" --output "dist/release/$VOLE_GROUP")
           if [[ -n "$VOLE_TARGET" ]]; then args+=(--target "$VOLE_TARGET"); fi
           if [[ -n "$VOLE_BACKEND" ]]; then args+=(--backend "$VOLE_BACKEND"); fi
           if [[ -n "$VOLE_RELEASE_TAG" ]]; then args+=(--tag "$VOLE_RELEASE_TAG"); fi
@@ -265,9 +252,106 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  apple_build:
+    name: FFI ${{ matrix.label }}
+    runs-on: macos-26
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: iOS
+            target: aarch64-apple-ios
+          - label: iOS simulator
+            target: aarch64-apple-ios-sim
+          - label: macOS arm64
+            target: aarch64-apple-darwin
+          - label: macOS amd64
+            target: x86_64-apple-darwin
+          - label: tvOS
+            target: aarch64-apple-tvos
+          - label: tvOS simulator
+            target: aarch64-apple-tvos-sim
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          version: "0.12"
+      - name: Install latest stable Python 3
+        shell: bash
+        env:
+          UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/python
+        run: |
+          uv python install 3 --no-bin --no-registry
+          echo "UV_PYTHON=$(uv python find --managed-python --no-project 3)" >> "$GITHUB_ENV"
+      - name: Cache native Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: release-ffi-apple-${{ matrix.target }}-${{ hashFiles('scripts/src/vole_scripts/*.py', 'scripts/cmake/**') }}
+          workspaces: ". -> target"
+          env-vars: ImageOS ImageVersion SDKROOT DEVELOPER_DIR VOLE BORING AWS_LC LIBCLANG BINDGEN
+          cache-bin: "false"
+      - name: Build Apple static library
+        shell: bash
+        env:
+          VOLE_TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          args=(build-apple-target --target "$VOLE_TARGET"
+            --output "dist/apple-targets/$VOLE_TARGET")
+          if [[ -n "$VOLE_RELEASE_TAG" ]]; then args+=(--tag "$VOLE_RELEASE_TAG"); fi
+          uv run --project scripts --locked python -m vole_scripts.release "${args[@]}"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: vole-apple-${{ matrix.target }}-${{ github.sha }}
+          path: dist/apple-targets
+          if-no-files-found: error
+          retention-days: 14
+
+  apple:
+    name: FFI Apple
+    needs: apple_build
+    runs-on: macos-26
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          version: "0.12"
+      - name: Install latest stable Python 3
+        shell: bash
+        env:
+          UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/python
+        run: |
+          uv python install 3 --no-bin --no-registry
+          echo "UV_PYTHON=$(uv python find --managed-python --no-project 3)" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: vole-apple-*-${{ github.sha }}
+          path: dist/apple-targets
+          merge-multiple: true
+      - name: Assemble and package XCFramework
+        run: |
+          uv run --project scripts --locked python -m vole_scripts.release assemble-apple \
+            --inputs dist/apple-targets --output dist/release/ffi-apple
+      - uses: actions/upload-artifact@v7
+        with:
+          name: vole-release-build-ffi-apple-${{ github.sha }}
+          path: dist/release/ffi-apple/vole-ffi-apple.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
   assemble:
     name: Assemble
-    needs: [cli, ffi]
+    needs: [cli, ffi, apple]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -310,13 +394,13 @@ jobs:
 
   publish:
     name: Publish
-    needs: [cli, ffi, assemble]
+    needs: [cli, ffi, apple, assemble]
     if: >-
       github.event_name == 'push' && github.ref_type == 'tag' &&
       startsWith(github.ref, 'refs/tags/v') &&
       github.workflow_ref == format('{0}/.github/workflows/release.yml@{1}', github.repository, github.ref) &&
       needs.cli.result == 'success' && needs.ffi.result == 'success' &&
-      needs.assemble.result == 'success'
+      needs.apple.result == 'success' && needs.assemble.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:

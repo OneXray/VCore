@@ -15,21 +15,13 @@ import tomllib
 import zipfile
 from pathlib import Path
 
-from . import builds, notices
+from . import builds
 
-APPLE_TARGETS = (
-    "aarch64-apple-ios",
-    "aarch64-apple-ios-sim",
-    "aarch64-apple-darwin",
-    "x86_64-apple-darwin",
-    "aarch64-apple-tvos",
-    "aarch64-apple-tvos-sim",
-)
 ANDROID_TARGETS = ("aarch64-linux-android", "x86_64-linux-android")
 LINUX_TARGETS = ("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu")
 WINDOWS_TARGETS = ("x86_64-pc-windows-msvc", "aarch64-pc-windows-msvc")
 FFI_TARGETS = {
-    "apple": APPLE_TARGETS,
+    "apple": builds.APPLE_TARGETS,
     "android": ANDROID_TARGETS,
     **{
         f"linux-{arch}": (target,)
@@ -154,36 +146,23 @@ def _smoke(binary: Path) -> None:
         )
 
 
-def build_cli(target: str, tag: str | None, repository: str, output: Path) -> Path:
+def build_cli(target: str, tag: str | None, output: Path) -> Path:
     output = builds.CORE_DIR / output
     _guard_output(output)
     _check_build_settings()
     if target != builds.native_target():
         raise ValueError("CLI release builds require the native target")
-    text = notices.collect(
-        builds.CORE_DIR,
-        (target,),
-        builds.cli_features(target),
-        release_info(tag),
-        repository,
-    )
-    with tempfile.TemporaryDirectory(prefix="vole-release-") as directory:
-        notice_file = Path(directory) / "notices.txt"
-        notice_file.write_bytes(text)
-        binary = builds.build_cli(
-            target, env={"VOLE_RELEASE_NOTICES": str(notice_file)}
-        )
-        _smoke(binary)
-        _reset_output(output)
-        archive = output / cli_archive(target)
-        if archive.suffix == ".zip":
-            with zipfile.ZipFile(
-                archive, "w", compression=zipfile.ZIP_DEFLATED
-            ) as stream:
-                stream.write(binary, arcname="vole.exe")
-        else:
-            with binary.open("rb") as source, gzip.open(archive, "wb") as stream:
-                shutil.copyfileobj(source, stream)
+    release_info(tag)
+    binary = builds.build_cli(target)
+    _smoke(binary)
+    _reset_output(output)
+    archive = output / cli_archive(target)
+    if archive.suffix == ".zip":
+        with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as stream:
+            stream.write(binary, arcname="vole.exe")
+    else:
+        with binary.open("rb") as source, gzip.open(archive, "wb") as stream:
+            shutil.copyfileobj(source, stream)
     print(archive)
     return archive
 
@@ -254,12 +233,63 @@ def _write_archive(base: Path, archive: Path) -> None:
                 )
 
 
+def build_apple_target(target: str, tag: str | None, output: Path) -> Path:
+    output = builds.CORE_DIR / output
+    _guard_output(output)
+    _check_build_settings()
+    release_info(tag)
+    library = builds.build_apple_target(target)
+    _reset_output(output)
+    destination = output / "libvole.a"
+    shutil.copy2(library, destination)
+    print(destination)
+    return destination
+
+
+def assemble_apple(incoming: Path, output: Path) -> Path:
+    incoming = builds.CORE_DIR / incoming
+    artifacts = {
+        target: incoming / target / "libvole.a" for target in builds.APPLE_TARGETS
+    }
+    built = builds.assemble_apple(artifacts)
+    return _package_ffi(
+        "apple", None, built, builds.CORE_DIR / output / ffi_archive("apple")
+    )
+
+
+def _package_ffi(
+    platform: str, backend: str | None, built: Path, archive: Path
+) -> Path:
+    output = archive.parent
+    _guard_output(output)
+    if output.resolve().is_relative_to(
+        built.resolve()
+    ) or built.resolve().is_relative_to(output.resolve()):
+        raise ValueError(
+            "FFI archive output must be separate from platform build output"
+        )
+    with tempfile.TemporaryDirectory(prefix="vole-package-") as directory:
+        staging = Path(directory)
+        for name in sorted(ffi_files(platform, backend)):
+            origin = (
+                builds.CORE_DIR / name
+                if name == "include/vole.h" and platform == "android"
+                else built / name
+            )
+            destination = staging / name
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(origin, destination)
+        _reset_output(output)
+        _write_archive(staging, archive)
+    print(archive)
+    return archive
+
+
 def build_ffi(
     platform: str,
     target: str | None,
     backend: str | None,
     tag: str | None,
-    repository: str,
     output: Path,
 ) -> Path:
     key = ffi_key(platform, target, backend)
@@ -276,47 +306,16 @@ def build_ffi(
     _check_build_settings()
     if platform in {"linux", "windows"} and target != builds.native_target():
         raise ValueError("FFI release builds require the native target")
-    features = (
-        builds.windows_features(backend)
-        if platform == "windows"
-        else builds.DEFAULT_FEATURES
-    )
-    text = notices.collect(
-        root,
-        FFI_TARGETS[key],
-        features,
-        release_info(tag),
-        repository,
-        builds._android_ndk_home() if platform == "android" else None,
-    )
-    with tempfile.TemporaryDirectory(prefix="vole-release-") as directory:
-        directory = Path(directory)
-        notice_file = directory / "notices.txt"
-        notice_file.write_bytes(text)
-        env = {"VOLE_RELEASE_NOTICES": str(notice_file)}
-        if platform == "windows":
-            built = builds.build_windows(backend, env=env)
-        elif platform == "linux":
-            built = builds.build_linux(target, env=env)
-        elif platform == "apple":
-            built = builds.build_apple(env=env)
-        else:
-            built = builds.build_android(env=env)
-        staging = directory / "payload"
-        for name in sorted(ffi_files(platform, backend)):
-            origin = (
-                root / name
-                if name == "include/vole.h" and platform == "android"
-                else built / name
-            )
-            destination = staging / name
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(origin, destination)
-        _reset_output(output)
-        archive = output / ffi_archive(key)
-        _write_archive(staging, archive)
-    print(archive)
-    return archive
+    release_info(tag)
+    if platform == "windows":
+        built = builds.build_windows(backend)
+    elif platform == "linux":
+        built = builds.build_linux(target)
+    elif platform == "apple":
+        built = builds.build_apple()
+    else:
+        built = builds.build_android()
+    return _package_ffi(platform, backend, built, output / ffi_archive(key))
 
 
 def assemble_release(
@@ -349,9 +348,7 @@ def assemble_release(
         "Windows CLI uses Wintun; Windows FFI provides Wintun and UWP builds. "
         "Wintun requires a host-provided wintun.dll; "
         "addresses, DNS and routes are host-owned.\n\n"
-        "Linked licenses and native notices are embedded in Vole binaries. "
-        "Archives contain no standalone license or checksum files.\n\n"
-        f"[Source and license]({source}) · [Dependencies]({source}/Cargo.lock)\n",
+        f"[Source]({source}) · [Dependencies]({source}/Cargo.lock)\n",
         encoding="utf-8",
     )
     return sorted(output / name for name in ASSETS)
@@ -370,19 +367,24 @@ def main() -> None:
     ffi.add_argument("--target", choices=LINUX_TARGETS + WINDOWS_TARGETS)
     ffi.add_argument("--backend", choices=("wintun", "uwp"))
     ffi.add_argument("--output", type=Path)
+    apple_target = commands.add_parser("build-apple-target")
+    apple_target.add_argument("--target", choices=builds.APPLE_TARGETS, required=True)
+    apple_target.add_argument("--output", type=Path, required=True)
+    apple = commands.add_parser("assemble-apple")
+    apple.add_argument("--inputs", type=Path, required=True)
+    apple.add_argument("--output", type=Path, required=True)
     assemble = commands.add_parser("assemble")
     assemble.add_argument("--inputs", type=Path, required=True)
     assemble.add_argument("--output", type=Path, required=True)
     assemble.add_argument("--notes", type=Path, required=True)
-    for command in (cli, ffi, assemble):
+    for command in (cli, ffi, apple_target, assemble):
         command.add_argument("--tag")
-        command.add_argument("--repository", default="YuanDevTeam/Vole")
+    assemble.add_argument("--repository", default="YuanDevTeam/Vole")
     args = parser.parse_args()
     if args.command == "build-cli":
         build_cli(
             args.target,
             args.tag,
-            args.repository,
             args.output or Path("dist/release") / ("cli-" + args.target),
         )
     elif args.command == "build-ffi":
@@ -392,9 +394,12 @@ def main() -> None:
             args.target,
             args.backend,
             args.tag,
-            args.repository,
             args.output or Path("dist/release") / ("ffi-" + key),
         )
+    elif args.command == "build-apple-target":
+        build_apple_target(args.target, args.tag, args.output)
+    elif args.command == "assemble-apple":
+        assemble_apple(args.inputs, args.output)
     else:
         for path in assemble_release(
             args.tag, args.inputs, args.output, args.notes, args.repository
