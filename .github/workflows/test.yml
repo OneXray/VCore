@@ -12,6 +12,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+env:
+  UV_PYTHON_PREFERENCE: only-system
+  UV_PYTHON_DOWNLOADS: never
+
 jobs:
   client-contracts:
     name: ${{ matrix.name }}
@@ -33,16 +37,13 @@ jobs:
         with:
           toolchain: stable
           components: rustfmt, clippy
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.x"
+          check-latest: true
       - uses: astral-sh/setup-uv@v10.2.0
         with:
           version: "0.12"
-      - name: Install latest stable Python 3
-        shell: bash
-        env:
-          UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/python
-        run: |
-          uv python install 3 --no-bin --no-registry
-          echo "UV_PYTHON=$(uv python find --managed-python --no-project 3)" >> "$GITHUB_ENV"
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:

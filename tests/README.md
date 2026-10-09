@@ -29,11 +29,14 @@ cargo test --locked --no-default-features --features ffi,windows-uwp --lib windo
 构建 UWP DLL 后，可在未打包的 Windows 进程中执行真实 C ABI 的 COM 生命周期回归：
 
 ```sh
-uv run --project scripts --locked python scripts/check_windows_com.py --dll dist/windows/arm64/uwp/vole.dll
+python scripts/check_windows_com.py --dll dist/windows/arm64/uwp/vole.dll
 ```
 
-x64 使用 `dist/windows/x64/uwp/vole.dll`；Python 与 DLL 必须同架构。四个独立子进程
-覆盖未初始化线程连续查询、调用方 MTA 的保留与释放、短线程退出/切换和 STA 拒绝，
+此命令只在原生 Windows ARM64 执行。原生 x64 主机使用本机的 Python 和
+`dist/windows/x64/uwp/vole.dll`。宿主、Python 和 DLL 必须同架构；不得通过模拟运行跨架构验证。
+该脚本只需 Python 标准库。CI 的各个 Windows job 通过 `actions/setup-python` 安装本架构的
+Python，直接运行此检查，仅验证各自构建的产物。
+四个独立子进程覆盖未初始化线程连续查询、调用方 MTA 的保留与释放、短线程退出/切换和 STA 拒绝，
 同时检查显式初始化计数与 `VoleFree` 响应所有权。测试先用 Win32 确认没有包身份，
 仅查询环境/状态并断言包身份错误，不读取 VPN profile、启动连接或访问网络。
 父进程为每个用例设置超时。UWP 发布构建在上传归档前执行这些检查；通过不代表包内验收。

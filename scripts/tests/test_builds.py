@@ -4,7 +4,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from vole_scripts import builds
 
@@ -97,6 +97,95 @@ class BuildTests(unittest.TestCase):
                 command[command.index("--features") + 1], f"ffi,windows-{backend}"
             )
             self.assertEqual("--bins" in command, backend == "uwp")
+
+    def test_windows_requires_native_python(self):
+        registry = MagicMock()
+        with patch.dict("sys.modules", {"winreg": registry}):
+            for processor, architecture, native_python in (
+                ("AMD64", "x64", "win-amd64"),
+                ("ARM64", "arm64", "win-arm64"),
+            ):
+                registry.QueryValueEx.return_value = (processor, 0)
+                for python_platform in ("win-amd64", "win-arm64", "win32"):
+                    with (
+                        self.subTest(host=processor, python=python_platform),
+                        patch.object(
+                            builds.sysconfig,
+                            "get_platform",
+                            return_value=python_platform,
+                        ),
+                    ):
+                        if python_platform == native_python:
+                            self.assertEqual(
+                                builds._windows_architecture(), architecture
+                            )
+                        else:
+                            with self.assertRaisesRegex(
+                                RuntimeError, "native .* Python"
+                            ):
+                                builds._windows_architecture()
+
+    def test_windows_cli_rejects_cross_architecture_before_compilation(self):
+        for host, target in (
+            ("arm64", "x86_64-pc-windows-msvc"),
+            ("x64", "aarch64-pc-windows-msvc"),
+        ):
+            with (
+                self.subTest(host=host),
+                patch.object(builds.platform, "system", return_value="Windows"),
+                patch.object(builds, "_windows_architecture", return_value=host),
+                patch.object(builds.subprocess, "run") as run,
+                self.assertRaisesRegex(ValueError, "native host architecture"),
+            ):
+                builds.build_cli(target)
+            run.assert_not_called()
+        self.assertEqual(self.commands, [])
+
+    def test_windows_msvc_selects_native_host_tools(self):
+        for architecture, vc_target, component in (
+            ("x64", "amd64", "x86.x64"),
+            ("arm64", "arm64", "ARM64"),
+        ):
+
+            def configure(
+                command,
+                *,
+                architecture=architecture,
+                vc_target=vc_target,
+                component=component,
+                **kwargs,
+            ):
+                if "-find" in command:
+                    self.assertIn(
+                        f"Microsoft.VisualStudio.Component.VC.Tools.{component}",
+                        command,
+                    )
+                    output = "C:\\VS\\vcvarsall.bat\n"
+                else:
+                    script = Path(command[-1]).read_text()
+                    self.assertIn(
+                        f'call "C:\\VS\\vcvarsall.bat" {vc_target} >nul', script
+                    )
+                    output = f"Path=tools\nVSCMD_ARG_HOST_ARCH={architecture}\n"
+                return builds.subprocess.CompletedProcess(command, 0, stdout=output)
+
+            with (
+                self.subTest(architecture=architecture),
+                patch.dict(os.environ, {"PROGRAMFILES(X86)": str(self.root)}),
+                patch.object(
+                    builds, "_windows_architecture", return_value=architecture
+                ),
+                patch.object(builds.subprocess, "run", side_effect=configure),
+                patch.object(
+                    builds.shutil,
+                    "which",
+                    side_effect=lambda name, **kw: f"tools/{name}",
+                ),
+            ):
+                env = builds._windows_msvc_environment(architecture)
+            self.assertEqual(env["VSCMD_ARG_HOST_ARCH"], architecture)
+            if architecture == "arm64":
+                self.assertEqual(env["CC_aarch64_pc_windows_msvc"], "tools/clang-cl")
 
     def test_android_uses_matching_api_and_cpp_runtime(self):
         toolchain = self.root / "ndk/toolchain"
