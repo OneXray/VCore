@@ -21,7 +21,20 @@ tun-rs 的 Wintun 后端，也不依赖外置 `wintun.dll`。Wintun 的 interrup
 
 未安装的普通桌面进程没有 package identity，Windows VPN 桥接会失败关闭。
 
-`VoleWindowsVpnInvoke` 当前在调用线程上初始化 MTA。调用线程必须尚未初始化 COM，或已经是 MTA；STA/ASTA 调用不受支持。
+### COM / WinRT 生命周期
+
+`VoleWindowsVpnInvoke` 在调用线程上配对执行 `RoInitialize(MTA)` / `RoUninitialize`。
+调用线程可以尚未显式初始化 COM，或已经是 MTA；STA/ASTA 调用失败，不改变调用方的 apartment。
+
+桥接首次成功进入 MTA 时，通过 `CoIncrementMTAUsage` 保留一份进程寿命的 MTA 引用，
+与 `windows-rs` 的静态 agile factory 缓存同寿命。即使调用线程退出、调用方释放自己的
+MTA，或两次请求之间没有显式 MTA 线程，缓存也不会跨越 MTA 拆卸后被再次使用。
+这是一份固定引用，不随请求增长；不在逐次返回或 DLL/process teardown 时释放，
+也不在 loader lock 内执行 COM 清理。获取失败仍配对释放本次初始化，并返回失败。
+
+宿主无需额外持有 MTA，可以从不同的短生命周期工作线程串行调用。返回后，原本未显式
+初始化的线程可能属于进程的 implicit MTA；桥接不会遗留该线程的显式初始化计数。
+命令仍不允许重叠，不增加工作队列，也不改变包身份、profile 或会话生命周期。
 
 ## `IVpnPlugIn` 回调
 
@@ -171,7 +184,7 @@ vole-windows-session-host.exe
 - Session Host 是 `windows.fullTrustProcess` extension，不显示在应用列表，也不注册 StartupTask 或 URI；
 - Provider 的 `windows.backgroundTasks` extension 显式使用 `windowsApp + appContainer`；
 - Provider activation class 来自 `vole.dll`；
-- 同一 package 只维护一个 `Vole` VPN profile；
+- 宿主为同一 package 使用一个稳定的 VPN profile 名称；`startVpn`、`getVpnStatus`、`stopVpn` 的可选 `profileName` 缺省为 `Vole`，匹配和改名边界见 [Invoke API](invoke-api.md#vpn-profile-名称)。同包仍只允许一个活动会话；
 - custom configuration 是最大 4 KiB 的严格 JSON，只含修订版 4、Session token、顶层 IPv6 开关、四个网络地址和完整 policy；
 - Session Snapshot 是 `LocalState/vole/windows/sessions/<sha256>.json`，revision 2 覆盖完整 YAML、可选进程顺序、路径和参数；读取验证大小、普通文件、reparse point、规范 JSON、摘要和每个 executable。参数引用的文件由宿主保持存在且不可变，Vole 不读取其内容；
 - 活动 Session token、IPv6 开关、网络地址或 policy 不同时必须先显式 Stop，不能热切换；
@@ -233,9 +246,9 @@ Session Host 每次连接新建一个进程，不常驻、不复用运行时，�
 
 ## 启动顺序
 
-1. 前台宿主调用 `startVpn(configYaml, networkSettings, policy, sessionBackend?)`。
+1. 前台宿主调用 `startVpn(configYaml, networkSettings, policy, sessionBackend?, profileName?)`，后续查询和停止使用同一 profile 名称。
 2. 桥接验证配置、四个地址、policy 和进程描述，发布不可变 Session Snapshot，并把解析后的顶层 IPv6 开关和 policy 写入 profile configuration。
-3. 桥接写入单一 VPN profile 并调用 `ConnectProfileAsync`；它不启动或持有 Session Host。
+3. 桥接按当前 package family 和请求的名称查找并写入 VPN profile，再调用 `ConnectProfileAsync`；它不接管其它 profile，也不启动或持有 Session Host。
 4. Windows 激活 AppContainer Provider。
 5. Provider 从 profile configuration 取得权威 token，选择物理网络绑定并准备基础资源。
 6. Provider 清理陈旧会合记录，通过无参数 `FullTrustProcessLauncher` 激活 Session Host。
@@ -347,3 +360,5 @@ Stopped { version, packetCounters }
 - [`VpnManagementAgent`](https://learn.microsoft.com/uwp/api/windows.networking.vpn.vpnmanagementagent)
 - [`FullTrustProcessLauncher`](https://learn.microsoft.com/uwp/api/windows.applicationmodel.fulltrustprocesslauncher)
 - [Package identity](https://learn.microsoft.com/windows/apps/desktop/modernize/package-identity-overview)
+- [`RoInitialize`](https://learn.microsoft.com/windows/win32/api/roapi/nf-roapi-roinitialize)
+- [`CoIncrementMTAUsage`](https://learn.microsoft.com/windows/win32/api/combaseapi/nf-combaseapi-coincrementmtausage)

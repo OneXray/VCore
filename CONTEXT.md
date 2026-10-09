@@ -16,6 +16,10 @@ _Avoid_: Plugin, background task when referring to the whole participant, proxy 
 The desktop raw-IP platform adapter backed by a host-provided Wintun DLL. It connects to the shared Vole TUN runtime without a Windows VPN Provider, package identity or packet channel; the first release leaves system network configuration to the host.
 _Avoid_: Windows VPN provider, second proxy core, Unix fd emulation
 
+**Windows VPN profile**:
+The Windows system VPN profile selected by the host's stable `profileName` within its package family. Start, status and stop use the same exact name; omission selects `Vole`. A custom name does not enable concurrent package sessions or migrate another profile.
+_Avoid_: Proxy node, user configuration, Session Snapshot
+
 **Windows VPN policy**:
 The profile-level Always On and destination-bypass choices for a Windows tunnel whose application scope is always global.
 _Avoid_: Per-app policy, app selection, traffic filter

@@ -15,6 +15,10 @@ uv run --project scripts --locked vole-scripts build windows --backend uwp
 
 CLI 默认构建当前宿主的 Release，Windows 固定 Wintun；Windows FFI 默认 UWP。
 脚本输出产物路径，编译失败直接返回失败。
+Windows 的构建和验证只允许宿主原生架构：x64 使用 x64 Python、MSVC 与产物，
+ARM64 使用 ARM64 Python、MSVC 与产物，不跨架构编译或通过模拟运行验证。
+Windows 需先安装本架构的 Python 并加入 `PATH`；为上述 `uv run` 增加 `--python python`
+可明确使用该解释器。脚本拒绝非原生 Python 和不同架构的 Windows 目标。
 
 | 目标 | 工具链与输出 |
 | --- | --- |
@@ -34,7 +38,12 @@ Android 优先使用 `ANDROID_NDK_HOME`，否则在 `ANDROID_HOME/ndk` 中选择
 
 [Release workflow](../.github/workflows/release.yml) 在 `vX.Y.Z` tag push 时构建并发布，
 tag 必须匹配 Cargo 版本。PR 使用同一构建矩阵，全部构建成功后汇总十四个归档。
-CLI 构建后执行 `-h/-v/-t` 检查。
+CI 中的 Python 均由 `actions/setup-python` 安装，选择最新稳定 Python 3；uv 仅使用系统解释器，
+禁止自动下载 Python，不使用脚本安装或特定解释器发行版请求。
+CLI 构建后执行 `-h/-v/-t` 检查。Windows CLI、Wintun FFI、UWP FFI 分别使用独立的
+x64/ARM64 job，每个 job 的 runner、Python、工具链和验证产物必须同架构；
+UWP 的 COM 回归只加载当前 job 构建的 DLL。ARM64 MSVC 使用原生 `vcvarsall arm64`，
+不使用 `amd64_arm64` 交叉工具链。
 Apple FFI 的六个 Rust 目标分别在独立 job 并行编译并缓存；`FFI Apple` 等待全部目标
 成功后合并 macOS 双架构、生成五切片 XCFramework 并打包。
 CI 的依赖来源检查见 [TLS 依赖](../docs/tls-dependencies.md)。

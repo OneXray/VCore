@@ -6,6 +6,7 @@ import platform
 import re
 import shutil
 import subprocess
+import sysconfig
 import tempfile
 from pathlib import Path
 
@@ -452,14 +453,23 @@ def _windows_architecture() -> str:
     ) as key:
         processor = str(winreg.QueryValueEx(key, "PROCESSOR_ARCHITECTURE")[0]).lower()
     try:
-        return {"amd64": "x64", "arm64": "arm64"}[processor]
+        architecture = {"amd64": "x64", "arm64": "arm64"}[processor]
     except KeyError as error:
         raise RuntimeError(
             f"unsupported native Windows processor architecture: {processor}"
         ) from error
+    python_platform = {"x64": "win-amd64", "arm64": "win-arm64"}[architecture]
+    if sysconfig.get_platform() != python_platform:
+        raise RuntimeError(
+            f"Windows {architecture} builds require native {architecture} Python"
+        )
+    return architecture
 
 
 def _windows_msvc_environment(architecture: str) -> dict[str, str]:
+    if architecture != _windows_architecture():
+        raise ValueError("Windows builds require the native host architecture")
+    component = "ARM64" if architecture == "arm64" else "x86.x64"
     program_files = os.environ.get("PROGRAMFILES(X86)")
     if not program_files:
         raise RuntimeError("ProgramFiles(x86) is unavailable")
@@ -473,7 +483,7 @@ def _windows_msvc_environment(architecture: str) -> dict[str, str]:
             "-products",
             "*",
             "-requires",
-            "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+            f"Microsoft.VisualStudio.Component.VC.Tools.{component}",
             "-find",
             r"VC\Auxiliary\Build\vcvarsall.bat",
         ],
@@ -484,7 +494,7 @@ def _windows_msvc_environment(architecture: str) -> dict[str, str]:
     vcvars = next((line.strip() for line in result.stdout.splitlines() if line), None)
     if not vcvars:
         raise RuntimeError("Visual Studio C++ tools were not found")
-    vc_target = "amd64_arm64" if architecture == "arm64" else "amd64"
+    vc_target = "arm64" if architecture == "arm64" else "amd64"
     with tempfile.TemporaryDirectory(prefix="vole-msvc-") as directory:
         command = Path(directory) / "environment.cmd"
         command.write_bytes(

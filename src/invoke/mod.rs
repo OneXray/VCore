@@ -23,7 +23,7 @@ use serde_json::{Value, json};
 use tokio::sync::oneshot;
 
 use crate::{
-    BUILD_IDENTITY, ENGINE, Lifecycle, LifecycleState, ResourceLimits, TunFraming, VoleError,
+    BUILD_IDENTITY, ENGINE, Lifecycle, LifecycleState, ResourceLimits, VoleError,
     config::Config,
     data_dir::DataDirectory,
     dialer::{Dialer, SocketProtector, SystemResolver},
@@ -38,7 +38,10 @@ use crate::{
     target_os = "macos",
     target_os = "linux"
 ))]
-use crate::platform::{TunFd, TunIo};
+use crate::{
+    TunFraming,
+    platform::{TunFd, TunIo},
+};
 
 #[cfg(any(
     target_os = "android",

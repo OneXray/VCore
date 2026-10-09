@@ -117,6 +117,7 @@ if (response != nullptr) {
 - revision 固定为 `bridgeVersion: 3`；
 - DTO 严格拒绝未知字段；
 - 返回内存必须由同一份 `vole.dll` 的 `VoleFree` 释放；
+- 调用线程可尚未显式初始化 COM 或已经是 MTA，不能是 STA/ASTA。库为静态 WinRT factory 缓存保留一份进程寿命的 MTA 引用，并配对每次调用的初始化；宿主无需自行持有 MTA，可从不同的短生命周期工作线程串行调用，见 [COM 生命周期](../../docs/windows-vpn.md#com--winrt-生命周期)；
 - 桥接命令不能重叠；真实前台应在单进程内串行调用，本命令行 demo 额外用 session-local named mutex 串行化多个 alias 进程；
 - 调用进程必须具有当前 MSIX package identity；unpackaged EXE 会失败关闭；
 - 不要从 Provider 回调、Session Host 或 AppContainer UI 重入该接口。
@@ -126,9 +127,14 @@ if (response != nullptr) {
 | 方法 | payload | 用途 |
 | --- | --- | --- |
 | `getEnvironment` | `{}` | 验证 package identity，返回 PFN 和 LocalState 路径 |
-| `getVpnStatus` | `{}` | 查询同包唯一 profile |
-| `startVpn` | `configYaml` + `networkSettings` + `policy` + 可选 `sessionBackend` | 发布 Session Snapshot、配置全局 VPN policy 并连接 |
-| `stopVpn` | `{}` | 断开当前 profile |
+| `getVpnStatus` | 可选 `profileName` | 查询同包指定名称的 profile |
+| `startVpn` | `configYaml` + `networkSettings` + `policy` + 可选 `sessionBackend` / `profileName` | 发布 Session Snapshot、配置全局 VPN policy 并连接 |
+| `stopVpn` | 可选 `profileName` | 断开同包指定名称的 profile |
+
+本 demo 省略 `profileName`，三个方法都操作默认名称 `Vole`。接入其它宿主时，可以在
+这三个请求的 payload 中统一增加 `"profileName":"Example VPN"`；重启后的状态查询
+也必须使用相同名称。此设置不是用户节点选择，也不会迁移或删除旧名称的 profile。
+完整校验、包隔离和更换名称约束见 [Invoke API](../../docs/invoke-api.md#vpn-profile-名称)。
 
 桥接还提供 `getStartupTaskStatus` 和 `setStartupTaskEnabled`。本 demo 故意不声明 StartupTask，避免登录时启动一个无 UI 的命令行工具；产品需要该能力时，再声明 `xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"`、把 `desktop` 加入 `IgnorableNamespaces`，并在前台 `<Application>` 下增加：
 
@@ -199,7 +205,7 @@ Vole 会校验 YAML、发布 `vole-session-v2:` 内容寻址 Session Snapshot，
 | capabilities | `internetClientServer`、`privateNetworkClientServer`、`runFullTrust`、`networkingVpnProvider` |
 | minimum desktop OS | `10.0.19042.0` |
 
-可以修改 identity、publisher、版本、主 Application Id/EXE、显示名称、图标和 app execution alias。不要删除 Session Host/Provider extensions 或修改 `Vole.VpnBackgroundTask`。桥接还固定使用 profile 名 `Vole`，可选 StartupTask 固定使用 `VoleStartup`；两者都按 package family 隔离。
+可以修改 identity、publisher、版本、主 Application Id/EXE、显示名称、图标和 app execution alias。不要删除 Session Host/Provider extensions 或修改 `Vole.VpnBackgroundTask`。VPN profile 名称由桥接 payload 的 `profileName` 选择，缺省为 `Vole`；可选 StartupTask 仍固定使用 `VoleStartup`，不随 profile 名称变化。两者都按 package family 隔离。
 
 三项 Vole 文件必须位于 package 根目录：
 

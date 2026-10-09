@@ -19,13 +19,39 @@ uv run --project scripts --locked ruff check scripts
 uv run --project scripts --locked ruff format --check scripts
 ```
 
+Windows UWP bridge 的名称准入与匹配使用独立过滤器；下列测试仅处理 JSON、匹配策略
+和未注册的内存 `VpnPlugInProfile` 对象，不创建系统 VPN profile 或启动连接：
+
+```sh
+cargo test --locked --no-default-features --features ffi,windows-uwp --lib windows::host::tests::
+```
+
+构建 UWP DLL 后，可在未打包的 Windows 进程中执行真实 C ABI 的 COM 生命周期回归：
+
+```sh
+python scripts/check_windows_com.py --dll dist/windows/arm64/uwp/vole.dll
+```
+
+此命令只在原生 Windows ARM64 执行。原生 x64 主机使用本机的 Python 和
+`dist/windows/x64/uwp/vole.dll`。宿主、Python 和 DLL 必须同架构；不得通过模拟运行跨架构验证。
+该脚本只需 Python 标准库。CI 的各个 Windows job 通过 `actions/setup-python` 安装本架构的
+Python，直接运行此检查，仅验证各自构建的产物。
+四个独立子进程覆盖未初始化线程连续查询、调用方 MTA 的保留与释放、短线程退出/切换和 STA 拒绝，
+同时检查显式初始化计数与 `VoleFree` 响应所有权。测试先用 Win32 确认没有包身份，
+仅查询环境/状态并断言包身份错误，不读取 VPN profile、启动连接或访问网络。
+父进程为每个用例设置超时。UWP 发布构建在上传归档前执行这些检查；通过不代表包内验收。
+
+在 Windows 上，`windows-uwp` 与 `windows-wintun` 互斥，编译与 Clippy 应明确选择
+所测后端而非 `--all-features`。名称选择仍需已安装包验证，不以对象级测试代替。
+
 宿主只执行明确的纯内存过滤器；全目标使用 `--no-run`。
 `invoke::tests::` 含监听器用例，不可整体在宿主执行；可执行过滤器以
 [Tests workflow](../.github/workflows/test.yml) 为准。
 协议独立向量见 [protocols](protocols/README.md)，ClientHello 输入见 [fingerprints](fingerprints/README.md)。
 
 脚本测试保留平台文件输出、Windows 后端选择、Android ABI/runtime、Apple 切片、
-真实归档读写。外部编译命令由夹具替代，原生编译由 CI 平台矩阵执行。
+真实归档读写，以及 Android JNI 导出与 Apple 日志命名空间的源码契约检查。
+外部编译命令由夹具替代，原生编译由 CI 平台矩阵执行；源码检查不替代 JNI 加载或设备验证。
 CI 的核心回归分别使用 Debug 和 `ci-release`；后者继承 Release 优化并关闭 LTO，
 正式产物使用标准 `release`。Quality 负责格式、Clippy、feature 编译和依赖来源检查。
 
