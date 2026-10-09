@@ -34,7 +34,8 @@ use crate::{config::Config, platform::validate_packet_channel_config};
 const BRIDGE_VERSION: u32 = 3;
 const MAX_REQUEST_BYTES: usize = 1024 * 1024;
 const MAX_ERROR_BYTES: usize = 4096;
-const PROFILE_NAME: &str = "Vole";
+const DEFAULT_PROFILE_NAME: &str = "Vole";
+const MAX_PROFILE_NAME_BYTES: usize = 256;
 const STARTUP_TASK_ID: &str = "VoleStartup";
 static COMMAND: Mutex<()> = Mutex::new(());
 
@@ -50,9 +51,44 @@ struct BridgeRequest {
 #[serde(deny_unknown_fields)]
 struct EmptyPayload {}
 
+/// A host-selected Windows profile name, never a filesystem path or session ID.
+struct ProfileName(String);
+
+impl Default for ProfileName {
+    fn default() -> Self {
+        Self(DEFAULT_PROFILE_NAME.to_owned())
+    }
+}
+
+impl<'de> Deserialize<'de> for ProfileName {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let name = String::deserialize(deserializer)?;
+        if name.is_empty()
+            || name.len() > MAX_PROFILE_NAME_BYTES
+            || name.trim() != name
+            || name.chars().any(char::is_control)
+        {
+            return Err(serde::de::Error::custom("invalid Windows VPN profile name"));
+        }
+        Ok(Self(name))
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ProfilePayload {
+    #[serde(default)]
+    profile_name: ProfileName,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct StartPayload {
+    #[serde(default)]
+    profile_name: ProfileName,
     config_yaml: String,
     network_settings: WindowsNetworkSettings,
     policy: WindowsVpnPolicy,
@@ -141,15 +177,9 @@ fn invoke_bytes(request: &[u8]) -> Result<Value, String> {
             decode_payload::<EmptyPayload>(request.payload)?;
             get_environment()
         }
-        "getVpnStatus" => {
-            decode_payload::<EmptyPayload>(request.payload)?;
-            get_vpn_status()
-        }
+        "getVpnStatus" => get_vpn_status(decode_payload(request.payload)?),
         "startVpn" => start_vpn(decode_payload(request.payload)?),
-        "stopVpn" => {
-            decode_payload::<EmptyPayload>(request.payload)?;
-            stop_vpn()
-        }
+        "stopVpn" => stop_vpn(decode_payload(request.payload)?),
         "getStartupTaskStatus" => {
             decode_payload::<EmptyPayload>(request.payload)?;
             get_startup_task_status()
@@ -167,15 +197,16 @@ fn get_environment() -> Result<Value, String> {
     }))
 }
 
-fn get_vpn_status() -> Result<Value, String> {
+fn get_vpn_status(payload: ProfilePayload) -> Result<Value, String> {
     let environment = package_environment()?;
     let agent = VpnManagementAgent::new().map_err(display_error)?;
-    let profile = find_profile(&agent, &environment.family_name)?;
+    let profile = find_profile(&agent, &environment.family_name, &payload.profile_name.0)?;
     profile_status_data(profile.as_ref())
 }
 
 fn start_vpn(payload: StartPayload) -> Result<Value, String> {
     let StartPayload {
+        profile_name,
         config_yaml,
         network_settings,
         policy,
@@ -209,7 +240,7 @@ fn start_vpn(payload: StartPayload) -> Result<Value, String> {
     let always_on = profile_configuration.policy().always_on();
     let token = snapshot.token();
     let agent = VpnManagementAgent::new().map_err(display_error)?;
-    let existing = find_profile(&agent, &environment.family_name)?;
+    let existing = find_profile(&agent, &environment.family_name, &profile_name.0)?;
 
     if let Some(existing) = &existing {
         match existing.status {
@@ -249,6 +280,7 @@ fn start_vpn(payload: StartPayload) -> Result<Value, String> {
     configure_profile(
         &profile,
         &environment.family_name,
+        &profile_name.0,
         &profile_configuration_json,
         always_on,
     )?;
@@ -278,10 +310,11 @@ fn start_vpn(payload: StartPayload) -> Result<Value, String> {
     Ok(json!({"status": "connected", "snapshotToken": token}))
 }
 
-fn stop_vpn() -> Result<Value, String> {
+fn stop_vpn(payload: ProfilePayload) -> Result<Value, String> {
     let environment = package_environment()?;
     let agent = VpnManagementAgent::new().map_err(display_error)?;
-    let Some(profile) = find_profile(&agent, &environment.family_name)? else {
+    let Some(profile) = find_profile(&agent, &environment.family_name, &payload.profile_name.0)?
+    else {
         return Ok(json!({"status": "disconnected", "snapshotToken": null}));
     };
     if profile.status == VpnManagementConnectionStatus::Disconnected {
@@ -371,6 +404,7 @@ fn package_environment() -> Result<PackageEnvironment, String> {
 fn find_profile(
     agent: &VpnManagementAgent,
     family_name: &str,
+    profile_name: &str,
 ) -> Result<Option<ProfileMatch>, String> {
     let profiles = agent
         .GetProfilesAsync()
@@ -386,14 +420,17 @@ fn find_profile(
             continue;
         }
         let status = plugin.ConnectionStatus().map_err(display_error)?;
-        if plugin.ProfileName().map_err(display_error)? != PROFILE_NAME {
-            if status != VpnManagementConnectionStatus::Disconnected {
-                return Err("unknown package-owned Windows VPN profile is active".to_owned());
-            }
+        if !matches_profile_name(
+            profile_name,
+            &plugin.ProfileName().map_err(display_error)?.to_string(),
+            status,
+        )? {
             continue;
         }
         if found.is_some() {
-            return Err("multiple package-owned Vole VPN profiles exist".to_owned());
+            return Err(
+                "multiple package-owned Windows VPN profiles match the requested name".to_owned(),
+            );
         }
         found = Some(ProfileMatch {
             profile: plugin,
@@ -401,6 +438,21 @@ fn find_profile(
         });
     }
     Ok(found)
+}
+
+/// Only called for profiles whose package family has already been verified.
+fn matches_profile_name(
+    requested: &str,
+    actual: &str,
+    status: VpnManagementConnectionStatus,
+) -> Result<bool, String> {
+    if actual == requested {
+        return Ok(true);
+    }
+    if status != VpnManagementConnectionStatus::Disconnected {
+        return Err("another package-owned Windows VPN profile is active".to_owned());
+    }
+    Ok(false)
 }
 
 fn plugin_profile(
@@ -416,11 +468,12 @@ fn plugin_profile(
 fn configure_profile(
     profile: &VpnPlugInProfile,
     family_name: &str,
+    profile_name: &str,
     profile_configuration: &str,
     always_on: bool,
 ) -> Result<(), String> {
     profile
-        .SetProfileName(&PROFILE_NAME.into())
+        .SetProfileName(&profile_name.into())
         .and_then(|()| profile.SetVpnPluginPackageFamilyName(&family_name.into()))
         .and_then(|()| profile.SetCustomConfiguration(&profile_configuration.into()))
         .and_then(|()| profile.SetAlwaysOn(always_on))
@@ -547,6 +600,124 @@ mod tests {
                 "data": null,
                 "error": "unsupported Windows bridge version"
             })
+        );
+    }
+
+    fn start_payload() -> Value {
+        json!({
+            "configYaml": "tun:\n  enable: true\n",
+            "networkSettings": {
+                "ipv4Address": "192.168.8.1",
+                "ipv6Address": "fd00:8::2",
+                "dnsIpv4Address": "223.5.5.5",
+                "dnsIpv6Address": "2400:3200::1"
+            },
+            "policy": default_policy()
+        })
+    }
+
+    #[test]
+    fn profile_payload_defaults_and_custom_names_are_shared_by_lifecycle_commands() {
+        let status_or_stop: ProfilePayload = decode_payload(json!({})).unwrap();
+        let start: StartPayload = decode_payload(start_payload()).unwrap();
+        assert_eq!(status_or_stop.profile_name.0, "Vole");
+        assert_eq!(start.profile_name.0, "Vole");
+
+        for name in [
+            "Example VPN".to_owned(),
+            "示例 VPN".to_owned(),
+            "v".repeat(256),
+            "名".repeat(85),
+        ] {
+            let status_or_stop: ProfilePayload =
+                decode_payload(json!({"profileName": name})).unwrap();
+            let mut input = start_payload();
+            input["profileName"] = json!(name);
+            let start: StartPayload = decode_payload(input).unwrap();
+            assert_eq!(status_or_stop.profile_name.0, name);
+            assert_eq!(start.profile_name.0, name);
+        }
+    }
+
+    #[test]
+    fn profile_payload_rejects_invalid_names_without_echoing_input() {
+        for name in [
+            Value::Null,
+            json!(false),
+            json!(123),
+            json!([]),
+            json!({}),
+            json!(""),
+            json!(" "),
+            json!(" Example VPN"),
+            json!("Example VPN\u{3000}"),
+            json!("Example\nVPN"),
+            json!("Example\0VPN"),
+            json!("Example\u{007f}VPN"),
+            json!("v".repeat(257)),
+            json!("名".repeat(86)),
+        ] {
+            let status_or_stop = decode_payload::<ProfilePayload>(json!({"profileName": name}));
+            let mut input = start_payload();
+            input["profileName"] = name;
+            let start = decode_payload::<StartPayload>(input);
+            assert_eq!(
+                status_or_stop.err().as_deref(),
+                Some("invalid Windows host payload")
+            );
+            assert_eq!(start.err().as_deref(), Some("invalid Windows host payload"));
+        }
+    }
+
+    #[test]
+    fn profile_payload_keeps_unknown_fields_and_unrelated_methods_strict() {
+        assert!(
+            decode_payload::<ProfilePayload>(json!({
+                "profileName": "Example VPN", "unknown": true
+            }))
+            .is_err()
+        );
+        let mut input = start_payload();
+        input["profileName"] = json!("Example VPN");
+        input["unknown"] = json!(true);
+        assert!(decode_payload::<StartPayload>(input).is_err());
+        assert!(decode_payload::<EmptyPayload>(json!({"profileName": "Example VPN"})).is_err());
+        assert!(
+            decode_payload::<SetStartupTaskPayload>(json!({
+                "enabled": true, "profileName": "Example VPN"
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn profile_lookup_matches_names_exactly_and_preserves_the_single_session_guard() {
+        for status in [
+            VpnManagementConnectionStatus::Disconnected,
+            VpnManagementConnectionStatus::Connecting,
+            VpnManagementConnectionStatus::Connected,
+            VpnManagementConnectionStatus::Disconnecting,
+        ] {
+            assert!(matches_profile_name("Example VPN", "Example VPN", status).unwrap());
+            for other in ["Vole", "example vpn", "Other VPN"] {
+                let result = matches_profile_name("Example VPN", other, status);
+                if status == VpnManagementConnectionStatus::Disconnected {
+                    assert!(!result.unwrap());
+                } else {
+                    assert_eq!(
+                        result.unwrap_err(),
+                        "another package-owned Windows VPN profile is active"
+                    );
+                }
+            }
+        }
+        assert!(
+            !matches_profile_name(
+                "Café",
+                "Cafe\u{0301}",
+                VpnManagementConnectionStatus::Disconnected
+            )
+            .unwrap()
         );
     }
 
@@ -691,8 +862,14 @@ mod tests {
         let _winrt = WinRtGuard::enter().unwrap();
         let profile = VpnPlugInProfile::new().unwrap();
 
-        configure_profile(&profile, "example.family", "{}", true).unwrap();
+        configure_profile(&profile, "example.family", "示例 VPN", "{}", true).unwrap();
 
+        assert_eq!(profile.ProfileName().unwrap(), "示例 VPN");
+        assert_eq!(
+            profile.VpnPluginPackageFamilyName().unwrap(),
+            "example.family"
+        );
+        assert_eq!(profile.CustomConfiguration().unwrap(), "{}");
         assert!(profile.AlwaysOn().unwrap());
     }
 

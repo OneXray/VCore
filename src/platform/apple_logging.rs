@@ -22,7 +22,7 @@ use tracing::{
     subscriber::Interest,
 };
 
-const SUBSYSTEM: &str = "io.github.onexray.vole";
+const SUBSYSTEM: &str = "io.github.yuandevteam.vole";
 const CATEGORY: &str = "vole";
 const MAX_EVENT_BYTES: usize = 2 * 1024;
 const TRUNCATION_MARKER: &str = "...";
@@ -195,8 +195,8 @@ fn os_log_level(level: &Level) -> OsLogLevel {
     {
         // Xcode does not reliably forward Default/Info messages from a Packet
         // Tunnel Extension unless it is attached as the debug executable.
-        // Match the existing Swift YGLog transport level while retaining the
-        // real tracing level in the formatted message.
+        // Use the Error transport level to keep extension diagnostics visible,
+        // while retaining the real tracing level in the formatted message.
         let _ = level;
         return OsLogLevel::Error;
     }

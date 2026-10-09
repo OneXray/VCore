@@ -19,13 +19,24 @@ uv run --project scripts --locked ruff check scripts
 uv run --project scripts --locked ruff format --check scripts
 ```
 
+Windows UWP bridge 的名称准入与匹配使用独立过滤器；下列测试仅处理 JSON、匹配策略
+和未注册的内存 `VpnPlugInProfile` 对象，不创建系统 VPN profile 或启动连接：
+
+```sh
+cargo test --locked --no-default-features --features ffi,windows-uwp --lib windows::host::tests::
+```
+
+在 Windows 上，`windows-uwp` 与 `windows-wintun` 互斥，编译与 Clippy 应明确选择
+所测后端而非 `--all-features`。名称选择仍需已安装包验证，不以对象级测试代替。
+
 宿主只执行明确的纯内存过滤器；全目标使用 `--no-run`。
 `invoke::tests::` 含监听器用例，不可整体在宿主执行；可执行过滤器以
 [Tests workflow](../.github/workflows/test.yml) 为准。
 协议独立向量见 [protocols](protocols/README.md)，ClientHello 输入见 [fingerprints](fingerprints/README.md)。
 
 脚本测试保留平台文件输出、Windows 后端选择、Android ABI/runtime、Apple 切片、
-真实归档读写。外部编译命令由夹具替代，原生编译由 CI 平台矩阵执行。
+真实归档读写，以及 Android JNI 导出与 Apple 日志命名空间的源码契约检查。
+外部编译命令由夹具替代，原生编译由 CI 平台矩阵执行；源码检查不替代 JNI 加载或设备验证。
 CI 的核心回归分别使用 Debug 和 `ci-release`；后者继承 Release 优化并关闭 LTO，
 正式产物使用标准 `release`。Quality 负责格式、Clippy、feature 编译和依赖来源检查。
 

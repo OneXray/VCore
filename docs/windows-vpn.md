@@ -171,7 +171,7 @@ vole-windows-session-host.exe
 - Session Host 是 `windows.fullTrustProcess` extension，不显示在应用列表，也不注册 StartupTask 或 URI；
 - Provider 的 `windows.backgroundTasks` extension 显式使用 `windowsApp + appContainer`；
 - Provider activation class 来自 `vole.dll`；
-- 同一 package 只维护一个 `Vole` VPN profile；
+- 宿主为同一 package 使用一个稳定的 VPN profile 名称；`startVpn`、`getVpnStatus`、`stopVpn` 的可选 `profileName` 缺省为 `Vole`，匹配和改名边界见 [Invoke API](invoke-api.md#vpn-profile-名称)。同包仍只允许一个活动会话；
 - custom configuration 是最大 4 KiB 的严格 JSON，只含修订版 4、Session token、顶层 IPv6 开关、四个网络地址和完整 policy；
 - Session Snapshot 是 `LocalState/vole/windows/sessions/<sha256>.json`，revision 2 覆盖完整 YAML、可选进程顺序、路径和参数；读取验证大小、普通文件、reparse point、规范 JSON、摘要和每个 executable。参数引用的文件由宿主保持存在且不可变，Vole 不读取其内容；
 - 活动 Session token、IPv6 开关、网络地址或 policy 不同时必须先显式 Stop，不能热切换；
@@ -233,9 +233,9 @@ Session Host 每次连接新建一个进程，不常驻、不复用运行时，�
 
 ## 启动顺序
 
-1. 前台宿主调用 `startVpn(configYaml, networkSettings, policy, sessionBackend?)`。
+1. 前台宿主调用 `startVpn(configYaml, networkSettings, policy, sessionBackend?, profileName?)`，后续查询和停止使用同一 profile 名称。
 2. 桥接验证配置、四个地址、policy 和进程描述，发布不可变 Session Snapshot，并把解析后的顶层 IPv6 开关和 policy 写入 profile configuration。
-3. 桥接写入单一 VPN profile 并调用 `ConnectProfileAsync`；它不启动或持有 Session Host。
+3. 桥接按当前 package family 和请求的名称查找并写入 VPN profile，再调用 `ConnectProfileAsync`；它不接管其它 profile，也不启动或持有 Session Host。
 4. Windows 激活 AppContainer Provider。
 5. Provider 从 profile configuration 取得权威 token，选择物理网络绑定并准备基础资源。
 6. Provider 清理陈旧会合记录，通过无参数 `FullTrustProcessLauncher` 激活 Session Host。

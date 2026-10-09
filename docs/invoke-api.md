@@ -345,6 +345,30 @@ Unix 等待 SIGINT/SIGTERM，Windows 等待 Ctrl+C/Ctrl+Break；标准输入先�
 
 ## Android protect
 
+Android JNI 类固定为 `io.github.yuandevteam.vole.NativeVole`，与宿主应用的包名独立。
+宿主提供如下 Java 声明（或等价的 Kotlin/JVM 声明），并打包匹配 ABI 的原生库：
+
+```java
+package io.github.yuandevteam.vole;
+
+public final class NativeVole {
+    static {
+        System.loadLibrary("vole");
+    }
+
+    private NativeVole() {}
+
+    public static native byte[] nativeInvoke(byte[] request);
+    public static native boolean nativeRegisterProtectController(Object controller);
+    public static native boolean nativeUnregisterProtectController();
+}
+```
+
+仅导出该命名空间下的三个 JNI 方法，不提供其它包名别名。宿主声明必须与原生库一致；
+代码压缩和混淆必须保留该类、这些 native 方法以及 controller 的 `boolean protect(int)`
+方法名。`nativeInvoke` 的请求与响应均为标准 UTF-8 JSON `byte[]`，由 JVM 管理，
+不使用 C ABI 的 `VoleFree` 释放。
+
 Android TUN 通过 Invoke 之外的运行时本地回调注册：
 
 ```text
@@ -385,11 +409,37 @@ ProtectFd(fd) -> bool
 - `getStartupTaskStatus`
 - `setStartupTaskEnabled`
 
+### VPN profile 名称
+
+`startVpn`、`getVpnStatus` 和 `stopVpn` 的 payload 都接受可选的 `profileName`。
+省略时使用 `Vole`；使用自定义名称的宿主必须在这三个方法中始终传入同一个值，包括
+前台重启后的查询。名称不属于业务 YAML、Session Snapshot 或 profile custom configuration，
+不改变 Session token 的计算。
+
+```json
+{"bridgeVersion":3,"method":"getVpnStatus","payload":{"profileName":"Example VPN"}}
+```
+
+- 名称必须是 1–256 UTF-8 字节的字符串，不能有首尾 Unicode 空白或控制字符（含 NUL）。
+  `null`、空串和其它 JSON 类型都拒绝，不 trim、不补默认值；其它系统名称限制仍由 Windows 返回错误。
+- 仅匹配当前 package family 内同名的 VPN profile，区分大小写且不做 Unicode normalization。
+  其它 package 的 profile 不会被接管或修改；Windows 名称冲突不会触发删除、重命名或回退。
+- 同包存在其它名称的活动 profile 时，三个方法均失败，而不是报告已断开或操作那个 profile；
+  多个同名匹配同样失败。同包不同名且已断开的 profile 不参与本次操作。
+- 宿主应使用稳定名称。这不是多 profile 管理接口，不支持多会话并行、自动迁移、重命名或删除。
+  更换名称前必须用旧名称显式 `stopVpn` 并确认断开；使用新名称启动不会复用或删除旧名称的 profile。
+  名称选择不会转换旧 Session token 或解除现有 profile 配置校验。
+- `getEnvironment`、`getStartupTaskStatus` 和 `setStartupTaskEnabled` 不接受 `profileName`。
+  StartupTask ID 仍固定为 `VoleStartup`，与 VPN profile 名称无关。
+
+### 启动 payload
+
 `startVpn` 的 payload 为：
 
 ```json
 {
-  "configYaml": "tun:\n  enable: true\n...",
+  "profileName": "Example VPN",
+  "configYaml": "tun:\n  enable: true\n  mtu: 1400\n...",
   "networkSettings": {
     "ipv4Address": "192.168.3.1",
     "ipv6Address": "fd00::2",
@@ -418,7 +468,7 @@ ProtectFd(fd) -> bool
 
 桥接把 YAML、进程顺序、路径和参数发布为 `vole-session-v2:<sha256>` Session Snapshot。参数引用的文件由调用方保持存在且不可变，Vole 不读取或摘要其内容。`getVpnStatus.data.snapshotToken` 返回该完整 Session token。
 
-桥接请求最大 1 MiB。它负责安装包身份、单一 VPN profile、不可变 Session Snapshot、连接/断开命令和系统 VPN 状态；Provider 负责激活 Session Host。桥接不公开 profile CRUD、内部文件路径、backend 描述、参数、PID、管道名称或 Snapshot 维护。数据包、Controller 流量查询、代理组查询/切换和业务生命周期不经过该 JSON 桥接。
+桥接请求最大 1 MiB。它负责安装包身份、按名称选择的 VPN profile、不可变 Session Snapshot、连接/断开命令和系统 VPN 状态；Provider 负责激活 Session Host。桥接不公开 profile CRUD、内部文件路径、backend 描述、参数、PID、管道名称或 Snapshot 维护。数据包、Controller 流量查询、代理组查询/切换和业务生命周期不经过该 JSON 桥接。
 
 ## 编码与安全边界
 
@@ -428,3 +478,5 @@ ProtectFd(fd) -> bool
 - 嵌套 UDP 协议可以增加有界帧头，但解封装后的最终负载仍受该平台响应上限限制。
 - 节点和代理组定义名共享大小写敏感的严格 UTF-8 命名空间；`DIRECT`、`REJECT` 和 `RULES` 不能用作定义名。
 - Secret、password、UUID、REALITY key、short ID、目标地址和完整配置不得进入日志。
+- Apple Unified Logging 的 subsystem 固定为 `io.github.yuandevteam.vole`，category 为
+  `vole`，不继承宿主应用的 bundle identifier；Console 或 `log stream` 应按该标识筛选。
