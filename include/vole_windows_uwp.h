@@ -16,7 +16,12 @@ extern "C" {
  * the same name for all three operations. The response has the same allocation
  * ownership as VoleInvoke and must be released with VoleFree. The calling
  * thread must either have no COM apartment initialized or already be
- * initialized as MTA; STA and ASTA callers are unsupported.
+ * initialized as MTA; STA and ASTA callers are unsupported. Each call balances
+ * its own COM initialization. The library retains one process-lifetime MTA
+ * reference for cached WinRT factories, so callers need not retain an MTA
+ * between requests and may use different short-lived threads serially. A
+ * previously uninitialized thread may belong to the implicit MTA on return;
+ * no per-call explicit initialization is left on the calling thread.
  */
 #ifdef _WIN32
 char *VoleWindowsVpnInvoke(const char *request_json);

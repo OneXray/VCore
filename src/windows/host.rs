@@ -1,5 +1,6 @@
 use std::{
     ffi::{CString, c_char},
+    marker::PhantomData,
     panic::{AssertUnwindSafe, catch_unwind},
     path::PathBuf,
     ptr,
@@ -18,7 +19,10 @@ use windows::{
     Storage::ApplicationData,
     Win32::{
         Foundation::E_NOINTERFACE,
-        System::WinRT::{RO_INIT_MULTITHREADED, RoInitialize, RoUninitialize},
+        System::{
+            Com::CoIncrementMTAUsage,
+            WinRT::{RO_INIT_MULTITHREADED, RoInitialize, RoUninitialize},
+        },
     },
     core::{Interface as _, Result as WindowsResult},
 };
@@ -38,6 +42,11 @@ const DEFAULT_PROFILE_NAME: &str = "Vole";
 const MAX_PROFILE_NAME_BYTES: usize = 256;
 const STARTUP_TASK_ID: &str = "VoleStartup";
 static COMMAND: Mutex<()> = Mutex::new(());
+// windows-rs caches agile WinRT factories for process lifetime. Keep one opaque
+// MTA usage cookie for the same lifetime, including gaps between caller threads.
+// Never decrement it per request or during DLL/process teardown: cached factories
+// could still be used, and COM shutdown under the loader lock is unsupported.
+static MTA_USAGE: Mutex<Option<usize>> = Mutex::new(None);
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -122,13 +131,23 @@ struct ProfileMatch {
     status: VpnManagementConnectionStatus,
 }
 
-struct WinRtGuard;
+// The per-call initialization must be released on its original thread.
+struct WinRtGuard(PhantomData<*mut ()>);
 
 impl WinRtGuard {
     fn enter() -> Result<Self, String> {
-        unsafe { RoInitialize(RO_INIT_MULTITHREADED) }
-            .map(|()| Self)
-            .map_err(display_error)
+        // Reject STA/ASTA before acquiring the process-wide MTA reference.
+        unsafe { RoInitialize(RO_INIT_MULTITHREADED) }.map_err(display_error)?;
+        let guard = Self(PhantomData);
+        let mut cookie = MTA_USAGE
+            .lock()
+            .map_err(|_| "Windows host MTA lifetime lock is poisoned".to_owned())?;
+        if cookie.is_none() {
+            // This reference outlives all per-call guards. On failure the guard
+            // still balances RoInitialize, and a later call can retry retention.
+            *cookie = Some(unsafe { CoIncrementMTAUsage() }.map_err(display_error)?.0 as usize);
+        }
+        Ok(guard)
     }
 }
 

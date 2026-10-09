@@ -244,6 +244,20 @@ jobs:
           if [[ -n "$VOLE_RELEASE_TAG" ]]; then args+=(--tag "$VOLE_RELEASE_TAG"); fi
           uv run --project scripts --locked python -m vole_scripts.release "${args[@]}"
           test -f "dist/release/$VOLE_GROUP/$VOLE_ARCHIVE"
+      - name: Check unpackaged Windows COM lifecycle
+        if: matrix.platform == 'windows' && matrix.backend == 'uwp'
+        shell: bash
+        env:
+          VOLE_TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          case "$VOLE_TARGET" in
+            x86_64-pc-windows-msvc) architecture=x64 ;;
+            aarch64-pc-windows-msvc) architecture=arm64 ;;
+            *) exit 1 ;;
+          esac
+          uv run --project scripts --locked python scripts/check_windows_com.py \
+            --dll "dist/windows/$architecture/uwp/vole.dll"
       - name: Upload release archive
         uses: actions/upload-artifact@v7
         with:

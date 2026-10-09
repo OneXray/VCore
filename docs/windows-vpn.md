@@ -21,7 +21,20 @@ tun-rs 的 Wintun 后端，也不依赖外置 `wintun.dll`。Wintun 的 interrup
 
 未安装的普通桌面进程没有 package identity，Windows VPN 桥接会失败关闭。
 
-`VoleWindowsVpnInvoke` 当前在调用线程上初始化 MTA。调用线程必须尚未初始化 COM，或已经是 MTA；STA/ASTA 调用不受支持。
+### COM / WinRT 生命周期
+
+`VoleWindowsVpnInvoke` 在调用线程上配对执行 `RoInitialize(MTA)` / `RoUninitialize`。
+调用线程可以尚未显式初始化 COM，或已经是 MTA；STA/ASTA 调用失败，不改变调用方的 apartment。
+
+桥接首次成功进入 MTA 时，通过 `CoIncrementMTAUsage` 保留一份进程寿命的 MTA 引用，
+与 `windows-rs` 的静态 agile factory 缓存同寿命。即使调用线程退出、调用方释放自己的
+MTA，或两次请求之间没有显式 MTA 线程，缓存也不会跨越 MTA 拆卸后被再次使用。
+这是一份固定引用，不随请求增长；不在逐次返回或 DLL/process teardown 时释放，
+也不在 loader lock 内执行 COM 清理。获取失败仍配对释放本次初始化，并返回失败。
+
+宿主无需额外持有 MTA，可以从不同的短生命周期工作线程串行调用。返回后，原本未显式
+初始化的线程可能属于进程的 implicit MTA；桥接不会遗留该线程的显式初始化计数。
+命令仍不允许重叠，不增加工作队列，也不改变包身份、profile 或会话生命周期。
 
 ## `IVpnPlugIn` 回调
 
@@ -347,3 +360,5 @@ Stopped { version, packetCounters }
 - [`VpnManagementAgent`](https://learn.microsoft.com/uwp/api/windows.networking.vpn.vpnmanagementagent)
 - [`FullTrustProcessLauncher`](https://learn.microsoft.com/uwp/api/windows.applicationmodel.fulltrustprocesslauncher)
 - [Package identity](https://learn.microsoft.com/windows/apps/desktop/modernize/package-identity-overview)
+- [`RoInitialize`](https://learn.microsoft.com/windows/win32/api/roapi/nf-roapi-roinitialize)
+- [`CoIncrementMTAUsage`](https://learn.microsoft.com/windows/win32/api/combaseapi/nf-combaseapi-coincrementmtausage)

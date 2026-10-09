@@ -26,6 +26,18 @@ Windows UWP bridge 的名称准入与匹配使用独立过滤器；下列测试�
 cargo test --locked --no-default-features --features ffi,windows-uwp --lib windows::host::tests::
 ```
 
+构建 UWP DLL 后，可在未打包的 Windows 进程中执行真实 C ABI 的 COM 生命周期回归：
+
+```sh
+uv run --project scripts --locked python scripts/check_windows_com.py --dll dist/windows/arm64/uwp/vole.dll
+```
+
+x64 使用 `dist/windows/x64/uwp/vole.dll`；Python 与 DLL 必须同架构。四个独立子进程
+覆盖未初始化线程连续查询、调用方 MTA 的保留与释放、短线程退出/切换和 STA 拒绝，
+同时检查显式初始化计数与 `VoleFree` 响应所有权。测试先用 Win32 确认没有包身份，
+仅查询环境/状态并断言包身份错误，不读取 VPN profile、启动连接或访问网络。
+父进程为每个用例设置超时。UWP 发布构建在上传归档前执行这些检查；通过不代表包内验收。
+
 在 Windows 上，`windows-uwp` 与 `windows-wintun` 互斥，编译与 Clippy 应明确选择
 所测后端而非 `--all-features`。名称选择仍需已安装包验证，不以对象级测试代替。
 

@@ -117,6 +117,7 @@ if (response != nullptr) {
 - revision 固定为 `bridgeVersion: 3`；
 - DTO 严格拒绝未知字段；
 - 返回内存必须由同一份 `vole.dll` 的 `VoleFree` 释放；
+- 调用线程可尚未显式初始化 COM 或已经是 MTA，不能是 STA/ASTA。库为静态 WinRT factory 缓存保留一份进程寿命的 MTA 引用，并配对每次调用的初始化；宿主无需自行持有 MTA，可从不同的短生命周期工作线程串行调用，见 [COM 生命周期](../../docs/windows-vpn.md#com--winrt-生命周期)；
 - 桥接命令不能重叠；真实前台应在单进程内串行调用，本命令行 demo 额外用 session-local named mutex 串行化多个 alias 进程；
 - 调用进程必须具有当前 MSIX package identity；unpackaged EXE 会失败关闭；
 - 不要从 Provider 回调、Session Host 或 AppContainer UI 重入该接口。

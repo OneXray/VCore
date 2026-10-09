@@ -19,7 +19,7 @@ void VoleFree(char *response);
 - 业务运行时线程不能重入 Invoke；Debug 和 Release 构建都立即返回失败 JSON，包括 `version` 等只读请求。
 - 请求正文、响应正文、完整配置、UUID、密钥、short ID 和凭据不得写入日志。
 - UWP 宿主包含 `vole_windows_uwp.h`（同时引入 `vole.h`），其中声明 `VoleWindowsVpnInvoke`。该头文件和独立的 Windows 安装包桥接接口仅由 `windows-uwp` 构建提供。
-- `VoleWindowsVpnInvoke` 当前在调用线程上初始化 MTA；调用线程必须尚未初始化 COM，或已经是 MTA。STA/ASTA 调用不受支持。
+- `VoleWindowsVpnInvoke` 接受未显式初始化 COM 或已是 MTA 的调用线程；STA/ASTA 调用失败且不改变其 apartment。库配对管理每次调用的初始化，并为静态 WinRT factory 缓存保留一份进程寿命的 MTA 引用；宿主无需额外持有 MTA，短生命周期工作线程可串行重复调用。返回后未显式初始化的线程可能处于 implicit MTA，不遗留逐次显式初始化计数；完整边界见 [COM / WinRT 生命周期](windows-vpn.md#com--winrt-生命周期)。
 
 ## 请求与响应
 
